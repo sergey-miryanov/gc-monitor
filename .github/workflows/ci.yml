@@ -30,22 +30,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install build tooling
+      - name: Install Poetry
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install --upgrade build
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade poetry
+
+      - name: Install dependencies
+        run: |
+          poetry install
 
       - name: Build distribution
         run: |
-          python -m build
-
-      - name: Install editable package
-        run: |
-          pip install -e .
+          poetry build
 
       - name: Run tests
         run: |
-          pytest -q --junitxml=reports/tests.xml
+          poetry run pytest -q --junitxml=reports/tests.xml
 
       - name: Upload test results
         if: always()
