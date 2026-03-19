@@ -6,7 +6,7 @@ A minimal, modern Python package scaffold following best practices:
 - lightweight tests with pytest
 - basic tooling for build, test, and install
 
-## Structure
+- Note: CI currently tests on Python 3.14 and 3.15 (experimental) due to platform availability. Remove or adjust versions when supported.
 - `src/gc_monitor/` - package source
 - `tests/` - test suite
 - `pyproject.toml` - packaging configuration
