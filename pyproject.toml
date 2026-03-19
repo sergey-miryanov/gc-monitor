@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "examplepkg"
+name = "gc-monitor"
 version = "0.1.0"
-description = "A modern Python packaging skeleton"
+description = "GC Monitor - a modern Python packaging skeleton"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }

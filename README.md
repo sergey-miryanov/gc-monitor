@@ -7,7 +7,7 @@ A minimal, modern Python package scaffold following best practices:
 - basic tooling for build, test, and install
 
 ## Structure
-- `src/examplepkg/` - package source
+- `src/gc_monitor/` - package source
 - `tests/` - test suite
 - `pyproject.toml` - packaging configuration
 - `README.md` - project description

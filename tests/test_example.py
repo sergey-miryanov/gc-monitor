@@ -1,3 +1,3 @@
 def test_greet():
-    from examplepkg.core import greet
+    from gc_monitor.core import greet
     assert greet("World") == "Hello, World"
