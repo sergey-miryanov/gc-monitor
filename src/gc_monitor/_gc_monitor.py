@@ -71,7 +71,9 @@ class GCMonitorHandler:
     def __enter__(self) -> "GCMonitorHandler":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self, exc_type: object | None, exc_val: BaseException | None, exc_tb: object | None
+    ) -> None:
         self.close()
 
 
