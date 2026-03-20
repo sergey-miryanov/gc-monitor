@@ -15,10 +15,74 @@ packages = [
 homepage = "https://example.com"
 
 [tool.poetry.dependencies]
-python = ">=3.8"
+python = ">=3.9"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
+pyright = "^1.1.408"
+mypy = "^1.19.1"
+typing-extensions = "^4.15.0"
 
 [tool.poetry.urls]
 Homepage = "https://example.com"
+
+# =============================================================================
+# Type Checking Configuration
+# =============================================================================
+
+[tool.pyright]
+pythonVersion = "3.9"
+typeCheckingMode = "strict"
+include = ["src", "tests"]
+exclude = [
+    "**/__pycache__",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+]
+strictListInference = true
+strictDictionaryInference = true
+strictParameterNoneValue = true
+enableTypeIgnoreComments = false
+reportAny = "warning"
+reportUnknownParameterType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownMemberType = "error"
+reportUnknownVariableType = "error"
+reportMissingTypeStubs = "warning"
+reportMissingImports = "error"
+reportPrivateImportUsage = "warning"
+reportUnnecessaryCast = "warning"
+reportUnnecessaryComparison = "warning"
+reportUnnecessaryContains = "warning"
+reportUnnecessaryIsInstance = "warning"
+reportUnusedFunction = "warning"
+reportUnusedClass = "warning"
+reportUnusedVariable = "warning"
+reportDuplicateImport = "error"
+reportInconsistentConstructor = "error"
+reportImplicitStringConcatenation = "warning"
+reportImplicitOverride = "error"
+reportPropertyTypeMismatch = "error"
+reportSelfClsParameterName = "error"
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*", "conftest"]
+disallow_untyped_defs = false
+check_untyped_defs = true
