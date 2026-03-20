@@ -42,6 +42,10 @@ class GCMonitorHandler:
     def read(self) -> list[GCMonitorStatsItem]:
         if not self._connected:
             raise RuntimeError("Handler is not connected")
+        # Simulate potential read failure (terminal - handler broken after this)
+        if random.random() < 0.1:
+            self._connected = False
+            raise RuntimeError("Read failed - connection broken")
         return [
             GCMonitorStatsItem(
                 gen=random.randint(0, 2),
