@@ -17,5 +17,8 @@ homepage = "https://example.com"
 [tool.poetry.dependencies]
 python = ">=3.8"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+
 [tool.poetry.urls]
 Homepage = "https://example.com"
