@@ -3,7 +3,7 @@
 import json
 import threading
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, override
 
 from ._gc_monitor import GCMonitorStatsItem
 from .exporter import GCMonitorExporter
@@ -30,6 +30,7 @@ class TraceExporter(GCMonitorExporter):
         self._metadata_added = False
         self._lock = threading.Lock()
 
+    @override
     def add_event(self, stats_item: GCMonitorStatsItem) -> None:
         """
         Add a GC monitoring event from GCMonitorStatsItem.
@@ -109,6 +110,7 @@ class TraceExporter(GCMonitorExporter):
             }
         )
 
+    @override
     def save_json(self, output_path: Path) -> None:
         """
         Save collected events to JSON file.

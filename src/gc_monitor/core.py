@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Optional
 from ._gc_monitor import GCMonitorHandler, connect as _connect
 
 if TYPE_CHECKING:
-    from .exporter import GCMonitorExporter as ExporterType
+    from .exporter import GCMonitorExporter
 
 
 class GCMonitor:
@@ -18,7 +18,7 @@ class GCMonitor:
     def __init__(
         self,
         handler: GCMonitorHandler,
-        exporter: ExporterType,
+        exporter: "GCMonitorExporter",
         rate: float = 0.1,
     ) -> None:
         self._handler = handler
@@ -49,7 +49,7 @@ class GCMonitor:
 
 
 def connect(
-    pid: int, exporter: ExporterType, rate: float = 0.1
+    pid: int, exporter: "GCMonitorExporter", rate: float = 0.1
 ) -> Optional[GCMonitor]:
     """
     Connect to GC monitor for the given process and start monitoring.

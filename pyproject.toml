@@ -89,4 +89,4 @@ check_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-basetemp = ".temp"
+tmp_path_retention_policy = "failed"
