@@ -75,7 +75,7 @@ class GCMonitorHandler:
         self.close()
 
 
-def connect() -> GCMonitorHandler:
+def connect(pid: int) -> GCMonitorHandler:
     return GCMonitorHandler()
 
 
