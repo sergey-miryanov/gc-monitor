@@ -1,7 +1,5 @@
 """Base exporter interface for GC monitoring data."""
 
-from pathlib import Path
-
 from ._gc_monitor import GCMonitorStatsItem
 
 

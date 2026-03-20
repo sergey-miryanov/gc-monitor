@@ -3,7 +3,6 @@
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from ._gc_monitor import GCMonitorHandler, connect as _connect

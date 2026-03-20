@@ -14,6 +14,9 @@ packages = [
 ]
 homepage = "https://example.com"
 
+[tool.poetry.scripts]
+gc-monitor = "gc_monitor.cli:main"
+
 [tool.poetry.dependencies]
 python = ">=3.12"
 

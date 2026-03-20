@@ -4,6 +4,7 @@ import json
 import threading
 import time
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -33,7 +34,7 @@ class TestTraceExporter:
         item.work_to_do = 30
         item.duration = 0.005
         item.total_duration = 45.5
-        return item
+        return item  # type: ignore[no-any-return]
 
     def test_exporter_init(self, tmp_path: Path) -> None:
         """Test exporter initialization."""
@@ -65,7 +66,7 @@ class TestTraceExporter:
         assert output_file.exists()
 
         with open(output_file) as f:
-            data = json.load(f)
+            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
         # Should have 20 events (10 * 2 for complete + counter)
         assert len(data) >= 20
@@ -105,7 +106,7 @@ class TestTraceExporter:
         assert output_file.exists()
 
         with open(output_file) as f:
-            data = json.load(f)
+            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
         # Should have metadata (2) + events (2)
         assert len(data) == 4
@@ -127,7 +128,7 @@ class TestTraceExporter:
         exporter.close()
 
         with open(output_file) as f:
-            data = json.load(f)
+            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
         # Should have metadata (2) + all events (15 * 2 = 30)
         # But metadata is written on first flush, not on close
@@ -154,7 +155,7 @@ class TestTraceExporter:
 
         with open(tmp_path / "test.json") as f:
             # First 2 events are metadata, then our events
-            events = json.load(f)[2:]
+            events: list[dict[str, Any]] = json.load(f)[2:]  # type: ignore[assignment]
 
         # ts = 1.5 seconds -> 1500000 microseconds
         assert events[0]["ts"] == 1500000
@@ -173,7 +174,7 @@ class TestTraceExporter:
 
         with open(tmp_path / "test.json") as f:
             # First 2 events are metadata, then our events
-            event = json.load(f)[2]
+            event: dict[str, Any] = json.load(f)[2]  # type: ignore[assignment]
 
         assert event["name"] == "GC Pause (Gen 2)"
         assert event["cat"] == "gc"
@@ -194,7 +195,7 @@ class TestTraceExporter:
 
         with open(tmp_path / "test.json") as f:
             # First 2 events are metadata, then our events
-            event = json.load(f)[3]
+            event: dict[str, Any] = json.load(f)[3]  # type: ignore[assignment]
 
         assert event["name"] == "Memory Counters"
         assert event["cat"] == "gc.memory"
@@ -211,7 +212,7 @@ class TestTraceExporter:
         exporter.close()
 
         with open(tmp_path / "test_trace.json") as f:
-            data = json.load(f)
+            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
         # Find metadata events
         metadata_events = [e for e in data if e["ph"] == "M"]
@@ -264,7 +265,7 @@ class TestTraceExporter:
         exporter.close()
 
         with open(tmp_path / "test_trace.json") as f:
-            data = json.load(f)
+            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
         # Metadata should only appear once
         metadata_events = [e for e in data if e["ph"] == "M"]
@@ -294,7 +295,7 @@ class TestTraceExporter:
         exporter.close()
 
         with open(tmp_path / "test_trace.json") as f:
-            data = json.load(f)
+            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
         # Find complete events
         complete_events = [e for e in data if e["ph"] == "X"]
@@ -376,14 +377,14 @@ class TestGCMonitorStreaming:
         exporter = TraceExporter(pid=12345, output_path=tmp_path / "trace.json")
 
         # Track when events are added
-        events_added = []
+        events_added: list[int] = []
         original_add = exporter.add_event
 
-        def tracking_add(item):
+        def tracking_add(item: Mock) -> None:
             events_added.append(item.gen)
-            return original_add(item)
+            original_add(item)  # type: ignore[arg-type]
 
-        exporter.add_event = tracking_add  # type: ignore
+        exporter.add_event = tracking_add  # pyright: ignore[reportAttributeAccessIssue]
 
         monitor = GCMonitor(mock_handler, exporter, rate=0.05)
         time.sleep(0.15)
@@ -410,7 +411,7 @@ class TestGCMonitorStreaming:
         assert output_file.exists()
 
         with open(output_file) as f:
-            data = json.load(f)
+            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
         # Should have events
         assert len(data) >= 4
