@@ -34,12 +34,14 @@ class GCMonitorStatsItem:
         self.total_duration: float = total_duration
 
 
-
 class GCMonitorHandler:
     def __init__(self) -> None:
+        self._connected = True
         self._length = random.randint(1, 10)
 
     def read(self) -> list[GCMonitorStatsItem]:
+        if not self._connected:
+            raise RuntimeError("Handler is not connected")
         return [
             GCMonitorStatsItem(
                 gen=random.randint(0, 2),
@@ -60,7 +62,13 @@ class GCMonitorHandler:
         ]
 
     def close(self) -> None:
-        pass
+        self._connected = False
+
+    def __enter__(self) -> "GCMonitorHandler":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
 
 
 def connect() -> GCMonitorHandler:
