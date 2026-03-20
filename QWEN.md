@@ -36,6 +36,20 @@ poetry install
 pip install -e .
 ```
 
+### CLI Entry Point
+
+After installation, the `gc-monitor` command is available:
+
+```bash
+# Usage pattern
+gc-monitor <pid> [options]
+
+# Examples
+gc-monitor 12345                           # Monitor PID 12345
+gc-monitor 12345 -o trace.json             # Custom output file
+gc-monitor 12345 -r 0.05 -d 30 -v          # High rate, 30s duration, verbose
+```
+
 ### Commands (via Makefile)
 ```bash
 make test           # Run pytest
@@ -60,6 +74,9 @@ python -m build
 
 # Install editable
 pip install -e .
+
+# Run CLI
+gc-monitor --pid 12345 --output gc_trace.json --verbose
 ```
 
 ## Development Conventions
