@@ -16,6 +16,6 @@ class GCMonitorExporter:
         """Add a GC monitoring event."""
         raise NotImplementedError
 
-    def save_json(self, output_path: Path) -> None:
-        """Save collected events to JSON file."""
+    def close(self) -> None:
+        """Close the exporter and write all events to file."""
         raise NotImplementedError

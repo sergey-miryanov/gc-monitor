@@ -28,13 +28,12 @@ class GCMonitor:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def stop(self, save_path: Optional[Path] = None) -> None:
-        """Stop monitoring and optionally save trace to file."""
+    def stop(self) -> None:
+        """Stop monitoring and close the exporter."""
         self._running = False
         self._thread.join(timeout=1.0)
         self._handler.close()
-        if save_path is not None:
-            self._exporter.save_json(save_path)
+        self._exporter.close()
 
     def _run(self) -> None:
         """Background thread: poll for events and export events."""
