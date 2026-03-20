@@ -1,7 +1,6 @@
 """Tests for Chrome trace exporter."""
 
 import json
-import tempfile
 import threading
 from pathlib import Path
 from unittest.mock import Mock
@@ -37,8 +36,6 @@ class TestTraceExporter:
         """Test exporter initialization."""
         exporter = TraceExporter(pid=12345)
 
-        assert exporter._pid == 12345
-        assert exporter._thread_name == "GC Monitor"
         assert exporter.get_event_count() == 0
 
     def test_add_event_creates_complete_and_counter(
@@ -52,31 +49,35 @@ class TestTraceExporter:
         assert exporter.get_event_count() == 2
 
     def test_add_event_timestamp_conversion(
-        self, mock_stats_item: Mock
+        self, mock_stats_item: Mock, tmp_path: Path
     ) -> None:
         """Test timestamp conversion to microseconds."""
         exporter = TraceExporter(pid=12345)
         exporter.add_event(mock_stats_item)
 
-        events = exporter._events
-        complete_event = events[0]
-        counter_event = events[1]
+        output_file = tmp_path / "test.json"
+        exporter.save_json(output_file)
+        with open(output_file) as f:
+            events = json.load(f)
 
         # ts = 1.5 seconds -> 1500000 microseconds
-        assert complete_event["ts"] == 1500000
-        assert counter_event["ts"] == 1500000
+        assert events[0]["ts"] == 1500000
+        assert events[1]["ts"] == 1500000
 
         # duration = 0.005 seconds -> 5000 microseconds
-        assert complete_event["dur"] == 5000
+        assert events[0]["dur"] == 5000
 
     def test_add_event_complete_event_structure(
-        self, mock_stats_item: Mock
+        self, mock_stats_item: Mock, tmp_path: Path
     ) -> None:
         """Test complete event structure."""
         exporter = TraceExporter(pid=12345)
         exporter.add_event(mock_stats_item)
+        output_file = tmp_path / "test.json"
+        exporter.save_json(output_file)
 
-        event = exporter._events[0]
+        with open(output_file) as f:
+            event = json.load(f)[0]
 
         assert event["name"] == "GC Pause (Gen 2)"
         assert event["cat"] == "gc"
@@ -88,13 +89,16 @@ class TestTraceExporter:
         assert event["args"]["uncollectable"] == 10
 
     def test_add_event_counter_event_structure(
-        self, mock_stats_item: Mock
+        self, mock_stats_item: Mock, tmp_path: Path
     ) -> None:
         """Test counter event structure."""
         exporter = TraceExporter(pid=12345)
         exporter.add_event(mock_stats_item)
+        output_file = tmp_path / "test.json"
+        exporter.save_json(output_file)
 
-        event = exporter._events[1]
+        with open(output_file) as f:
+            event = json.load(f)[1]
 
         assert event["name"] == "Memory Counters"
         assert event["cat"] == "gc.memory"
@@ -166,7 +170,6 @@ class TestTraceExporter:
         exporter.clear()
 
         assert exporter.get_event_count() == 0
-        assert exporter._metadata_added is False
 
     def test_multiple_save_calls(self, mock_stats_item: Mock, tmp_path: Path) -> None:
         """Test that multiple save calls don't duplicate metadata."""

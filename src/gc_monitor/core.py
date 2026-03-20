@@ -3,9 +3,13 @@
 import sys
 import threading
 import time
-from typing import Callable, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
-from ._gc_monitor import GCMonitorHandler, GCMonitorStatsItem, connect as _connect
+from ._gc_monitor import GCMonitorHandler, connect as _connect
+
+if TYPE_CHECKING:
+    from .exporter import GCMonitorExporter as ExporterType
 
 
 class GCMonitor:
@@ -14,44 +18,45 @@ class GCMonitor:
     def __init__(
         self,
         handler: GCMonitorHandler,
-        callback: Callable[[GCMonitorStatsItem], None],
+        exporter: ExporterType,
         rate: float = 0.1,
     ) -> None:
         self._handler = handler
-        self._callback = callback
+        self._exporter = exporter
         self._rate = rate
         self._running = True
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def stop(self) -> None:
-        """Stop monitoring."""
+    def stop(self, save_path: Optional[Path] = None) -> None:
+        """Stop monitoring and optionally save trace to file."""
         self._running = False
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
+        self._thread.join(timeout=1.0)
         self._handler.close()
+        if save_path is not None:
+            self._exporter.save_json(save_path)
 
     def _run(self) -> None:
-        """Background thread: poll for events and call callback."""
+        """Background thread: poll for events and export events."""
         while self._running:
             try:
                 events = self._handler.read()
                 for event in events:
-                    self._callback(event)
+                    self._exporter.add_event(event)
             except RuntimeError:
                 break
             time.sleep(self._rate)
 
 
 def connect(
-    pid: int, callback: Callable[[GCMonitorStatsItem], None], rate: float = 0.1
+    pid: int, exporter: ExporterType, rate: float = 0.1
 ) -> Optional[GCMonitor]:
     """
     Connect to GC monitor for the given process and start monitoring.
 
     Args:
         pid: Process ID to monitor
-        callback: Function called for each GC event
+        exporter: Exporter to collect and save events
         rate: Polling interval in seconds (default: 0.1)
 
     Returns:
@@ -62,7 +67,7 @@ def connect(
     """
     try:
         handler = _connect(pid)
-        monitor = GCMonitor(handler, callback, rate)
+        monitor = GCMonitor(handler, exporter, rate)
         return monitor
     except RuntimeError as e:
         print(f"Failed to connect to GC monitor for PID {pid}: {e}", file=sys.stderr)

@@ -14,13 +14,8 @@ def main() -> None:
     # Create exporter
     exporter = TraceExporter(pid=pid)
 
-    # Define callback that adds events to exporter
-    def on_gc_event(stats_item):  # type: ignore
-        exporter.add_event(stats_item)
-        print(f"GC Gen{stats_item.gen}: {stats_item.collected} objects collected")
-
-    # Connect and start monitoring
-    monitor = connect(pid, callback=on_gc_event, rate=0.1)
+    # Connect and start monitoring with exporter
+    monitor = connect(pid, exporter=exporter, rate=0.1)
 
     if monitor is None:
         print(f"Failed to connect to GC monitor for PID {pid}")
@@ -32,8 +27,7 @@ def main() -> None:
         time.sleep(5)
     finally:
         # Stop monitoring and save trace
-        monitor.stop()
-        exporter.save_json(output_file)
+        monitor.stop(save_path=output_file)
         print(f"Trace saved to: {output_file}")
         print(f"Total events: {exporter.get_event_count()}")
         print("\nTo view in Chrome:")

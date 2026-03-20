@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from ._gc_monitor import GCMonitorStatsItem
+from .exporter import GCMonitorExporter
 
 
-class TraceExporter:
+class TraceExporter(GCMonitorExporter):
     """
     Thread-safe exporter for Chrome Trace Event format.
 
@@ -24,8 +25,7 @@ class TraceExporter:
             pid: Process ID being monitored
             thread_name: Name for the GC monitor thread in trace
         """
-        self._pid = pid
-        self._thread_name = thread_name
+        super().__init__(pid, thread_name)
         self._events: List[Dict[str, Any]] = []
         self._metadata_added = False
         self._lock = threading.Lock()

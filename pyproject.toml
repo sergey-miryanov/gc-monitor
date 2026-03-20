@@ -15,7 +15,7 @@ packages = [
 homepage = "https://example.com"
 
 [tool.poetry.dependencies]
-python = ">=3.9"
+python = ">=3.12"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
@@ -31,7 +31,7 @@ Homepage = "https://example.com"
 # =============================================================================
 
 [tool.pyright]
-pythonVersion = "3.9"
+pythonVersion = "3.12"
 typeCheckingMode = "strict"
 include = ["src", "tests"]
 exclude = [
@@ -68,7 +68,7 @@ reportPropertyTypeMismatch = "error"
 reportSelfClsParameterName = "error"
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
@@ -86,3 +86,7 @@ warn_unused_configs = true
 module = ["tests.*", "conftest"]
 disallow_untyped_defs = false
 check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+basetemp = ".temp"
