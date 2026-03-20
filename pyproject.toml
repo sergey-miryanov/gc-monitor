@@ -13,7 +13,7 @@ packages = [
   { include = "gc_monitor", from = "src" }
 ]
 homepage = "https://example.com"
- 
+
 [tool.poetry.dependencies]
 python = ">=3.8"
 
