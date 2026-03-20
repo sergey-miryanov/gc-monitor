@@ -27,23 +27,23 @@ The `GCMonitorHook` integrates gc-monitor into the pyperf benchmarking framework
 │  │  │  │              │     - Start: gc-monitor <pid> -o <file>   │    │  │
 │  │  │  │              │     - Background subprocess               │    │  │
 │  │  │  └──────┬───────┘                                          │    │  │
-│  │  │         │                                                   │    │  │
-│  │  │         ▼                                                   │    │  │
-│  │  │  ┌──────────────┐         ┌─────────────────────────────┐   │    │  │
-│  │  │  │ BENCHMARK    │         │  External gc-monitor        │   │    │  │
-│  │  │  │ CODE         │◄───────►│  Reader Process             │   │    │  │
-│  │  │  │ (main proc)  │  PID    │  - Reads benchmark memory   │   │    │  │
-│  │  │  └──────┬───────┘         │  - Writes JSON to temp file │   │    │  │
-│  │  │         │                 └─────────────────────────────┘   │    │  │
-│  │  │         │                                                   │    │  │
-│  │  │         ▼                                                   │    │  │
-│  │  │  ┌──────────────┐                                          │    │  │
-│  │  │  │ __exit__()   │  ← Stop external process                 │    │  │
-│  │  │  │              │     - Terminate gc-monitor subprocess     │    │  │
-│  │  │  │              │     - Wait for clean exit                 │    │  │
-│  │  │  └──────────────┘                                          │    │  │
-│  │  │                                                             │    │  │
-│  │  └─────────────────────────────────────────────────────────────┘    │  │
+│  │         │                                                   │    │  │
+│  │         ▼                                                   │    │  │
+│  │  ┌──────────────┐         ┌─────────────────────────────┐   │    │  │
+│  │  │ BENCHMARK    │         │  External gc-monitor        │   │    │  │
+│  │  │  CODE         │◄───────►│  Reader Process             │   │    │  │
+│  │  │ (main proc)  │  PID    │  - Reads benchmark memory   │   │    │  │
+│  │  └──────┬───────┘         │  - Writes JSON to temp file │   │    │  │
+│  │         │                 └─────────────────────────────┘   │    │  │
+│  │         │                                                   │    │  │
+│  │         ▼                                                   │    │  │
+│  │  ┌──────────────┐                                          │    │  │
+│  │  │ __exit__()   │  ← Send SIGINT to subprocess             │    │  │
+│  │  │              │     - Graceful shutdown via signal        │    │  │
+│  │  │              │     - Wait for clean exit                 │    │  │
+│  │  └──────────────┘                                          │    │  │
+│  │                                                             │    │  │
+│  └─────────────────────────────────────────────────────────────┘    │  │
 │  │                                                                       │  │
 │  │         ▼ (after all benchmark runs complete)                        │  │
 │  │  ┌─────────────┐                                                     │  │
@@ -126,6 +126,7 @@ The `GCMonitorHook` integrates gc-monitor into the pyperf benchmarking framework
 
 import json
 import os
+import signal
 import subprocess
 import tempfile
 import time
@@ -217,23 +218,36 @@ class GCMonitorHook:
         """
         Called immediately after running benchmark code.
 
-        Stops the external gc-monitor process and waits for clean exit.
+        Sends SIGINT to the external gc-monitor process for graceful shutdown,
+        allowing it to flush final data and exit cleanly.
         Exceptions from benchmark are ignored (we still collect GC stats).
         """
         if self._process is None:
             return
 
         try:
-            # Terminate the external process
-            self._process.terminate()
+            # Send SIGINT for graceful shutdown
+            if os.name == "nt":
+                # Windows: Use CTRL_BREAK_EVENT for console processes
+                self._process.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                # Unix: SIGINT
+                os.kill(self._process.pid, signal.SIGINT)
 
             # Wait for clean exit (timeout: 5 seconds)
             try:
                 self._process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
-                # Force kill if not responding
-                self._process.kill()
-                self._process.wait(timeout=2.0)
+                # Fallback to SIGTERM, then SIGKILL
+                if os.name != "nt":
+                    os.kill(self._process.pid, signal.SIGTERM)
+                    try:
+                        self._process.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        os.kill(self._process.pid, signal.SIGKILL)
+                else:
+                    self._process.kill()
+                    self._process.wait(timeout=2.0)
 
         except Exception:
             # Ignore cleanup errors - benchmark exception is more important
@@ -405,9 +419,15 @@ def gc_monitor_hook(
 |--------|----------------|
 | `_build_command()` | Construct CLI args with PID, output file, duration |
 | `subprocess.Popen()` | Spawn background process with proper flags |
-| `__exit__().terminate()` | Graceful process termination |
-| `__exit__().kill()` | Force kill on timeout |
+| `__exit__().send_signal(SIGINT)` | Send SIGINT for graceful shutdown (Unix) or CTRL_BREAK_EVENT (Windows) |
+| `__exit__().wait()` | Wait for clean exit with timeout |
+| `__exit__().kill()` | Force kill on timeout (fallback) |
 | `_cleanup_temp_file()` | Remove temp file after reading |
+
+**Signal Handling Notes:**
+- The gc-monitor CLI already handles SIGINT via `signal.signal(signal.SIGINT, ...)` for graceful shutdown
+- SIGINT allows the process to flush final data and close files cleanly
+- Fallback to SIGTERM/SIGKILL ensures termination even if signal handling fails
 
 ### 2.3 Monitoring Lifecycle
 
@@ -416,7 +436,7 @@ def gc_monitor_hook(
 | `__init__` | Generate temp file path, prepare config | Once per pyperf process |
 | `__enter__` | Spawn `gc-monitor` subprocess | Before each benchmark run |
 | Benchmark | External process reads memory | During benchmark execution |
-| `__exit__` | Terminate subprocess | After each benchmark run |
+| `__exit__` | Send SIGINT to subprocess | After each benchmark run |
 | `teardown` | Read JSON, aggregate, inject, cleanup | Once after all benchmarks complete |
 
 ### 2.4 Temp File Format
@@ -658,7 +678,7 @@ def _aggregate_gc_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
 tests/
 ├── test_pyperf_hook/
 │   ├── __init__.py
-│   ├── test_hook_lifecycle.py      # __enter__, __exit__, teardown
+│   ├── test_hook_lifecycle.py      # Test __enter__, __exit__, teardown
 │   ├── test_subprocess_management.py # Mock subprocess, test spawning
 │   └── test_integration.py         # End-to-end with pyperf
 ├── test_aggregation/
@@ -708,8 +728,12 @@ class TestGCMonitorHookLifecycle:
             mock_popen.assert_called_once()
 
     @patch("subprocess.Popen")
-    def test_exit_terminates_process(self, mock_popen: MagicMock) -> None:
-        """__exit__ terminates the subprocess."""
+    @patch("os.name", "posix")
+    @patch("os.kill")
+    def test_exit_sends_sigint(self, mock_kill: MagicMock, mock_popen: MagicMock) -> None:
+        """__exit__ sends SIGINT to the subprocess."""
+        import signal
+
         mock_process = MagicMock()
         mock_popen.return_value = mock_process
 
@@ -717,8 +741,25 @@ class TestGCMonitorHookLifecycle:
         with hook:
             pass
 
-        mock_process.terminate.assert_called_once()
+        # Verify SIGINT was sent
+        mock_kill.assert_called_once_with(mock_process.pid, signal.SIGINT)
         mock_process.wait.assert_called()
+
+    @patch("subprocess.Popen")
+    @patch("os.name", "nt")
+    def test_exit_sends_ctrl_break_on_windows(self, mock_popen: MagicMock) -> None:
+        """__exit__ sends CTRL_BREAK_EVENT on Windows."""
+        import signal
+
+        mock_process = MagicMock()
+        mock_popen.return_value = mock_process
+
+        hook = GCMonitorHook()
+        with hook:
+            pass
+
+        # Verify CTRL_BREAK_EVENT was sent
+        mock_process.send_signal.assert_called_once_with(signal.CTRL_BREAK_EVENT)
 
     @patch("subprocess.Popen")
     @patch("pathlib.Path.exists", return_value=True)
@@ -1035,7 +1076,20 @@ def __enter__(self) -> "GCMonitorHook":
     time.sleep(0.05)
 ```
 
-### 7.2 Ensuring Clean Termination
+### 7.2 Signal-Based Termination
+
+The hook uses **signal-based termination** for graceful shutdown of the gc-monitor subprocess. This approach is preferred over immediate termination because:
+
+**Why SIGINT is Preferred:**
+
+| Benefit | Description |
+|---------|-------------|
+| **Clean Shutdown** | Allows gc-monitor to flush final data to JSON file |
+| **Signal Handler** | gc-monitor CLI already handles SIGINT via `signal.signal()` |
+| **Final Flush** | Ensures all buffered GC events are written before exit |
+| **Graceful Cleanup** | Process can close file handles and release resources properly |
+
+**Termination Flow:**
 
 ```python
 def __exit__(self, ...) -> None:
@@ -1044,16 +1098,30 @@ def __exit__(self, ...) -> None:
         return
 
     try:
-        # Step 1: Send terminate signal
-        self._process.terminate()
+        # Step 1: Send SIGINT for graceful shutdown
+        if os.name == "nt":
+            # Windows: Use CTRL_BREAK_EVENT for console processes
+            self._process.send_signal(signal.CTRL_BREAK_EVENT)
+        else:
+            # Unix: SIGINT
+            os.kill(self._process.pid, signal.SIGINT)
 
         # Step 2: Wait for clean exit (5 second timeout)
         try:
             self._process.wait(timeout=5.0)
         except subprocess.TimeoutExpired:
-            # Step 3: Force kill if not responding
-            self._process.kill()
-            self._process.wait(timeout=2.0)
+            # Step 3: Fallback to SIGTERM (Unix only)
+            if os.name != "nt":
+                os.kill(self._process.pid, signal.SIGTERM)
+                try:
+                    self._process.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    # Step 4: Force kill as last resort
+                    os.kill(self._process.pid, signal.SIGKILL)
+            else:
+                # Windows: direct kill
+                self._process.kill()
+                self._process.wait(timeout=2.0)
 
     except Exception:
         # Ignore cleanup errors
@@ -1062,7 +1130,31 @@ def __exit__(self, ...) -> None:
         self._process = None
 ```
 
-### 7.3 Temp File Lifecycle Management
+### 7.3 Cross-Platform Signal Considerations
+
+| Platform | Primary Signal | Fallback | Notes |
+|----------|----------------|----------|-------|
+| **Linux/Unix** | `SIGINT` | `SIGTERM` → `SIGKILL` | Native signal support |
+| **macOS** | `SIGINT` | `SIGTERM` → `SIGKILL` | Same as Unix |
+| **Windows** | `CTRL_BREAK_EVENT` | `kill()` | Console event, not true signal |
+
+**Windows Considerations:**
+
+On Windows, true POSIX signals are not available. The `CTRL_BREAK_EVENT` is used instead:
+
+```python
+if os.name == "nt":
+    # Windows: CTRL_BREAK_EVENT works for console processes
+    # Requires CREATE_NEW_PROCESS_GROUP flag during spawn
+    self._process.send_signal(signal.CTRL_BREAK_EVENT)
+else:
+    # Unix: Standard SIGINT
+    os.kill(self._process.pid, signal.SIGINT)
+```
+
+**Important:** The `CREATE_NEW_PROCESS_GROUP` flag must be set during process spawning for `CTRL_BREAK_EVENT` to work correctly on Windows.
+
+### 7.4 Temp File Lifecycle Management
 
 ```python
 def teardown(self, metadata: dict[str, Any]) -> None:
@@ -1098,12 +1190,12 @@ def _cleanup_temp_file(self) -> None:
             pass  # Ignore cleanup errors
 ```
 
-### 7.4 Cross-Platform Considerations
+### 7.5 Cross-Platform Considerations
 
 | Platform | Process Spawning | Termination | Notes |
 |----------|------------------|-------------|-------|
-| **Windows** | `CREATE_NEW_PROCESS_GROUP` | `terminate()` sends Ctrl+Break | Need process group for clean kill |
-| **Linux/Unix** | `start_new_session=True` | `terminate()` sends SIGTERM | Session leader for isolation |
+| **Windows** | `CREATE_NEW_PROCESS_GROUP` | `send_signal(CTRL_BREAK_EVENT)` | Need process group for clean signal |
+| **Linux/Unix** | `start_new_session=True` | `os.kill(pid, SIGINT)` | Session leader for isolation |
 | **macOS** | Same as Unix | Same as Unix | No special handling needed |
 
 **Implementation:**
@@ -1157,10 +1249,11 @@ pyperf run --hook=gc_monitor my_benchmark.py
 gc-monitor <benchmark_pid> -o <temp_file.json> -d 0 --format pyperf
 
 # After benchmark completes:
-# 1. gc-monitor process is terminated
-# 2. Hook reads <temp_file.json>
-# 3. Metrics injected to pyperf metadata
-# 4. Temp file is deleted
+# 1. Hook sends SIGINT to gc-monitor (CTRL_BREAK_EVENT on Windows)
+# 2. gc-monitor handles signal, flushes data, exits cleanly
+# 3. Hook reads <temp_file.json>
+# 4. Metrics injected to pyperf metadata
+# 5. Temp file is deleted
 ```
 
 ### 8.2 Pyperformance Integration
@@ -1311,12 +1404,23 @@ def __exit__(self, _exc_type, _exc_value, _traceback) -> None:
     """Always cleanup, even on exception."""
     try:
         if self._process:
-            self._process.terminate()
+            # Send SIGINT for graceful shutdown
+            if os.name == "nt":
+                self._process.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                os.kill(self._process.pid, signal.SIGINT)
             try:
                 self._process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=2.0)
+                if os.name != "nt":
+                    os.kill(self._process.pid, signal.SIGTERM)
+                    try:
+                        self._process.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        os.kill(self._process.pid, signal.SIGKILL)
+                else:
+                    self._process.kill()
+                    self._process.wait(timeout=2.0)
     except Exception:
         pass  # Ignore cleanup errors
     finally:
@@ -1375,6 +1479,39 @@ External process reading memory could impact benchmark performance.
 
 **Key Benefit:**
 The external process architecture ensures **zero in-process overhead** - no threads, no imports, no memory pressure in the benchmark process itself.
+
+### 9.6 Challenge: Signal Delivery Reliability
+
+**Problem:**
+Signals may not be delivered reliably in all scenarios (e.g., process in uninterruptible sleep, Windows console limitations).
+
+**Mitigation:**
+
+1. **gc-monitor CLI handles SIGINT explicitly:**
+   ```python
+   # In gc-monitor CLI
+   import signal
+
+   def handle_sigint(signum, frame):
+       """Handle SIGINT for graceful shutdown."""
+       exporter.flush()  # Ensure all data is written
+       sys.exit(0)
+
+   signal.signal(signal.SIGINT, handle_sigint)
+   ```
+
+2. **Fallback chain ensures termination:**
+   - SIGINT → wait 5s → SIGTERM → wait 2s → SIGKILL
+   - Windows: CTRL_BREAK_EVENT → wait 5s → kill()
+
+3. **Timeout-based escalation:**
+   - Prevents hanging indefinitely if signal is ignored
+   - Ensures benchmark completion even with misbehaving subprocess
+
+**Cross-Platform Notes:**
+- **Unix:** SIGINT is reliable for normal processes
+- **Windows:** `CTRL_BREAK_EVENT` requires `CREATE_NEW_PROCESS_GROUP` and works only for console processes
+- **Edge case:** On Windows, if the process has no console, SIGINT may not work; fallback to `kill()` is essential
 
 ---
 
@@ -1474,6 +1611,7 @@ GCMonitorHook(cleanup=False)  # Keep temp file after teardown
 import json
 import logging
 import os
+import signal
 import subprocess
 import tempfile
 import time
@@ -1557,17 +1695,34 @@ class GCMonitorHook:
         _exc_value: Optional[BaseException],
         _traceback: Optional[object],
     ) -> None:
-        """Terminate external process."""
+        """Send SIGINT to external process for graceful shutdown."""
         if self._process is None:
             return
 
         try:
-            self._process.terminate()
+            # Send SIGINT for graceful shutdown
+            if os.name == "nt":
+                # Windows: Use CTRL_BREAK_EVENT for console processes
+                self._process.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                # Unix: SIGINT
+                os.kill(self._process.pid, signal.SIGINT)
+
+            # Wait for clean exit (timeout: 5 seconds)
             try:
                 self._process.wait(timeout=5.0)
             except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=2.0)
+                # Fallback to SIGTERM, then SIGKILL
+                if os.name != "nt":
+                    os.kill(self._process.pid, signal.SIGTERM)
+                    try:
+                        self._process.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        os.kill(self._process.pid, signal.SIGKILL)
+                else:
+                    self._process.kill()
+                    self._process.wait(timeout=2.0)
+
         except Exception:
             pass
         finally:
@@ -1692,6 +1847,6 @@ gc_monitor = "gc_monitor.pyperf_hook:gc_monitor_hook"
 
 ---
 
-**Document Version:** 2.0 (External Process Architecture)
+**Document Version:** 2.1 (SIGINT-Based Termination)
 **Last Updated:** 2026-03-21
 **Author:** Architecture Review
