@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import TraceExporter, connect
 from .pyperf_exporter import PyperfExporter
+from .stdout_exporter import StdoutExporter
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -26,7 +27,7 @@ def _create_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=Path("gc_trace.json"),
-        help="Output file path (default: gc_trace.json)",
+        help="Output file path (default: gc_trace.json). Ignored for --format stdout",
     )
     parser.add_argument(
         "-r",
@@ -50,9 +51,9 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--format",
-        choices=["chrome", "pyperf"],
+        choices=["chrome", "pyperf", "stdout"],
         default="chrome",
-        help="Output format: 'chrome' for Chrome DevTools, 'pyperf' for pyperf hook (default: chrome)",
+        help="Output format: 'chrome' for Chrome DevTools, 'pyperf' for pyperf hook, 'stdout' for one-line-per-event JSONL (default: chrome)",
     )
     return parser
 
@@ -78,7 +79,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if verbose:
         print(f"Monitoring PID {pid}")
-        print(f"Output: {output_path}")
+        if output_format != "stdout":
+            print(f"Output: {output_path}")
         print(f"Format: {output_format}")
         print(f"Rate: {rate}s")
         if duration:
@@ -88,7 +90,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # Create appropriate exporter based on format
     if output_format == "pyperf":
-        exporter: TraceExporter | PyperfExporter = PyperfExporter(pid=pid)
+        exporter: TraceExporter | PyperfExporter | StdoutExporter = PyperfExporter(pid=pid)
+    elif output_format == "stdout":
+        exporter = StdoutExporter(pid=pid)
     else:
         exporter = TraceExporter(pid=pid, output_path=output_path)
 
@@ -133,9 +137,14 @@ def main(argv: list[str] | None = None) -> int:
     if verbose:
         print(f"\nMonitoring complete.")
         print(f"Total events: {event_count}")
-        print(f"Trace saved to: {output_path}")
+        if output_format != "stdout":
+            print(f"Trace saved to: {output_path}")
     else:
-        print(f"Saved {event_count} events to {output_path}")
+        if output_format == "stdout":
+            # Print summary to stderr for stdout format
+            print(f"Exported {event_count} events to stdout", file=sys.stderr)
+        else:
+            print(f"Saved {event_count} events to {output_path}")
 
     return 0
 
