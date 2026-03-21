@@ -142,3 +142,6 @@ gc-monitor/
 - CI tests on Python 3.14 and 3.15 (experimental)
 - The `_gc_monitor` module currently uses mock/random data for demonstration
 - Future implementations should use the `_gc_monitor` API, not Python's `gc` module directly
+
+## Qwen Added Memories
+- We should use `--basetemp=.temp` option when run tests.
