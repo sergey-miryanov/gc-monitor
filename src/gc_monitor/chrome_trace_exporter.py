@@ -34,11 +34,10 @@ class TraceExporter(GCMonitorExporter):
         """
         super().__init__(pid, thread_name)
         self._events: List[Dict[str, Any]] = []
-        self._flushed_events: List[Dict[str, Any]] = []
         self._flush_threshold = flush_threshold
         self._output_path = output_path
         self._closed = False
-        self._metadata_written = False
+        self._write_metadata()
 
     @override
     def add_event(self, stats_item: GCMonitorStatsItem) -> None:
@@ -147,42 +146,48 @@ class TraceExporter(GCMonitorExporter):
         if not self._events:
             return
 
-        # Move events to flushed list
-        self._flushed_events.extend(self._events)
-        self._events.clear()
-
         # Write all events to file
         self._write_to_file()
+        self._events.clear()
 
     def _write_to_file(self) -> None:
-        """Write all flushed and buffered events to file."""
-        # Combine flushed events with current buffer
-        all_events = list(self._flushed_events)
-        all_events.extend(self._events)
+        """Write all buffered events to file."""
 
-        # Add metadata only on first write
-        if not self._metadata_written:
-            metadata = [
-                {
-                    "name": "process_name",
-                    "ph": "M",
-                    "pid": self._pid,
-                    "tid": self._thread_name,
-                    "args": {"name": f"Python Process (PID: {self._pid})"},
-                },
-                {
-                    "name": "thread_name",
-                    "ph": "M",
-                    "pid": self._pid,
-                    "tid": self._thread_name,
-                    "args": {"name": "GC Monitor"},
-                },
-            ]
-            all_events = metadata + all_events
-            self._metadata_written = True
+        linesep = "\n"
+        lines: List[str] = []
+        for e in self._events:
+            lines.append(f",{linesep}")
+            lines.append(json.dumps(e))
+        with open(self._output_path, "a", encoding="utf-8") as f:
+            f.writelines(lines)
 
+    def _write_metadata(self) -> None:
+        """Write metadata and opening bracket to file."""
+        process_name = {
+            "name": "process_name",
+            "ph": "M",
+            "pid": self._pid,
+            "tid": self._thread_name,
+            "args": {"name": f"Python Process (PID: {self._pid})"},
+        }
+        thread_name = {
+            "name": "thread_name",
+            "ph": "M",
+            "pid": self._pid,
+            "tid": self._thread_name,
+            "args": {"name": "GC Monitor"},
+        }
         with open(self._output_path, "w", encoding="utf-8") as f:
-            json.dump(all_events, f, indent=2)
+            process_name_str = json.dumps(process_name)
+            thread_name_str = json.dumps(thread_name)
+            linesep = "\n"
+            f.write(f"[{linesep}{process_name_str},{linesep}{thread_name_str}")
+
+    def _write_finish_marker(self) -> None:
+        """Write closing bracket to file."""
+        with open(self._output_path, "a", encoding="utf-8") as f:
+            linesep = "\n"
+            f.write(f"{linesep}]{linesep}")
 
     @override
     def close(self) -> None:
@@ -193,14 +198,14 @@ class TraceExporter(GCMonitorExporter):
         """
         if self._closed:
             return
-        self._closed = True
         self._write_to_file()
+        self._write_finish_marker()
+        self._closed = True
 
     def clear(self) -> None:
         """Clear all collected events."""
         self._events.clear()
-        self._flushed_events.clear()
 
     def get_event_count(self) -> int:
         """Return the number of collected events."""
-        return len(self._events) + len(self._flushed_events)
+        return len(self._events)

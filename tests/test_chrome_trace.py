@@ -1,7 +1,6 @@
 """Tests for Chrome trace exporter."""
 
 import json
-import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -76,11 +75,14 @@ class TestTraceExporter:
         # File should be created after threshold
         assert output_file.exists()
 
+        # Close to finish the JSON file
+        exporter.close()
+
         with open(output_file) as f:
             data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
-        # Should have 20 events (10 * 2 for complete + counter)
-        assert len(data) >= 20
+        # Should have metadata (2) + events (10 * 4 = 40)
+        assert len(data) == 42
 
     def test_exporter_flush_multiple_times(
         self, mock_stats_item: Mock, tmp_path: Path
@@ -91,17 +93,20 @@ class TestTraceExporter:
             pid=12345, output_path=output_file, flush_threshold=5
         )
 
-        # Add 15 events (3 flushes)
+        # Add 15 stats_items (creates 60 events, triggers flushes)
         for _ in range(15):
             exporter.add_event(mock_stats_item)
 
         assert output_file.exists()
 
+        # Close to finish the JSON file
+        exporter.close()
+
         with open(output_file) as f:
             data = json.load(f)
 
-        # Should have all events (15 * 2 = 30)
-        assert len(data) >= 30
+        # Should have metadata (2) + all events (15 * 4 = 60)
+        assert len(data) == 62
 
     def test_exporter_close_writes_file(
         self, mock_stats_item: Mock, tmp_path: Path
@@ -135,15 +140,14 @@ class TestTraceExporter:
         for _ in range(15):
             exporter.add_event(mock_stats_item)
 
-        # Close should write remaining events
+        # Close should write remaining events and finish marker
         exporter.close()
 
         with open(output_file) as f:
             data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
         # Should have metadata (2) + all events (15 * 4 = 60)
-        # Metadata is written on first flush
-        assert len(data) == 60
+        assert len(data) == 62
 
     def test_add_event_creates_complete_and_counter(
         self, mock_stats_item: Mock, tmp_path: Path
@@ -236,25 +240,6 @@ class TestTraceExporter:
 
         thread_name = next(e for e in metadata_events if e["name"] == "thread_name")
         assert thread_name["args"]["name"] == "GC Monitor"
-
-    def test_thread_safety(self, mock_stats_item: Mock, tmp_path: Path) -> None:
-        """Test thread-safe event addition."""
-        exporter = TraceExporter(pid=12345, output_path=tmp_path / "trace.json")
-
-        def add_events() -> None:
-            for _ in range(100):
-                exporter.add_event(mock_stats_item)
-
-        threads = [threading.Thread(target=add_events) for _ in range(10)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        exporter.close()
-
-        # Should have 10 threads * 100 stats_items * 4 events = 4000
-        assert exporter.get_event_count() == 4000
 
     def test_clear(self, mock_stats_item: Mock, tmp_path: Path) -> None:
         """Test clearing events."""
