@@ -15,6 +15,16 @@ else:
     try:
         from _gc_monitor import GCMonitorHandler, connect as _connect  # type: ignore[import-not-found]
     except ImportError:
+        # Real _gc_monitor module not available, using mock implementation
+        import warnings
+
+        warnings.warn(
+            "Experimental CPython _gc_monitor module not available. "
+            "Using mock implementation from gc_monitor._gc_monitor. "
+            "GC monitoring will use simulated data.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         from ._gc_monitor import GCMonitorHandler, connect as _connect
 
 if TYPE_CHECKING:
