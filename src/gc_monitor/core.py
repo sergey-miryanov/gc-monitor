@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 class GCMonitor:
     """GC event monitor that polls at a fixed rate.
-    
+
     Automatically stops when the target process terminates.
     """
 
@@ -70,14 +70,19 @@ class GCMonitor:
 
     def _run(self) -> None:
         """Background thread: poll for events and export events.
-        
+
         Stops automatically if the target process terminates (RuntimeError from handler).
+        Skips events with timestamps that were already processed to avoid duplicates.
         """
+        last_ts: int = 0
         while self._running:
             try:
                 events = self._handler.read()
                 for event in events:
-                    self._exporter.add_event(event)
+                    # Skip events with timestamps already processed
+                    if event.ts > last_ts:
+                        self._exporter.add_event(event)
+                        last_ts = event.ts
             except RuntimeError:
                 # Target process terminated or handler error - stop gracefully
                 break

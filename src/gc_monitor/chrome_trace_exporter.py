@@ -53,45 +53,87 @@ class TraceExporter(GCMonitorExporter):
         # Convert duration from seconds to microseconds
         dur_us = int(stats_item.duration * 1_000_000)
 
+        pause_data = {
+            "generation": stats_item.gen,
+            "collections": stats_item.collections,
+            "total_duration": stats_item.total_duration,
+            "heap_size": stats_item.heap_size,
+            "collected": stats_item.collected,
+            "uncollectable": stats_item.uncollectable,
+            "candidates": stats_item.candidates,
+            "object_visits": stats_item.object_visits,
+            "objects_transitively_reachable": stats_item.objects_transitively_reachable,
+            "objects_not_transitively_reachable": stats_item.objects_not_transitively_reachable,
+            "work_to_do": stats_item.work_to_do,
+        }
+
+        counter_data = {
+            "heap_size": stats_item.heap_size,
+            "collected": stats_item.collected,
+            "uncollectable": stats_item.uncollectable,
+            "candidates": stats_item.candidates,
+            "object_visits": stats_item.object_visits,
+        }
+
+        if stats_item.gen == 1:
+            counter_data.update(
+                {
+                    "objects_transitively_reachable": stats_item.objects_transitively_reachable,
+                    "objects_not_transitively_reachable": stats_item.objects_not_transitively_reachable,
+                    "work_to_do": stats_item.work_to_do,
+                }
+            )
+
         # Complete event for GC pause visualization
         self._events.append(
             {
-                "name": f"GC Pause (Gen {stats_item.gen})",
-                "cat": "gc",
+                "name": "GC Pause",
+                "cat": "gc.pause",
                 "ph": "X",
                 "ts": ts_us,
                 "dur": dur_us,
                 "pid": self._pid,
                 "tid": self._thread_name,
-                "args": {
-                    "generation": stats_item.gen,
-                    "collected": stats_item.collected,
-                    "uncollectable": stats_item.uncollectable,
-                    "candidates": stats_item.candidates,
-                    "object_visits": stats_item.object_visits,
-                    "objects_transitively_reachable": stats_item.objects_transitively_reachable,
-                    "objects_not_transitively_reachable": stats_item.objects_not_transitively_reachable,
-                    "work_to_do": stats_item.work_to_do,
-                    "total_duration": stats_item.total_duration,
-                },
+                "args": pause_data,
+            }
+        )
+
+        self._events.append(
+            {
+                "name": f"GC Pause (gen={stats_item.gen})",
+                "cat": f"gc.pause(gen={stats_item.gen})",
+                "ph": "X",
+                "ts": ts_us,
+                "dur": dur_us,
+                "pid": self._pid,
+                "tid": self._thread_name,
+                "args": pause_data,
             }
         )
 
         # Counter event for memory metrics
         self._events.append(
             {
-                "name": "Memory Counters",
-                "cat": "gc.memory",
+                "name": f"Memory Counters (gen={stats_item.gen})",
+                "cat": f"gc.memory(gen={stats_item.gen})",
+                "ph": "C",
+                "ts": ts_us,
+                "pid": self._pid,
+                "tid": self._thread_name,
+                "args": counter_data,
+            }
+        )
+
+        self._events.append(
+            {
+                "name": "Heap Size",
+                "cat": "gc.heap_size",
                 "ph": "C",
                 "ts": ts_us,
                 "pid": self._pid,
                 "tid": self._thread_name,
                 "args": {
                     "heap_size": stats_item.heap_size,
-                    "collected": stats_item.collected,
-                    "uncollectable": stats_item.uncollectable,
-                    "candidates": stats_item.candidates,
-                    "collections": stats_item.collections,
                 },
             }
         )

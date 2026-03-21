@@ -119,8 +119,8 @@ class TestTraceExporter:
         with open(output_file) as f:
             data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
-        # Should have metadata (2) + events (2)
-        assert len(data) == 4
+        # Should have metadata (2) + events (4 per stats_item)
+        assert len(data) == 6
 
     def test_exporter_close_writes_all_events(
         self, mock_stats_item: Mock, tmp_path: Path
@@ -131,7 +131,7 @@ class TestTraceExporter:
             pid=12345, output_path=output_file, flush_threshold=5
         )
 
-        # Add 15 events (triggers 3 flushes)
+        # Add 15 stats_items (creates 60 events, triggers flushes at 5, 10, 15...)
         for _ in range(15):
             exporter.add_event(mock_stats_item)
 
@@ -141,20 +141,19 @@ class TestTraceExporter:
         with open(output_file) as f:
             data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
-        # Should have metadata (2) + all events (15 * 2 = 30)
-        # But metadata is written on first flush, not on close
-        # So we have 30 events (metadata was written on first flush)
-        assert len(data) == 30
+        # Should have metadata (2) + all events (15 * 4 = 60)
+        # Metadata is written on first flush
+        assert len(data) == 60
 
     def test_add_event_creates_complete_and_counter(
         self, mock_stats_item: Mock, tmp_path: Path
     ) -> None:
-        """Test that add_event creates both complete and counter events."""
+        """Test that add_event creates 4 events per stats_item."""
         exporter = TraceExporter(pid=12345, output_path=tmp_path / "trace.json")
         exporter.add_event(mock_stats_item)
 
-        # Should have 2 events: 1 complete + 1 counter
-        assert exporter.get_event_count() == 2
+        # Should have 4 events per stats_item
+        assert exporter.get_event_count() == 4
 
     def test_add_event_timestamp_conversion(
         self, mock_stats_item: Mock, tmp_path: Path
@@ -187,8 +186,8 @@ class TestTraceExporter:
             # First 2 events are metadata, then our events
             event: dict[str, Any] = json.load(f)[2]  # type: ignore[assignment]
 
-        assert event["name"] == "GC Pause (Gen 2)"
-        assert event["cat"] == "gc"
+        assert event["name"] == "GC Pause"
+        assert event["cat"] == "gc.pause"
         assert event["ph"] == "X"
         assert event["pid"] == 12345
         assert event["tid"] == "GC Monitor"
@@ -206,15 +205,16 @@ class TestTraceExporter:
 
         with open(tmp_path / "test.json") as f:
             # First 2 events are metadata, then our events
-            event: dict[str, Any] = json.load(f)[3]  # type: ignore[assignment]
+            # Events are: GC Pause, GC Pause (gen=X), Memory Counters, Heap Size
+            event: dict[str, Any] = json.load(f)[4]  # type: ignore[assignment]
 
-        assert event["name"] == "Memory Counters"
-        assert event["cat"] == "gc.memory"
+        assert "Memory Counters" in event["name"]
+        assert "gc.memory" in event["cat"]
         assert event["ph"] == "C"
         assert event["pid"] == 12345
         assert event["tid"] == "GC Monitor"
         assert event["args"]["heap_size"] == 52428800
-        assert event["args"]["collections"] == 50
+        assert event["args"]["object_visits"] == 600
 
     def test_close_adds_metadata(self, mock_stats_item: Mock, tmp_path: Path) -> None:
         """Test that close() automatically adds metadata."""
@@ -253,8 +253,8 @@ class TestTraceExporter:
 
         exporter.close()
 
-        # Should have 10 threads * 100 events * 2 (complete + counter) = 2000
-        assert exporter.get_event_count() == 2000
+        # Should have 10 threads * 100 stats_items * 4 events = 4000
+        assert exporter.get_event_count() == 4000
 
     def test_clear(self, mock_stats_item: Mock, tmp_path: Path) -> None:
         """Test clearing events."""
@@ -308,9 +308,9 @@ class TestTraceExporter:
         with open(tmp_path / "test_trace.json") as f:
             data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
-        # Find complete events
+        # Find complete events (2 per gen: "GC Pause" and "GC Pause (gen=X)")
         complete_events = [e for e in data if e["ph"] == "X"]
-        assert len(complete_events) == 3
+        assert len(complete_events) == 6  # 3 generations * 2 events each
 
         generations = {e["args"]["generation"] for e in complete_events}
         assert generations == {0, 1, 2}
@@ -318,9 +318,10 @@ class TestTraceExporter:
         # Check event names
         event_names = {e["name"] for e in complete_events}
         assert event_names == {
-            "GC Pause (Gen 0)",
-            "GC Pause (Gen 1)",
-            "GC Pause (Gen 2)",
+            "GC Pause",
+            "GC Pause (gen=0)",
+            "GC Pause (gen=1)",
+            "GC Pause (gen=2)",
         }
 
 
@@ -329,41 +330,56 @@ class TestGCMonitorStreaming:
 
     @pytest.fixture
     def mock_handler(self) -> Mock:
-        """Create a mock GCMonitorHandler."""
+        """Create a mock GCMonitorHandler.
+        
+        Returns batches of 2 events per read with incrementing timestamps
+        to simulate real GC monitoring data.
+        """
         handler = Mock(spec=GCMonitorHandler)
         handler._connected = True
-        # Return batch of 2 events per read
-        item1 = Mock()
-        item1.gen = 0
-        item1.ts = 1.0
-        item1.collections = 10
-        item1.collected = 50
-        item1.uncollectable = 1
-        item1.candidates = 20
-        item1.object_visits = 100
-        item1.objects_transitively_reachable = 50
-        item1.objects_not_transitively_reachable = 30
-        item1.heap_size = 1000000
-        item1.work_to_do = 5
-        item1.duration = 0.001
-        item1.total_duration = 1.0
+        
+        # Track read calls to generate incrementing timestamps
+        read_count = [0]
+        
+        def read_side_effect() -> list[Mock]:
+            """Generate events with incrementing timestamps on each read."""
+            base_ts = read_count[0] * 100  # Increment timestamp for each read
+            read_count[0] += 1
+            
+            # Return batch of 2 events per read
+            item1 = Mock()
+            item1.gen = 0
+            item1.ts = base_ts
+            item1.collections = 10
+            item1.collected = 50
+            item1.uncollectable = 1
+            item1.candidates = 20
+            item1.object_visits = 100
+            item1.objects_transitively_reachable = 50
+            item1.objects_not_transitively_reachable = 30
+            item1.heap_size = 1000000
+            item1.work_to_do = 5
+            item1.duration = 0.001
+            item1.total_duration = 1.0
 
-        item2 = Mock()
-        item2.gen = 1
-        item2.ts = 2.0
-        item2.collections = 20
-        item2.collected = 100
-        item2.uncollectable = 2
-        item2.candidates = 40
-        item2.object_visits = 200
-        item2.objects_transitively_reachable = 100
-        item2.objects_not_transitively_reachable = 60
-        item2.heap_size = 2000000
-        item2.work_to_do = 10
-        item2.duration = 0.002
-        item2.total_duration = 2.0
-
-        handler.read.return_value = [item1, item2]
+            item2 = Mock()
+            item2.gen = 1
+            item2.ts = base_ts + 1  # Slightly different timestamp
+            item2.collections = 20
+            item2.collected = 100
+            item2.uncollectable = 2
+            item2.candidates = 40
+            item2.object_visits = 200
+            item2.objects_transitively_reachable = 100
+            item2.objects_not_transitively_reachable = 60
+            item2.heap_size = 2000000
+            item2.work_to_do = 10
+            item2.duration = 0.002
+            item2.total_duration = 2.0
+            
+            return [item1, item2]
+        
+        handler.read.side_effect = read_side_effect
         return handler
 
     def test_gcmonitor_streams_each_event_to_exporter(
@@ -378,8 +394,8 @@ class TestGCMonitorStreaming:
         time.sleep(0.2)
         monitor.stop()
 
-        # Should have streamed all events (2 events per read, multiple reads)
-        assert exporter.get_event_count() >= 4  # At least 2 reads * 2 events
+        # Should have streamed all events (4 events per stats_item, multiple reads)
+        assert exporter.get_event_count() >= 8  # At least 2 reads * 2 stats_items * 4 events
 
     def test_gcmonitor_streams_events_individually(
         self, mock_handler: Mock, tmp_path: Path
@@ -457,5 +473,5 @@ class TestGCMonitorStreaming:
         time.sleep(0.15)
         monitor.stop()
 
-        # Should have captured the first event before error
-        assert exporter.get_event_count() >= 2  # 1 event * 2 (complete + counter)
+        # Should have captured the first event before error (4 events per stats_item)
+        assert exporter.get_event_count() >= 4  # 1 stats_item * 4 events
