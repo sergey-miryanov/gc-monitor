@@ -116,17 +116,24 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if duration:
-            # Run for specified duration
+            # Run for specified duration or until target process ends
             if verbose:
                 print(f"Monitoring for {duration} seconds...")
-            time.sleep(duration)
+            start_time = time.monotonic()
+            while not shutdown_requested and monitor.is_running:
+                elapsed = time.monotonic() - start_time
+                if elapsed >= duration:
+                    break
+                time.sleep(0.1)
         else:
-            # Run until interrupted
+            # Run until interrupted or target process ends
             if verbose:
                 print("Monitoring... (press Ctrl+C to stop)")
-            while not shutdown_requested:
+            while not shutdown_requested and monitor.is_running:
                 time.sleep(0.1)
     finally:
+        # Monitor may have already stopped if target process ended
+        # stop() is safe to call multiple times
         monitor.stop()
 
     # For pyperf format, write the JSON file now
