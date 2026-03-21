@@ -1,7 +1,6 @@
 """Chrome Trace Event format exporter for GC monitoring data."""
 
 import json
-import threading
 from pathlib import Path
 from typing import Any, Dict, List, override
 
@@ -11,7 +10,7 @@ from .exporter import GCMonitorExporter
 
 class TraceExporter(GCMonitorExporter):
     """
-    Thread-safe exporter for Chrome Trace Event format.
+    Exporter for Chrome Trace Event format.
 
     Collects GC monitoring events and exports them as JSON
     compatible with Chrome DevTools Performance panel.
@@ -36,7 +35,6 @@ class TraceExporter(GCMonitorExporter):
         super().__init__(pid, thread_name)
         self._events: List[Dict[str, Any]] = []
         self._flushed_events: List[Dict[str, Any]] = []
-        self._lock = threading.Lock()
         self._flush_threshold = flush_threshold
         self._output_path = output_path
         self._closed = False
@@ -55,56 +53,55 @@ class TraceExporter(GCMonitorExporter):
         # Convert duration from seconds to microseconds
         dur_us = int(stats_item.duration * 1_000_000)
 
-        with self._lock:
-            # Complete event for GC pause visualization
-            self._events.append(
-                {
-                    "name": f"GC Pause (Gen {stats_item.gen})",
-                    "cat": "gc",
-                    "ph": "X",
-                    "ts": ts_us,
-                    "dur": dur_us,
-                    "pid": self._pid,
-                    "tid": self._thread_name,
-                    "args": {
-                        "generation": stats_item.gen,
-                        "collected": stats_item.collected,
-                        "uncollectable": stats_item.uncollectable,
-                        "candidates": stats_item.candidates,
-                        "object_visits": stats_item.object_visits,
-                        "objects_transitively_reachable": stats_item.objects_transitively_reachable,
-                        "objects_not_transitively_reachable": stats_item.objects_not_transitively_reachable,
-                        "work_to_do": stats_item.work_to_do,
-                        "total_duration": stats_item.total_duration,
-                    },
-                }
-            )
+        # Complete event for GC pause visualization
+        self._events.append(
+            {
+                "name": f"GC Pause (Gen {stats_item.gen})",
+                "cat": "gc",
+                "ph": "X",
+                "ts": ts_us,
+                "dur": dur_us,
+                "pid": self._pid,
+                "tid": self._thread_name,
+                "args": {
+                    "generation": stats_item.gen,
+                    "collected": stats_item.collected,
+                    "uncollectable": stats_item.uncollectable,
+                    "candidates": stats_item.candidates,
+                    "object_visits": stats_item.object_visits,
+                    "objects_transitively_reachable": stats_item.objects_transitively_reachable,
+                    "objects_not_transitively_reachable": stats_item.objects_not_transitively_reachable,
+                    "work_to_do": stats_item.work_to_do,
+                    "total_duration": stats_item.total_duration,
+                },
+            }
+        )
 
-            # Counter event for memory metrics
-            self._events.append(
-                {
-                    "name": "Memory Counters",
-                    "cat": "gc.memory",
-                    "ph": "C",
-                    "ts": ts_us,
-                    "pid": self._pid,
-                    "tid": self._thread_name,
-                    "args": {
-                        "heap_size": stats_item.heap_size,
-                        "collected": stats_item.collected,
-                        "uncollectable": stats_item.uncollectable,
-                        "candidates": stats_item.candidates,
-                        "collections": stats_item.collections,
-                    },
-                }
-            )
+        # Counter event for memory metrics
+        self._events.append(
+            {
+                "name": "Memory Counters",
+                "cat": "gc.memory",
+                "ph": "C",
+                "ts": ts_us,
+                "pid": self._pid,
+                "tid": self._thread_name,
+                "args": {
+                    "heap_size": stats_item.heap_size,
+                    "collected": stats_item.collected,
+                    "uncollectable": stats_item.uncollectable,
+                    "candidates": stats_item.candidates,
+                    "collections": stats_item.collections,
+                },
+            }
+        )
 
-            # Auto-flush if threshold reached
-            if len(self._events) >= self._flush_threshold:
-                self._flush()
+        # Auto-flush if threshold reached
+        if len(self._events) >= self._flush_threshold:
+            self._flush()
 
     def _flush(self) -> None:
-        """Flush buffered events to file. Must be called with lock held."""
+        """Flush buffered events to file."""
         if not self._events:
             return
 
@@ -152,19 +149,16 @@ class TraceExporter(GCMonitorExporter):
 
         Safe to call multiple times - only the first call writes the file.
         """
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-            self._write_to_file()
+        if self._closed:
+            return
+        self._closed = True
+        self._write_to_file()
 
     def clear(self) -> None:
         """Clear all collected events."""
-        with self._lock:
-            self._events.clear()
-            self._flushed_events.clear()
+        self._events.clear()
+        self._flushed_events.clear()
 
     def get_event_count(self) -> int:
         """Return the number of collected events."""
-        with self._lock:
-            return len(self._events) + len(self._flushed_events)
+        return len(self._events) + len(self._flushed_events)
