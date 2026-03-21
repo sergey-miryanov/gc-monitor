@@ -5,14 +5,13 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry]
 name = "gc-monitor"
 version = "0.1.0"
-description = "GC Monitor - a modern Python packaging skeleton"
+description = "GC Monitor"
 readme = "README.md"
 license = "MIT"
-authors = ["Your Name <you@example.com>"]
+authors = ["Sergey Miryanov <sergey.miryanov@gmail.com>"]
 packages = [
   { include = "gc_monitor", from = "src" }
 ]
-homepage = "https://example.com"
 
 [tool.poetry.scripts]
 gc-monitor = "gc_monitor.cli:main"
