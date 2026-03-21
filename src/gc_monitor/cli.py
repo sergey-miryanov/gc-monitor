@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from . import TraceExporter, connect
+from .pyperf_exporter import PyperfExporter
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -47,6 +48,12 @@ def _create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable verbose output",
     )
+    parser.add_argument(
+        "--format",
+        choices=["chrome", "pyperf"],
+        default="chrome",
+        help="Output format: 'chrome' for Chrome DevTools, 'pyperf' for pyperf hook (default: chrome)",
+    )
     return parser
 
 
@@ -67,17 +74,24 @@ def main(argv: list[str] | None = None) -> int:
     rate = args.rate
     duration = args.duration
     verbose = args.verbose
+    output_format = args.format
 
     if verbose:
         print(f"Monitoring PID {pid}")
         print(f"Output: {output_path}")
+        print(f"Format: {output_format}")
         print(f"Rate: {rate}s")
         if duration:
             print(f"Duration: {duration}s")
         else:
             print("Duration: until interrupted (Ctrl+C)")
 
-    exporter = TraceExporter(pid=pid, output_path=output_path)
+    # Create appropriate exporter based on format
+    if output_format == "pyperf":
+        exporter: TraceExporter | PyperfExporter = PyperfExporter(pid=pid)
+    else:
+        exporter = TraceExporter(pid=pid, output_path=output_path)
+
     monitor = connect(pid, exporter=exporter, rate=rate)
 
     if monitor is None:
@@ -110,6 +124,10 @@ def main(argv: list[str] | None = None) -> int:
                 time.sleep(0.1)
     finally:
         monitor.stop()
+
+    # For pyperf format, write the JSON file now
+    if output_format == "pyperf" and isinstance(exporter, PyperfExporter):
+        exporter.write(output_path)
 
     event_count = exporter.get_event_count()
     if verbose:

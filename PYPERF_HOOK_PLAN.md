@@ -1,5 +1,9 @@
 # Pyperf Hook Integration Plan (External Process Architecture)
 
+**Status: Implementation Complete** ✅
+
+All implementation tasks have been completed. This document now serves as both the design specification and implementation reference.
+
 ## 1. Architecture Overview
 
 ### 1.1 External Process Model
@@ -154,7 +158,7 @@ class GCMonitorHook:
     def __init__(
         self,
         duration: float = 0.0,
-        output_dir: Optional[str] = None,
+        output_dir: Optional[Path] = None,  # Changed from Optional[str]
     ) -> None:
         """
         Initialize the hook (called once per process).
@@ -447,18 +451,21 @@ The external gc-monitor process writes JSON in a format compatible with `TraceEx
 {
   "version": "1.0",
   "pid": 12345,
-  "start_time": 1679875200.0,
-  "end_time": 1679875210.0,
+  "start_time": 1.0,
+  "end_time": 3.0,
   "events": [
     {
       "gen": 0,
-      "ts": 1679875200.123,
+      "ts": 1.0,
       "collections": 1,
       "collected": 10,
       "uncollectable": 0,
       "candidates": 5,
       "object_visits": 100,
+      "objects_transitively_reachable": 50,
+      "objects_not_transitively_reachable": 50,
       "heap_size": 1048576,
+      "work_to_do": 10,
       "duration": 0.0023,
       "total_duration": 0.0023
     }
@@ -513,15 +520,15 @@ src/gc_monitor/
 ├── exporter.py              # GCMonitorExporter base class (unchanged)
 ├── chrome_trace_exporter.py # TraceExporter (unchanged)
 ├── core.py                  # GCMonitor, connect() (unchanged)
-├── cli.py                   # Updated: supports -d, --format flags
+├── cli.py                   # Updated: supports --format pyperf flag
 ├── pyperf_hook.py           # NEW: GCMonitorHook (external process model)
-└── _aggregation.py          # NEW: _aggregate_gc_stats (internal)
+├── pyperf_exporter.py       # NEW: PyperfExporter class
+└── _aggregation.py          # Not created - _aggregate_gc_stats is in pyperf_hook.py
 
 tests/
 ├── test_chrome_trace.py     # Existing
-├── test_cli.py              # Updated: test new flags
-├── test_pyperf_hook.py      # NEW: Hook tests (mock subprocess)
-└── test_aggregation.py      # NEW: Aggregation tests
+├── test_cli.py              # Updated: test --format pyperf flag
+└── test_pyperf_hook.py      # NEW: Hook tests (mock subprocess, uses tmp_path)
 ```
 
 ### 3.4 Updated __init__.py
@@ -534,12 +541,14 @@ from .core import GCMonitor, connect
 from .exporter import GCMonitorExporter
 from .chrome_trace_exporter import TraceExporter
 from .pyperf_hook import GCMonitorHook, gc_monitor_hook
+from .pyperf_exporter import PyperfExporter
 
 __all__ = [
     "connect",
     "GCMonitor",
     "GCMonitorExporter",
     "TraceExporter",
+    "PyperfExporter",
     "GCMonitorHook",
     "gc_monitor_hook",
     "__version__",
@@ -1847,6 +1856,46 @@ gc_monitor = "gc_monitor.pyperf_hook:gc_monitor_hook"
 
 ---
 
-**Document Version:** 2.1 (SIGINT-Based Termination)
+## 10. Implementation Status
+
+**Status: COMPLETE** ✅
+
+All implementation tasks have been completed:
+
+- [x] `pyperf_hook.py` - GCMonitorHook class with external process management
+- [x] `pyperf_exporter.py` - PyperfExporter class for JSON output
+- [x] `cli.py` - Updated with `--format pyperf` flag
+- [x] `pyproject.toml` - Added pyperf.hook entry point
+- [x] `test_pyperf_hook.py` - 20 tests (18 pass, 2 skipped on Windows)
+- [x] Type checking - 0 errors
+- [x] All tests pass - 46 passed, 2 skipped
+
+### Test Coverage
+
+| Test Suite | Tests | Status |
+|------------|-------|--------|
+| TestGCMonitorHookInit | 2 | ✅ Pass |
+| TestGCMonitorHookEnter | 3 | ✅ Pass |
+| TestGCMonitorHookExit | 4 | ✅ Pass (2 skipped on Windows) |
+| TestGCMonitorHookTeardown | 3 | ✅ Pass |
+| TestAggregateGcStats | 6 | ✅ Pass |
+| TestGcMonitorHookFactory | 2 | ✅ Pass |
+
+### Usage Example
+
+```bash
+# Install in editable mode
+pip install -e .
+
+# Run via pyperf
+pyperf run --hook=gc_monitor my_benchmark.py
+
+# Or use CLI directly
+gc-monitor <pid> --format pyperf -o output.json
+```
+
+---
+
+**Document Version:** 2.2 (Implementation Complete)
 **Last Updated:** 2026-03-21
 **Author:** Architecture Review

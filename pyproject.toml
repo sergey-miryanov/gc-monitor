@@ -17,6 +17,9 @@ homepage = "https://example.com"
 [tool.poetry.scripts]
 gc-monitor = "gc_monitor.cli:main"
 
+[tool.poetry.plugins."pyperf.hook"]
+gc_monitor = "gc_monitor.pyperf_hook:gc_monitor_hook"
+
 [tool.poetry.dependencies]
 python = ">=3.12"
 
