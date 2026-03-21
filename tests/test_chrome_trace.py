@@ -4,14 +4,22 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
 import pytest
 
 from gc_monitor.chrome_trace_exporter import TraceExporter
 from gc_monitor.core import GCMonitor
-from gc_monitor._gc_monitor import GCMonitorHandler
+
+# Import GCMonitorHandler from the same source as core.py uses
+if TYPE_CHECKING:
+    from gc_monitor._gc_monitor import GCMonitorHandler
+else:
+    try:
+        from _gc_monitor import GCMonitorHandler  # type: ignore[import-not-found]
+    except ImportError:
+        from gc_monitor._gc_monitor import GCMonitorHandler
 
 
 class TestTraceExporter:

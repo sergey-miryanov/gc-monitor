@@ -5,7 +5,17 @@ import threading
 import time
 from typing import TYPE_CHECKING, Optional
 
-from ._gc_monitor import GCMonitorHandler, connect as _connect
+# Try to import from experimental CPython _gc_monitor module first,
+# fall back to mock implementation if not available
+if TYPE_CHECKING:
+    # For type checking, always use the stub/mock types
+    from ._gc_monitor import GCMonitorHandler, connect as _connect
+else:
+    # At runtime, try the real module first
+    try:
+        from _gc_monitor import GCMonitorHandler, connect as _connect  # type: ignore[import-not-found]
+    except ImportError:
+        from ._gc_monitor import GCMonitorHandler, connect as _connect
 
 if TYPE_CHECKING:
     from .exporter import GCMonitorExporter

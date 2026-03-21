@@ -58,7 +58,6 @@ reportUnknownArgumentType = "error"
 reportUnknownMemberType = "error"
 reportUnknownVariableType = "error"
 reportMissingTypeStubs = "warning"
-reportMissingImports = "error"
 reportPrivateImportUsage = "warning"
 reportUnnecessaryCast = "warning"
 reportUnnecessaryComparison = "warning"
@@ -73,6 +72,10 @@ reportImplicitStringConcatenation = "warning"
 reportImplicitOverride = "error"
 reportPropertyTypeMismatch = "error"
 reportSelfClsParameterName = "error"
+
+# Note: reportMissingImports set to "warning" to allow optional _gc_monitor C extension
+# The stub file (_gc_monitor.pyi) provides types when the module is available
+reportMissingImports = "warning"
 
 [tool.mypy]
 python_version = "3.12"

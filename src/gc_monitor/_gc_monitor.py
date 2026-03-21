@@ -1,5 +1,20 @@
 
+"""Mock GC monitor module for testing when CPython _gc_monitor is not available.
+
+This module provides a mock implementation of the _gc_monitor C extension module
+for testing and development purposes. When running on CPython with the experimental
+_gc_monitor module available, the real implementation will be used instead.
+"""
+
 import random
+from typing import List
+
+__all__ = [
+    "GCMonitorStatsItem",
+    "GCMonitorHandler",
+    "connect",
+    "disconnect",
+]
 
 
 class GCMonitorStatsItem:
@@ -54,11 +69,21 @@ class GCMonitorStatsItem:
 
 
 class GCMonitorHandler:
+    """Mock GC monitor handler for testing."""
+
     def __init__(self) -> None:
         self._connected = True
         self._length = random.randint(1, 10)
 
-    def read(self) -> list[GCMonitorStatsItem]:
+    def read(self) -> List[GCMonitorStatsItem]:
+        """Read GC monitoring events.
+
+        Returns:
+            List of GCMonitorStatsItem instances.
+
+        Raises:
+            RuntimeError: If handler is not connected or read fails.
+        """
         if not self._connected:
             raise RuntimeError("Handler is not connected")
         # Simulate potential read failure (terminal - handler broken after this)
@@ -87,6 +112,7 @@ class GCMonitorHandler:
         ]
 
     def close(self) -> None:
+        """Close the handler."""
         self._connected = False
 
     def __enter__(self) -> "GCMonitorHandler":
@@ -102,8 +128,21 @@ class GCMonitorHandler:
 
 
 def connect(pid: int) -> GCMonitorHandler:
+    """Connect to GC monitor for the given process.
+
+    Args:
+        pid: Process ID to monitor.
+
+    Returns:
+        GCMonitorHandler instance.
+    """
     return GCMonitorHandler()
 
 
 def disconnect(handler: GCMonitorHandler) -> None:
+    """Disconnect from GC monitor.
+
+    Args:
+        handler: GCMonitorHandler instance to disconnect.
+    """
     handler.close()
