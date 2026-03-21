@@ -50,8 +50,9 @@ class TraceExporter(GCMonitorExporter):
         Args:
             stats_item: GCMonitorStatsItem instance from callback
         """
-        # Convert timestamp to microseconds
-        ts_us = int(stats_item.ts * 1_000_000)
+        # Convert timestamp from nanoseconds to microseconds
+        ts_us = int(stats_item.ts / 1_000)
+        # Convert duration from seconds to microseconds
         dur_us = int(stats_item.duration * 1_000_000)
 
         with self._lock:

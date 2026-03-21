@@ -3,6 +3,25 @@ import random
 
 
 class GCMonitorStatsItem:
+    """
+    GC monitoring statistics item.
+
+    Attributes:
+        gen: GC generation (0, 1, or 2)
+        ts: Timestamp in nanoseconds
+        collections: Number of collections
+        collected: Number of objects collected
+        uncollectable: Number of uncollectable objects
+        candidates: Number of candidate objects
+        object_visits: Number of object visits
+        objects_transitively_reachable: Objects transitively reachable
+        objects_not_transitively_reachable: Objects not transitively reachable
+        heap_size: Heap size in bytes
+        work_to_do: Work to do metric
+        duration: GC pause duration in seconds
+        total_duration: Total GC duration in seconds
+    """
+
     def __init__(
         self,
         gen: int,
@@ -20,7 +39,7 @@ class GCMonitorStatsItem:
         total_duration: float,
     ) -> None:
         self.gen: int = gen
-        self.ts: int = ts
+        self.ts: int = ts  # Timestamp in nanoseconds
         self.collections: int = collections
         self.collected: int = collected
         self.uncollectable: int = uncollectable
@@ -30,8 +49,8 @@ class GCMonitorStatsItem:
         self.objects_not_transitively_reachable: int = objects_not_transitively_reachable
         self.heap_size: int = heap_size
         self.work_to_do: int = work_to_do
-        self.duration: float = duration
-        self.total_duration: float = total_duration
+        self.duration: float = duration  # Duration in seconds
+        self.total_duration: float = total_duration  # Duration in seconds
 
 
 class GCMonitorHandler:
@@ -46,10 +65,12 @@ class GCMonitorHandler:
         if random.random() < 0.1:
             self._connected = False
             raise RuntimeError("Read failed - connection broken")
+        # Generate base timestamp in nanoseconds (e.g., current time in ns)
+        base_ts = 1_000_000_000  # 1 second in nanoseconds
         return [
             GCMonitorStatsItem(
                 gen=random.randint(0, 2),
-                ts=i,
+                ts=base_ts + (i * 100_000_000),  # 100ms apart in nanoseconds
                 collections=random.randint(1, 100),
                 collected=random.randint(10, 100),
                 uncollectable=random.randint(0, 10),
@@ -59,7 +80,7 @@ class GCMonitorHandler:
                 objects_not_transitively_reachable=random.randint(50, 500),
                 heap_size=random.randint(10000, 100000),
                 work_to_do=random.randint(0, 100),
-                duration=random.uniform(0.1, 5.0),
+                duration=random.uniform(0.001, 0.010),  # 1-10ms in seconds
                 total_duration=random.uniform(1.0, 50.0),
             )
             for i in range(self._length)

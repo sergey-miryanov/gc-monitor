@@ -19,10 +19,13 @@ class TestTraceExporter:
 
     @pytest.fixture
     def mock_stats_item(self) -> Mock:
-        """Create a mock GCMonitorStatsItem."""
+        """Create a mock GCMonitorStatsItem.
+        
+        Note: ts is in nanoseconds, duration and total_duration are in seconds.
+        """
         item = Mock()
         item.gen = 2
-        item.ts = 1.5
+        item.ts = 1_500_000_000  # 1.5 seconds in nanoseconds
         item.collections = 50
         item.collected = 200
         item.uncollectable = 10
@@ -32,8 +35,8 @@ class TestTraceExporter:
         item.objects_not_transitively_reachable = 150
         item.heap_size = 52428800
         item.work_to_do = 30
-        item.duration = 0.005
-        item.total_duration = 45.5
+        item.duration = 0.005  # 5ms in seconds
+        item.total_duration = 45.5  # 45.5 seconds in seconds
         return item  # type: ignore[no-any-return]
 
     def test_exporter_init(self, tmp_path: Path) -> None:
@@ -157,9 +160,9 @@ class TestTraceExporter:
             # First 2 events are metadata, then our events
             events: list[dict[str, Any]] = json.load(f)[2:]  # type: ignore[assignment]
 
-        # ts = 1.5 seconds -> 1500000 microseconds
-        assert events[0]["ts"] == 1500000
-        assert events[1]["ts"] == 1500000
+        # ts = 1,500,000,000 nanoseconds -> 1,500,000 microseconds
+        assert events[0]["ts"] == 1_500_000
+        assert events[1]["ts"] == 1_500_000
 
         # duration = 0.005 seconds -> 5000 microseconds
         assert events[0]["dur"] == 5000

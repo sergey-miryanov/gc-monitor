@@ -264,7 +264,7 @@ class TestGCMonitorHookTeardown:
                 "events": [
                     {
                         "gen": 0,
-                        "ts": 1.0,
+                        "ts": 1_000_000_000,  # 1 second in nanoseconds
                         "collections": 5,
                         "collected": 50,
                         "uncollectable": 2,
@@ -274,8 +274,8 @@ class TestGCMonitorHookTeardown:
                         "objects_not_transitively_reachable": 100,
                         "heap_size": 20000,
                         "work_to_do": 20,
-                        "duration": 0.005,
-                        "total_duration": 0.005,
+                        "duration": 0.005,  # 5ms in seconds
+                        "total_duration": 0.005,  # 5ms in seconds
                     }
                 ],
             }
@@ -355,10 +355,13 @@ class TestAggregateGcStats:
         assert result == {}
 
     def test_single_event(self) -> None:
-        """Single event produces correct aggregations."""
+        """Single event produces correct aggregations.
+        
+        Note: ts is in nanoseconds, duration and total_duration are in seconds.
+        """
         event: Dict[str, Any] = {
             "gen": 0,
-            "ts": 1.0,
+            "ts": 1_000_000_000,  # 1 second in nanoseconds
             "collections": 5,
             "collected": 50,
             "uncollectable": 2,
@@ -368,8 +371,8 @@ class TestAggregateGcStats:
             "objects_not_transitively_reachable": 100,
             "heap_size": 20000,
             "work_to_do": 20,
-            "duration": 0.005,
-            "total_duration": 0.005,
+            "duration": 0.005,  # 5ms in seconds
+            "total_duration": 0.005,  # 5ms in seconds
         }
         result = _aggregate_gc_stats([event])
 
@@ -385,7 +388,7 @@ class TestAggregateGcStats:
         events: List[Dict[str, Any]] = [
             {
                 "gen": 0,
-                "ts": float(i),
+                "ts": 1_000_000_000 + (i * 100_000_000),  # Nanoseconds, 100ms apart
                 "collections": 5,
                 "collected": 50,
                 "uncollectable": 2,
@@ -410,7 +413,7 @@ class TestAggregateGcStats:
         events: List[Dict[str, Any]] = [
             {
                 "gen": 0,
-                "ts": float(i),
+                "ts": 1_000_000_000 + (i * 100_000_000),  # Nanoseconds, 100ms apart
                 "collections": 5,
                 "collected": 50,
                 "uncollectable": 2,
@@ -437,7 +440,7 @@ class TestAggregateGcStats:
         events: List[Dict[str, Any]] = [
             {
                 "gen": 0,
-                "ts": float(i),
+                "ts": 1_000_000_000 + (i * 100_000_000),  # Nanoseconds, 100ms apart
                 "collections": 5,
                 "collected": 50,
                 "uncollectable": 2,
@@ -464,7 +467,7 @@ class TestAggregateGcStats:
         events: List[Dict[str, Any]] = [
             {
                 "gen": 0,
-                "ts": 1.0,
+                "ts": 1_000_000_000,  # 1 second in nanoseconds
                 "collections": 5,
                 "collected": 50,
                 "uncollectable": 2,
@@ -479,7 +482,7 @@ class TestAggregateGcStats:
             },
             {
                 "gen": 1,
-                "ts": 2.0,
+                "ts": 2_000_000_000,  # 2 seconds in nanoseconds
                 "collections": 3,
                 "collected": 30,
                 "uncollectable": 1,
@@ -494,7 +497,7 @@ class TestAggregateGcStats:
             },
             {
                 "gen": 2,
-                "ts": 3.0,
+                "ts": 3_000_000_000,  # 3 seconds in nanoseconds
                 "collections": 1,
                 "collected": 10,
                 "uncollectable": 0,
