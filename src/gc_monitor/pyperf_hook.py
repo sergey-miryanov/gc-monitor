@@ -6,10 +6,11 @@ import os
 import signal
 import statistics
 import subprocess
-import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+logger = logging.getLogger("gc_monitor")
 
 
 class GCMonitorHook:
@@ -17,8 +18,9 @@ class GCMonitorHook:
     Pyperf hook for GC monitoring via external gc-monitor process.
 
     The hook spawns an external `gc-monitor` CLI process that reads the
-    benchmark process memory directly. Results are written to a temp JSON
-    file, which the hook reads and injects into pyperf metadata.
+    benchmark process memory directly. Results are written to temp JSON
+    files in the current directory with masked filenames, which the hook
+    combines and injects into pyperf metadata.
 
     Usage:
         # Via CLI
@@ -29,24 +31,14 @@ class GCMonitorHook:
         gc_monitor = "gc_monitor.pyperf_hook:gc_monitor_hook"
     """
 
-    def __init__(
-        self,
-        duration: float = 0.0,
-        output_dir: Optional[Path] = None,
-    ) -> None:
+    def __init__(self) -> None:
         """
         Initialize the hook (called once per process).
-
-        Args:
-            duration: Monitoring duration in seconds (0 = until benchmark ends)
-            output_dir: Directory for temp files (default: system temp)
         """
-        self._duration = duration
-        self._output_dir = output_dir
-        self._temp_file: Optional[Path] = None
-        self._process: Optional[subprocess.Popen[bytes]] = None
-        self._pid: int = 0
-        self._start_time: float = 0.0
+        self._process: subprocess.Popen[bytes] | None = None
+        self._run_index: int = 0
+        self._temp_files: list[Path] = []
+        self._pid: int = os.getpid()
 
     def __enter__(self) -> "GCMonitorHook":
         """
@@ -54,13 +46,6 @@ class GCMonitorHook:
 
         Spawns the external gc-monitor process as a background subprocess.
         """
-        self._pid = os.getpid()
-        self._start_time = time.monotonic()
-
-        # Generate temp file path
-        temp_dir = self._output_dir or Path(tempfile.gettempdir())
-        self._temp_file = temp_dir / f"gc_monitor_{self._pid}_{int(time.time() * 1000)}.json"
-
         # Build CLI command
         cmd = self._build_command()
 
@@ -85,9 +70,9 @@ class GCMonitorHook:
 
     def __exit__(
         self,
-        _exc_type: Optional[type[BaseException]],
-        _exc_value: Optional[BaseException],
-        _traceback: Optional[object],
+        _exc_type: type[BaseException] | None,
+        _exc_value: BaseException | None,
+        _traceback: object | None,
     ) -> None:
         """
         Called immediately after running benchmark code.
@@ -118,86 +103,160 @@ class GCMonitorHook:
                     try:
                         self._process.wait(timeout=2.0)
                     except subprocess.TimeoutExpired:
-                        os.kill(self._process.pid, signal.SIGKILL)
+                        os.kill(self._process.pid, signal.SIGKILL)  # type: ignore[attr-defined]
                 else:
                     self._process.kill()
                     self._process.wait(timeout=2.0)
 
-        except Exception:
-            # Ignore cleanup errors - benchmark exception is more important
-            pass
+        except Exception as e:
+            logger.warning("Failed to exit from gc_monitor hook: %s", e)
         finally:
             self._process = None
 
-    def teardown(self, metadata: Dict[str, Any]) -> None:
+    def teardown(self, metadata: dict[str, Any]) -> None:
         """
         Called when the hook is completed for a process.
 
-        Reads the temp JSON file, aggregates statistics, and adds them
-        to pyperf metadata.
+        Combines all temp JSON files into a single Chrome Trace format file,
+        aggregates statistics, and adds them to pyperf metadata.
 
         Args:
             metadata: Pyperf metadata dictionary (modified in-place)
         """
-        if not self._temp_file or not self._temp_file.exists():
+        if not self._temp_files:
             return
 
+        bench_name: str = metadata.get("name", "")
+        combined_file = Path(f"gc_monitor_{bench_name}_combined_{self._pid}.json")
+
         try:
-            # Read JSON file
-            with open(self._temp_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            # Combine all temp files into a single Chrome Trace format file
+            all_events: list[dict[str, Any]] = []
+            threads: list[dict[str, Any]] = []
 
-            # Parse and aggregate
-            if "events" in data:
-                aggregated = _aggregate_gc_stats(data["events"])
+            for temp_file in self._temp_files:
+                if temp_file.exists():
+                    try:
+                        with open(temp_file, "r", encoding="utf-8") as f:
+                            filedata = f.read()
+                            try:
+                                data: list[dict[str, Any]] = json.loads(filedata)
+                            except json.JSONDecodeError:
+                                filedata = f"{filedata}]"
 
-                # Add to metadata with gc_ prefix
+                            data = json.loads(filedata)
+                            # Extract events from Chrome Trace format array
+                            for item in data:
+                                ph: str = item.get("ph", '')
+                                if ph == "M" and item.get("name") == "thread_name":
+                                    threads.append(item)
+                                # Collect only event entries (ph=X or ph=C), not metadata
+                                if ph in ("X", "C"):
+                                    all_events.append(item)
+                    except (json.JSONDecodeError, IOError) as e:
+                        logger.warning("Failed to read GC metrics from %s: %s", temp_file, e)
+
+            # Write combined Chrome Trace format file (preserving thread names from each file)
+            self._write_combined_trace(combined_file, bench_name, threads, all_events)
+
+            # Aggregate and add to metadata with gc_ prefix
+            if all_events:
+                aggregated = _aggregate_gc_stats(all_events)
                 for key, value in aggregated.items():
                     metadata[f"gc_{key}"] = value
 
-        except (json.JSONDecodeError, IOError) as e:
+        except Exception as e:
             # Log but don't fail - benchmark results are more important
-            logger = logging.getLogger("gc_monitor")
-            logger.warning("Failed to read GC metrics: %s", e)
+            logger.warning("Failed to aggregate GC metrics: %s", e)
 
         finally:
-            # Cleanup temp file
-            self._cleanup_temp_file()
+            # Cleanup temp files
+            self._cleanup_temp_files()
+
+    def _write_combined_trace(
+        self,
+        output_path: Path,
+        bench_name: str,
+        threads: list[dict[str, Any]],
+        events: list[dict[str, Any]],
+    ) -> None:
+        """
+        Write combined events to a Chrome Trace format file.
+
+        Preserves thread names from each source file.
+
+        Args:
+            output_path: Path to output file
+            threads: List of thread name metadata items (tid values)
+            events: List of event dictionaries (each with its own tid)
+        """
+
+        process_name = {
+            "name": "process_name",
+            "ph": "M",
+            "pid": self._pid,
+            "tid": "GC Monitor",
+            "args": {"name": f"{bench_name} benchmark"},
+        }
+
+        linesep = "\n"
+        with open(output_path, "w", encoding="utf-8") as f:
+            # Write opening bracket and metadata
+            process_name_str = json.dumps(process_name)
+            f.write(f"[{linesep}{process_name_str}")
+
+            # Write thread name metadata for each unique thread
+            for thread in threads:
+                f.write(f",{linesep}")
+                f.write(json.dumps(thread))
+
+            # Write all events (each with its original tid)
+            for event in events:
+                f.write(f",{linesep}")
+                f.write(json.dumps(event))
+
+            # Write closing bracket
+            f.write(f"{linesep}]{linesep}")
 
     def _build_command(self) -> list[str]:
         """Build the gc-monitor CLI command."""
-        cmd = [
+        filename = f"gc_monitor_{self._pid}_{self._run_index}.json"
+        thread_name = f"GC Monitor (run={self._run_index})"
+        self._run_index += 1
+
+        temp_file = Path(filename)
+        self._temp_files.append(temp_file)
+
+        cmd: list[str] = [
             "gc-monitor",
             str(self._pid),
             "-o",
-            str(self._temp_file),
+            str(filename),
+            "--format",
+            "chrome",
+            "--thread-name",
+            thread_name,
         ]
-
-        if self._duration > 0:
-            cmd.extend(["-d", str(self._duration)])
-        else:
-            # Run until terminated (benchmark controls lifecycle)
-            cmd.extend(["-d", "0"])
-
-        # Add format flag for pyperf-compatible JSON
-        cmd.extend(["--format", "pyperf"])
 
         return cmd
 
-    def _cleanup_temp_file(self) -> None:
-        """Remove temp file if it exists."""
-        if self._temp_file and self._temp_file.exists():
-            try:
-                self._temp_file.unlink()
-            except OSError:
-                pass  # Ignore cleanup errors
+    def _cleanup_temp_files(self) -> None:
+        """Remove all temp files if they exist."""
+        for temp_file in self._temp_files:
+            if temp_file.exists():
+                try:
+                    temp_file.unlink()
+                except OSError:
+                    pass  # Ignore cleanup errors
+        self._temp_files.clear()
 
 
-def _aggregate_gc_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _aggregate_gc_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Aggregate GC statistics from JSON events.
 
-    Returns a dictionary of aggregated metrics ready for pyperf metadata.
+    Handles both flat event dictionaries and Chrome Trace format events
+    (where metrics are nested in the 'args' field).
 
     Args:
         events: List of GC event dictionaries from JSON file
@@ -213,35 +272,39 @@ def _aggregate_gc_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_collected = 0
     total_uncollectable = 0
     total_duration = 0.0
-    durations: List[float] = []
-    heap_sizes: List[int] = []
-    object_visits: List[int] = []
+    durations: list[float] = []
+    heap_sizes: list[int] = []
+    object_visits: list[int] = []
 
     # Group by generation
-    by_gen: Dict[int, List[Dict[str, Any]]] = {0: [], 1: [], 2: []}
+    by_gen: dict[int, list[dict[str, Any]]] = {0: [], 1: [], 2: []}
 
     for event in events:
-        total_collections += event.get("collections", 0)
-        total_collected += event.get("collected", 0)
-        total_uncollectable += event.get("uncollectable", 0)
-        duration = event.get("duration", 0.0)
+        # Chrome Trace format: metrics are in 'args' field
+        # Flat format: metrics are at top level
+        metrics = event.get("args", event)
+
+        total_collections += metrics.get("collections", 0)
+        total_collected += metrics.get("collected", 0)
+        total_uncollectable += metrics.get("uncollectable", 0)
+        duration = metrics.get("duration", 0.0)
         total_duration += duration
         durations.append(duration)
-        heap_sizes.append(event.get("heap_size", 0))
-        object_visits.append(event.get("object_visits", 0))
+        heap_sizes.append(metrics.get("heap_size", 0))
+        object_visits.append(metrics.get("object_visits", 0))
 
-        gen = event.get("gen", 0)
+        gen: int = metrics.get("gen", 0)
         if gen in by_gen:
             by_gen[gen].append(event)
 
     event_count = len(events)
 
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
 
     # Per-generation collection counts
     for gen, gen_events in by_gen.items():
         result[f"collections_by_gen_{gen}"] = sum(
-            e.get("collections", 0) for e in gen_events
+            e.get("args", e).get("collections", 0) for e in gen_events
         )
 
     result.update(
@@ -275,18 +338,11 @@ def _aggregate_gc_stats(events: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 # Entry point factory function
-def gc_monitor_hook(
-    duration: float = 0.0,
-    output_dir: Optional[Path] = None,
-) -> GCMonitorHook:
+def gc_monitor_hook() -> GCMonitorHook:
     """
     Factory function for pyperf entry point.
-
-    Args:
-        duration: Monitoring duration in seconds (0 = until benchmark ends)
-        output_dir: Directory for temp files (default: system temp)
 
     Returns:
         GCMonitorHook instance
     """
-    return GCMonitorHook(duration=duration, output_dir=output_dir)
+    return GCMonitorHook()

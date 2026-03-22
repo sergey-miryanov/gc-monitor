@@ -55,6 +55,12 @@ def _create_parser() -> argparse.ArgumentParser:
         default="chrome",
         help="Output format: 'chrome' for Chrome DevTools, 'pyperf' for pyperf hook, 'stdout' for one-line-per-event JSONL (default: chrome)",
     )
+    parser.add_argument(
+        "--thread-name",
+        type=str,
+        default="GC Monitor",
+        help="Thread name for trace events (default: 'GC Monitor')",
+    )
     return parser
 
 
@@ -76,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     duration = args.duration
     verbose = args.verbose
     output_format = args.format
+    thread_name = args.thread_name
 
     if verbose:
         print(f"Monitoring PID {pid}")
@@ -94,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     elif output_format == "stdout":
         exporter = StdoutExporter(pid=pid)
     else:
-        exporter = TraceExporter(pid=pid, output_path=output_path)
+        exporter = TraceExporter(pid=pid, output_path=output_path, thread_name=thread_name)
 
     monitor = connect(pid, exporter=exporter, rate=rate)
 

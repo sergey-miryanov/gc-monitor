@@ -7,7 +7,7 @@ import os
 import signal
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -21,17 +21,15 @@ class TestGCMonitorHookInit:
     def test_hook_init_default_values(self) -> None:
         """Hook initializes with default values."""
         hook = GCMonitorHook()
-        assert hook._duration == 0.0  # type: ignore[reportPrivateUsage]
-        assert hook._output_dir is None  # type: ignore[reportPrivateUsage]
-        assert hook._temp_file is None  # type: ignore[reportPrivateUsage]
+        assert hook._run_index == 0  # type: ignore[reportPrivateUsage]
+        assert hook._temp_files == []  # type: ignore[reportPrivateUsage]
         assert hook._process is None  # type: ignore[reportPrivateUsage]
-        assert hook._pid == 0  # type: ignore[reportPrivateUsage]
+        assert hook._pid > 0  # type: ignore[reportPrivateUsage]
 
-    def test_hook_init_custom_values(self, tmp_path: Path) -> None:
-        """Hook initializes with custom values."""
-        hook = GCMonitorHook(duration=10.0, output_dir=tmp_path)
-        assert hook._duration == 10.0  # type: ignore[reportPrivateUsage]
-        assert hook._output_dir == tmp_path  # type: ignore[reportPrivateUsage]
+    def test_hook_init_sets_pid(self) -> None:
+        """Hook initializes with current process PID."""
+        hook = GCMonitorHook()
+        assert hook._pid == os.getpid()  # type: ignore[reportPrivateUsage]
 
 
 class TestGCMonitorHookEnter:
@@ -39,25 +37,22 @@ class TestGCMonitorHookEnter:
 
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
-    @patch("gc_monitor.pyperf_hook.time.time")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
     def test_enter_spawns_subprocess(
         self,
-        mock_time: Mock,
+        mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
-        tmp_path: Path,
     ) -> None:
         """__enter__ spawns subprocess with correct command."""
         mock_getpid.return_value = 12345
-        mock_time.return_value = 1000.0
         mock_process = Mock()
         mock_popen.return_value = mock_process
 
-        hook = GCMonitorHook(output_dir=tmp_path)
+        hook = GCMonitorHook()
         with hook:
             assert hook._pid == 12345  # type: ignore[reportPrivateUsage]
             assert hook._process is not None  # type: ignore[reportPrivateUsage]
-            assert hook._temp_file is not None  # type: ignore[reportPrivateUsage]
 
         # Verify subprocess.Popen was called with correct args
         mock_popen.assert_called_once()
@@ -66,7 +61,7 @@ class TestGCMonitorHookEnter:
         assert call_args[1] == "12345"
         assert "-o" in call_args
         assert "--format" in call_args
-        assert "pyperf" in call_args
+        assert "chrome" in call_args
 
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
@@ -86,24 +81,71 @@ class TestGCMonitorHookEnter:
 
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
-    @patch("gc_monitor.pyperf_hook.time.time")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
     def test_enter_creates_temp_file_path(
         self,
-        mock_time: Mock,
+        mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
-        tmp_path: Path,
     ) -> None:
-        """__enter__ creates temp file path with PID and timestamp."""
+        """__enter__ creates temp file path with PID and run_index."""
         mock_getpid.return_value = 12345
-        mock_time.return_value = 1000.0
         mock_process = Mock()
         mock_popen.return_value = mock_process
 
-        hook = GCMonitorHook(output_dir=tmp_path)
+        hook = GCMonitorHook()
         with hook:
-            assert hook._temp_file is not None  # type: ignore[reportPrivateUsage]
-            assert "gc_monitor_12345_" in str(hook._temp_file)  # type: ignore[reportPrivateUsage]
+            assert len(hook._temp_files) == 1  # type: ignore[reportPrivateUsage]
+            assert "gc_monitor_12345_0" in str(hook._temp_files[0])  # type: ignore[reportPrivateUsage]
+
+    @patch("gc_monitor.pyperf_hook.subprocess.Popen")
+    @patch("gc_monitor.pyperf_hook.os.getpid")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
+    def test_enter_increments_run_index(
+        self,
+        mock_sleep: Mock,
+        mock_getpid: Mock,
+        mock_popen: Mock,
+    ) -> None:
+        """__enter__ increments run_index for multiple calls."""
+        mock_getpid.return_value = 12345
+        mock_process = Mock()
+        mock_popen.return_value = mock_process
+
+        hook = GCMonitorHook()
+        
+        # First enter
+        with hook:
+            assert "gc_monitor_12345_0" in str(hook._temp_files[0])  # type: ignore[reportPrivateUsage]
+        
+        # Second enter (simulating multiple benchmark runs)
+        with hook:
+            assert len(hook._temp_files) == 2  # type: ignore[reportPrivateUsage]
+            assert "gc_monitor_12345_1" in str(hook._temp_files[1])  # type: ignore[reportPrivateUsage]
+
+    @patch("gc_monitor.pyperf_hook.subprocess.Popen")
+    @patch("gc_monitor.pyperf_hook.os.getpid")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
+    def test_enter_includes_thread_name(
+        self,
+        mock_sleep: Mock,
+        mock_getpid: Mock,
+        mock_popen: Mock,
+    ) -> None:
+        """__enter__ includes thread-name with run_index in command."""
+        mock_getpid.return_value = 12345
+        mock_process = Mock()
+        mock_popen.return_value = mock_process
+
+        hook = GCMonitorHook()
+        with hook:
+            pass
+
+        # Verify thread-name was included
+        call_args = mock_popen.call_args[0][0]
+        assert "--thread-name" in call_args
+        thread_name_idx = call_args.index("--thread-name") + 1
+        assert "run=0" in call_args[thread_name_idx]
 
 
 class TestGCMonitorHookExit:
@@ -113,24 +155,22 @@ class TestGCMonitorHookExit:
     @patch("gc_monitor.pyperf_hook.os.kill")
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
-    @patch("gc_monitor.pyperf_hook.time.time")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
     @patch("gc_monitor.pyperf_hook.os.name", "posix")
     def test_exit_sends_sigint_unix(
         self,
-        mock_time: Mock,
+        mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
         mock_kill: Mock,
-        tmp_path: Path,
     ) -> None:
         """__exit__ sends SIGINT on Unix systems."""
         mock_getpid.return_value = 12345
-        mock_time.return_value = 1000.0
         mock_process = Mock()
         mock_process.pid = 54321
         mock_popen.return_value = mock_process
 
-        hook = GCMonitorHook(output_dir=tmp_path)
+        hook = GCMonitorHook()
         with hook:
             pass
 
@@ -141,23 +181,21 @@ class TestGCMonitorHookExit:
     @pytest.mark.skipif(os.name != "nt", reason="Windows-only test")
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
-    @patch("gc_monitor.pyperf_hook.time.time")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
     @patch("gc_monitor.pyperf_hook.os.name", "nt")
     def test_exit_sends_ctrl_break_windows(
         self,
-        mock_time: Mock,
+        mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
-        tmp_path: Path,
     ) -> None:
         """__exit__ sends CTRL_BREAK_EVENT on Windows."""
         mock_getpid.return_value = 12345
-        mock_time.return_value = 1000.0
         mock_process = Mock()
         mock_process.pid = 54321
         mock_popen.return_value = mock_process
 
-        hook = GCMonitorHook(output_dir=tmp_path)
+        hook = GCMonitorHook()
         with hook:
             pass
 
@@ -168,19 +206,17 @@ class TestGCMonitorHookExit:
     @patch("gc_monitor.pyperf_hook.os.kill")
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
-    @patch("gc_monitor.pyperf_hook.time.time")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
     @patch("gc_monitor.pyperf_hook.os.name", "posix")
     def test_exit_fallback_to_sigterm_on_timeout(
         self,
-        mock_time: Mock,
+        mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
         mock_kill: Mock,
-        tmp_path: Path,
     ) -> None:
         """__exit__ falls back to SIGTERM on timeout (Unix)."""
         mock_getpid.return_value = 12345
-        mock_time.return_value = 1000.0
         mock_process = Mock()
         mock_process.pid = 54321
         # First wait() times out, second wait() also times out (for SIGKILL fallback)
@@ -190,7 +226,7 @@ class TestGCMonitorHookExit:
         ]
         mock_popen.return_value = mock_process
 
-        hook = GCMonitorHook(output_dir=tmp_path)
+        hook = GCMonitorHook()
         with hook:
             pass
 
@@ -204,18 +240,16 @@ class TestGCMonitorHookExit:
     @pytest.mark.skipif(os.name != "nt", reason="Windows-only test")
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
-    @patch("gc_monitor.pyperf_hook.time.time")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
     @patch("gc_monitor.pyperf_hook.os.name", "nt")
     def test_exit_fallback_to_kill_on_timeout_windows(
         self,
-        mock_time: Mock,
+        mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
-        tmp_path: Path,
     ) -> None:
         """__exit__ falls back to kill() on timeout (Windows)."""
         mock_getpid.return_value = 12345
-        mock_time.return_value = 1000.0
         mock_process = Mock()
         mock_process.pid = 54321
         mock_process.wait.side_effect = subprocess.TimeoutExpired(
@@ -223,7 +257,7 @@ class TestGCMonitorHookExit:
         )
         mock_popen.return_value = mock_process
 
-        hook = GCMonitorHook(output_dir=tmp_path)
+        hook = GCMonitorHook()
         with hook:
             pass
 
@@ -237,34 +271,52 @@ class TestGCMonitorHookTeardown:
 
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
-    @patch("gc_monitor.pyperf_hook.time.time")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
     def test_teardown_reads_json_and_adds_metadata(
         self,
-        mock_time: Mock,
+        mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
         tmp_path: Path,
     ) -> None:
-        """teardown reads JSON file and adds metrics to metadata."""
+        """teardown reads JSON files and adds metrics to metadata."""
         mock_getpid.return_value = 12345
-        mock_time.return_value = 1000.0
         mock_process = Mock()
         mock_popen.return_value = mock_process
 
-        # Create temp JSON file
-        hook = GCMonitorHook(output_dir=tmp_path)
+        # Create temp JSON file in Chrome Trace format
+        hook = GCMonitorHook()
         with hook:
-            temp_file = hook._temp_file  # type: ignore[reportPrivateUsage]
+            temp_file = hook._temp_files[0]  # type: ignore[reportPrivateUsage]
             assert temp_file is not None
 
-            # Write test data
-            test_data: Dict[str, Any] = {
-                "version": "1.0",
-                "pid": 12345,
-                "events": [
-                    {
+            # Write test data in Chrome Trace format (array of events)
+            test_data: list[dict[str, Any]] = [
+                {
+                    "name": "process_name",
+                    "ph": "M",
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=0)",
+                    "args": {"name": "Python Process (PID: 12345)"},
+                },
+                {
+                    "name": "thread_name",
+                    "ph": "M",
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=0)",
+                    "args": {"name": "GC Monitor (run=0)"},
+                },
+                # GC Pause event (ph=X = complete event)
+                {
+                    "name": "GC Pause",
+                    "cat": "gc.pause",
+                    "ph": "X",
+                    "ts": 1_000_000,  # microseconds
+                    "dur": 5_000,  # 5ms in microseconds
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=0)",
+                    "args": {
                         "gen": 0,
-                        "ts": 1_000_000_000,  # 1 second in nanoseconds
                         "collections": 5,
                         "collected": 50,
                         "uncollectable": 2,
@@ -275,10 +327,26 @@ class TestGCMonitorHookTeardown:
                         "heap_size": 20000,
                         "work_to_do": 20,
                         "duration": 0.005,  # 5ms in seconds
-                        "total_duration": 0.005,  # 5ms in seconds
-                    }
-                ],
-            }
+                        "total_duration": 0.005,
+                    },
+                },
+                # Counter event (ph=C)
+                {
+                    "name": "Memory Counters (gen=0)",
+                    "cat": "gc.memory(gen=0)",
+                    "ph": "C",
+                    "ts": 1_000_000,
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=0)",
+                    "args": {
+                        "heap_size": 20000,
+                        "collected": 50,
+                        "uncollectable": 2,
+                        "candidates": 10,
+                        "object_visits": 200,
+                    },
+                },
+            ]
             with open(temp_file, "w") as f:
                 json.dump(test_data, f)
 
@@ -313,37 +381,181 @@ class TestGCMonitorHookTeardown:
 
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
-    @patch("gc_monitor.pyperf_hook.time.time")
-    def test_teardown_cleans_up_temp_file(
+    @patch("gc_monitor.pyperf_hook.time.sleep")
+    def test_teardown_cleans_up_temp_files(
         self,
-        mock_time: Mock,
+        mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
-        tmp_path: Path,
     ) -> None:
-        """teardown removes temp file after reading."""
+        """teardown removes temp files after reading."""
         mock_getpid.return_value = 12345
-        mock_time.return_value = 1000.0
         mock_process = Mock()
         mock_popen.return_value = mock_process
 
-        hook = GCMonitorHook(output_dir=tmp_path)
+        hook = GCMonitorHook()
         with hook:
-            temp_file = hook._temp_file  # type: ignore[reportPrivateUsage]
+            temp_file = hook._temp_files[0]  # type: ignore[reportPrivateUsage]
             assert temp_file is not None
 
-            # Create the temp file with test data
-            test_data: Dict[str, Any] = {"version": "1.0", "pid": 12345, "events": []}
+            # Create the temp file with Chrome Trace format
+            test_data: list[dict[str, Any]] = [
+                {
+                    "name": "process_name",
+                    "ph": "M",
+                    "pid": 12345,
+                    "tid": "GC Monitor",
+                    "args": {"name": "Python Process (PID: 12345)"},
+                },
+                {
+                    "name": "thread_name",
+                    "ph": "M",
+                    "pid": 12345,
+                    "tid": "GC Monitor",
+                    "args": {"name": "GC Monitor"},
+                },
+            ]
             with open(temp_file, "w") as f:
                 json.dump(test_data, f)
 
             assert temp_file.exists()
 
-        metadata: dict[str, object] = {}
+        metadata: dict[str, Any] = {}
         hook.teardown(metadata)
 
         # Temp file should be removed
         assert not temp_file.exists()
+
+    @patch("gc_monitor.pyperf_hook.subprocess.Popen")
+    @patch("gc_monitor.pyperf_hook.os.getpid")
+    @patch("gc_monitor.pyperf_hook.time.sleep")
+    def test_teardown_combines_multiple_files(
+        self,
+        mock_sleep: Mock,
+        mock_getpid: Mock,
+        mock_popen: Mock,
+    ) -> None:
+        """teardown combines events from multiple temp files."""
+        mock_getpid.return_value = 12345
+        mock_process = Mock()
+        mock_popen.return_value = mock_process
+
+        hook = GCMonitorHook()
+
+        # Simulate multiple benchmark runs
+        with hook:
+            temp_file_0 = hook._temp_files[0]
+            test_data_0: list[dict[str, Any]] = [
+                {
+                    "name": "process_name",
+                    "ph": "M",
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=0)",
+                    "args": {"name": "Python Process (PID: 12345)"},
+                },
+                {
+                    "name": "thread_name",
+                    "ph": "M",
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=0)",
+                    "args": {"name": "GC Monitor (run=0)"},
+                },
+                {
+                    "name": "GC Pause",
+                    "cat": "gc.pause",
+                    "ph": "X",
+                    "ts": 1_000_000,
+                    "dur": 5_000,
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=0)",
+                    "args": {
+                        "gen": 0,
+                        "collections": 5,
+                        "collected": 50,
+                        "uncollectable": 2,
+                        "candidates": 10,
+                        "object_visits": 200,
+                        "objects_transitively_reachable": 100,
+                        "objects_not_transitively_reachable": 100,
+                        "heap_size": 20000,
+                        "work_to_do": 20,
+                        "duration": 0.005,
+                        "total_duration": 0.005,
+                    },
+                },
+            ]
+            with open(temp_file_0, "w") as f:
+                json.dump(test_data_0, f)
+
+        with hook:
+            temp_file_1 = hook._temp_files[1]
+            test_data_1: list[dict[str, Any]] = [
+                {
+                    "name": "process_name",
+                    "ph": "M",
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=1)",
+                    "args": {"name": "Python Process (PID: 12345)"},
+                },
+                {
+                    "name": "thread_name",
+                    "ph": "M",
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=1)",
+                    "args": {"name": "GC Monitor (run=1)"},
+                },
+                {
+                    "name": "GC Pause",
+                    "cat": "gc.pause",
+                    "ph": "X",
+                    "ts": 2_000_000,
+                    "dur": 8_000,
+                    "pid": 12345,
+                    "tid": "GC Monitor (run=1)",
+                    "args": {
+                        "gen": 0,
+                        "collections": 3,
+                        "collected": 30,
+                        "uncollectable": 1,
+                        "candidates": 8,
+                        "object_visits": 150,
+                        "objects_transitively_reachable": 80,
+                        "objects_not_transitively_reachable": 70,
+                        "heap_size": 25000,
+                        "work_to_do": 15,
+                        "duration": 0.008,
+                        "total_duration": 0.008,
+                    },
+                },
+            ]
+            with open(temp_file_1, "w") as f:
+                json.dump(test_data_1, f)
+
+        metadata: dict[str, Any] = {"name": "test_benchmark"}
+        hook.teardown(metadata)
+
+        # Verify combined metrics (5 + 3 = 8 collections)
+        assert metadata["gc_collections_total"] == 8
+        assert metadata["gc_objects_collected_total"] == 80
+        assert metadata["gc_event_count"] == 2
+
+        # Verify combined trace file was created
+        combined_file = Path("gc_monitor_test_benchmark_combined_12345.json")
+        assert combined_file.exists()
+
+        # Verify combined file has correct Chrome Trace format
+        with open(combined_file, "r") as f:
+            combined_data: list[dict[str, Any]] = json.load(f)
+            assert isinstance(combined_data, list)
+            # Should have process_name, thread_names, and events
+            assert len(combined_data) >= 4  # metadata + events
+
+        # Clean up combined file
+        combined_file.unlink()
+
+        # Both temp files should be removed
+        assert not temp_file_0.exists()
+        assert not temp_file_1.exists()
 
 
 class TestAggregateGcStats:
@@ -356,10 +568,10 @@ class TestAggregateGcStats:
 
     def test_single_event(self) -> None:
         """Single event produces correct aggregations.
-        
+
         Note: ts is in nanoseconds, duration and total_duration are in seconds.
         """
-        event: Dict[str, Any] = {
+        event: dict[str, Any] = {
             "gen": 0,
             "ts": 1_000_000_000,  # 1 second in nanoseconds
             "collections": 5,
@@ -385,7 +597,7 @@ class TestAggregateGcStats:
 
     def test_multiple_events_sum(self) -> None:
         """Multiple events: sum is cumulative."""
-        events: List[Dict[str, Any]] = [
+        events: list[dict[str, Any]] = [
             {
                 "gen": 0,
                 "ts": 1_000_000_000 + (i * 100_000_000),  # Nanoseconds, 100ms apart
@@ -410,7 +622,7 @@ class TestAggregateGcStats:
 
     def test_multiple_events_average(self) -> None:
         """Multiple events: average is correct."""
-        events: List[Dict[str, Any]] = [
+        events: list[dict[str, Any]] = [
             {
                 "gen": 0,
                 "ts": 1_000_000_000 + (i * 100_000_000),  # Nanoseconds, 100ms apart
@@ -437,7 +649,7 @@ class TestAggregateGcStats:
 
     def test_multiple_events_max_min(self) -> None:
         """Multiple events: max and min are correct."""
-        events: List[Dict[str, Any]] = [
+        events: list[dict[str, Any]] = [
             {
                 "gen": 0,
                 "ts": 1_000_000_000 + (i * 100_000_000),  # Nanoseconds, 100ms apart
@@ -464,7 +676,7 @@ class TestAggregateGcStats:
 
     def test_per_generation_breakdown(self) -> None:
         """Events are grouped by generation."""
-        events: List[Dict[str, Any]] = [
+        events: list[dict[str, Any]] = [
             {
                 "gen": 0,
                 "ts": 1_000_000_000,  # 1 second in nanoseconds
@@ -524,11 +736,11 @@ class TestGcMonitorHookFactory:
     def test_factory_creates_hook_with_defaults(self) -> None:
         """Factory creates hook with default values."""
         hook = gc_monitor_hook()
-        assert hook._duration == 0.0  # type: ignore[reportPrivateUsage]
-        assert hook._output_dir is None  # type: ignore[reportPrivateUsage]
+        assert hook._run_index == 0  # type: ignore[reportPrivateUsage]
+        assert hook._temp_files == []  # type: ignore[reportPrivateUsage]
 
-    def test_factory_creates_hook_with_custom_values(self, tmp_path: Path) -> None:
-        """Factory creates hook with custom values."""
-        hook = gc_monitor_hook(duration=10.0, output_dir=tmp_path)
-        assert hook._duration == 10.0  # type: ignore[reportPrivateUsage]
-        assert hook._output_dir == tmp_path  # type: ignore[reportPrivateUsage]
+    def test_factory_returns_new_hook_each_time(self) -> None:
+        """Factory returns a new hook instance each time."""
+        hook1 = gc_monitor_hook()
+        hook2 = gc_monitor_hook()
+        assert hook1 is not hook2
