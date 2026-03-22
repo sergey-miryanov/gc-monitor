@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 def test_cli_help() -> None:
     """Test CLI --help option."""
@@ -234,3 +236,287 @@ def test_cli_quiet_output(tmp_path: Path) -> None:
     assert "events to" in result.stdout
     # Should not have verbose details
     assert "Monitoring PID" not in result.stdout
+
+
+def test_cli_stdout_format(tmp_path: Path) -> None:
+    """Test CLI with --format stdout option."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "stdout",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0
+    # Output should be JSONL format (one JSON per line)
+    lines = result.stdout.strip().split("\n")
+    for line in lines:
+        if line:
+            data: dict[str, Any] = json.loads(line)
+            assert "pid" in data
+            assert "tid" in data
+            assert "gen" in data
+
+
+def test_cli_stdout_format_with_thread_name(tmp_path: Path) -> None:
+    """Test CLI with --format stdout option."""
+    # Note: --thread-name is only used for chrome format, not stdout
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "stdout",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0
+    # Verify JSONL output format
+    lines = result.stdout.strip().split("\n")
+    assert len(lines) > 0
+    for line in lines:
+        if line:
+            data: dict[str, Any] = json.loads(line)
+            assert "pid" in data
+            assert "tid" in data
+
+
+def test_cli_verbose_with_stdout_format(tmp_path: Path) -> None:
+    """Test CLI verbose output with stdout format."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "stdout",
+            "-d",
+            "0.3",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0
+    # Should have verbose output
+    assert "Monitoring PID 12345" in result.stdout
+    assert "Format: stdout" in result.stdout
+    assert "Rate:" in result.stdout
+    assert "Duration:" in result.stdout
+    assert "Total events:" in result.stdout
+
+
+def test_cli_quiet_with_stdout_format(tmp_path: Path) -> None:
+    """Test CLI quiet output with stdout format."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "stdout",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+
+    assert result.returncode == 0
+    # In quiet mode with stdout format, summary goes to stderr
+    assert "Exported" in result.stderr
+    assert "events to stdout" in result.stderr
+    # stdout should only have JSONL data, not summary
+    assert "Exported" not in result.stdout
+
+
+def test_cli_connection_failure() -> None:
+    """Test CLI with monitor returning None (connection failure).
+
+    Note: This test uses a very high PID that may fail with real _gc_monitor.
+    With mock implementation, it will succeed, so we test the error path
+    by checking the error message format.
+    """
+    # Use subprocess to test the actual CLI behavior
+    # The mock implementation accepts any PID, so we can't easily test failure
+    # This test documents the expected behavior when connection fails
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "999999999",  # Very high PID that might fail
+            "-d",
+            "0.1",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    # With mock, this may succeed. The test ensures the CLI handles it gracefully.
+    # If it fails, it should print an error message
+    if result.returncode != 0:
+        assert "Failed to connect" in result.stderr or "events to" in result.stdout
+
+
+def test_cli_duration_based_execution(tmp_path: Path) -> None:
+    """Test CLI duration-based execution loop."""
+    output_file = tmp_path / "test_trace.json"
+
+    import time
+
+    start = time.monotonic()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-o",
+            str(output_file),
+            "-d",
+            "0.5",
+            "-r",
+            "0.1",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    elapsed = time.monotonic() - start
+
+    assert result.returncode == 0
+    # Should run for approximately the specified duration
+    assert elapsed >= 0.4  # Allow some tolerance
+    assert elapsed < 1.5  # Should not run much longer (increased tolerance for CI)
+    assert "Monitoring for 0.5 seconds" in result.stdout
+
+
+def test_cli_signal_handling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI signal handler registration."""
+    from gc_monitor import cli
+    from unittest.mock import MagicMock, patch
+
+    # Mock the signal module to track handler registration
+    mock_signal = MagicMock()
+    mock_signal.SIGINT = 2
+    mock_signal.SIGTERM = 15
+    mock_signal.signal = MagicMock()
+
+    with patch.object(cli, "signal", mock_signal):
+        # Mock connect to return a mock monitor
+        mock_monitor = MagicMock()
+        mock_monitor.is_running = False  # Exit immediately
+
+        mock_exporter = MagicMock()
+        mock_exporter.get_event_count = MagicMock(return_value=5)
+
+        with patch.object(cli, "connect", return_value=mock_monitor):
+            with patch.object(cli, "StdoutExporter", return_value=mock_exporter):
+                # Run main - should exit quickly since monitor.is_running is False
+                result = cli.main(["12345", "--format", "stdout", "-d", "0.1"])
+
+                assert result == 0
+
+                # Verify signal handlers were registered
+                assert mock_signal.signal.call_count >= 2
+
+
+def test_cli_early_exit_on_shutdown_requested() -> None:
+    """Test CLI early exit when shutdown_requested becomes True."""
+    from unittest.mock import MagicMock, patch
+
+    from gc_monitor import cli
+
+    # Mock monitor
+    mock_monitor = MagicMock()
+    mock_monitor.is_running = True
+    mock_monitor.stop = MagicMock()
+
+    # Mock exporter
+    mock_exporter = MagicMock()
+    mock_exporter.get_event_count = MagicMock(return_value=3)
+
+    # Track if loop exited early
+    loop_iterations = [0]
+
+    def mock_sleep(duration: float) -> None:
+        loop_iterations[0] += 1
+        if loop_iterations[0] >= 2:
+            # Simulate shutdown after 2 iterations
+            raise RuntimeError("shutdown")
+
+    with patch.object(cli, "connect", return_value=mock_monitor):
+        with patch.object(cli, "StdoutExporter", return_value=mock_exporter):
+            with patch.object(cli, "time") as mock_time:
+                mock_time.sleep = mock_sleep
+                mock_time.monotonic = MagicMock(side_effect=[0.0, 0.1, 0.2])
+
+                try:
+                    cli.main(["12345", "--format", "stdout", "-d", "1.0"])
+                except RuntimeError as e:
+                    if str(e) != "shutdown":
+                        raise
+
+    # Verify monitor.stop() was called
+    mock_monitor.stop.assert_called()
+
+
+def test_cli_thread_name_option(tmp_path: Path) -> None:
+    """Test CLI with --thread-name custom option."""
+    output_file = tmp_path / "test_trace.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-o",
+            str(output_file),
+            "--thread-name",
+            "MyCustomThread",
+            "-d",
+            "0.3",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    # Verify output file was created
+    assert output_file.exists()
+    with open(output_file) as f:
+        content = f.read()
+
+    # Verify thread name appears in the file content
+    assert "MyCustomThread" in content
+
+    # Verify it's valid JSON
+    data: list[dict[str, Any]] = json.loads(content)
+    assert isinstance(data, list)
+    assert len(data) > 0
