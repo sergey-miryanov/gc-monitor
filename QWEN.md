@@ -145,3 +145,4 @@ gc-monitor/
 
 ## Qwen Added Memories
 - We should use `--basetemp=.temp` option when run tests.
+- CODE_REVIEW.md is the living code review document for gc-monitor that tracks issues, fixes, and test coverage status
