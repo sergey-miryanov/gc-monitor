@@ -5,7 +5,6 @@ from .core import GCMonitor, connect
 from .exporter import GCMonitorExporter
 from .chrome_trace_exporter import TraceExporter
 from .pyperf_hook import GCMonitorHook, gc_monitor_hook
-from .pyperf_exporter import PyperfExporter
 from .stdout_exporter import StdoutExporter
 
 __all__ = [
@@ -13,7 +12,6 @@ __all__ = [
     "GCMonitor",
     "GCMonitorExporter",
     "TraceExporter",
-    "PyperfExporter",
     "StdoutExporter",
     "GCMonitorHook",
     "gc_monitor_hook",

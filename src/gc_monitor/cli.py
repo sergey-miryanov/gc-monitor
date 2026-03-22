@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 
 from . import TraceExporter, connect
-from .pyperf_exporter import PyperfExporter
 from .stdout_exporter import StdoutExporter
 
 
@@ -51,9 +50,9 @@ def _create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--format",
-        choices=["chrome", "pyperf", "stdout"],
+        choices=["chrome", "stdout"],
         default="chrome",
-        help="Output format: 'chrome' for Chrome DevTools, 'pyperf' for pyperf hook, 'stdout' for one-line-per-event JSONL (default: chrome)",
+        help="Output format: 'chrome' for Chrome DevTools, 'stdout' for one-line-per-event JSONL (default: chrome)",
     )
     parser.add_argument(
         "--thread-name",
@@ -96,9 +95,7 @@ def main(argv: list[str] | None = None) -> int:
             print("Duration: until interrupted (Ctrl+C)")
 
     # Create appropriate exporter based on format
-    if output_format == "pyperf":
-        exporter: TraceExporter | PyperfExporter | StdoutExporter = PyperfExporter(pid=pid)
-    elif output_format == "stdout":
+    if output_format == "stdout":
         exporter = StdoutExporter(pid=pid)
     else:
         exporter = TraceExporter(pid=pid, output_path=output_path, thread_name=thread_name)
@@ -142,10 +139,6 @@ def main(argv: list[str] | None = None) -> int:
         # Monitor may have already stopped if target process ended
         # stop() is safe to call multiple times
         monitor.stop()
-
-    # For pyperf format, write the JSON file now
-    if output_format == "pyperf" and isinstance(exporter, PyperfExporter):
-        exporter.write(output_path)
 
     event_count = exporter.get_event_count()
     if verbose:
