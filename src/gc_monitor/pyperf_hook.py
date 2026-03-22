@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import signal
 import statistics
 import subprocess
@@ -127,6 +128,7 @@ class GCMonitorHook:
             return
 
         bench_name: str = metadata.get("name", "")
+        bench_name = re.sub(r"[^a-zA-Z0-9_-]", "_", bench_name)
         combined_file = Path(f"gc_monitor_{bench_name}_combined_{self._pid}.json")
 
         try:
