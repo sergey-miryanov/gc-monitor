@@ -8,11 +8,13 @@ A modern Python package for monitoring Python's garbage collector (GC) and expor
 ## Features
 
 - **Real-time GC monitoring** - Track garbage collection events in running Python processes
-- **Multiple export formats** - Chrome Trace Event and Pyperf JSON format support
+- **Multiple export formats** - Chrome Trace Event, Pyperf JSON, and JSONL (stdout) support
 - **CLI and API** - Use via command-line or integrate into your own tools
 - **Pyperf hook integration** - Seamlessly integrate with pyperf benchmarks
 - **Lightweight** - Minimal overhead background thread polling
 - **External process architecture** - Monitor processes without in-process overhead
+- **Auto-flush support** - Stream large traces to disk incrementally
+- **Graceful shutdown** - Signal handling for clean termination
 
 ## Installation
 
