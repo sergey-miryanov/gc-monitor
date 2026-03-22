@@ -5,10 +5,12 @@ Exports GC events to stdout in a one-line-per-item format (JSONL/NDJSON).
 
 import json
 import sys
-from typing import Any, Dict
+from typing import Any, override
 
 from ._gc_monitor import GCMonitorStatsItem
 from .exporter import GCMonitorExporter
+
+__all__ = ["StdoutExporter"]
 
 
 class StdoutExporter(GCMonitorExporter):
@@ -37,14 +39,15 @@ class StdoutExporter(GCMonitorExporter):
         self._flush = flush
         self._event_count = 0
 
-    def add_event(self, stats_item: GCMonitorStatsItem) -> None:  # pyright: ignore[reportImplicitOverride]
+    @override
+    def add_event(self, stats_item: GCMonitorStatsItem) -> None:
         """
         Write a GC event to stdout as a single JSON line.
 
         Args:
             stats_item: GCMonitorStatsItem instance from callback
         """
-        event: Dict[str, Any] = {
+        event: dict[str, Any] = {
             "pid": self._pid,
             "tid": self._thread_name,
             "gen": stats_item.gen,
@@ -66,7 +69,8 @@ class StdoutExporter(GCMonitorExporter):
         print(json.dumps(event), flush=self._flush)
         self._event_count += 1
 
-    def close(self) -> None:  # pyright: ignore[reportImplicitOverride]
+    @override
+    def close(self) -> None:
         """Flush stdout on close."""
         if self._flush:
             sys.stdout.flush()

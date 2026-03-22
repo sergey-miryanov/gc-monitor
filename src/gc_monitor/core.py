@@ -30,6 +30,8 @@ else:
 if TYPE_CHECKING:
     from .exporter import GCMonitorExporter
 
+__all__ = ["GCMonitor", "connect"]
+
 
 class GCMonitor:
     """GC event monitor that polls at a fixed rate.

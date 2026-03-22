@@ -2,6 +2,8 @@
 
 from ._gc_monitor import GCMonitorStatsItem
 
+__all__ = ["GCMonitorExporter"]
+
 
 class GCMonitorExporter:
     """Base class for exporters that collect GC events and save them."""

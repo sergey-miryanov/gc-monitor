@@ -5,9 +5,13 @@ import signal
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import TraceExporter, connect
 from .stdout_exporter import StdoutExporter
+
+if TYPE_CHECKING:
+    from .exporter import GCMonitorExporter
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -95,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
             print("Duration: until interrupted (Ctrl+C)")
 
     # Create appropriate exporter based on format
+    exporter: GCMonitorExporter
     if output_format == "stdout":
         exporter = StdoutExporter(pid=pid)
     else:
@@ -112,8 +117,6 @@ def main(argv: list[str] | None = None) -> int:
     def _signal_handler(signum: int, frame: object) -> None:
         nonlocal shutdown_requested
         shutdown_requested = True
-        if verbose:
-            print("\nShutdown requested...")
 
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)

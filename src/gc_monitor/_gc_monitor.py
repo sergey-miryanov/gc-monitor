@@ -7,7 +7,6 @@ _gc_monitor module available, the real implementation will be used instead.
 """
 
 import random
-from typing import List
 
 __all__ = [
     "GCMonitorStatsItem",
@@ -75,7 +74,7 @@ class GCMonitorHandler:
         self._connected = True
         self._length = random.randint(1, 10)
 
-    def read(self) -> List[GCMonitorStatsItem]:
+    def read(self) -> list[GCMonitorStatsItem]:
         """Read GC monitoring events.
 
         Returns:

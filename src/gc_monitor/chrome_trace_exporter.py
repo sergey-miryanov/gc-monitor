@@ -2,10 +2,12 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, override
+from typing import Any, override
 
 from ._gc_monitor import GCMonitorStatsItem
 from .exporter import GCMonitorExporter
+
+__all__ = ["TraceExporter"]
 
 
 class TraceExporter(GCMonitorExporter):
@@ -33,7 +35,7 @@ class TraceExporter(GCMonitorExporter):
             flush_threshold: Number of events to buffer before flushing to file (default: 1000)
         """
         super().__init__(pid, thread_name)
-        self._events: List[Dict[str, Any]] = []
+        self._events: list[dict[str, Any]] = []
         self._flush_threshold = flush_threshold
         self._output_path = output_path
         self._closed = False
@@ -154,7 +156,7 @@ class TraceExporter(GCMonitorExporter):
         """Write all buffered events to file."""
 
         linesep = "\n"
-        lines: List[str] = []
+        lines: list[str] = []
         for e in self._events:
             lines.append(f",{linesep}")
             lines.append(json.dumps(e))
