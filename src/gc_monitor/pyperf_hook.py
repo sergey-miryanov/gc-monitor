@@ -7,6 +7,7 @@ import re
 import signal
 import statistics
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -54,14 +55,16 @@ class GCMonitorHook:
         try:
             self._process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 # Windows-specific: CREATE_NEW_PROCESS_GROUP for clean termination
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
             )
         except FileNotFoundError as e:
             raise RuntimeError(
-                "gc-monitor CLI not found. Ensure gc-monitor is installed: pip install gc-monitor"
+                "Failed to run gc-monitor module: "
+                + str(e)
+                + ". Ensure gc-monitor is installed: pip install gc-monitor"
             ) from e
 
         # Small delay to ensure gc-monitor attaches before benchmark starts
@@ -108,6 +111,19 @@ class GCMonitorHook:
                 else:
                     self._process.kill()
                     self._process.wait(timeout=2.0)
+
+            # Check exit code and log stdout/stderr if error
+            if self._process.returncode != 0:
+                stdout, stderr = self._process.communicate()
+                stdout_str = stdout.decode("utf-8", errors="replace").strip()
+                stderr_str = stderr.decode("utf-8", errors="replace").strip()
+                
+                if stdout_str:
+                    logger.warning("gc-monitor process (PID %s) exited with code %s. stdout:\n%s",
+                                   self._process.pid, self._process.returncode, stdout_str)
+                if stderr_str:
+                    logger.warning("gc-monitor process (PID %s) exited with code %s. stderr:\n%s",
+                                   self._process.pid, self._process.returncode, stderr_str)
 
         except Exception as e:
             logger.warning("Failed to exit from gc_monitor hook: %s", e)
@@ -229,8 +245,12 @@ class GCMonitorHook:
         temp_file = Path(filename)
         self._temp_files.append(temp_file)
 
+        # Use sys.executable to run gc_monitor as a module
+        # This ensures the correct Python interpreter is used
         cmd: list[str] = [
-            "gc-monitor",
+            sys.executable,
+            "-m",
+            "gc_monitor",
             str(self._pid),
             "-o",
             str(filename),
@@ -238,6 +258,8 @@ class GCMonitorHook:
             "chrome",
             "--thread-name",
             thread_name,
+            "--fallback",
+            "no",
         ]
 
         return cmd

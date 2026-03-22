@@ -1,6 +1,7 @@
 """Command-line interface for gc-monitor."""
 
 import argparse
+import logging
 import signal
 import sys
 import time
@@ -12,6 +13,21 @@ from .stdout_exporter import StdoutExporter
 
 if TYPE_CHECKING:
     from .exporter import GCMonitorExporter
+
+logger = logging.getLogger("gc_monitor")
+
+
+def _setup_logging(verbose: bool) -> None:
+    """Configure logging for the CLI.
+    
+    Args:
+        verbose: If True, set log level to INFO; otherwise WARNING.
+    """
+    level = logging.INFO if verbose else logging.WARNING
+    logging.basicConfig(
+        level=level,
+        format="%(levelname)s: %(message)s",
+    )
 
 
 def _create_parser() -> argparse.ArgumentParser:
@@ -64,6 +80,12 @@ def _create_parser() -> argparse.ArgumentParser:
         default="GC Monitor",
         help="Thread name for trace events (default: 'GC Monitor')",
     )
+    parser.add_argument(
+        "--fallback",
+        choices=["yes", "no"],
+        default="yes",
+        help="Use mock implementation if _gc_monitor module not available (default: yes)",
+    )
     return parser
 
 
@@ -79,6 +101,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = _create_parser()
     args = parser.parse_args(argv)
 
+    # Setup logging before any logging calls
+    _setup_logging(args.verbose)
+
     pid = args.pid
     output_path = args.output
     rate = args.rate
@@ -86,17 +111,19 @@ def main(argv: list[str] | None = None) -> int:
     verbose = args.verbose
     output_format = args.format
     thread_name = args.thread_name
+    fallback = args.fallback
 
     if verbose:
-        print(f"Monitoring PID {pid}")
+        logger.info("Monitoring PID %s", pid)
         if output_format != "stdout":
-            print(f"Output: {output_path}")
-        print(f"Format: {output_format}")
-        print(f"Rate: {rate}s")
+            logger.info("Output: %s", output_path)
+        logger.info("Format: %s", output_format)
+        logger.info("Rate: %ss", rate)
         if duration:
-            print(f"Duration: {duration}s")
+            logger.info("Duration: %ss", duration)
         else:
-            print("Duration: until interrupted (Ctrl+C)")
+            logger.info("Duration: until interrupted (Ctrl+C)")
+        logger.info("Fallback: %s", fallback)
 
     # Create appropriate exporter based on format
     exporter: GCMonitorExporter
@@ -105,10 +132,11 @@ def main(argv: list[str] | None = None) -> int:
     else:
         exporter = TraceExporter(pid=pid, output_path=output_path, thread_name=thread_name)
 
-    monitor = connect(pid, exporter=exporter, rate=rate)
-
-    if monitor is None:
-        print(f"Failed to connect to GC monitor for PID {pid}", file=sys.stderr)
+    use_fallback = fallback == "yes"
+    try:
+        monitor = connect(pid, exporter=exporter, rate=rate, use_fallback=use_fallback)
+    except RuntimeError as e:
+        logger.error("Error: %s", e)
         return 1
 
     # Handle graceful shutdown on SIGINT/SIGTERM
@@ -125,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         if duration:
             # Run for specified duration or until target process ends
             if verbose:
-                print(f"Monitoring for {duration} seconds...")
+                logger.info("Monitoring for %s seconds...", duration)
             start_time = time.monotonic()
             while not shutdown_requested and monitor.is_running:
                 elapsed = time.monotonic() - start_time
@@ -135,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             # Run until interrupted or target process ends
             if verbose:
-                print("Monitoring... (press Ctrl+C to stop)")
+                logger.info("Monitoring... (press Ctrl+C to stop)")
             while not shutdown_requested and monitor.is_running:
                 time.sleep(0.1)
     finally:
@@ -145,16 +173,16 @@ def main(argv: list[str] | None = None) -> int:
 
     event_count = exporter.get_event_count()
     if verbose:
-        print(f"\nMonitoring complete.")
-        print(f"Total events: {event_count}")
+        logger.info("Monitoring complete.")
+        logger.info("Total events: %s", event_count)
         if output_format != "stdout":
-            print(f"Trace saved to: {output_path}")
+            logger.info("Trace saved to: %s", output_path)
     else:
         if output_format == "stdout":
             # Print summary to stderr for stdout format
-            print(f"Exported {event_count} events to stdout", file=sys.stderr)
+            logger.info("Exported %s events to stdout", event_count)
         else:
-            print(f"Saved {event_count} events to {output_path}")
+            logger.info("Saved %s events to %s", event_count, output_path)
 
     return 0
 

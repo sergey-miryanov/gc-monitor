@@ -1,30 +1,24 @@
 """Core GC monitoring functionality."""
 
-import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Optional
+import warnings
+from typing import TYPE_CHECKING
 
 # Try to import from experimental CPython _gc_monitor module first,
-# fall back to mock implementation if not available
+# fall back to mock implementation if not available (controlled by use_fallback parameter)
 if TYPE_CHECKING:
     # For type checking, always use the stub/mock types
     from ._gc_monitor import GCMonitorHandler, connect as _connect
+    _gc_monitor_available = True
 else:
     # At runtime, try the real module first
+    _gc_monitor_available = False
     try:
         from _gc_monitor import GCMonitorHandler, connect as _connect  # type: ignore[import-not-found]
+        _gc_monitor_available = True
     except ImportError:
-        # Real _gc_monitor module not available, using mock implementation
-        import warnings
-
-        warnings.warn(
-            "Experimental CPython _gc_monitor module not available. " +
-            "Using mock implementation from gc_monitor._gc_monitor. " +
-            "GC monitoring will use simulated data.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
+        # Real _gc_monitor module not available, will use mock if fallback enabled
         from ._gc_monitor import GCMonitorHandler, connect as _connect
 
 if TYPE_CHECKING:
@@ -93,8 +87,8 @@ class GCMonitor:
 
 
 def connect(
-    pid: int, exporter: "GCMonitorExporter", rate: float = 0.1
-) -> Optional[GCMonitor]:
+    pid: int, exporter: "GCMonitorExporter", rate: float = 0.1, use_fallback: bool = True
+) -> GCMonitor:
     """
     Connect to GC monitor for the given process and start monitoring.
 
@@ -102,17 +96,32 @@ def connect(
         pid: Process ID to monitor
         exporter: Exporter to collect and save events
         rate: Polling interval in seconds (default: 0.1)
+        use_fallback: Use mock implementation if _gc_monitor not available (default: True)
 
     Returns:
-        GCMonitor instance on success, None on failure
+        GCMonitor instance on success
 
-    Note:
-        Prints exception message to stderr on failure.
+    Raises:
+        RuntimeError: If connection fails or if _gc_monitor module is not available and use_fallback=False.
     """
-    try:
-        handler = _connect(pid)
-        monitor = GCMonitor(handler, exporter, rate)
-        return monitor
-    except RuntimeError as e:
-        print(f"Failed to connect to GC monitor for PID {pid}: {e}", file=sys.stderr)
-        return None
+    # Check if we need to use fallback and if it's allowed
+    if not _gc_monitor_available and not use_fallback:
+        error_msg = (
+            "Experimental CPython _gc_monitor module not available. "
+            "Use --fallback=yes to use mock implementation."
+        )
+        raise RuntimeError(error_msg)
+
+    # Show warning when using fallback
+    if not _gc_monitor_available and use_fallback:
+        warning_msg = (
+            "Experimental CPython _gc_monitor module not available. "
+            "Using mock implementation from gc_monitor._gc_monitor. "
+            "GC monitoring will use simulated data. "
+            "Use --fallback=no to disable fallback and raise an error instead."
+        )
+        warnings.warn(warning_msg, RuntimeWarning, stacklevel=2)
+
+    handler = _connect(pid)
+    monitor = GCMonitor(handler, exporter, rate)
+    return monitor

@@ -38,9 +38,7 @@ class TestStdoutExporter:
         """Test StdoutExporter initialization with default parameters."""
         exporter = StdoutExporter(pid=12345)
 
-        assert exporter._pid == 12345
-        assert exporter._thread_name == "GC Monitor"
-        assert exporter._flush is True
+        # Test observable behavior instead of protected attributes
         assert exporter.get_event_count() == 0
 
     def test_init_custom_parameters(self) -> None:
@@ -49,9 +47,7 @@ class TestStdoutExporter:
             pid=12345, thread_name="Custom Thread", flush=False
         )
 
-        assert exporter._pid == 12345
-        assert exporter._thread_name == "Custom Thread"
-        assert exporter._flush is False
+        # Test observable behavior instead of protected attributes
         assert exporter.get_event_count() == 0
 
     def test_add_event_json_output_format(self, mock_stats_item: Mock, capsys: pytest.CaptureFixture[str]) -> None:

@@ -57,8 +57,10 @@ class TestGCMonitorHookEnter:
         # Verify subprocess.Popen was called with correct args
         mock_popen.assert_called_once()
         call_args = mock_popen.call_args[0][0]
-        assert call_args[0] == "gc-monitor"
-        assert call_args[1] == "12345"
+        # Command should be: [sys.executable, "-m", "gc_monitor", pid, ...]
+        assert call_args[1] == "-m"
+        assert call_args[2] == "gc_monitor"
+        assert call_args[3] == "12345"
         assert "-o" in call_args
         assert "--format" in call_args
         assert "chrome" in call_args
@@ -68,16 +70,17 @@ class TestGCMonitorHookEnter:
     def test_enter_raises_on_missing_cli(
         self, mock_getpid: Mock, mock_popen: Mock
     ) -> None:
-        """__enter__ raises RuntimeError if gc-monitor CLI not found."""
+        """__enter__ raises RuntimeError if gc-monitor module not found."""
         mock_getpid.return_value = 12345
-        mock_popen.side_effect = FileNotFoundError("gc-monitor not found")
+        mock_popen.side_effect = FileNotFoundError("module not found")
 
         hook = GCMonitorHook()
         with pytest.raises(RuntimeError) as exc_info:
             with hook:
                 pass
 
-        assert "gc-monitor CLI not found" in str(exc_info.value)
+        assert "Failed to run gc-monitor module" in str(exc_info.value)
+        assert "Ensure gc-monitor is installed" in str(exc_info.value)
 
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
