@@ -24,6 +24,7 @@ python = ">=3.12"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
+pytest-cov = "^6.0.0"
 pyperf = "^2.10.0"
 pyright = "^1.1.408"
 mypy = "^1.19.1"
@@ -99,3 +100,23 @@ check_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 tmp_path_retention_policy = "failed"
+
+# =============================================================================
+# Coverage Configuration
+# =============================================================================
+
+[tool.coverage.run]
+source = ["src/gc_monitor"]
+branch = true
+omit = ["*/tests/*", "*/__pycache__/*", "*/.venv/*"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "pass",
+]
+fail_under = 80
+show_missing = true
+skip_covered = true

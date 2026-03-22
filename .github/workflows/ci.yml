@@ -45,7 +45,7 @@ jobs:
 
       - name: Run tests
         run: |
-          poetry run pytest -q --junitxml=reports/tests.xml
+          poetry run pytest -q --cov=src/gc_monitor --cov-report=xml --cov-report=term-missing --junitxml=reports/tests.xml
 
       - name: Upload test results
         if: always()
@@ -53,3 +53,13 @@ jobs:
         with:
           name: test-results
           path: reports/tests.xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      - name: Coverage summary
+        run: |
+          poetry run coverage report

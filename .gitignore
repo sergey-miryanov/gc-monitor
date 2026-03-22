@@ -22,3 +22,6 @@ envs/
 .DS_Store
 .idea/
 .vscode/
+
+# coverage
+.coverage
