@@ -547,6 +547,23 @@ Signal Stop → Read Temp JSON → Inject Metadata → Cleanup
 | JSONL File | `JSONLExporter` | `gc_events.jsonl` | Streaming, log aggregation, post-processing |
 | JSONL Stdout | `StdoutExporter` | stdout | Piping to other tools, real-time monitoring |
 
+### Example: Chrome Trace Viewer Output
+
+When you open the generated `gc_trace.json` file in Chrome DevTools or Perfetto, you'll see a visualization like this:
+
+![Chrome Trace Example](docs/images/chrome-trace-example.png)
+
+*Example: GC monitoring data visualized in Chrome Trace viewer showing:*
+- *GC Pause events (top row with markers)*
+- *Heap Size over time (green area chart)*
+- *Memory Counters (candidates, collected, heap_size, object_visits, reachable, uncollectable, work_to_do)*
+
+This visualization helps you:
+- **Identify GC pause patterns** - See when and how long GC pauses occur
+- **Track memory growth** - Monitor heap size changes over time
+- **Analyze collection efficiency** - Compare collected vs. uncollectable objects
+- **Debug memory issues** - Spot memory leaks or inefficient collection patterns
+
 ---
 
 ### 4. Complete System Overview
