@@ -260,6 +260,7 @@ class GCMonitorHook:
             sys.executable,
             "-m",
             "gc_monitor",
+            "monitor",
             str(self._pid),
             "-o",
             str(filename),
