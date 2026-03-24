@@ -310,8 +310,13 @@ def combine_files(
         all_events.extend(events)
 
     # Write combined events to output file
+    linesep = "\n"
     with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(all_events, f, indent=2)
+        f.write(f"[{linesep}")
+        for idx, event in enumerate(all_events):
+            f.write("" if idx == 0 else f",{linesep}")
+            f.write(json.dumps(event))
+        f.write(f"{linesep}]")
 
 
 class TraceExporter(GCMonitorExporter):
