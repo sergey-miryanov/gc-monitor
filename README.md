@@ -8,13 +8,13 @@ A modern Python package for monitoring Python's garbage collector (GC) and expor
 ## Features
 
 - **Real-time GC monitoring** - Track garbage collection events in running Python processes
-- **Multiple export formats** - Chrome Trace Event, Pyperf JSON, and JSONL (stdout) support
+- **Multiple export formats** - Chrome Trace Event, Pyperf JSON, JSONL file, and JSONL (stdout) support
 - **CLI and API** - Use via command-line or integrate into your own tools
 - **Pyperf hook integration** - Seamlessly integrate with pyperf benchmarks
 - **Lightweight** - Minimal overhead background thread polling
 - **External process architecture** - Monitor processes without in-process overhead
 - **Auto-flush support** - Stream large traces to disk incrementally
-- **Graceful shutdown** - Signal handling for clean termination
+- **Graceful shutdown** - Cross-platform process termination (Unix: SIGINT → SIGTERM → SIGKILL, Windows: CTRL_BREAK_EVENT → kill())
 
 ## Installation
 
@@ -47,11 +47,12 @@ gc-monitor 12345 --format pyperf -o gc_stats.json
 | Option | Description | Default |
 |--------|-------------|---------|
 | `pid` (required) | Process ID to monitor | - |
-| `-o, --output` | Output file path for trace data | `gc_trace.json` |
+| `-o, --output` | Output file path for trace data | `gc_trace.json` (chrome), `gc_monitor.jsonl` (jsonl) |
 | `-r, --rate` | Polling rate in seconds | `0.1` |
 | `-d, --duration` | Monitoring duration in seconds | Until interrupted |
 | `-v, --verbose` | Enable verbose output | `False` |
-| `--format` | Output format: `chrome` or `pyperf` | `chrome` |
+| `--format` | Output format: `chrome`, `pyperf`, `jsonl`, or `stdout` | `chrome` |
+| `--flush-threshold` | Number of events to buffer before flushing (jsonl format) | `100` |
 
 ### Example Commands
 
@@ -73,6 +74,24 @@ gc-monitor 12345 --output detailed_trace.json --rate 0.01
 **Export for pyperf hook:**
 ```bash
 gc-monitor 12345 --format pyperf --output gc_stats.json
+```
+
+**Export to JSONL format:**
+```bash
+# Export to JSONL file (one JSON object per line)
+gc-monitor 12345 --format jsonl --output gc_events.jsonl
+
+# Use default output file (gc_monitor.jsonl)
+gc-monitor 12345 --format jsonl
+
+# Custom flush threshold for high-frequency monitoring
+gc-monitor 12345 --format jsonl --flush-threshold 50 --rate 0.01
+```
+
+**Stream JSONL to stdout:**
+```bash
+# Stream events to stdout (one JSON object per line)
+gc-monitor 12345 --format stdout
 ```
 
 ## Pyperf Hook Integration
@@ -189,13 +208,16 @@ exporter.write(Path("gc_stats.json"))
 
 - `src/gc_monitor/` - Package source
   - `_gc_monitor.py` - Low-level GC monitoring API (or mock implementation)
+  - `_process_terminator.py` - Cross-platform process termination utilities
   - `core.py` - High-level monitoring (GCMonitor class)
   - `exporter.py` - Base exporter interface
   - `chrome_trace_exporter.py` - Chrome Trace format exporter
   - `pyperf_exporter.py` - Pyperf JSON format exporter
   - `pyperf_hook.py` - Pyperf hook integration
+  - `jsonl_exporter.py` - JSONL file format exporter
+  - `stdout_exporter.py` - JSONL stdout exporter
   - `cli.py` - Command-line interface
-- `tests/` - Test suite
+- `tests/` - Test suite (160 tests, ~92% coverage)
 - `examples/` - Usage examples and benchmarks
 - `pyproject.toml` - Packaging configuration
 - `Makefile` - Build/test commands
