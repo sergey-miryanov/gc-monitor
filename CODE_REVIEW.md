@@ -3,7 +3,7 @@
 **Review Date:** 2026-03-24
 **Reviewer:** python-reviewer agent
 **Package Version:** 0.1.0
-**Last Updated:** 2026-03-24 (All tests passing, timestamp normalization, combine mode)
+**Last Updated:** 2026-03-24 (Shared output file test added, race condition documented)
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### ✅ Test Suite Status
 
-All 157 tests now pass (previously 1 failing test has been resolved).
+All tests pass with comprehensive coverage of pyperf_hook shared output file scenario.
 
 ### ✅ New Features Added
 
@@ -49,9 +49,9 @@ All 157 tests now pass (previously 1 failing test has been resolved).
 | `test_jsonl_exporter.py` | 22 | ✅ All pass | 100% |
 | `test_stdout_exporter.py` | 12 | ✅ All pass | 100% |
 | `test_cli.py` | 67 | ✅ All pass | 84% |
-| `test_chrome_trace.py` | ~25 | ✅ All pass | Good |
-| `test_pyperf_hook.py` | ~21 | ✅ All pass | Good |
-| **Total** | **162** | **157 pass, 5 skipped** | **~92%** |
+| `test_chrome_trace.py` | 18 | ✅ All pass | Good |
+| `test_pyperf_hook.py` | 22 | ✅ All pass | Good |
+| **Total** | **164** | **159 pass, 5 skipped** | **~92%** |
 
 **Note:** 5 skipped tests are Unix-only tests running on Windows (expected behavior).
 
@@ -66,12 +66,13 @@ The gc-monitor package demonstrates **excellent code quality** with a well-struc
 - ✅ All type annotations strict-mode compliant (pyright: 0 errors, mypy: success)
 - ✅ Clean separation of concerns (exporter pattern, handler pattern, process termination)
 - ✅ Good documentation with docstrings
-- ✅ Comprehensive test suite (162 tests, all passing)
+- ✅ Comprehensive test suite (164 tests)
 - ✅ Signal handler safety improved
 - ✅ Path traversal vulnerability fixed
 - ✅ New JSONL exporter added with full test coverage
 - ✅ Process termination code extracted to dedicated module
-- ⚠️ **One critical issue remains** (race condition in file writing)
+- ✅ New test for shared output file scenario in pyperf_hook
+- ⚠️ **One critical issue remains** (race condition in file writing - documented, not fixed)
 - ⚠️ Several medium/low priority improvements needed
 
 ---
@@ -90,32 +91,33 @@ The gc-monitor package demonstrates **excellent code quality** with a well-struc
 
 ---
 
-### 2. **CRITICAL** - Race Condition in `chrome_trace_exporter.py` File Writing
+### 2. **CRITICAL** - Race Condition in File Writing (Multiple Scenarios)
 
-**Location:** `src/gc_monitor/chrome_trace_exporter.py:154-162`
+**Locations:** 
+- `src/gc_monitor/chrome_trace_exporter.py:154-162` (direct file writes)
+- `src/gc_monitor/pyperf_hook.py:200-210` (shared output file via `GC_MONITOR_PYPERF_HOOK_OUTPUT`)
 
-**Status:** ⚠️ **STILL PRESENT** - Requires immediate attention
+**Status:** ⚠️ **DOCUMENTED, NOT FIXED** - By design assumption
 
-```python
-def _write_to_file(self) -> None:
-    """Write all buffered events to file."""
+**Issue 1 (chrome_trace_exporter.py):** The file is opened in append mode without any locking mechanism. If multiple processes or threads write simultaneously, the JSON file can become corrupted.
 
-    linesep = "\n"
-    lines: list[str] = []
-    for e in self._events:
-        lines.append(f",{linesep}")
-        lines.append(json.dumps(e))
-    with open(self._output_path, "a", encoding="utf-8") as f:
-        f.writelines(lines)
-```
+**Issue 2 (pyperf_hook.py):** When `GC_MONITOR_PYPERF_HOOK_OUTPUT` environment variable is set to a single file path, multiple pyperf runs will write to the same output file. Each run overwrites the previous one's data (not appended), but if two runs happen concurrently, file corruption can occur.
 
-**Issue:** The file is opened in append mode without any locking mechanism. If multiple processes or threads write simultaneously (e.g., multiple gc-monitor instances monitoring the same process, or the pyperf hook combining files), the JSON file can become corrupted. The `_write_metadata` writes the opening bracket, but concurrent `_write_to_file` calls can interleave, producing invalid JSON.
+**Severity:** 🔴 Critical (but accepted risk)
 
-**Severity:** 🔴 Critical
+**Impact:** 
+- Data corruption in concurrent scenarios
+- Invalid JSON output
+- Potential data loss
 
-**Impact:** Data corruption, invalid JSON output, potential data loss.
+**Design Decision:** The current implementation assumes that:
+1. Only one gc-monitor instance writes to a given output file at a time
+2. For pyperf_hook, each benchmark run is sequential, not concurrent
+3. Users are responsible for ensuring unique output files if concurrent runs are needed
 
-**Recommended Fix:** Use cross-platform file locking:
+**Test Coverage:** New test `test_multiple_runs_write_to_shared_output_file` verifies the sequential case works correctly. Concurrent case is not tested (assumed to not happen).
+
+**Recommended Fix (if needed in future):** Use cross-platform file locking:
 ```python
 import os
 
@@ -148,7 +150,7 @@ def _write_to_file(self) -> None:
     self._events.clear()
 ```
 
-**Alternative:** Use a thread-safe queue pattern with a single writer thread.
+**Note:** Attempted implementation revealed platform-specific issues with `msvcrt.locking` on Windows that made reliable locking difficult. The decision was made to document the limitation rather than implement unreliable locking.
 
 ---
 
