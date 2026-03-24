@@ -275,6 +275,12 @@ def _create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable verbose output",
     )
+    combine_parser.add_argument(
+        "-n",
+        "--normalize",
+        action="store_true",
+        help="Normalize timestamps for each input file independently (each file starts at timestamp 0)",
+    )
 
     return parser
 
@@ -427,15 +433,18 @@ def _cmd_combine(args: argparse.Namespace) -> int:
     input_paths = args.inputs
     output_path = args.output
     verbose = args.verbose
+    normalize = args.normalize
 
     if verbose:
         logger.info("Combining %s file(s)...", len(input_paths))
         for input_path in input_paths:
             logger.info("  Input: %s", input_path)
         logger.info("  Output: %s", output_path)
+        if normalize:
+            logger.info("  Normalizing timestamps: yes")
 
     try:
-        combine_files(input_paths, output_path)
+        combine_files(input_paths, output_path, normalize=normalize)
     except (FileNotFoundError, ValueError, json.JSONDecodeError) as e:
         logger.error("Error combining files: %s", e)
         return 1

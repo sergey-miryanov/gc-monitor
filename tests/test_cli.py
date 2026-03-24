@@ -1551,3 +1551,442 @@ def test_cli_combine_multiple_files(tmp_path: Path) -> None:
         data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
 
     assert len(data) == 3
+
+
+# =============================================================================
+# Combine Command - Normalize Tests
+# =============================================================================
+
+
+def test_cli_combine_normalize_basic(tmp_path: Path) -> None:
+    """Test CLI combine command with --normalize option."""
+    file1 = tmp_path / "trace1.json"
+    file2 = tmp_path / "trace2.json"
+    output_file = tmp_path / "combined.json"
+
+    import json
+    # File 1: timestamps start at 1000
+    with open(file1, "w") as f:
+        json.dump([
+            {"name": "event1", "ph": "X", "ts": 1000},
+            {"name": "event2", "ph": "X", "ts": 1100},
+        ], f)
+    # File 2: timestamps start at 5000
+    with open(file2, "w") as f:
+        json.dump([
+            {"name": "event3", "ph": "X", "ts": 5000},
+            {"name": "event4", "ph": "X", "ts": 5200},
+        ], f)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "combine",
+            str(file1),
+            str(file2),
+            "-o",
+            str(output_file),
+            "--normalize",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert output_file.exists()
+    assert "Normalizing timestamps: yes" in result.stderr
+
+    with open(output_file) as f:
+        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+
+    assert len(data) == 4
+    # File 1 should be normalized: 1000->0, 1100->100
+    assert data[0]["ts"] == 0
+    assert data[1]["ts"] == 100
+    # File 2 should be normalized independently: 5000->0, 5200->200
+    assert data[2]["ts"] == 0
+    assert data[3]["ts"] == 200
+
+
+def test_cli_combine_normalize_preserves_relative_timing(tmp_path: Path) -> None:
+    """Test that --normalize preserves relative timing within each file."""
+    file1 = tmp_path / "trace1.json"
+    output_file = tmp_path / "combined.json"
+
+    import json
+    # File with various timestamp intervals
+    with open(file1, "w") as f:
+        json.dump([
+            {"name": "event1", "ph": "X", "ts": 1000},
+            {"name": "event2", "ph": "X", "ts": 1050},  # 50us after event1
+            {"name": "event3", "ph": "X", "ts": 1200},  # 150us after event2
+            {"name": "event4", "ph": "X", "ts": 1700},  # 500us after event3
+        ], f)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "combine",
+            str(file1),
+            "-o",
+            str(output_file),
+            "--normalize",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    with open(output_file) as f:
+        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+
+    # Verify relative timing is preserved
+    assert data[0]["ts"] == 0
+    assert data[1]["ts"] == 50  # 50us from event1
+    assert data[2]["ts"] == 200  # 200us from event1 (150us from event2)
+    assert data[3]["ts"] == 700  # 700us from event1 (500us from event3)
+
+    # Verify intervals are preserved
+    assert data[1]["ts"] - data[0]["ts"] == 50
+    assert data[2]["ts"] - data[1]["ts"] == 150
+    assert data[3]["ts"] - data[2]["ts"] == 500
+
+
+def test_cli_combine_normalize_multiple_files_independent(tmp_path: Path) -> None:
+    """Test that --normalize normalizes each file independently."""
+    file1 = tmp_path / "trace1.json"
+    file2 = tmp_path / "trace2.json"
+    file3 = tmp_path / "trace3.json"
+    output_file = tmp_path / "combined.json"
+
+    import json
+    # Three files with different timestamp ranges
+    with open(file1, "w") as f:
+        json.dump([
+            {"name": "file1_event1", "ph": "X", "ts": 100},
+            {"name": "file1_event2", "ph": "X", "ts": 200},
+        ], f)
+    with open(file2, "w") as f:
+        json.dump([
+            {"name": "file2_event1", "ph": "X", "ts": 10000},
+            {"name": "file2_event2", "ph": "X", "ts": 10100},
+        ], f)
+    with open(file3, "w") as f:
+        json.dump([
+            {"name": "file3_event1", "ph": "X", "ts": 50000},
+            {"name": "file3_event2", "ph": "X", "ts": 50050},
+        ], f)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "combine",
+            str(file1),
+            str(file2),
+            str(file3),
+            "-o",
+            str(output_file),
+            "--normalize",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    with open(output_file) as f:
+        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+
+    assert len(data) == 6
+    # Each file should start at 0
+    assert data[0]["ts"] == 0  # file1_event1
+    assert data[1]["ts"] == 100  # file1_event2 (200-100)
+    assert data[2]["ts"] == 0  # file2_event1
+    assert data[3]["ts"] == 100  # file2_event2 (10100-10000)
+    assert data[4]["ts"] == 0  # file3_event1
+    assert data[5]["ts"] == 50  # file3_event2 (50050-50000)
+
+
+def test_cli_combine_without_normalize(tmp_path: Path) -> None:
+    """Test that combine without --normalize preserves original timestamps."""
+    file1 = tmp_path / "trace1.json"
+    file2 = tmp_path / "trace2.json"
+    output_file = tmp_path / "combined.json"
+
+    import json
+    with open(file1, "w") as f:
+        json.dump([
+            {"name": "event1", "ph": "X", "ts": 1000},
+            {"name": "event2", "ph": "X", "ts": 1100},
+        ], f)
+    with open(file2, "w") as f:
+        json.dump([
+            {"name": "event3", "ph": "X", "ts": 5000},
+            {"name": "event4", "ph": "X", "ts": 5200},
+        ], f)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "combine",
+            str(file1),
+            str(file2),
+            "-o",
+            str(output_file),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    with open(output_file) as f:
+        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+
+    # Timestamps should be preserved as-is
+    assert data[0]["ts"] == 1000
+    assert data[1]["ts"] == 1100
+    assert data[2]["ts"] == 5000
+    assert data[3]["ts"] == 5200
+
+
+def test_cli_combine_normalize_with_metadata(tmp_path: Path) -> None:
+    """Test that --normalize handles metadata events (phase 'M') without ts field."""
+    file1 = tmp_path / "trace1.json"
+    output_file = tmp_path / "combined.json"
+
+    import json
+    # File with metadata events (no ts) and regular events (with ts)
+    with open(file1, "w") as f:
+        json.dump([
+            {"name": "process_name", "ph": "M", "pid": 123, "args": {"name": "test"}},
+            {"name": "event1", "ph": "X", "ts": 1000},
+            {"name": "thread_name", "ph": "M", "pid": 123, "args": {"name": "main"}},
+            {"name": "event2", "ph": "X", "ts": 1500},
+        ], f)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "combine",
+            str(file1),
+            "-o",
+            str(output_file),
+            "--normalize",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    with open(output_file) as f:
+        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+
+    assert len(data) == 4
+    # Metadata events should not have ts field
+    assert data[0]["ph"] == "M"
+    assert "ts" not in data[0]
+    assert data[2]["ph"] == "M"
+    assert "ts" not in data[2]
+    # Regular events should be normalized
+    assert data[1]["ts"] == 0  # 1000 - 1000
+    assert data[3]["ts"] == 500  # 1500 - 1000
+
+
+def test_cli_combine_normalize_empty_file(tmp_path: Path) -> None:
+    """Test that --normalize handles empty event list."""
+    file1 = tmp_path / "trace1.json"
+    file2 = tmp_path / "trace2.json"
+    output_file = tmp_path / "combined.json"
+
+    import json
+    # Empty file
+    with open(file1, "w") as f:
+        json.dump([], f)
+    # Normal file
+    with open(file2, "w") as f:
+        json.dump([
+            {"name": "event1", "ph": "X", "ts": 1000},
+        ], f)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "combine",
+            str(file1),
+            str(file2),
+            "-o",
+            str(output_file),
+            "--normalize",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    with open(output_file) as f:
+        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+
+    assert len(data) == 1
+    assert data[0]["ts"] == 0
+
+
+def test_cli_combine_normalize_metadata_only(tmp_path: Path) -> None:
+    """Test that --normalize handles file with only metadata events."""
+    file1 = tmp_path / "trace1.json"
+    output_file = tmp_path / "combined.json"
+
+    import json
+    # File with only metadata events (no ts fields)
+    with open(file1, "w") as f:
+        json.dump([
+            {"name": "process_name", "ph": "M", "pid": 123, "args": {"name": "test"}},
+            {"name": "thread_name", "ph": "M", "pid": 123, "args": {"name": "main"}},
+        ], f)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "combine",
+            str(file1),
+            "-o",
+            str(output_file),
+            "--normalize",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    with open(output_file) as f:
+        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+
+    assert len(data) == 2
+    # Metadata events should be preserved without ts field
+    assert data[0]["ph"] == "M"
+    assert "ts" not in data[0]
+    assert data[1]["ph"] == "M"
+    assert "ts" not in data[1]
+
+
+def test_cli_combine_normalize_short_option(tmp_path: Path) -> None:
+    """Test CLI combine command with -n short option."""
+    file1 = tmp_path / "trace1.json"
+    output_file = tmp_path / "combined.json"
+
+    import json
+    with open(file1, "w") as f:
+        json.dump([
+            {"name": "event1", "ph": "X", "ts": 5000},
+        ], f)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "combine",
+            str(file1),
+            "-o",
+            str(output_file),
+            "-n",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    with open(output_file) as f:
+        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+
+    # Should be normalized to 0
+    assert data[0]["ts"] == 0
+
+
+def test_cli_combine_normalize_help_shows_option() -> None:
+    """Test CLI combine --help shows --normalize option."""
+    result = subprocess.run(
+        [sys.executable, "-m", "gc_monitor.cli", "combine", "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "--normalize" in result.stdout or "-n" in result.stdout
+    assert "Normalize" in result.stdout
+
+
+def test_cli_combine_normalize_mixed_metadata_and_events(tmp_path: Path) -> None:
+    """Test --normalize with mixed metadata and events in multiple files."""
+    file1 = tmp_path / "trace1.json"
+    file2 = tmp_path / "trace2.json"
+    output_file = tmp_path / "combined.json"
+
+    import json
+    # File 1: metadata + events starting at 100
+    with open(file1, "w") as f:
+        json.dump([
+            {"name": "process_name", "ph": "M", "pid": 123},
+            {"name": "event1", "ph": "X", "ts": 100},
+            {"name": "event2", "ph": "X", "ts": 150},
+        ], f)
+    # File 2: metadata + events starting at 1000
+    with open(file2, "w") as f:
+        json.dump([
+            {"name": "process_name", "ph": "M", "pid": 456},
+            {"name": "event3", "ph": "X", "ts": 1000},
+            {"name": "event4", "ph": "X", "ts": 1200},
+        ], f)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "combine",
+            str(file1),
+            str(file2),
+            "-o",
+            str(output_file),
+            "--normalize",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    with open(output_file) as f:
+        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+
+    assert len(data) == 6
+    # Metadata events should not have ts
+    assert data[0]["ph"] == "M"
+    assert "ts" not in data[0]
+    assert data[3]["ph"] == "M"
+    assert "ts" not in data[3]
+    # Events should be normalized per file
+    assert data[1]["ts"] == 0  # file1: 100-100
+    assert data[2]["ts"] == 50  # file1: 150-100
+    assert data[4]["ts"] == 0  # file2: 1000-1000
+    assert data[5]["ts"] == 200  # file2: 1200-1000

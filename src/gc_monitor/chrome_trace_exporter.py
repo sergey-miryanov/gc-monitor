@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, override
+from typing import Any, cast, override
 
 from ._gc_monitor import GCMonitorStatsItem
 from .exporter import GCMonitorExporter
@@ -10,16 +10,68 @@ from .exporter import GCMonitorExporter
 __all__ = ["TraceExporter", "combine_files"]
 
 
-def combine_files(input_paths: list[Path], output_path: Path) -> None:
+def _normalize_timestamps(events: list[dict[str, Any]]) -> None:
+    """Normalize timestamps in a list of events in-place so the minimum timestamp becomes 0.
+
+    For each event that has a 'ts' field, subtract the minimum timestamp value
+    from all timestamps. Events without 'ts' field (e.g., metadata events) are
+    preserved unchanged.
+
+    Note:
+        This function modifies the input list in-place. The events list should
+        contain freshly parsed data that is not shared elsewhere.
+
+    Args:
+        events: List of Chrome Trace Event format events (modified in-place)
+    """
+    # Find minimum timestamp across all events that have 'ts' field
+    timestamps = [event["ts"] for event in events if "ts" in event]
+    if not timestamps:
+        # No timestamps to normalize
+        return
+
+    min_ts = min(timestamps)
+
+    # Modify events in-place
+    for event in events:
+        if "ts" in event:
+            event["ts"] = event["ts"] - min_ts
+
+
+def _parse_events(content: str) -> list[dict[str, Any]]:
+    """Parse JSON content into a list of event dictionaries.
+
+    Args:
+        content: JSON string content
+
+    Returns:
+        List of event dictionaries
+
+    Raises:
+        ValueError: If content is not a JSON array
+    """
+    events: object = json.loads(content)
+    if not isinstance(events, list):
+        raise ValueError(f"Expected JSON array, got {type(events)}")
+    # Cast to expected type after validation
+    return cast("list[dict[str, Any]]", events)
+
+
+def combine_files(
+    input_paths: list[Path], output_path: Path, normalize: bool = False
+) -> None:
     """
     Combine multiple Chrome Trace Format files into one.
 
     Reads all events from input files and writes them to a single output file.
-    No normalization or metadata processing is performed - events are combined as-is.
+    When normalize=True, each input file's timestamps are normalized independently
+    so that the minimum timestamp in each file becomes 0.
 
     Args:
         input_paths: List of paths to input Chrome Trace Format files
         output_path: Path to output file
+        normalize: If True, normalize timestamps for each input file independently
+            so the minimum timestamp becomes 0 (default: False)
     """
     all_events: list[dict[str, Any]] = []
 
@@ -27,11 +79,13 @@ def combine_files(input_paths: list[Path], output_path: Path) -> None:
         with open(input_path, "r", encoding="utf-8") as f:
             content = f.read()
         # Parse the JSON array
-        events = json.loads(content)
-        if not isinstance(events, list):
-            raise ValueError(f"Expected JSON array in {input_path}, got {type(events)}")
-        # Skip metadata entries (phase 'M') if you want to keep only events
-        # For now, include everything as-is
+        events = _parse_events(content)
+
+        # Normalize timestamps if requested (modifies in-place)
+        if normalize:
+            _normalize_timestamps(events)
+
+        # Include everything as-is (metadata events preserved)
         all_events.extend(events)
 
     # Write combined events to output file
