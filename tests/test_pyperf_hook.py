@@ -689,3 +689,133 @@ class TestGcMonitorHookFactory:
         hook1 = gc_monitor_hook()
         hook2 = gc_monitor_hook()
         assert hook1 is not hook2
+
+
+class TestGCMonitorHookSharedOutput:
+    """Test GCMonitorHook with shared output file (GC_MONITOR_PYPERF_HOOK_OUTPUT)."""
+
+    @patch("gc_monitor.pyperf_hook._get_env_pyperf_hook_verbose", return_value=False)
+    @patch("gc_monitor.pyperf_hook.os.getpid", return_value=12345)
+    @patch("gc_monitor.pyperf_hook.time.sleep")
+    @patch("gc_monitor.pyperf_hook.subprocess.Popen")
+    def test_multiple_runs_write_to_shared_output_file(
+        self,
+        mock_popen: Mock,
+        mock_sleep: Mock,
+        mock_getpid: Mock,
+        mock_verbose: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Test multiple pyperf runs writing to same output file via env var.
+
+        When GC_MONITOR_PYPERF_HOOK_OUTPUT is set, multiple GCMonitorHook
+        instances will write to the same output file. This tests that the
+        combine logic correctly handles this case.
+        """
+        from gc_monitor.pyperf_hook import GCMonitorHook
+
+        # Set up shared output file
+        shared_output = tmp_path / "shared_gc_output.json"
+
+        # Create first hook instance (first pyperf run)
+        hook1 = GCMonitorHook()
+
+        # Mock the temp file for first run
+        temp_file_1 = tmp_path / "gc_monitor_run_0_12345.jsonl"
+        hook1._temp_files = [temp_file_1]
+
+        # Write test events from first run
+        test_events_run1: list[dict[str, Any]] = [
+            {
+                "pid": 12345,
+                "tid": 1,
+                "gen": 0,
+                "ts": 1_000_000_000,
+                "collections": 5,
+                "collected": 50,
+                "uncollectable": 2,
+                "candidates": 10,
+                "object_visits": 200,
+                "objects_transitively_reachable": 100,
+                "objects_not_transitively_reachable": 100,
+                "heap_size": 20000,
+                "work_to_do": 20,
+                "duration": 0.005,
+                "total_duration": 0.005,
+            }
+        ]
+        with open(temp_file_1, "w", encoding="utf-8") as f:
+            for event in test_events_run1:
+                f.write(json.dumps(event) + "\n")
+
+        # Mock _get_env_pyperf_hook_output to return shared output
+        with patch(
+            "gc_monitor.pyperf_hook._get_env_pyperf_hook_output",
+            return_value=shared_output,
+        ):
+            metadata1: dict[str, Any] = {"name": "benchmark_run1"}
+            hook1.teardown(metadata1)
+
+        # Create second hook instance (second pyperf run)
+        hook2 = GCMonitorHook()
+
+        # Mock the temp file for second run
+        temp_file_2 = tmp_path / "gc_monitor_run_1_12345.jsonl"
+        hook2._temp_files = [temp_file_2]
+
+        # Write test events from second run
+        test_events_run2: list[dict[str, Any]] = [
+            {
+                "pid": 12345,
+                "tid": 1,
+                "gen": 0,
+                "ts": 2_000_000_000,
+                "collections": 3,
+                "collected": 30,
+                "uncollectable": 1,
+                "candidates": 8,
+                "object_visits": 150,
+                "objects_transitively_reachable": 80,
+                "objects_not_transitively_reachable": 70,
+                "heap_size": 25000,
+                "work_to_do": 15,
+                "duration": 0.008,
+                "total_duration": 0.008,
+            }
+        ]
+        with open(temp_file_2, "w", encoding="utf-8") as f:
+            for event in test_events_run2:
+                f.write(json.dumps(event) + "\n")
+
+        # Second run also writes to shared output (overwrites)
+        with patch(
+            "gc_monitor.pyperf_hook._get_env_pyperf_hook_output",
+            return_value=shared_output,
+        ):
+            metadata2: dict[str, Any] = {"name": "benchmark_run2"}
+            hook2.teardown(metadata2)
+
+        # Verify shared output file exists
+        assert shared_output.exists()
+
+        # Verify combined file has correct Chrome Trace format
+        with open(shared_output, "r", encoding="utf-8") as f:
+            content = f.read()
+            # Should start with [ and end with ]
+            assert content.strip().startswith("[")
+            assert content.strip().endswith("]")
+            # Parse and verify structure
+            combined_data: list[dict[str, Any]] = json.loads(content)
+            assert isinstance(combined_data, list)
+            # Should have process_name, thread_names, and events from second run
+            # (second run overwrites first)
+            assert len(combined_data) >= 3  # metadata + events
+
+        # Verify metadata from second run
+        assert metadata2["gc_collections_total"] == 3
+        assert metadata2["gc_objects_collected_total"] == 30
+
+        # Cleanup temp files
+        temp_file_1.unlink(missing_ok=True)
+        temp_file_2.unlink(missing_ok=True)
+        shared_output.unlink(missing_ok=True)

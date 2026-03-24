@@ -7,7 +7,228 @@ from typing import Any, cast, override
 from ._gc_monitor import GCMonitorStatsItem
 from .exporter import GCMonitorExporter
 
-__all__ = ["TraceExporter", "combine_files"]
+__all__ = ["TraceExporter", "combine_files", "write_jsonl_events_to_trace", "convert_jsonl_to_trace_format"]
+
+
+def convert_jsonl_to_trace_format(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Convert a JSONL event to Chrome Trace format events.
+
+    JSONL format has flat fields (gen, ts, collections, etc.).
+    Chrome Trace format has structured events with 'name', 'cat', 'ph', 'args', etc.
+
+    Args:
+        event: JSONL event dictionary with flat fields
+
+    Returns:
+        List of Chrome Trace format event dictionaries
+    """
+    # Convert timestamp from nanoseconds to microseconds
+    ts_us = int(event.get("ts", 0) / 1_000)
+    # Convert duration from seconds to microseconds
+    dur_us = int(event.get("duration", 0.0) * 1_000_000)
+
+    gen = event.get("gen", 0)
+
+    pause_data = {
+        "generation": gen,
+        "collections": event.get("collections", 0),
+        "total_duration": event.get("total_duration", 0.0),
+        "heap_size": event.get("heap_size", 0),
+        "collected": event.get("collected", 0),
+        "uncollectable": event.get("uncollectable", 0),
+        "candidates": event.get("candidates", 0),
+        "object_visits": event.get("object_visits", 0),
+        "objects_transitively_reachable": event.get("objects_transitively_reachable", 0),
+        "objects_not_transitively_reachable": event.get("objects_not_transitively_reachable", 0),
+        "work_to_do": event.get("work_to_do", 0),
+    }
+
+    counter_data = {
+        "heap_size": event.get("heap_size", 0),
+        "collected": event.get("collected", 0),
+        "uncollectable": event.get("uncollectable", 0),
+        "candidates": event.get("candidates", 0),
+        "object_visits": event.get("object_visits", 0),
+    }
+
+    if gen == 1:
+        counter_data.update(
+            {
+                "objects_transitively_reachable": event.get("objects_transitively_reachable", 0),
+                "objects_not_transitively_reachable": event.get("objects_not_transitively_reachable", 0),
+                "work_to_do": event.get("work_to_do", 0),
+            }
+        )
+
+    pid = event.get("pid", "<null>")
+    tid = event.get("tid", "<null>")
+    trace_events: list[dict[str, Any]] = [
+        # Complete event for GC pause visualization
+        {
+            "name": "GC Pause",
+            "cat": "gc.pause",
+            "ph": "X",
+            "ts": ts_us,
+            "dur": dur_us,
+            "pid": pid,
+            "tid": tid,
+            "args": pause_data,
+        },
+        {
+            "name": f"GC Pause (gen={gen})",
+            "cat": f"gc.pause(gen={gen})",
+            "ph": "X",
+            "ts": ts_us,
+            "dur": dur_us,
+            "pid": pid,
+            "tid": tid,
+            "args": pause_data,
+        },
+        # Counter event for memory metrics
+        {
+            "name": f"Memory Counters (gen={gen})",
+            "cat": f"gc.memory(gen={gen})",
+            "ph": "C",
+            "ts": ts_us,
+            "pid": pid,
+            "tid": tid,
+            "args": counter_data,
+        },
+        {
+            "name": "Heap Size",
+            "cat": "gc.heap_size",
+            "ph": "C",
+            "ts": ts_us,
+            "pid": pid,
+            "tid": tid,
+            "args": {
+                "heap_size": event.get("heap_size", 0),
+            },
+        },
+    ]
+
+    return trace_events
+
+
+def write_jsonl_events_to_trace(
+    output_path: Path,
+    bench_name: str,
+    events: list[dict[str, Any]],
+) -> None:
+    r"""Write JSONL events to a Chrome Trace format file.
+
+    Events are written as a JSON array compatible with Chrome DevTools
+    Performance panel. Thread name metadata is included first, followed
+    by all events.
+
+    Args:
+        output_path: Path to output file
+        bench_name: Name of the benchmark (used for process name)
+        events: List of JSONL event dictionaries
+    """
+    pids: set[str] = set()
+    trace_events: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    last_ts: int = 0
+    for event in events:
+        ts = event.get("ts", -1)
+        if ts > last_ts:
+            tid = str(event.get("tid", "<null>"))
+            pid = str(event.get("pid", "<null>"))
+            pids.add(pid)
+            # Convert JSONL event to Chrome Trace format
+            if (pid, tid) not in trace_events:
+                trace_events[(pid, tid)] = []
+            trace_events[(pid, tid)].extend(convert_jsonl_to_trace_format(event))
+            last_ts = ts
+
+    linesep = "\n"
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("[")
+        # Write opening bracket and process name metadata
+        for idx, pid in enumerate(pids):
+            process_name = {
+                "name": "process_name",
+                "ph": "M",
+                "pid": pid,
+                "args": {"name": f"{pid}: {bench_name} benchmark"},
+            }
+            if idx > 0:
+                f.write(",")
+            f.write(linesep + json.dumps(process_name))
+
+        # Write thread name metadata for each unique thread
+        for pid, tid in trace_events.keys():
+            f.write(f",{linesep}")
+            thread_name = {
+                "name": "thread_name",
+                "ph": "M",
+                "pid": pid,
+                "tid": tid,
+                "args": {"name": f"run {tid}"},
+            }
+            f.write(json.dumps(thread_name))
+
+        # Write all events in Chrome Trace format
+        for (pid, tid), thread_events in trace_events.items():
+            if thread_events:
+                ts_us = 0
+                gens: set[int] = set()
+                for event in thread_events:
+                    f.write(f",{linesep}")
+                    f.write(json.dumps(event))
+                    ts_us = event["ts"]
+                    if "generation" in event["args"]:
+                        gens.add(event["args"]["generation"])
+
+                finish_events = [
+                    {
+                        "name": "Heap Size",
+                        "cat": "gc.heap_size",
+                        "ph": "C",
+                        "ts": ts_us + 1_000,
+                        "pid": pid,
+                        "tid": tid,
+                        "args": {
+                            "heap_size": 0,
+                        },
+                    },
+                ]
+                for gen in gens:
+                    counter_data = {
+                        "heap_size": 0,
+                        "collected": 0,
+                        "uncollectable": 0,
+                        "candidates": 0,
+                        "object_visits": 0,
+                    }
+                    if gen == 1:
+                        counter_data.update(
+                            {
+                                "objects_transitively_reachable": 0,
+                                "objects_not_transitively_reachable": 0,
+                                "work_to_do": 0,
+                            }
+                        )
+
+                    finish_events.append(
+                        {
+                            "name": f"Memory Counters (gen={gen})",
+                            "cat": f"gc.memory(gen={gen})",
+                            "ph": "C",
+                            "ts": ts_us + 1_000,
+                            "pid": pid,
+                            "tid": tid,
+                            "args": counter_data,
+                        }
+                    )
+
+                for event in finish_events:
+                    f.write(f",{linesep}")
+                    f.write(json.dumps(event))
+
+        # Write closing bracket
+        f.write(f"{linesep}]{linesep}")
 
 
 def _normalize_timestamps(events: list[dict[str, Any]]) -> None:

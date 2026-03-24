@@ -13,12 +13,14 @@ import re
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from random import randint
 from typing import Any
 
 from ._process_terminator import log_process_output, terminate_process
+from .chrome_trace_exporter import combine_files, write_jsonl_events_to_trace
 
 # Environment variable constants
 ENV_PYPERF_HOOK_OUTPUT = "GC_MONITOR_PYPERF_HOOK_OUTPUT"
@@ -182,6 +184,10 @@ class GCMonitorHook:
         bench_name = re.sub(r"[^a-zA-Z0-9_-]", "_", bench_name)
         combined_file = _get_env_pyperf_hook_output(bench_name, self._pid)
 
+        # Check if we need to combine with existing output file
+        env_output_set = os.environ.get(ENV_PYPERF_HOOK_OUTPUT) is not None
+        existing_file_exists = combined_file.exists() if env_output_set else False
+
         try:
             # Combine all temp files into a single Chrome Trace format file
             jsonl_events: list[dict[str, Any]] = []
@@ -197,8 +203,24 @@ class GCMonitorHook:
                     except (json.JSONDecodeError, IOError) as e:
                         logger.warning("Failed to read GC metrics from %s: %s", temp_file, e)
 
-            # Write combined Chrome Trace format file (preserving thread names from each file)
-            self._write_combined_trace(combined_file, bench_name, jsonl_events)
+            # Write to a temp file first, then combine with existing file if needed
+            if env_output_set and existing_file_exists:
+                # Write new data to a temp file
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".json", delete_on_close=False, encoding="utf-8"
+                ) as tmp:
+                    temp_output_path = Path(tmp.name)
+                    write_jsonl_events_to_trace(temp_output_path, bench_name, jsonl_events)
+
+                    # Combine existing file with new temp file
+                    combine_files(
+                        input_paths=[combined_file, temp_output_path],
+                        output_path=combined_file,
+                        normalize=False,
+                    )
+            else:
+                # Write directly to output file (no existing file to combine with)
+                write_jsonl_events_to_trace(combined_file, bench_name, jsonl_events)
 
             # Aggregate and add to metadata with gc_ prefix
             if jsonl_events:
@@ -213,126 +235,6 @@ class GCMonitorHook:
         finally:
             # Cleanup temp files
             self._cleanup_temp_files()
-
-    def _write_combined_trace(
-        self,
-        output_path: Path,
-        bench_name: str,
-        events: list[dict[str, Any]],
-    ) -> None:
-        r"""Write combined events to a Chrome Trace format file.
-
-        Events are written as a JSON array compatible with Chrome DevTools
-        Performance panel. Thread name metadata is included first, followed
-        by all events.
-
-        Args:
-            output_path: Path to output file
-            bench_name: Name of the benchmark (used for process name)
-            events: List of JSONL event dictionaries
-        """
-        pids: set[str] = set()
-        trace_events: dict[tuple[str, str], list[dict[str, Any]]] = {}
-        last_ts: int = 0
-        for event in events:
-            ts = event.get("ts", -1)
-            if ts > last_ts:
-                tid = str(event.get("tid", "<null>"))
-                pid = str(event.get("pid", "<null>"))
-                pids.add(pid)
-                # Convert JSONL event to Chrome Trace format
-                if (pid, tid) not in trace_events:
-                    trace_events[(pid, tid)] = []
-                trace_events[(pid, tid)].extend(_convert_jsonl_to_trace_format(event))
-                last_ts = ts
-
-        linesep = "\n"
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write("[")
-            # Write opening bracket and process name metadata
-            for idx, pid in enumerate(pids):
-                process_name = {
-                    "name": "process_name",
-                    "ph": "M",
-                    "pid": pid,
-                    "args": {"name": f"{pid}: {bench_name} benchmark"},
-                }
-                if idx > 0:
-                    f.write(",")
-                f.write(linesep + json.dumps(process_name))
-
-            # Write thread name metadata for each unique thread
-            for pid, tid in trace_events.keys():
-                f.write(f",{linesep}")
-                thread_name = {
-                    "name": "thread_name",
-                    "ph": "M",
-                    "pid": pid,
-                    "tid": tid,
-                    "args": {"name": f"run {tid}"},
-                }
-                f.write(json.dumps(thread_name))
-
-            # Write all events in Chrome Trace format
-            for (pid, tid), thread_events in trace_events.items():
-                if thread_events:
-                    ts_us = 0
-                    gens : set[int] = set()
-                    for event in thread_events:
-                        f.write(f",{linesep}")
-                        f.write(json.dumps(event))
-                        ts_us = event["ts"]
-                        if "generation" in event["args"]:
-                            gens.add(event["args"]["generation"])
-
-                    finish_events = [
-                        {
-                            "name": "Heap Size",
-                            "cat": "gc.heap_size",
-                            "ph": "C",
-                            "ts": ts_us + 1_000,
-                            "pid": pid,
-                            "tid": tid,
-                            "args": {
-                                "heap_size": 0,
-                            },
-                        },
-                    ]
-                    for gen in gens:
-                        counter_data = {
-                            "heap_size": 0,
-                            "collected": 0,
-                            "uncollectable": 0,
-                            "candidates": 0,
-                            "object_visits": 0,
-                        }
-                        if gen == 1:
-                            counter_data.update(
-                                {
-                                    "objects_transitively_reachable": 0,
-                                    "objects_not_transitively_reachable": 0,
-                                    "work_to_do": 0,
-                                }
-                            )
-
-                        finish_events.append(
-                            {
-                                "name": f"Memory Counters (gen={gen})",
-                                "cat": f"gc.memory(gen={gen})",
-                                "ph": "C",
-                                "ts": ts_us + 1_000,
-                                "pid": pid,
-                                "tid": tid,
-                                "args": counter_data,
-                            }
-                        )
-
-                    for event in finish_events:
-                        f.write(f",{linesep}")
-                        f.write(json.dumps(event))
-
-            # Write closing bracket
-            f.write(f"{linesep}]{linesep}")
 
     def _build_command(self) -> list[str]:
         """
@@ -382,107 +284,6 @@ class GCMonitorHook:
                 except OSError:
                     pass  # Ignore cleanup errors
         self._temp_files.clear()
-
-
-def _convert_jsonl_to_trace_format(event: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    Convert a JSONL event to Chrome Trace format events.
-
-    JSONL format has flat fields (gen, ts, collections, etc.).
-    Chrome Trace format has structured events with 'name', 'cat', 'ph', 'args', etc.
-
-    Args:
-        event: JSONL event dictionary with flat fields
-
-    Returns:
-        List of Chrome Trace format event dictionaries
-    """
-    # Convert timestamp from nanoseconds to microseconds
-    ts_us = int(event.get("ts", 0) / 1_000)
-    # Convert duration from seconds to microseconds
-    dur_us = int(event.get("duration", 0.0) * 1_000_000)
-
-    gen = event.get("gen", 0)
-
-    pause_data = {
-        "generation": gen,
-        "collections": event.get("collections", 0),
-        "total_duration": event.get("total_duration", 0.0),
-        "heap_size": event.get("heap_size", 0),
-        "collected": event.get("collected", 0),
-        "uncollectable": event.get("uncollectable", 0),
-        "candidates": event.get("candidates", 0),
-        "object_visits": event.get("object_visits", 0),
-        "objects_transitively_reachable": event.get("objects_transitively_reachable", 0),
-        "objects_not_transitively_reachable": event.get("objects_not_transitively_reachable", 0),
-        "work_to_do": event.get("work_to_do", 0),
-    }
-
-    counter_data = {
-        "heap_size": event.get("heap_size", 0),
-        "collected": event.get("collected", 0),
-        "uncollectable": event.get("uncollectable", 0),
-        "candidates": event.get("candidates", 0),
-        "object_visits": event.get("object_visits", 0),
-    }
-
-    if gen == 1:
-        counter_data.update(
-            {
-                "objects_transitively_reachable": event.get("objects_transitively_reachable", 0),
-                "objects_not_transitively_reachable": event.get("objects_not_transitively_reachable", 0),
-                "work_to_do": event.get("work_to_do", 0),
-            }
-        )
-
-    pid = event.get("pid", "<null>")
-    tid = event.get("tid", "<null>")
-    trace_events: list[dict[str, Any]] = [
-        # Complete event for GC pause visualization
-        {
-            "name": "GC Pause",
-            "cat": "gc.pause",
-            "ph": "X",
-            "ts": ts_us,
-            "dur": dur_us,
-            "pid": pid,
-            "tid": tid,
-            "args": pause_data,
-        },
-        {
-            "name": f"GC Pause (gen={gen})",
-            "cat": f"gc.pause(gen={gen})",
-            "ph": "X",
-            "ts": ts_us,
-            "dur": dur_us,
-            "pid": pid,
-            "tid": tid,
-            "args": pause_data,
-        },
-        # Counter event for memory metrics
-        {
-            "name": f"Memory Counters (gen={gen})",
-            "cat": f"gc.memory(gen={gen})",
-            "ph": "C",
-            "ts": ts_us,
-            "pid": pid,
-            "tid": tid,
-            "args": counter_data,
-        },
-        {
-            "name": "Heap Size",
-            "cat": "gc.heap_size",
-            "ph": "C",
-            "ts": ts_us,
-            "pid": pid,
-            "tid": tid,
-            "args": {
-                "heap_size": event.get("heap_size", 0),
-            },
-        },
-    ]
-
-    return trace_events
 
 
 def _aggregate_gc_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
