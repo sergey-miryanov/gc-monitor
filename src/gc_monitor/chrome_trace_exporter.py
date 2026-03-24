@@ -283,7 +283,7 @@ class TraceExporter(GCMonitorExporter):
         """
         if self._closed:
             return
-        self._write_to_file()
+        self._flush()
         self._write_finish_marker()
         self._closed = True
 
