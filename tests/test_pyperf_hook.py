@@ -819,3 +819,320 @@ class TestGCMonitorHookSharedOutput:
         temp_file_1.unlink(missing_ok=True)
         temp_file_2.unlink(missing_ok=True)
         shared_output.unlink(missing_ok=True)
+
+
+class TestGCMonitorHookBenchNameSubstitution:
+    """Test GCMonitorHook with {bench_name} substitution in output path."""
+
+    @patch("gc_monitor.pyperf_hook._get_env_pyperf_hook_verbose", return_value=False)
+    @patch("gc_monitor.pyperf_hook.os.getpid", return_value=12345)
+    @patch("gc_monitor.pyperf_hook.time.sleep")
+    @patch("gc_monitor.pyperf_hook.subprocess.Popen")
+    def test_bench_name_substitution_basic(
+        self,
+        mock_popen: Mock,
+        mock_sleep: Mock,
+        mock_getpid: Mock,
+        mock_verbose: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Test {bench_name} substitution in GC_MONITOR_PYPERF_HOOK_OUTPUT."""
+        from gc_monitor.pyperf_hook import GCMonitorHook
+
+        # Set up environment variable with {bench_name} placeholder
+        output_pattern = str(tmp_path / "gc_trace_{bench_name}.json")
+        with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
+            hook = GCMonitorHook()
+
+            # Mock temp file
+            temp_file = tmp_path / "gc_monitor_12345_0_50.jsonl"
+            hook._temp_files = [temp_file]
+
+            # Write test events
+            test_events: list[dict[str, Any]] = [
+                {
+                    "pid": 12345,
+                    "tid": 1,
+                    "gen": 0,
+                    "ts": 1_000_000_000,
+                    "collections": 5,
+                    "collected": 50,
+                    "uncollectable": 2,
+                    "candidates": 10,
+                    "object_visits": 200,
+                    "objects_transitively_reachable": 100,
+                    "objects_not_transitively_reachable": 100,
+                    "heap_size": 20000,
+                    "work_to_do": 20,
+                    "duration": 0.005,
+                    "total_duration": 0.005,
+                }
+            ]
+            with open(temp_file, "w", encoding="utf-8") as f:
+                for event in test_events:
+                    f.write(json.dumps(event) + "\n")
+
+            # Call teardown with specific benchmark name
+            metadata: dict[str, Any] = {"name": "my_benchmark"}
+            hook.teardown(metadata)
+
+            # Verify output file was created with substituted name
+            expected_output = tmp_path / "gc_trace_my_benchmark.json"
+            assert expected_output.exists()
+
+            # Verify file content
+            with open(expected_output, "r", encoding="utf-8") as f:
+                content = f.read()
+                assert content.strip().startswith("[")
+                assert content.strip().endswith("]")
+                data: list[dict[str, Any]] = json.loads(content)
+                assert isinstance(data, list)
+                assert len(data) > 0
+
+            # Verify metadata was populated
+            assert metadata["gc_collections_total"] == 5
+            assert metadata["gc_objects_collected_total"] == 50
+
+            # Cleanup
+            expected_output.unlink(missing_ok=True)
+            temp_file.unlink(missing_ok=True)
+
+    @patch("gc_monitor.pyperf_hook._get_env_pyperf_hook_verbose", return_value=False)
+    @patch("gc_monitor.pyperf_hook.os.getpid", return_value=12345)
+    @patch("gc_monitor.pyperf_hook.time.sleep")
+    @patch("gc_monitor.pyperf_hook.subprocess.Popen")
+    def test_bench_name_substitution_multiple_benchmarks(
+        self,
+        mock_popen: Mock,
+        mock_sleep: Mock,
+        mock_getpid: Mock,
+        mock_verbose: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Test multiple teardown calls with different benchmark names write to different files."""
+        from gc_monitor.pyperf_hook import GCMonitorHook
+
+        # Set up environment variable with {bench_name} placeholder
+        output_pattern = str(tmp_path / "gc_{bench_name}_trace.json")
+
+        benchmark_configs = [
+            {"name": "benchmark_alpha", "collections": 5, "collected": 50},
+            {"name": "benchmark_beta", "collections": 10, "collected": 100},
+            {"name": "benchmark_gamma", "collections": 15, "collected": 150},
+        ]
+
+        with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
+            for idx, config in enumerate(benchmark_configs):
+                hook = GCMonitorHook()
+
+                # Mock temp file
+                temp_file = tmp_path / f"gc_monitor_12345_{idx}_50.jsonl"
+                hook._temp_files = [temp_file]
+
+                # Write test events with unique data per benchmark
+                test_events: list[dict[str, Any]] = [
+                    {
+                        "pid": 12345,
+                        "tid": 1,
+                        "gen": 0,
+                        "ts": 1_000_000_000 + (idx * 1_000_000_000),
+                        "collections": config["collections"],
+                        "collected": config["collected"],
+                        "uncollectable": 2,
+                        "candidates": 10,
+                        "object_visits": 200,
+                        "objects_transitively_reachable": 100,
+                        "objects_not_transitively_reachable": 100,
+                        "heap_size": 20000,
+                        "work_to_do": 20,
+                        "duration": 0.005,
+                        "total_duration": 0.005,
+                    }
+                ]
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    for event in test_events:
+                        f.write(json.dumps(event) + "\n")
+
+                # Call teardown with specific benchmark name
+                metadata: dict[str, Any] = {"name": config["name"]}
+                hook.teardown(metadata)
+
+                # Verify output file was created with substituted name
+                expected_output = tmp_path / f"gc_{config['name']}_trace.json"
+                assert expected_output.exists(), f"Expected {expected_output} to exist"
+
+                # Verify file contains correct data
+                with open(expected_output, "r", encoding="utf-8") as f:
+                    data: list[dict[str, Any]] = json.loads(f.read())
+                    assert isinstance(data, list)
+                    assert len(data) > 0
+
+                # Verify metadata was populated correctly
+                assert metadata["gc_collections_total"] == config["collections"]
+                assert metadata["gc_objects_collected_total"] == config["collected"]
+
+                # Cleanup temp file
+                temp_file.unlink(missing_ok=True)
+
+        # Verify all three output files exist
+        for config in benchmark_configs:
+            expected_output = tmp_path / f"gc_{config['name']}_trace.json"
+            assert expected_output.exists()
+            expected_output.unlink(missing_ok=True)
+
+    @patch("gc_monitor.pyperf_hook._get_env_pyperf_hook_verbose", return_value=False)
+    @patch("gc_monitor.pyperf_hook.os.getpid", return_value=12345)
+    @patch("gc_monitor.pyperf_hook.time.sleep")
+    @patch("gc_monitor.pyperf_hook.subprocess.Popen")
+    def test_bench_name_substitution_with_special_chars(
+        self,
+        mock_popen: Mock,
+        mock_sleep: Mock,
+        mock_getpid: Mock,
+        mock_verbose: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Test {bench_name} substitution sanitizes special characters."""
+        from gc_monitor.pyperf_hook import GCMonitorHook
+
+        # Set up environment variable with {bench_name} placeholder
+        output_pattern = str(tmp_path / "gc_{bench_name}.json")
+
+        with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
+            hook = GCMonitorHook()
+
+            # Mock temp file
+            temp_file = tmp_path / "gc_monitor_12345_0_50.jsonl"
+            hook._temp_files = [temp_file]
+
+            # Write test events
+            test_events: list[dict[str, Any]] = [
+                {
+                    "pid": 12345,
+                    "tid": 1,
+                    "gen": 0,
+                    "ts": 1_000_000_000,
+                    "collections": 5,
+                    "collected": 50,
+                    "uncollectable": 2,
+                    "candidates": 10,
+                    "object_visits": 200,
+                    "heap_size": 20000,
+                    "work_to_do": 20,
+                    "duration": 0.005,
+                    "total_duration": 0.005,
+                }
+            ]
+            with open(temp_file, "w", encoding="utf-8") as f:
+                for event in test_events:
+                    f.write(json.dumps(event) + "\n")
+
+            # Call teardown with benchmark name containing special characters
+            metadata: dict[str, Any] = {"name": "my-benchmark.with/special:chars"}
+            hook.teardown(metadata)
+
+            # Verify output file was created with sanitized name
+            # Special chars should be replaced with underscores
+            expected_output = tmp_path / "gc_my-benchmark_with_special_chars.json"
+            assert expected_output.exists()
+
+            # Cleanup
+            expected_output.unlink(missing_ok=True)
+            temp_file.unlink(missing_ok=True)
+
+    @patch("gc_monitor.pyperf_hook._get_env_pyperf_hook_verbose", return_value=False)
+    @patch("gc_monitor.pyperf_hook.os.getpid", return_value=12345)
+    @patch("gc_monitor.pyperf_hook.time.sleep")
+    @patch("gc_monitor.pyperf_hook.subprocess.Popen")
+    def test_bench_name_substitution_combine_with_existing(
+        self,
+        mock_popen: Mock,
+        mock_sleep: Mock,
+        mock_getpid: Mock,
+        mock_verbose: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Test that existing file is combined with new data when using {bench_name} substitution."""
+        from gc_monitor.pyperf_hook import GCMonitorHook
+
+        # Set up environment variable with {bench_name} placeholder
+        output_pattern = str(tmp_path / "gc_{bench_name}.json")
+
+        with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
+            # First run
+            hook1 = GCMonitorHook()
+            temp_file_1 = tmp_path / "gc_monitor_12345_0_50.jsonl"
+            hook1._temp_files = [temp_file_1]
+
+            test_events_1: list[dict[str, Any]] = [
+                {
+                    "pid": 12345,
+                    "tid": 1,
+                    "gen": 0,
+                    "ts": 1_000_000_000,
+                    "collections": 5,
+                    "collected": 50,
+                    "uncollectable": 2,
+                    "candidates": 10,
+                    "object_visits": 200,
+                    "heap_size": 20000,
+                    "work_to_do": 20,
+                    "duration": 0.005,
+                    "total_duration": 0.005,
+                }
+            ]
+            with open(temp_file_1, "w", encoding="utf-8") as f:
+                for event in test_events_1:
+                    f.write(json.dumps(event) + "\n")
+
+            metadata1: dict[str, Any] = {"name": "shared_bench"}
+            hook1.teardown(metadata1)
+
+            # Second run with same benchmark name
+            hook2 = GCMonitorHook()
+            temp_file_2 = tmp_path / "gc_monitor_12345_1_50.jsonl"
+            hook2._temp_files = [temp_file_2]
+
+            test_events_2: list[dict[str, Any]] = [
+                {
+                    "pid": 12345,
+                    "tid": 1,
+                    "gen": 0,
+                    "ts": 2_000_000_000,
+                    "collections": 3,
+                    "collected": 30,
+                    "uncollectable": 1,
+                    "candidates": 8,
+                    "object_visits": 150,
+                    "heap_size": 25000,
+                    "work_to_do": 15,
+                    "duration": 0.008,
+                    "total_duration": 0.008,
+                }
+            ]
+            with open(temp_file_2, "w", encoding="utf-8") as f:
+                for event in test_events_2:
+                    f.write(json.dumps(event) + "\n")
+
+            metadata2: dict[str, Any] = {"name": "shared_bench"}
+            hook2.teardown(metadata2)
+
+            # Verify combined output file exists
+            expected_output = tmp_path / "gc_shared_bench.json"
+            assert expected_output.exists()
+
+            # Verify combined file has events from both runs
+            with open(expected_output, "r", encoding="utf-8") as f:
+                data: list[dict[str, Any]] = json.loads(f.read())
+                assert isinstance(data, list)
+                # Should have metadata + events from both runs combined
+                assert len(data) >= 6  # At least metadata + events from both runs
+
+            # Verify second run metadata (first run metadata is lost in this scenario)
+            assert metadata2["gc_collections_total"] == 3
+            assert metadata2["gc_objects_collected_total"] == 30
+
+            # Cleanup
+            expected_output.unlink(missing_ok=True)
+            temp_file_1.unlink(missing_ok=True)
+            temp_file_2.unlink(missing_ok=True)

@@ -57,6 +57,7 @@ def _get_env_pyperf_hook_output(bench_name: str, pid: int) -> Path:
     """
     env_path = os.environ.get(ENV_PYPERF_HOOK_OUTPUT)
     if env_path:
+        env_path = env_path.format(bench_name=bench_name)
         return Path(env_path)
     return Path(f"gc_monitor_{bench_name}_combined_{pid}.json")
 
