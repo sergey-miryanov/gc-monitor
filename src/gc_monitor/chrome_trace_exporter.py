@@ -7,7 +7,36 @@ from typing import Any, override
 from ._gc_monitor import GCMonitorStatsItem
 from .exporter import GCMonitorExporter
 
-__all__ = ["TraceExporter"]
+__all__ = ["TraceExporter", "combine_files"]
+
+
+def combine_files(input_paths: list[Path], output_path: Path) -> None:
+    """
+    Combine multiple Chrome Trace Format files into one.
+
+    Reads all events from input files and writes them to a single output file.
+    No normalization or metadata processing is performed - events are combined as-is.
+
+    Args:
+        input_paths: List of paths to input Chrome Trace Format files
+        output_path: Path to output file
+    """
+    all_events: list[dict[str, Any]] = []
+
+    for input_path in input_paths:
+        with open(input_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        # Parse the JSON array
+        events = json.loads(content)
+        if not isinstance(events, list):
+            raise ValueError(f"Expected JSON array in {input_path}, got {type(events)}")
+        # Skip metadata entries (phase 'M') if you want to keep only events
+        # For now, include everything as-is
+        all_events.extend(events)
+
+    # Write combined events to output file
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(all_events, f, indent=2)
 
 
 class TraceExporter(GCMonitorExporter):

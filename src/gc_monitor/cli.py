@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from . import TraceExporter, connect
+from .chrome_trace_exporter import combine_files
 from .jsonl_exporter import JsonlExporter
 from .stdout_exporter import StdoutExporter
 
@@ -172,74 +173,109 @@ def _get_env_flush_threshold() -> int:
 
 
 def _create_parser() -> argparse.ArgumentParser:
-    """Create the argument parser."""
+    """Create the argument parser with subcommands."""
     parser = argparse.ArgumentParser(
         prog="gc-monitor",
         description="Monitor Python's garbage collector and export statistics.",
     )
-    parser.add_argument(
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Monitor command (default behavior)
+    monitor_parser = subparsers.add_parser(
+        "monitor",
+        help="Monitor a process's garbage collection",
+        description="Monitor Python's garbage collector and export statistics.",
+    )
+    monitor_parser.add_argument(
         "pid",
         type=int,
         help="Process ID to monitor",
     )
-    parser.add_argument(
+    monitor_parser.add_argument(
         "-o",
         "--output",
         type=Path,
         default=_get_env_output(),
         help=f"Output file path (default: gc_trace.json, gc_monitor.jsonl for jsonl format, or {ENV_OUTPUT} env var). Ignored for --format stdout",
     )
-    parser.add_argument(
+    monitor_parser.add_argument(
         "-r",
         "--rate",
         type=float,
         default=_get_env_rate(),
         help=f"Polling rate in seconds (default: 0.1 or {ENV_RATE} env var)",
     )
-    parser.add_argument(
+    monitor_parser.add_argument(
         "-d",
         "--duration",
         type=float,
         default=_get_env_duration(),
         help=f"Monitoring duration in seconds (default: run until interrupted or {ENV_DURATION} env var)",
     )
-    parser.add_argument(
+    monitor_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
         default=_get_env_verbose(),
         help=f"Enable verbose output (can also be set via {ENV_VERBOSE} env var: 1, true, yes, on)",
     )
-    parser.add_argument(
+    monitor_parser.add_argument(
         "--format",
         choices=["chrome", "stdout", "jsonl"],
         default=_get_env_format(),
         help=f"Output format: 'chrome' for Chrome DevTools, 'stdout' for one-line-per-event JSONL to stdout, 'jsonl' for JSONL file (default: chrome or {ENV_FORMAT} env var)",
     )
-    parser.add_argument(
+    monitor_parser.add_argument(
         "--thread-name",
         type=str,
         default=_get_env_thread_name(),
         help=f"Thread name for trace events (default: 'GC Monitor' or {ENV_THREAD_NAME} env var)",
     )
-    parser.add_argument(
+    monitor_parser.add_argument(
         "--thread-id",
         type=int,
         default=_get_env_thread_id(),
         help=f"Thread ID for JSONL trace events (default: 0 or {ENV_THREAD_ID} env var)",
     )
-    parser.add_argument(
+    monitor_parser.add_argument(
         "--fallback",
         choices=["yes", "no"],
         default=_get_env_fallback(),
         help=f"Use mock implementation if _gc_monitor module not available (default: yes or {ENV_FALLBACK} env var)",
     )
-    parser.add_argument(
+    monitor_parser.add_argument(
         "--flush-threshold",
         type=int,
         default=_get_env_flush_threshold(),
         help=f"Number of events to buffer before flushing to file for JSONL format (default: 100 or {ENV_FLUSH_THRESHOLD} env var)",
     )
+
+    # Combine command
+    combine_parser = subparsers.add_parser(
+        "combine",
+        help="Combine multiple Chrome Trace Format files into one",
+        description="Combine multiple Chrome Trace Format files into a single file without normalization or metadata processing.",
+    )
+    combine_parser.add_argument(
+        "inputs",
+        nargs="+",
+        type=Path,
+        help="Input Chrome Trace Format files to combine",
+    )
+    combine_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        required=True,
+        help="Output file path for the combined trace",
+    )
+    combine_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
+    )
+
     return parser
 
 
@@ -258,6 +294,28 @@ def main(argv: list[str] | None = None) -> int:
     # Setup logging before any logging calls
     _setup_logging(args.verbose)
 
+    # Handle subcommands
+    if args.command == "combine":
+        return _cmd_combine(args)
+
+    # Default to monitor command if no command specified
+    if args.command is None or args.command == "monitor":
+        return _cmd_monitor(args)
+
+    # Unknown command (should not happen due to argparse)
+    logger.error("Unknown command: %s", args.command)
+    return 1
+
+
+def _cmd_monitor(args: argparse.Namespace) -> int:
+    """Execute the monitor command.
+
+    Args:
+        args: Parsed command-line arguments for monitor command
+
+    Returns:
+        Exit code (0 for success, non-zero for failure)
+    """
     pid = args.pid
     output_path = args.output
     rate = args.rate
@@ -351,6 +409,39 @@ def main(argv: list[str] | None = None) -> int:
             logger.info("Exported %s events to stdout", event_count)
         else:
             logger.info("Saved %s events to %s", event_count, output_path)
+
+    return 0
+
+
+def _cmd_combine(args: argparse.Namespace) -> int:
+    """Execute the combine command.
+
+    Args:
+        args: Parsed command-line arguments for combine command
+
+    Returns:
+        Exit code (0 for success, non-zero for failure)
+    """
+    import json
+
+    input_paths = args.inputs
+    output_path = args.output
+    verbose = args.verbose
+
+    if verbose:
+        logger.info("Combining %s file(s)...", len(input_paths))
+        for input_path in input_paths:
+            logger.info("  Input: %s", input_path)
+        logger.info("  Output: %s", output_path)
+
+    try:
+        combine_files(input_paths, output_path)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError) as e:
+        logger.error("Error combining files: %s", e)
+        return 1
+
+    if verbose:
+        logger.info("Combine complete.")
 
     return 0
 
