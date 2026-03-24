@@ -144,6 +144,31 @@ See the `examples/` directory for benchmark examples:
 - `pyperf_advanced_example.py` - Advanced benchmark with GC enabled/disabled comparison
 - `analyze_gc_metrics.py` - Script to analyze GC metrics from benchmark results
 
+### Example: Perfetto Trace Viewer for Pyperf Benchmarks
+
+When you run a pyperf benchmark with the gc-monitor hook and export the results in Chrome Trace format, you can visualize the GC activity alongside the benchmark execution in Perfetto:
+
+![Perfetto Pyperf Example](docs/images/perfetto-pyperf-example.png)
+
+*Example: Pyperf benchmark trace visualized in Perfetto showing:*
+- *Multiple benchmark worker processes running in parallel*
+- *GC Monitor process tracking memory events*
+- *Timeline view of benchmark execution with GC activity*
+
+This visualization helps you:
+- **Correlate GC activity with benchmark performance** - See how GC pauses affect benchmark timing
+- **Identify performance outliers** - Spot runs affected by GC pauses
+- **Analyze parallel benchmark execution** - Monitor multiple worker processes simultaneously
+- **Debug benchmark variability** - Understand sources of timing variation between runs
+
+To generate traces for Perfetto:
+```bash
+# Run benchmark with Chrome Trace output
+python my_benchmark.py --hook=gc_monitor --format chrome -o benchmark_trace.json
+
+# Open in Perfetto UI (https://ui.perfetto.dev)
+```
+
 ## API Usage
 
 ### Basic Monitoring
