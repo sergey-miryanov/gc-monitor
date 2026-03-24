@@ -1,9 +1,8 @@
 """Tests for Chrome trace exporter."""
 
-import json
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
@@ -11,7 +10,7 @@ import pytest
 from gc_monitor.chrome_trace_exporter import TraceExporter
 from gc_monitor.core import GCMonitor
 
-from tests.test_pyperf_hook import _assert_valid_chrome_trace_format
+from tests.test_pyperf_hook import _assert_valid_chrome_trace_format  # pyright: ignore[reportPrivateUsage]
 
 # Import GCMonitorHandler from the same source as core.py uses
 if TYPE_CHECKING:
@@ -46,7 +45,7 @@ class TestTraceExporter:
         item.work_to_do = 30
         item.duration = 0.005  # 5ms in seconds
         item.total_duration = 45.5  # 45.5 seconds in seconds
-        return item  # type: ignore[no-any-return]
+        return item
 
     def test_exporter_init(self, tmp_path: Path) -> None:
         """Test exporter initialization."""
@@ -282,7 +281,7 @@ class TestTraceExporter:
         for gen in range(3):
             item = Mock()
             item.gen = gen
-            item.ts = 1.0
+            item.ts = 1_000_000_000 + gen * 100_000_000  # int, nanoseconds
             item.collections = 10
             item.collected = 50
             item.uncollectable = 1
@@ -327,6 +326,8 @@ class TestGCMonitorStreaming:
         
         Returns batches of 2 events per read with incrementing timestamps
         to simulate real GC monitoring data.
+        
+        Note: ts is in nanoseconds (int), duration and total_duration are in seconds (float).
         """
         handler = Mock(spec=GCMonitorHandler)
         handler._connected = True
@@ -336,13 +337,13 @@ class TestGCMonitorStreaming:
         
         def read_side_effect() -> list[Mock]:
             """Generate events with incrementing timestamps on each read."""
-            base_ts = read_count[0] * 100  # Increment timestamp for each read
+            base_ts = read_count[0] * 100 + 1  # Increment timestamp for each read, start from 1
             read_count[0] += 1
             
             # Return batch of 2 events per read
             item1 = Mock()
             item1.gen = 0
-            item1.ts = base_ts
+            item1.ts = base_ts  # int, nanoseconds
             item1.collections = 10
             item1.collected = 50
             item1.uncollectable = 1
@@ -379,7 +380,8 @@ class TestGCMonitorStreaming:
         self, mock_handler: Mock, tmp_path: Path
     ) -> None:
         """Test that GCMonitor streams each event from read() to exporter immediately."""
-        exporter = TraceExporter(pid=12345, output_path=tmp_path / "trace.json")
+        output_file = tmp_path / "trace.json"
+        exporter = TraceExporter(pid=12345, output_path=output_file)
 
         monitor = GCMonitor(mock_handler, exporter, rate=0.05)
 
@@ -387,8 +389,14 @@ class TestGCMonitorStreaming:
         time.sleep(0.2)
         monitor.stop()
 
-        # Should have streamed all events (4 events per stats_item, multiple reads)
-        assert exporter.get_event_count() >= 8  # At least 2 reads * 2 stats_items * 4 events
+        # File should be created with events
+        assert output_file.exists()
+        
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(output_file)
+        
+        # Should have metadata (2) + events (at least 2 reads * 2 stats_items * 4 events)
+        assert len(data) >= 10  # 2 metadata + 8 events minimum
 
     def test_gcmonitor_streams_events_individually(
         self, mock_handler: Mock, tmp_path: Path
@@ -402,7 +410,7 @@ class TestGCMonitorStreaming:
 
         def tracking_add(item: Mock) -> None:
             events_added.append(item.gen)
-            original_add(item)  # type: ignore[arg-type]
+            original_add(item)
 
         exporter.add_event = tracking_add  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -445,7 +453,7 @@ class TestGCMonitorStreaming:
         # First call succeeds, second fails
         item = Mock()
         item.gen = 0
-        item.ts = 1.0
+        item.ts = 1_000_000_000  # 1 second in nanoseconds (int)
         item.collections = 10
         item.collected = 50
         item.uncollectable = 1
@@ -459,12 +467,19 @@ class TestGCMonitorStreaming:
         item.total_duration = 1.0
 
         handler.read.side_effect = [[item], RuntimeError("Connection broken")]
-        exporter = TraceExporter(pid=12345, output_path=tmp_path / "trace.json")
+        output_file = tmp_path / "trace.json"
+        exporter = TraceExporter(pid=12345, output_path=output_file)
 
         monitor = GCMonitor(handler, exporter, rate=0.05)
         # Should not raise, just stop on error
         time.sleep(0.15)
         monitor.stop()
 
-        # Should have captured the first event before error (4 events per stats_item)
-        assert exporter.get_event_count() >= 4  # 1 stats_item * 4 events
+        # File should be created with events
+        assert output_file.exists()
+        
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(output_file)
+        
+        # Should have metadata (2) + events (4 events per stats_item)
+        assert len(data) >= 6  # 2 metadata + 4 events
