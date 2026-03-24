@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 
+from tests.test_pyperf_hook import _assert_valid_chrome_trace_format
+
 
 def test_cli_help() -> None:
     """Test CLI --help option."""
@@ -116,11 +118,8 @@ def test_cli_basic_run(tmp_path: Path) -> None:
     # File should be created (even if handler failed early)
     assert output_file.exists()
 
-    # Verify output file is valid JSON
-    with open(output_file) as f:
-        data: list[object] = json.load(f)  # type: ignore[assignment]
-
-    assert isinstance(data, list)
+    # Verify output file is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
     # Should have at least metadata events (process_name, thread_name)
     # May have more if GC events were collected before handler failure
     assert len(data) >= 2
@@ -569,17 +568,13 @@ def test_cli_thread_name_option(tmp_path: Path) -> None:
 
     assert result.returncode == 0
 
-    # Verify output file was created
-    assert output_file.exists()
-    with open(output_file) as f:
-        content = f.read()
+    # Verify output file was created and is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     # Verify thread name appears in the file content
+    content = output_file.read_text()
     assert "MyCustomThread" in content
 
-    # Verify it's valid JSON
-    data: list[dict[str, Any]] = json.loads(content)
-    assert isinstance(data, list)
     assert len(data) > 0
 
 
@@ -1422,9 +1417,8 @@ def test_cli_combine_basic(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert output_file.exists()
 
-    # Verify combined output
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 2
     assert data[0]["name"] == "event1"
@@ -1547,8 +1541,8 @@ def test_cli_combine_multiple_files(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert output_file.exists()
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 3
 
@@ -1599,8 +1593,8 @@ def test_cli_combine_normalize_basic(tmp_path: Path) -> None:
     assert output_file.exists()
     assert "Normalizing timestamps: yes" in result.stderr
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 4
     # File 1 should be normalized: 1000->0, 1100->100
@@ -1643,8 +1637,8 @@ def test_cli_combine_normalize_preserves_relative_timing(tmp_path: Path) -> None
 
     assert result.returncode == 0
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     # Verify relative timing is preserved
     assert data[0]["ts"] == 0
@@ -1702,8 +1696,8 @@ def test_cli_combine_normalize_multiple_files_independent(tmp_path: Path) -> Non
 
     assert result.returncode == 0
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 6
     # Each file should start at 0
@@ -1750,8 +1744,8 @@ def test_cli_combine_without_normalize(tmp_path: Path) -> None:
 
     assert result.returncode == 0
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     # Timestamps should be preserved as-is
     assert data[0]["ts"] == 1000
@@ -1792,8 +1786,8 @@ def test_cli_combine_normalize_with_metadata(tmp_path: Path) -> None:
 
     assert result.returncode == 0
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 4
     # Metadata events should not have ts field
@@ -1840,8 +1834,8 @@ def test_cli_combine_normalize_empty_file(tmp_path: Path) -> None:
 
     assert result.returncode == 0
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 1
     assert data[0]["ts"] == 0
@@ -1877,8 +1871,8 @@ def test_cli_combine_normalize_metadata_only(tmp_path: Path) -> None:
 
     assert result.returncode == 0
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 2
     # Metadata events should be preserved without ts field
@@ -1916,8 +1910,8 @@ def test_cli_combine_normalize_short_option(tmp_path: Path) -> None:
 
     assert result.returncode == 0
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     # Should be normalized to 0
     assert data[0]["ts"] == 0
@@ -1976,8 +1970,8 @@ def test_cli_combine_normalize_mixed_metadata_and_events(tmp_path: Path) -> None
 
     assert result.returncode == 0
 
-    with open(output_file) as f:
-        data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+    # Verify combined output is valid Chrome Trace format
+    data = _assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 6
     # Metadata events should not have ts

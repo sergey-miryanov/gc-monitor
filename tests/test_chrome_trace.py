@@ -11,6 +11,8 @@ import pytest
 from gc_monitor.chrome_trace_exporter import TraceExporter
 from gc_monitor.core import GCMonitor
 
+from tests.test_pyperf_hook import _assert_valid_chrome_trace_format
+
 # Import GCMonitorHandler from the same source as core.py uses
 if TYPE_CHECKING:
     from gc_monitor._gc_monitor import GCMonitorHandler
@@ -78,8 +80,8 @@ class TestTraceExporter:
         # Close to finish the JSON file
         exporter.close()
 
-        with open(output_file) as f:
-            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + events (10 * 4 = 40)
         assert len(data) == 42
@@ -102,8 +104,8 @@ class TestTraceExporter:
         # Close to finish the JSON file
         exporter.close()
 
-        with open(output_file) as f:
-            data = json.load(f)
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + all events (15 * 4 = 60)
         assert len(data) == 62
@@ -121,8 +123,8 @@ class TestTraceExporter:
         # File should be created on close
         assert output_file.exists()
 
-        with open(output_file) as f:
-            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + events (4 per stats_item)
         assert len(data) == 6
@@ -143,8 +145,8 @@ class TestTraceExporter:
         # Close should write remaining events and finish marker
         exporter.close()
 
-        with open(output_file) as f:
-            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + all events (15 * 4 = 60)
         assert len(data) == 62
@@ -167,9 +169,11 @@ class TestTraceExporter:
         exporter.add_event(mock_stats_item)
         exporter.close()
 
-        with open(tmp_path / "test.json") as f:
-            # First 2 events are metadata, then our events
-            events: list[dict[str, Any]] = json.load(f)[2:]  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(tmp_path / "test.json")
+
+        # First 2 events are metadata, then our events
+        events = data[2:]
 
         # ts = 1,500,000,000 nanoseconds -> 1,500,000 microseconds
         assert events[0]["ts"] == 1_500_000
@@ -186,9 +190,11 @@ class TestTraceExporter:
         exporter.add_event(mock_stats_item)
         exporter.close()
 
-        with open(tmp_path / "test.json") as f:
-            # First 2 events are metadata, then our events
-            event: dict[str, Any] = json.load(f)[2]  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(tmp_path / "test.json")
+
+        # First 2 events are metadata, then our events
+        event = data[2]
 
         assert event["name"] == "GC Pause"
         assert event["cat"] == "gc.pause"
@@ -207,10 +213,12 @@ class TestTraceExporter:
         exporter.add_event(mock_stats_item)
         exporter.close()
 
-        with open(tmp_path / "test.json") as f:
-            # First 2 events are metadata, then our events
-            # Events are: GC Pause, GC Pause (gen=X), Memory Counters, Heap Size
-            event: dict[str, Any] = json.load(f)[4]  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(tmp_path / "test.json")
+
+        # First 2 events are metadata, then our events
+        # Events are: GC Pause, GC Pause (gen=X), Memory Counters, Heap Size
+        event = data[4]
 
         assert "Memory Counters" in event["name"]
         assert "gc.memory" in event["cat"]
@@ -226,8 +234,8 @@ class TestTraceExporter:
         exporter.add_event(mock_stats_item)
         exporter.close()
 
-        with open(tmp_path / "test_trace.json") as f:
-            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(tmp_path / "test_trace.json")
 
         # Find metadata events
         metadata_events = [e for e in data if e["ph"] == "M"]
@@ -260,8 +268,8 @@ class TestTraceExporter:
         exporter.close()
         exporter.close()
 
-        with open(tmp_path / "test_trace.json") as f:
-            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(tmp_path / "test_trace.json")
 
         # Metadata should only appear once
         metadata_events = [e for e in data if e["ph"] == "M"]
@@ -290,8 +298,8 @@ class TestTraceExporter:
 
         exporter.close()
 
-        with open(tmp_path / "test_trace.json") as f:
-            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(tmp_path / "test_trace.json")
 
         # Find complete events (2 per gen: "GC Pause" and "GC Pause (gen=X)")
         complete_events = [e for e in data if e["ph"] == "X"]
@@ -422,8 +430,8 @@ class TestGCMonitorStreaming:
         # File should be saved on close
         assert output_file.exists()
 
-        with open(output_file) as f:
-            data: list[dict[str, Any]] = json.load(f)  # type: ignore[assignment]
+        # Verify file is valid Chrome Trace format
+        data = _assert_valid_chrome_trace_format(output_file)
 
         # Should have events
         assert len(data) >= 4

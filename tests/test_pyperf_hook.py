@@ -1,6 +1,6 @@
 """Tests for pyperf hook integration."""
 
-# pyright: reportPrivateUsage=none, reportUnknownMemberType=none
+# pyright: reportPrivateUsage=none, reportUnknownMemberType=none, reportUnknownVariableType=none, reportUnknownArgumentType=none, reportUnusedFunction=none
 
 import json
 import os
@@ -13,6 +13,40 @@ from unittest.mock import Mock, patch
 import pytest
 
 from gc_monitor.pyperf_hook import _aggregate_gc_stats, gc_monitor_hook, GCMonitorHook
+
+
+def _assert_valid_chrome_trace_format(file_path: Path) -> list[dict[str, Any]]:
+    """Validate that a file contains valid Chrome Trace format (JSON array of objects).
+    
+    Args:
+        file_path: Path to the JSON file to validate
+        
+    Returns:
+        List of parsed event dictionaries
+        
+    Raises:
+        AssertionError: If the file is not valid Chrome Trace format
+    """
+    assert file_path.exists(), f"File {file_path} does not exist"
+    
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    
+    # Check basic JSON array structure
+    content_stripped = content.strip()
+    assert content_stripped.startswith("["), f"Chrome Trace file should start with '[', got: {content_stripped[:20]}"
+    assert content_stripped.endswith("]"), f"Chrome Trace file should end with ']', got: {content_stripped[-20:]}"
+    
+    # Parse and validate structure
+    data: object = json.loads(content)
+    assert isinstance(data, list), f"Chrome Trace file should contain a JSON array, got {type(data)}"
+    
+    # Validate each item is a dict (JSON object)
+    for idx, item in enumerate(data):
+        assert isinstance(item, dict), f"Item {idx} in Chrome Trace file should be a dict, got {type(item)}"
+    
+    # Cast to expected type after validation
+    return data  # type: ignore[return-value]
 
 
 class TestGCMonitorHookInit:
@@ -484,16 +518,9 @@ class TestGCMonitorHookTeardown:
         assert combined_file.exists()
 
         # Verify combined file has correct Chrome Trace format (JSON array)
-        with open(combined_file, "r") as f:
-            content = f.read()
-            # Should start with [ and end with ]
-            assert content.strip().startswith("[")
-            assert content.strip().endswith("]")
-            # Parse and verify structure
-            combined_data: list[dict[str, Any]] = json.loads(content)
-            assert isinstance(combined_data, list)
-            # Should have process_name, thread_names, and events
-            assert len(combined_data) >= 3  # metadata + events
+        combined_data = _assert_valid_chrome_trace_format(combined_file)
+        # Should have process_name, thread_names, and events
+        assert len(combined_data) >= 3  # metadata + events
 
         # Clean up combined file
         combined_file.unlink()
@@ -799,17 +826,10 @@ class TestGCMonitorHookSharedOutput:
         assert shared_output.exists()
 
         # Verify combined file has correct Chrome Trace format
-        with open(shared_output, "r", encoding="utf-8") as f:
-            content = f.read()
-            # Should start with [ and end with ]
-            assert content.strip().startswith("[")
-            assert content.strip().endswith("]")
-            # Parse and verify structure
-            combined_data: list[dict[str, Any]] = json.loads(content)
-            assert isinstance(combined_data, list)
-            # Should have process_name, thread_names, and events from second run
-            # (second run overwrites first)
-            assert len(combined_data) >= 3  # metadata + events
+        combined_data = _assert_valid_chrome_trace_format(shared_output)
+        # Should have process_name, thread_names, and events from second run
+        # (second run overwrites first)
+        assert len(combined_data) >= 3  # metadata + events
 
         # Verify metadata from second run
         assert metadata2["gc_collections_total"] == 3
@@ -881,13 +901,8 @@ class TestGCMonitorHookBenchNameSubstitution:
             assert expected_output.exists()
 
             # Verify file content
-            with open(expected_output, "r", encoding="utf-8") as f:
-                content = f.read()
-                assert content.strip().startswith("[")
-                assert content.strip().endswith("]")
-                data: list[dict[str, Any]] = json.loads(content)
-                assert isinstance(data, list)
-                assert len(data) > 0
+            data = _assert_valid_chrome_trace_format(expected_output)
+            assert len(data) > 0
 
             # Verify metadata was populated
             assert metadata["gc_collections_total"] == 5
@@ -962,10 +977,8 @@ class TestGCMonitorHookBenchNameSubstitution:
                 assert expected_output.exists(), f"Expected {expected_output} to exist"
 
                 # Verify file contains correct data
-                with open(expected_output, "r", encoding="utf-8") as f:
-                    data: list[dict[str, Any]] = json.loads(f.read())
-                    assert isinstance(data, list)
-                    assert len(data) > 0
+                data = _assert_valid_chrome_trace_format(expected_output)
+                assert len(data) > 0
 
                 # Verify metadata was populated correctly
                 assert metadata["gc_collections_total"] == config["collections"]
@@ -1122,11 +1135,9 @@ class TestGCMonitorHookBenchNameSubstitution:
             assert expected_output.exists()
 
             # Verify combined file has events from both runs
-            with open(expected_output, "r", encoding="utf-8") as f:
-                data: list[dict[str, Any]] = json.loads(f.read())
-                assert isinstance(data, list)
-                # Should have metadata + events from both runs combined
-                assert len(data) >= 6  # At least metadata + events from both runs
+            data = _assert_valid_chrome_trace_format(expected_output)
+            # Should have metadata + events from both runs combined
+            assert len(data) >= 6  # At least metadata + events from both runs
 
             # Verify second run metadata (first run metadata is lost in this scenario)
             assert metadata2["gc_collections_total"] == 3
