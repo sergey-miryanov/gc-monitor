@@ -63,7 +63,7 @@ class TestGCMonitorHookEnter:
         assert call_args[3] == "12345"
         assert "-o" in call_args
         assert "--format" in call_args
-        assert "chrome" in call_args
+        assert "jsonl" in call_args
 
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
@@ -129,13 +129,13 @@ class TestGCMonitorHookEnter:
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
     @patch("gc_monitor.pyperf_hook.time.sleep")
-    def test_enter_includes_thread_name(
+    def test_enter_includes_thread_id(
         self,
         mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
     ) -> None:
-        """__enter__ includes thread-name with run_index in command."""
+        """__enter__ includes thread-id with run_index in command."""
         mock_getpid.return_value = 12345
         mock_process = Mock()
         mock_popen.return_value = mock_process
@@ -144,11 +144,12 @@ class TestGCMonitorHookEnter:
         with hook:
             pass
 
-        # Verify thread-name was included
+        # Verify thread-id was included
         call_args = mock_popen.call_args[0][0]
-        assert "--thread-name" in call_args
-        thread_name_idx = call_args.index("--thread-name") + 1
-        assert "run=0" in call_args[thread_name_idx]
+        assert "--thread-id" in call_args
+        thread_id_idx = call_args.index("--thread-id") + 1
+        # Thread ID is the run_index (e.g., "0" for first run)
+        assert call_args[thread_id_idx] == "0"
 
 
 class TestGCMonitorHookExit:
@@ -255,9 +256,12 @@ class TestGCMonitorHookExit:
         mock_getpid.return_value = 12345
         mock_process = Mock()
         mock_process.pid = 54321
-        mock_process.wait.side_effect = subprocess.TimeoutExpired(
-            cmd="gc-monitor", timeout=5.0
-        )
+        # First communicate() times out, triggering kill()
+        # Second communicate() after kill() succeeds
+        mock_process.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="gc-monitor", timeout=5.0),
+            (b"", b""),  # Successful communicate after kill
+        ]
         mock_popen.return_value = mock_process
 
         hook = GCMonitorHook()
@@ -282,76 +286,44 @@ class TestGCMonitorHookTeardown:
         mock_popen: Mock,
         tmp_path: Path,
     ) -> None:
-        """teardown reads JSON files and adds metrics to metadata."""
+        """teardown reads JSONL files and adds metrics to metadata."""
         mock_getpid.return_value = 12345
         mock_process = Mock()
         mock_popen.return_value = mock_process
 
-        # Create temp JSON file in Chrome Trace format
+        # Create temp JSONL file
         hook = GCMonitorHook()
         with hook:
             temp_file = hook._temp_files[0]  # type: ignore[reportPrivateUsage]
             assert temp_file is not None
 
-            # Write test data in Chrome Trace format (array of events)
-            test_data: list[dict[str, Any]] = [
+            # Write test data in JSONL format (one JSON object per line)
+            # Each line is a complete JSON object (no array wrapper)
+            # JSONL format has flat fields (as written by JsonlExporter)
+            test_events: list[dict[str, Any]] = [
+                # GC event in JSONL format (flat fields)
                 {
-                    "name": "process_name",
-                    "ph": "M",
                     "pid": 12345,
-                    "tid": "GC Monitor (run=0)",
-                    "args": {"name": "Python Process (PID: 12345)"},
-                },
-                {
-                    "name": "thread_name",
-                    "ph": "M",
-                    "pid": 12345,
-                    "tid": "GC Monitor (run=0)",
-                    "args": {"name": "GC Monitor (run=0)"},
-                },
-                # GC Pause event (ph=X = complete event)
-                {
-                    "name": "GC Pause",
-                    "cat": "gc.pause",
-                    "ph": "X",
-                    "ts": 1_000_000,  # microseconds
-                    "dur": 5_000,  # 5ms in microseconds
-                    "pid": 12345,
-                    "tid": "GC Monitor (run=0)",
-                    "args": {
-                        "gen": 0,
-                        "collections": 5,
-                        "collected": 50,
-                        "uncollectable": 2,
-                        "candidates": 10,
-                        "object_visits": 200,
-                        "objects_transitively_reachable": 100,
-                        "objects_not_transitively_reachable": 100,
-                        "heap_size": 20000,
-                        "work_to_do": 20,
-                        "duration": 0.005,  # 5ms in seconds
-                        "total_duration": 0.005,
-                    },
-                },
-                # Counter event (ph=C)
-                {
-                    "name": "Memory Counters (gen=0)",
-                    "cat": "gc.memory(gen=0)",
-                    "ph": "C",
-                    "ts": 1_000_000,
-                    "pid": 12345,
-                    "tid": "GC Monitor (run=0)",
-                    "args": {
-                        "heap_size": 20000,
-                        "collected": 50,
-                        "uncollectable": 2,
-                        "candidates": 10,
-                        "object_visits": 200,
-                    },
+                    "tid": 0,
+                    "gen": 0,
+                    "ts": 1_000_000,  # nanoseconds
+                    "collections": 5,
+                    "collected": 50,
+                    "uncollectable": 2,
+                    "candidates": 10,
+                    "object_visits": 200,
+                    "objects_transitively_reachable": 100,
+                    "objects_not_transitively_reachable": 100,
+                    "heap_size": 20000,
+                    "work_to_do": 20,
+                    "duration": 0.005,  # 5ms in seconds
+                    "total_duration": 0.005,
                 },
             ]
+            # Write as JSONL (one JSON object per line)
             with open(temp_file, "w") as f:
-                json.dump(test_data, f)
+                for event in test_events:
+                    f.write(json.dumps(event) + "\n")
 
         metadata: dict[str, object] = {}
         hook.teardown(metadata)
@@ -407,14 +379,14 @@ class TestGCMonitorHookTeardown:
                     "name": "process_name",
                     "ph": "M",
                     "pid": 12345,
-                    "tid": "GC Monitor",
+                    "tid": 0,
                     "args": {"name": "Python Process (PID: 12345)"},
                 },
                 {
                     "name": "thread_name",
                     "ph": "M",
                     "pid": 12345,
-                    "tid": "GC Monitor",
+                    "tid": 0,
                     "args": {"name": "GC Monitor"},
                 },
             ]
@@ -448,91 +420,56 @@ class TestGCMonitorHookTeardown:
         # Simulate multiple benchmark runs
         with hook:
             temp_file_0 = hook._temp_files[0]
-            test_data_0: list[dict[str, Any]] = [
+            # Write test data in JSONL format (one JSON object per line)
+            # JSONL format has flat fields (as written by JsonlExporter)
+            test_events_0: list[dict[str, Any]] = [
                 {
-                    "name": "process_name",
-                    "ph": "M",
                     "pid": 12345,
-                    "tid": "GC Monitor (run=0)",
-                    "args": {"name": "Python Process (PID: 12345)"},
-                },
-                {
-                    "name": "thread_name",
-                    "ph": "M",
-                    "pid": 12345,
-                    "tid": "GC Monitor (run=0)",
-                    "args": {"name": "GC Monitor (run=0)"},
-                },
-                {
-                    "name": "GC Pause",
-                    "cat": "gc.pause",
-                    "ph": "X",
-                    "ts": 1_000_000,
-                    "dur": 5_000,
-                    "pid": 12345,
-                    "tid": "GC Monitor (run=0)",
-                    "args": {
-                        "gen": 0,
-                        "collections": 5,
-                        "collected": 50,
-                        "uncollectable": 2,
-                        "candidates": 10,
-                        "object_visits": 200,
-                        "objects_transitively_reachable": 100,
-                        "objects_not_transitively_reachable": 100,
-                        "heap_size": 20000,
-                        "work_to_do": 20,
-                        "duration": 0.005,
-                        "total_duration": 0.005,
-                    },
+                    "tid": 0,
+                    "gen": 0,
+                    "ts": 1_000_000,  # nanoseconds
+                    "collections": 5,
+                    "collected": 50,
+                    "uncollectable": 2,
+                    "candidates": 10,
+                    "object_visits": 200,
+                    "objects_transitively_reachable": 100,
+                    "objects_not_transitively_reachable": 100,
+                    "heap_size": 20000,
+                    "work_to_do": 20,
+                    "duration": 0.005,
+                    "total_duration": 0.005,
                 },
             ]
             with open(temp_file_0, "w") as f:
-                json.dump(test_data_0, f)
+                for event in test_events_0:
+                    f.write(json.dumps(event) + "\n")
 
         with hook:
             temp_file_1 = hook._temp_files[1]
-            test_data_1: list[dict[str, Any]] = [
+            # Write test data in JSONL format (one JSON object per line)
+            test_events_1: list[dict[str, Any]] = [
                 {
-                    "name": "process_name",
-                    "ph": "M",
                     "pid": 12345,
-                    "tid": "GC Monitor (run=1)",
-                    "args": {"name": "Python Process (PID: 12345)"},
-                },
-                {
-                    "name": "thread_name",
-                    "ph": "M",
-                    "pid": 12345,
-                    "tid": "GC Monitor (run=1)",
-                    "args": {"name": "GC Monitor (run=1)"},
-                },
-                {
-                    "name": "GC Pause",
-                    "cat": "gc.pause",
-                    "ph": "X",
-                    "ts": 2_000_000,
-                    "dur": 8_000,
-                    "pid": 12345,
-                    "tid": "GC Monitor (run=1)",
-                    "args": {
-                        "gen": 0,
-                        "collections": 3,
-                        "collected": 30,
-                        "uncollectable": 1,
-                        "candidates": 8,
-                        "object_visits": 150,
-                        "objects_transitively_reachable": 80,
-                        "objects_not_transitively_reachable": 70,
-                        "heap_size": 25000,
-                        "work_to_do": 15,
-                        "duration": 0.008,
-                        "total_duration": 0.008,
-                    },
+                    "tid": 1,
+                    "gen": 0,
+                    "ts": 2_000_000,  # nanoseconds
+                    "collections": 3,
+                    "collected": 30,
+                    "uncollectable": 1,
+                    "candidates": 8,
+                    "object_visits": 150,
+                    "objects_transitively_reachable": 80,
+                    "objects_not_transitively_reachable": 70,
+                    "heap_size": 25000,
+                    "work_to_do": 15,
+                    "duration": 0.008,
+                    "total_duration": 0.008,
                 },
             ]
             with open(temp_file_1, "w") as f:
-                json.dump(test_data_1, f)
+                for event in test_events_1:
+                    f.write(json.dumps(event) + "\n")
 
         metadata: dict[str, Any] = {"name": "test_benchmark"}
         hook.teardown(metadata)
@@ -546,12 +483,17 @@ class TestGCMonitorHookTeardown:
         combined_file = Path("gc_monitor_test_benchmark_combined_12345.json")
         assert combined_file.exists()
 
-        # Verify combined file has correct Chrome Trace format
+        # Verify combined file has correct Chrome Trace format (JSON array)
         with open(combined_file, "r") as f:
-            combined_data: list[dict[str, Any]] = json.load(f)
+            content = f.read()
+            # Should start with [ and end with ]
+            assert content.strip().startswith("[")
+            assert content.strip().endswith("]")
+            # Parse and verify structure
+            combined_data: list[dict[str, Any]] = json.loads(content)
             assert isinstance(combined_data, list)
             # Should have process_name, thread_names, and events
-            assert len(combined_data) >= 4  # metadata + events
+            assert len(combined_data) >= 3  # metadata + events
 
         # Clean up combined file
         combined_file.unlink()

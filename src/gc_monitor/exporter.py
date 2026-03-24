@@ -8,9 +8,15 @@ __all__ = ["GCMonitorExporter"]
 class GCMonitorExporter:
     """Base class for exporters that collect GC events and save them."""
 
-    def __init__(self, pid: int, thread_name: str = "GC Monitor") -> None:
+    def __init__(
+        self,
+        pid: int,
+        thread_name: str = "GC Monitor",
+        thread_id: int | None = None,
+    ) -> None:
         self._pid = pid
         self._thread_name = thread_name
+        self._thread_id = thread_id
 
     def add_event(self, stats_item: GCMonitorStatsItem) -> None:
         """Add a GC monitoring event."""

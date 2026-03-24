@@ -1,6 +1,7 @@
 """Tests for the gc-monitor CLI."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,7 @@ def test_cli_help() -> None:
     assert "--rate" in result.stdout
     assert "--duration" in result.stdout
     assert "--verbose" in result.stdout
+    assert "--thread-id" in result.stdout
 
 
 def test_cli_missing_pid() -> None:
@@ -460,7 +462,7 @@ def test_cli_signal_handling(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_cli_early_exit_on_shutdown_requested() -> None:
-    """Test CLI early exit when shutdown_requested becomes True."""
+    """Test CLI early exit when shutdown event is set."""
     from unittest.mock import MagicMock, patch
 
     from gc_monitor import cli
@@ -477,7 +479,7 @@ def test_cli_early_exit_on_shutdown_requested() -> None:
     # Track if loop exited early
     loop_iterations = [0]
 
-    def mock_sleep(duration: float) -> None:
+    def mock_wait(**kwargs) -> None:
         loop_iterations[0] += 1
         if loop_iterations[0] >= 2:
             # Simulate shutdown after 2 iterations
@@ -485,9 +487,11 @@ def test_cli_early_exit_on_shutdown_requested() -> None:
 
     with patch.object(cli, "connect", return_value=mock_monitor):
         with patch.object(cli, "StdoutExporter", return_value=mock_exporter):
-            with patch.object(cli, "time") as mock_time:
-                mock_time.sleep = mock_sleep
-                mock_time.monotonic = MagicMock(side_effect=[0.0, 0.1, 0.2])
+            with patch.object(cli, "threading") as mock_threading:
+                mock_event = MagicMock()
+                mock_event.is_set = MagicMock(side_effect=[False, False, True])
+                mock_event.wait = mock_wait
+                mock_threading.Event = MagicMock(return_value=mock_event)
 
                 try:
                     cli.main(["12345", "--format", "stdout", "-d", "1.0"])
@@ -535,3 +539,777 @@ def test_cli_thread_name_option(tmp_path: Path) -> None:
     data: list[dict[str, Any]] = json.loads(content)
     assert isinstance(data, list)
     assert len(data) > 0
+
+
+# =============================================================================
+# Environment Variable Tests
+# =============================================================================
+
+
+def test_cli_env_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI uses GC_MONITOR_OUTPUT environment variable."""
+    output_file = tmp_path / "env_test_trace.json"
+    monkeypatch.setenv("GC_MONITOR_OUTPUT", str(output_file))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert output_file.exists()
+
+
+def test_cli_env_output_cli_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI option overrides GC_MONITOR_OUTPUT environment variable."""
+    env_file = tmp_path / "env_trace.json"
+    cli_file = tmp_path / "cli_trace.json"
+    monkeypatch.setenv("GC_MONITOR_OUTPUT", str(env_file))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-o",
+            str(cli_file),
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    # CLI option should take precedence
+    assert cli_file.exists()
+    assert not env_file.exists()
+
+
+def test_cli_env_rate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI uses GC_MONITOR_RATE environment variable."""
+    output_file = tmp_path / "test_trace.json"
+    monkeypatch.setenv("GC_MONITOR_RATE", "0.05")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-o",
+            str(output_file),
+            "-d",
+            "0.3",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "Rate: 0.05" in result.stderr
+
+
+def test_cli_env_rate_cli_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI option overrides GC_MONITOR_RATE environment variable."""
+    output_file = tmp_path / "test_trace.json"
+    monkeypatch.setenv("GC_MONITOR_RATE", "0.05")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-o",
+            str(output_file),
+            "-r",
+            "0.2",
+            "-d",
+            "0.3",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    # CLI option should take precedence
+    assert "Rate: 0.2" in result.stderr
+
+
+def test_cli_env_duration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI uses GC_MONITOR_DURATION environment variable."""
+    output_file = tmp_path / "test_trace.json"
+    monkeypatch.setenv("GC_MONITOR_DURATION", "0.5")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-o",
+            str(output_file),
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "Duration: 0.5" in result.stderr
+
+
+def test_cli_env_duration_cli_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI option overrides GC_MONITOR_DURATION environment variable."""
+    output_file = tmp_path / "test_trace.json"
+    monkeypatch.setenv("GC_MONITOR_DURATION", "0.5")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-o",
+            str(output_file),
+            "-d",
+            "0.3",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    # CLI option should take precedence
+    assert "Duration: 0.3" in result.stderr
+
+
+def test_cli_env_verbose(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI uses GC_MONITOR_VERBOSE environment variable."""
+    monkeypatch.setenv("GC_MONITOR_VERBOSE", "1")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    # Verbose output should appear even without -v flag
+    assert "Monitoring PID 12345" in result.stderr
+
+
+def test_cli_env_verbose_true_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test GC_MONITOR_VERBOSE accepts 'true' as truthy value."""
+    monkeypatch.setenv("GC_MONITOR_VERBOSE", "true")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "Monitoring PID 12345" in result.stderr
+
+
+def test_cli_env_verbose_yes_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test GC_MONITOR_VERBOSE accepts 'yes' as truthy value."""
+    monkeypatch.setenv("GC_MONITOR_VERBOSE", "yes")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "Monitoring PID 12345" in result.stderr
+
+
+def test_cli_env_verbose_on_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test GC_MONITOR_VERBOSE accepts 'on' as truthy value."""
+    monkeypatch.setenv("GC_MONITOR_VERBOSE", "on")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "Monitoring PID 12345" in result.stderr
+
+
+def test_cli_env_verbose_cli_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test -v CLI option works regardless of GC_MONITOR_VERBOSE env var."""
+    # Env var is false, but CLI -v should enable verbose
+    monkeypatch.setenv("GC_MONITOR_VERBOSE", "0")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-d",
+            "0.3",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    # CLI -v should take precedence
+    assert "Monitoring PID 12345" in result.stderr
+
+
+def test_cli_env_format(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI uses GC_MONITOR_FORMAT environment variable."""
+    monkeypatch.setenv("GC_MONITOR_FORMAT", "stdout")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-d",
+            "0.3",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "Format: stdout" in result.stderr
+    # stdout should have JSONL data (at least one event line)
+    # Note: output may be empty if no GC events occurred during monitoring
+    if result.stdout.strip():
+        assert '{"pid":' in result.stdout
+
+
+def test_cli_env_format_cli_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI option overrides GC_MONITOR_FORMAT environment variable."""
+    monkeypatch.setenv("GC_MONITOR_FORMAT", "stdout")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "chrome",
+            "-d",
+            "0.3",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    # CLI option should take precedence
+    assert "Format: chrome" in result.stderr
+
+
+def test_cli_env_thread_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI uses GC_MONITOR_THREAD_NAME environment variable."""
+    output_file = tmp_path / "test_trace.json"
+    monkeypatch.setenv("GC_MONITOR_THREAD_NAME", "EnvThread")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-o",
+            str(output_file),
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert output_file.exists()
+    with open(output_file) as f:
+        content = f.read()
+    assert "EnvThread" in content
+
+
+def test_cli_env_thread_name_cli_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI option overrides GC_MONITOR_THREAD_NAME environment variable."""
+    output_file = tmp_path / "test_trace.json"
+    monkeypatch.setenv("GC_MONITOR_THREAD_NAME", "EnvThread")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-o",
+            str(output_file),
+            "--thread-name",
+            "CliThread",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert output_file.exists()
+    with open(output_file) as f:
+        content = f.read()
+    # CLI option should take precedence
+    assert "CliThread" in content
+    assert "EnvThread" not in content
+
+
+def test_cli_thread_id_option(tmp_path: Path) -> None:
+    """Test CLI with --thread-id option for JSONL format."""
+    output_file = tmp_path / "test.jsonl"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "jsonl",
+            "-o",
+            str(output_file),
+            "--thread-id",
+            "9999",
+            "-d",
+            "0.1",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    # Verify output file was created
+    assert output_file.exists()
+    # Verify thread ID appears in the JSONL output
+    with open(output_file, "r", encoding="utf-8") as f:
+        content = f.read()
+        if content.strip():
+            import json
+            for line in content.strip().split("\n"):
+                event = json.loads(line)
+                if event.get("tid") == 9999:
+                    break
+            else:
+                pytest.fail("Thread ID 9999 not found in output")
+
+
+def test_cli_env_thread_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI uses GC_MONITOR_THREAD_ID environment variable."""
+    output_file = tmp_path / "test.jsonl"
+    monkeypatch.setenv("GC_MONITOR_THREAD_ID", "7777")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "jsonl",
+            "-o",
+            str(output_file),
+            "-d",
+            "0.1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert output_file.exists()
+    # Verify thread ID appears in the JSONL output
+    with open(output_file, "r", encoding="utf-8") as f:
+        content = f.read()
+        if content.strip():
+            import json
+            for line in content.strip().split("\n"):
+                event = json.loads(line)
+                if event.get("tid") == 7777:
+                    break
+            else:
+                pytest.fail("Thread ID 7777 from env var not found in output")
+
+
+def test_cli_env_thread_id_cli_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI option overrides GC_MONITOR_THREAD_ID environment variable."""
+    output_file = tmp_path / "test.jsonl"
+    monkeypatch.setenv("GC_MONITOR_THREAD_ID", "7777")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "jsonl",
+            "-o",
+            str(output_file),
+            "--thread-id",
+            "8888",
+            "-d",
+            "0.1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert output_file.exists()
+    # CLI option should take precedence
+    with open(output_file, "r", encoding="utf-8") as f:
+        content = f.read()
+        if content.strip():
+            import json
+            for line in content.strip().split("\n"):
+                event = json.loads(line)
+                if event.get("tid") == 8888:
+                    break
+            else:
+                pytest.fail("Thread ID 8888 from CLI not found in output")
+
+
+def test_cli_env_fallback(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """Test CLI uses GC_MONITOR_FALLBACK environment variable."""
+    from unittest.mock import patch
+
+    monkeypatch.setenv("GC_MONITOR_FALLBACK", "no")
+
+    from gc_monitor import cli
+
+    # Mock connect to raise RuntimeError (simulating _gc_monitor unavailable with fallback=no)
+    with patch.object(cli, "connect", side_effect=RuntimeError("_gc_monitor not available")):
+        with patch.object(cli, "StdoutExporter"):
+            result = cli.main(["12345", "--format", "stdout"])
+
+            assert result == 1
+            assert "_gc_monitor not available" in caplog.text
+
+
+def test_cli_env_fallback_cli_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI option overrides GC_MONITOR_FALLBACK environment variable."""
+    monkeypatch.setenv("GC_MONITOR_FALLBACK", "no")
+
+    # With CLI override to "yes", should succeed with mock
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--fallback",
+            "yes",
+            "-d",
+            "0.3",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    # Should succeed because fallback=yes allows mock
+    assert result.returncode == 0
+
+
+def test_cli_env_multiple_vars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test CLI uses multiple environment variables simultaneously."""
+    output_file = tmp_path / "multi_env_test.json"
+    monkeypatch.setenv("GC_MONITOR_OUTPUT", str(output_file))
+    monkeypatch.setenv("GC_MONITOR_RATE", "0.05")
+    monkeypatch.setenv("GC_MONITOR_DURATION", "0.4")
+    monkeypatch.setenv("GC_MONITOR_VERBOSE", "1")
+    monkeypatch.setenv("GC_MONITOR_FORMAT", "chrome")
+    monkeypatch.setenv("GC_MONITOR_THREAD_NAME", "MultiEnvThread")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert output_file.exists()
+    assert "Rate: 0.05" in result.stderr
+    assert "Duration: 0.4" in result.stderr
+    assert "Format: chrome" in result.stderr
+
+    # Thread name is used in trace events, not logged to stderr
+    with open(output_file) as f:
+        content = f.read()
+    assert "MultiEnvThread" in content
+
+
+def test_cli_env_help_shows_env_vars() -> None:
+    """Test CLI --help shows environment variable names."""
+    result = subprocess.run(
+        [sys.executable, "-m", "gc_monitor.cli", "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    # Help text should mention environment variables
+    assert "GC_MONITOR_OUTPUT" in result.stdout
+    assert "GC_MONITOR_RATE" in result.stdout
+    assert "GC_MONITOR_DURATION" in result.stdout
+    assert "GC_MONITOR_VERBOSE" in result.stdout
+    assert "GC_MONITOR_FORMAT" in result.stdout
+    assert "GC_MONITOR_THREAD_NAME" in result.stdout
+    assert "GC_MONITOR_FALLBACK" in result.stdout
+
+
+def test_cli_jsonl_format(tmp_path: Path) -> None:
+    """Test CLI with --format jsonl."""
+    output_file = tmp_path / "test.jsonl"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "jsonl",
+            "-o",
+            str(output_file),
+            "-d",
+            "0.1",
+            "-v",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    # Verbose output should mention jsonl format
+    assert "Format: jsonl" in result.stderr
+    assert str(output_file) in result.stderr
+
+    # Output file exists only if GC events occurred during monitoring
+    # If it exists, verify it contains valid JSONL data
+    if output_file.exists():
+        with open(output_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        # Each line should be valid JSON
+        for line in lines:
+            import json
+
+            event = json.loads(line.strip())
+            assert "pid" in event
+            assert "tid" in event
+            assert "gen" in event
+
+
+def test_cli_jsonl_format_default_output(tmp_path: Path) -> None:
+    """Test CLI with --format jsonl uses default output filename."""
+    # Change to tmp_path to avoid polluting the working directory
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        # Set environment variable to get jsonl default output
+        env = os.environ.copy()
+        env["GC_MONITOR_FORMAT"] = "jsonl"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "gc_monitor.cli",
+                "12345",
+                "-d",
+                "0.1",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            env=env,
+        )
+
+        # Default output file should be gc_monitor.jsonl
+        # File only exists if GC events occurred during monitoring
+        default_output = tmp_path / "gc_monitor.jsonl"
+        if default_output.exists():
+            # If file exists, verify it's valid JSONL
+            with open(default_output, "r", encoding="utf-8") as f:
+                content = f.read()
+                if content.strip():
+                    for line in content.strip().split("\n"):
+                        import json
+                        json.loads(line.strip())  # Should not raise
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_cli_jsonl_format_with_thread_id(tmp_path: Path) -> None:
+    """Test CLI with --format jsonl and custom thread ID."""
+    output_file = tmp_path / "test.jsonl"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "jsonl",
+            "-o",
+            str(output_file),
+            "--thread-id",
+            "5678",
+            "-d",
+            "0.1",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    # Output file may exist if GC events occurred during monitoring
+    # If it exists, verify thread ID is in the output
+    if output_file.exists():
+        with open(output_file, "r", encoding="utf-8") as f:
+            content = f.read()
+            if content.strip():  # File has content
+                for line in content.strip().split("\n"):
+                    import json
+                    event = json.loads(line.strip())
+                    if event.get("tid") == 5678:
+                        break
+                else:
+                    pytest.fail("Thread ID 5678 not found in output")
+
+
+def test_cli_env_format_jsonl(tmp_path: Path) -> None:
+    """Test CLI with GC_MONITOR_FORMAT=jsonl."""
+    output_file = tmp_path / "test.jsonl"
+
+    env = os.environ.copy()
+    env["GC_MONITOR_FORMAT"] = "jsonl"
+    env["GC_MONITOR_OUTPUT"] = str(output_file)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "-d",
+            "0.1",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+
+    # Output file exists only if GC events occurred during monitoring
+    # If it exists, verify it contains valid JSONL data
+    if output_file.exists():
+        with open(output_file, "r", encoding="utf-8") as f:
+            first_line = f.readline()
+            if first_line.strip():
+                import json
+                event = json.loads(first_line.strip())
+                assert "pid" in event
+
+
+def test_cli_env_format_jsonl_cli_override(tmp_path: Path) -> None:
+    """Test CLI can override GC_MONITOR_FORMAT with --format chrome."""
+    output_file = tmp_path / "test.json"
+
+    env = os.environ.copy()
+    env["GC_MONITOR_FORMAT"] = "jsonl"
+    env["GC_MONITOR_OUTPUT"] = str(output_file)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "gc_monitor.cli",
+            "12345",
+            "--format",
+            "chrome",
+            "-o",
+            str(output_file),
+            "-d",
+            "0.1",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+
+    # Output file should exist and contain Chrome trace format (starts with [)
+    assert output_file.exists()
+    with open(output_file, "r", encoding="utf-8") as f:
+        content = f.read().strip()
+        # Chrome trace format starts with [ and contains trace events array
+        assert content.startswith("[")

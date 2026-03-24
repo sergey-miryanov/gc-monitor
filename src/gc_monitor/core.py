@@ -1,7 +1,6 @@
 """Core GC monitoring functionality."""
 
 import threading
-import time
 import warnings
 from typing import TYPE_CHECKING
 
@@ -31,6 +30,7 @@ class GCMonitor:
     """GC event monitor that polls at a fixed rate.
 
     Automatically stops when the target process terminates.
+    Uses threading.Event for responsive shutdown signaling.
     """
 
     def __init__(
@@ -42,18 +42,24 @@ class GCMonitor:
         self._handler = handler
         self._exporter = exporter
         self._rate = rate
-        self._running = True
         self._stopped = False
+        self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
-        """Stop monitoring and close the exporter."""
+        """Stop monitoring and close the exporter.
+        
+        Signals the monitoring thread to stop and waits for it to finish.
+        Safe to call multiple times.
+        """
         if self._stopped:
             # Already stopped, but still close exporter to flush data
             self._exporter.close()
             return
-        self._running = False
+        # Signal the monitoring thread to stop
+        self._stop_event.set()
+        # Wait for the thread to finish (with timeout)
         self._thread.join(timeout=1.0)
         self._handler.close()
         self._exporter.close()
@@ -62,16 +68,17 @@ class GCMonitor:
     @property
     def is_running(self) -> bool:
         """Check if monitor is still running."""
-        return self._running and not self._stopped
+        return not self._stopped and not self._stop_event.is_set()
 
     def _run(self) -> None:
         """Background thread: poll for events and export events.
 
-        Stops automatically if the target process terminates (RuntimeError from handler).
+        Stops automatically if the target process terminates (RuntimeError from handler)
+        or when stop_event is set.
         Skips events with timestamps that were already processed to avoid duplicates.
         """
         last_ts: int = 0
-        while self._running:
+        while not self._stop_event.is_set():
             try:
                 events = self._handler.read()
                 for event in events:
@@ -82,7 +89,9 @@ class GCMonitor:
             except RuntimeError:
                 # Target process terminated or handler error - stop gracefully
                 break
-            time.sleep(self._rate)
+            # Use wait() instead of sleep() for responsive shutdown
+            # wait() returns immediately if stop_event is set
+            self._stop_event.wait(timeout=self._rate)
         self._stopped = True
 
 
