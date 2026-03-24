@@ -146,3 +146,4 @@ gc-monitor/
 ## Qwen Added Memories
 - We should use `--basetemp=.temp` option when run tests.
 - CODE_REVIEW.md is the living code review document for gc-monitor that tracks issues, fixes, and test coverage status
+- **Windows Development:** Use PowerShell equivalents instead of Unix commands (e.g., `Get-Content -Head` instead of `head`, `Select-String` instead of `grep`, `Get-ChildItem` instead of `ls`)
