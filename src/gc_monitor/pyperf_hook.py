@@ -25,6 +25,7 @@ from .chrome_trace_exporter import combine_files, write_jsonl_events_to_trace
 # Environment variable constants
 ENV_PYPERF_HOOK_OUTPUT = "GC_MONITOR_PYPERF_HOOK_OUTPUT"
 ENV_PYPERF_HOOK_VERBOSE = "GC_MONITOR_PYPERF_HOOK_VERBOSE"
+ENV_PYPERF_HOOK_NORMALIZE_TS = "GC_MONITOR_PYPERF_HOOK_NORMALIZE_TS"
 
 logger = logging.getLogger("gc_monitor")
 
@@ -60,6 +61,17 @@ def _get_env_pyperf_hook_output(bench_name: str, pid: int) -> Path:
         env_path = env_path.format(bench_name=bench_name)
         return Path(env_path)
     return Path(f"gc_monitor_{bench_name}_combined_{pid}.json")
+
+def _get_env_pyperf_hook_normalize_ts() -> bool:
+    """
+    Check if timestamp normalization is enabled via environment variable.
+
+    Returns:
+        True if GC_MONITOR_PYPERF_HOOK_NORMALIZE_TS is set to '1', 'yes', 'on', or 'true'
+        (case-insensitive), False otherwise.
+    """
+    value = os.environ.get(ENV_PYPERF_HOOK_NORMALIZE_TS, "").lower()
+    return value in ("1", "yes", "on", "true")
 
 
 class GCMonitorHook:
@@ -181,6 +193,8 @@ class GCMonitorHook:
         if not self._temp_files:
             return
 
+        normalize_ts = _get_env_pyperf_hook_normalize_ts()
+
         bench_name: str = metadata.get("name", "")
         bench_name = re.sub(r"[^a-zA-Z0-9_-]", "_", bench_name)
         combined_file = _get_env_pyperf_hook_output(bench_name, self._pid)
@@ -217,7 +231,7 @@ class GCMonitorHook:
                     combine_files(
                         input_paths=[combined_file, temp_output_path],
                         output_path=combined_file,
-                        normalize=False,
+                        normalize=normalize_ts,
                     )
             else:
                 # Write directly to output file (no existing file to combine with)
