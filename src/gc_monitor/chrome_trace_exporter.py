@@ -127,19 +127,19 @@ def write_jsonl_events_to_trace(
         bench_name: Name of the benchmark (used for process name)
         events: List of JSONL event dictionaries
     """
-    pids: set[str] = set()
-    trace_events: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    pids: set[int] = set()
+    tids: set[tuple[int, int]] = set()
+    trace_events: list[dict[str, Any]] = []
     last_ts: int = 0
     for event in events:
         ts = event.get("ts", -1)
         if ts > last_ts:
-            tid = str(event.get("tid", "<null>"))
-            pid = str(event.get("pid", "<null>"))
+            tid = int(event["tid"])
+            pid = int(event["pid"])
             pids.add(pid)
+            tids.add((pid, tid))
             # Convert JSONL event to Chrome Trace format
-            if (pid, tid) not in trace_events:
-                trace_events[(pid, tid)] = []
-            trace_events[(pid, tid)].extend(convert_jsonl_to_trace_format(event))
+            trace_events.extend(convert_jsonl_to_trace_format(event))
             last_ts = ts
 
     linesep = "\n"
@@ -158,7 +158,7 @@ def write_jsonl_events_to_trace(
             f.write(linesep + json.dumps(process_name))
 
         # Write thread name metadata for each unique thread
-        for pid, tid in trace_events.keys():
+        for pid, tid in tids:
             f.write(f",{linesep}")
             thread_name = {
                 "name": "thread_name",
@@ -170,62 +170,9 @@ def write_jsonl_events_to_trace(
             f.write(json.dumps(thread_name))
 
         # Write all events in Chrome Trace format
-        for (pid, tid), thread_events in trace_events.items():
-            if thread_events:
-                ts_us = 0
-                gens: set[int] = set()
-                for event in thread_events:
-                    f.write(f",{linesep}")
-                    f.write(json.dumps(event))
-                    ts_us = event["ts"]
-                    if "generation" in event["args"]:
-                        gens.add(event["args"]["generation"])
-
-                finish_events = [
-                    {
-                        "name": "Heap Size",
-                        "cat": "gc.heap_size",
-                        "ph": "C",
-                        "ts": ts_us + 1_000,
-                        "pid": pid,
-                        "tid": tid,
-                        "args": {
-                            "heap_size": 0,
-                        },
-                    },
-                ]
-                for gen in gens:
-                    counter_data = {
-                        "heap_size": 0,
-                        "collected": 0,
-                        "uncollectable": 0,
-                        "candidates": 0,
-                        "object_visits": 0,
-                    }
-                    if gen == 1:
-                        counter_data.update(
-                            {
-                                "objects_transitively_reachable": 0,
-                                "objects_not_transitively_reachable": 0,
-                                "work_to_do": 0,
-                            }
-                        )
-
-                    finish_events.append(
-                        {
-                            "name": f"Memory Counters (gen={gen})",
-                            "cat": f"gc.memory(gen={gen})",
-                            "ph": "C",
-                            "ts": ts_us + 1_000,
-                            "pid": pid,
-                            "tid": tid,
-                            "args": counter_data,
-                        }
-                    )
-
-                for event in finish_events:
-                    f.write(f",{linesep}")
-                    f.write(json.dumps(event))
+        for event in trace_events:
+            f.write(f",{linesep}")
+            f.write(json.dumps(event))
 
         # Write closing bracket
         f.write(f"{linesep}]{linesep}")
