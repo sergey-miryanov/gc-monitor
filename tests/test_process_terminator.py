@@ -50,6 +50,7 @@ class TestTerminateProcess:
                 mock_process.communicate.assert_called_once_with(timeout=5.0)
                 assert result == (b"stdout data", b"stderr data")
 
+    @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
     def testterminate_process_windows_graceful_exit(
         self, mock_process: Mock, mock_logger: Mock
     ) -> None:
@@ -123,6 +124,7 @@ class TestTerminateProcess:
                 mock_kill.assert_any_call(12345, signal.SIGKILL)
                 assert result == (b"stdout after sigkill", b"stderr after sigkill")
 
+    @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
     def testterminate_process_windows_timeout_then_kill(
         self, mock_process: Mock, mock_logger: Mock
     ) -> None:
