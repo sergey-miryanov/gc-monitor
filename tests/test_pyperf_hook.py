@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -91,10 +92,12 @@ class TestGCMonitorHookEnter:
         # Verify subprocess.Popen was called with correct args
         mock_popen.assert_called_once()
         call_args = mock_popen.call_args[0][0]
-        # Command should be: [sys.executable, "-m", "gc_monitor", pid, ...]
+        # Command structure: [sys.executable, "-m", "gc_monitor", "monitor", pid, ...]
+        assert call_args[0] == sys.executable
         assert call_args[1] == "-m"
         assert call_args[2] == "gc_monitor"
-        assert call_args[3] == "12345"
+        assert call_args[3] == "monitor"
+        assert call_args[4] == "12345"
         assert "-o" in call_args
         assert "--format" in call_args
         assert "jsonl" in call_args
@@ -206,6 +209,7 @@ class TestGCMonitorHookExit:
         mock_getpid.return_value = 12345
         mock_process = Mock()
         mock_process.pid = 54321
+        mock_process.communicate.return_value = (b"", b"")
         mock_popen.return_value = mock_process
 
         hook = GCMonitorHook()
@@ -214,7 +218,7 @@ class TestGCMonitorHookExit:
 
         # Verify SIGINT was sent
         mock_kill.assert_called_once_with(54321, signal.SIGINT)
-        mock_process.wait.assert_called_once_with(timeout=5.0)
+        mock_process.communicate.assert_called_once_with(timeout=5.0)
 
     @pytest.mark.skipif(os.name != "nt", reason="Windows-only test")
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
@@ -257,10 +261,11 @@ class TestGCMonitorHookExit:
         mock_getpid.return_value = 12345
         mock_process = Mock()
         mock_process.pid = 54321
-        # First wait() times out, second wait() also times out (for SIGKILL fallback)
-        mock_process.wait.side_effect = [
+        # First communicate() times out, second communicate() also times out (for SIGKILL fallback)
+        mock_process.communicate.side_effect = [
             subprocess.TimeoutExpired(cmd="gc-monitor", timeout=5.0),
             subprocess.TimeoutExpired(cmd="gc-monitor", timeout=2.0),
+            (b"", b""),  # Final communicate(timeout=None) succeeds
         ]
         mock_popen.return_value = mock_process
 
