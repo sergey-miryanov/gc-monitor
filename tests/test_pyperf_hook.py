@@ -448,6 +448,7 @@ class TestGCMonitorHookTeardown:
         mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
+        tmp_path: Path,
     ) -> None:
         """teardown combines events from multiple temp files."""
         mock_getpid.return_value = 12345
@@ -511,24 +512,27 @@ class TestGCMonitorHookTeardown:
                     f.write(json.dumps(event) + "\n")
 
         metadata: dict[str, Any] = {"name": "test_benchmark"}
-        hook.teardown(metadata)
+        
+        # Use tmp_path for combined file by patching _get_env_pyperf_hook_output
+        combined_file = tmp_path / "gc_monitor_test_benchmark_combined_12345.json"
+        with patch(
+            "gc_monitor.pyperf_hook._get_env_pyperf_hook_output",
+            return_value=combined_file,
+        ):
+            hook.teardown(metadata)
 
         # Verify combined metrics (5 + 3 = 8 collections)
         assert metadata["gc_collections_total"] == 8
         assert metadata["gc_objects_collected_total"] == 80
         assert metadata["gc_event_count"] == 2
 
-        # Verify combined trace file was created
-        combined_file = Path("gc_monitor_test_benchmark_combined_12345.json")
+        # Verify combined trace file was created in tmp_path
         assert combined_file.exists()
 
         # Verify combined file has correct Chrome Trace format (JSON array)
         combined_data = _assert_valid_chrome_trace_format(combined_file)
         # Should have process_name, thread_names, and events
         assert len(combined_data) >= 3  # metadata + events
-
-        # Clean up combined file
-        combined_file.unlink()
 
         # Both temp files should be removed
         assert not temp_file_0.exists()

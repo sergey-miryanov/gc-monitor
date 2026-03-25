@@ -33,6 +33,55 @@ ENV_FALLBACK = f"{ENV_PREFIX}_FALLBACK"
 ENV_FLUSH_THRESHOLD = f"{ENV_PREFIX}_FLUSH_THRESHOLD"
 
 
+def _validate_output_path(value: str) -> Path:
+    """Validate output path argument.
+
+    Args:
+        value: Path string from command line
+
+    Returns:
+        Validated Path object
+
+    Raises:
+        argparse.ArgumentTypeError: If path is invalid
+    """
+    # Check for null bytes
+    if "\x00" in value:
+        raise argparse.ArgumentTypeError("Invalid path: contains null byte")
+
+    path = Path(value)
+
+    # Resolve to absolute path
+    try:
+        resolved = path.resolve()
+    except (OSError, RuntimeError) as e:
+        raise argparse.ArgumentTypeError(f"Invalid path: {e}")
+
+    # Check for path traversal attempts
+    # Warn if path is outside current working directory
+    try:
+        cwd = Path.cwd().resolve()
+        resolved.relative_to(cwd)
+    except ValueError:
+        # Path is outside CWD - log a warning but allow it
+        # This allows users to specify absolute paths if needed
+        logger.warning("Output path is outside current directory: %s", resolved)
+
+    # Ensure parent directory exists
+    if not resolved.parent.exists():
+        raise argparse.ArgumentTypeError(
+            f"Output directory does not exist: {resolved.parent}"
+        )
+
+    # Ensure it's not a directory
+    if resolved.is_dir():
+        raise argparse.ArgumentTypeError(
+            f"Output path is a directory, not a file: {resolved}"
+        )
+
+    return resolved
+
+
 def _setup_logging(verbose: bool) -> None:
     """Configure logging for the CLI.
 
@@ -194,7 +243,7 @@ def _create_parser() -> argparse.ArgumentParser:
     monitor_parser.add_argument(
         "-o",
         "--output",
-        type=Path,
+        type=_validate_output_path,
         default=_get_env_output(),
         help=f"Output file path (default: gc_trace.json, gc_monitor.jsonl for jsonl format, or {ENV_OUTPUT} env var). Ignored for --format stdout",
     )
@@ -360,7 +409,7 @@ def _cmd_monitor(args: argparse.Namespace) -> int:
     try:
         monitor = connect(pid, exporter=exporter, rate=rate, use_fallback=use_fallback)
     except RuntimeError as e:
-        logger.error("Error: %s", e)
+        logger.error("Failed to connect to GC monitor: %s", e)
         return 1
 
     # Handle graceful shutdown on SIGINT/SIGTERM
