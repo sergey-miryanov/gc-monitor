@@ -60,6 +60,11 @@ jobs:
           name: coverage-report
           path: coverage.xml
 
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Coverage summary
         run: |
           poetry run coverage report
