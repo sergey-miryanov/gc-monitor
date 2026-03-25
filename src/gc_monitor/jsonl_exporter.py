@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 from typing import Any, override
 
-from ._gc_monitor import GCMonitorStatsItem
 from .exporter import GCMonitorExporter
+from .protocol import StatsItem
 
 __all__ = ["JsonlExporter"]
 
@@ -48,7 +48,7 @@ class JsonlExporter(GCMonitorExporter):
         self._events: list[dict[str, Any]] = []
 
     @override
-    def add_event(self, stats_item: GCMonitorStatsItem) -> None:
+    def add_event(self, stats_item: StatsItem) -> None:
         """
         Add a GC event to the buffer.
 
@@ -57,7 +57,7 @@ class JsonlExporter(GCMonitorExporter):
         I/O operations.
 
         Args:
-            stats_item: GCMonitorStatsItem instance from callback
+            stats_item: StatsItem instance from callback
         """
         event: dict[str, Any] = {
             "pid": self._pid,

@@ -2,26 +2,19 @@
 
 import threading
 import warnings
-from typing import TYPE_CHECKING
 
 # Try to import from experimental CPython _gc_monitor module first,
 # fall back to mock implementation if not available (controlled by use_fallback parameter)
-if TYPE_CHECKING:
-    # For type checking, always use the stub/mock types
-    from ._gc_monitor import GCMonitorHandler, connect as _connect
+_gc_monitor_available = False
+try:
+    from _gc_monitor import connect as _connect  # type: ignore[import-not-found]
     _gc_monitor_available = True
-else:
-    # At runtime, try the real module first
-    _gc_monitor_available = False
-    try:
-        from _gc_monitor import GCMonitorHandler, connect as _connect  # type: ignore[import-not-found]
-        _gc_monitor_available = True
-    except ImportError:
-        # Real _gc_monitor module not available, will use mock if fallback enabled
-        from ._gc_monitor import GCMonitorHandler, connect as _connect
+except ImportError:
+    # Real _gc_monitor module not available, will use mock if fallback enabled
+    from .fallback import connect as _connect
 
-if TYPE_CHECKING:
-    from .exporter import GCMonitorExporter
+from .exporter import GCMonitorExporter
+from .protocol import MonitorHandler
 
 __all__ = ["GCMonitor", "connect"]
 
@@ -35,8 +28,8 @@ class GCMonitor:
 
     def __init__(
         self,
-        handler: GCMonitorHandler,
-        exporter: "GCMonitorExporter",
+        handler: MonitorHandler,
+        exporter: GCMonitorExporter,
         rate: float = 0.1,
     ) -> None:
         self._handler = handler
@@ -49,7 +42,7 @@ class GCMonitor:
 
     def stop(self) -> None:
         """Stop monitoring and close the exporter.
-        
+
         Signals the monitoring thread to stop and waits for it to finish.
         Safe to call multiple times.
         """

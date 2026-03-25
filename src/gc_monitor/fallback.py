@@ -7,12 +7,15 @@ _gc_monitor module available, the real implementation will be used instead.
 """
 
 import random
+from collections.abc import Sequence
+from typing import override
+
+from .protocol import MonitorHandler, StatsItem
 
 __all__ = [
     "GCMonitorStatsItem",
     "GCMonitorHandler",
     "connect",
-    "disconnect",
 ]
 
 
@@ -67,14 +70,15 @@ class GCMonitorStatsItem:
         self.total_duration: float = total_duration  # Duration in seconds
 
 
-class GCMonitorHandler:
+class GCMonitorHandler(MonitorHandler):
     """Mock GC monitor handler for testing."""
 
     def __init__(self) -> None:
         self._connected = True
         self._length = random.randint(1, 10)
 
-    def read(self) -> list[GCMonitorStatsItem]:
+    @override
+    def read(self) -> Sequence[StatsItem]:
         """Read GC monitoring events.
 
         Returns:
@@ -91,7 +95,7 @@ class GCMonitorHandler:
             raise RuntimeError("Read failed - connection broken")
         # Generate base timestamp in nanoseconds (e.g., current time in ns)
         base_ts = 1_000_000_000  # 1 second in nanoseconds
-        return [
+        items: list[StatsItem] = [
             GCMonitorStatsItem(
                 gen=random.randint(0, 2),
                 ts=base_ts + (i * 100_000_000),  # 100ms apart in nanoseconds
@@ -109,7 +113,9 @@ class GCMonitorHandler:
             )
             for i in range(self._length)
         ]
+        return items
 
+    @override
     def close(self) -> None:
         """Close the handler."""
         self._connected = False
@@ -126,7 +132,7 @@ class GCMonitorHandler:
         self.close()
 
 
-def connect(pid: int) -> GCMonitorHandler:
+def connect(pid: int) -> MonitorHandler:
     """Connect to GC monitor for the given process.
 
     Args:
@@ -137,11 +143,3 @@ def connect(pid: int) -> GCMonitorHandler:
     """
     return GCMonitorHandler()
 
-
-def disconnect(handler: GCMonitorHandler) -> None:
-    """Disconnect from GC monitor.
-
-    Args:
-        handler: GCMonitorHandler instance to disconnect.
-    """
-    handler.close()

@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from gc_monitor.protocol import StatsItem
 from gc_monitor.stdout_exporter import StdoutExporter
 
 
@@ -14,11 +15,11 @@ class TestStdoutExporter:
 
     @pytest.fixture
     def mock_stats_item(self) -> Mock:
-        """Create a mock GCMonitorStatsItem.
+        """Create a mock StatsItem.
 
         Note: ts is in nanoseconds, duration and total_duration are in seconds.
         """
-        item = Mock()
+        item = Mock(spec=StatsItem)
         item.gen = 2
         item.ts = 1_500_000_000  # 1.5 seconds in nanoseconds
         item.collections = 50
@@ -32,7 +33,7 @@ class TestStdoutExporter:
         item.work_to_do = 30
         item.duration = 0.005  # 5ms in seconds
         item.total_duration = 45.5  # 45.5 seconds in seconds
-        return item  # type: ignore[no-any-return]
+        return item
 
     def test_init_default_parameters(self) -> None:
         """Test StdoutExporter initialization with default parameters."""
@@ -96,7 +97,7 @@ class TestStdoutExporter:
 
         # Create multiple mock items with different generations
         for gen in range(3):
-            item = Mock()
+            item = Mock(spec=StatsItem)
             item.gen = gen
             item.ts = 1_000_000_000 + gen * 100_000_000
             item.collections = 10 * (gen + 1)

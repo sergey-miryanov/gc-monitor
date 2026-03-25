@@ -4,8 +4,6 @@ import logging
 import os
 import signal
 import subprocess
-import sys
-from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest

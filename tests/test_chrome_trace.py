@@ -2,24 +2,15 @@
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
 
 from gc_monitor.chrome_trace_exporter import TraceExporter
 from gc_monitor.core import GCMonitor
+from gc_monitor.protocol import MonitorHandler, StatsItem
 
 from tests.test_pyperf_hook import _assert_valid_chrome_trace_format  # pyright: ignore[reportPrivateUsage]
-
-# Import GCMonitorHandler from the same source as core.py uses
-if TYPE_CHECKING:
-    from gc_monitor._gc_monitor import GCMonitorHandler
-else:
-    try:
-        from _gc_monitor import GCMonitorHandler  # type: ignore[import-not-found]
-    except ImportError:
-        from gc_monitor._gc_monitor import GCMonitorHandler
 
 
 class TestTraceExporter:
@@ -27,11 +18,11 @@ class TestTraceExporter:
 
     @pytest.fixture
     def mock_stats_item(self) -> Mock:
-        """Create a mock GCMonitorStatsItem.
-        
+        """Create a mock StatsItem.
+
         Note: ts is in nanoseconds, duration and total_duration are in seconds.
         """
-        item = Mock()
+        item = Mock(spec=StatsItem)
         item.gen = 2
         item.ts = 1_500_000_000  # 1.5 seconds in nanoseconds
         item.collections = 50
@@ -322,24 +313,24 @@ class TestGCMonitorStreaming:
 
     @pytest.fixture
     def mock_handler(self) -> Mock:
-        """Create a mock GCMonitorHandler.
-        
+        """Create a mock MonitorHandler.
+
         Returns batches of 2 events per read with incrementing timestamps
         to simulate real GC monitoring data.
-        
+
         Note: ts is in nanoseconds (int), duration and total_duration are in seconds (float).
         """
-        handler = Mock(spec=GCMonitorHandler)
+        handler = Mock(spec=MonitorHandler)
         handler._connected = True
-        
+
         # Track read calls to generate incrementing timestamps
         read_count = [0]
-        
+
         def read_side_effect() -> list[Mock]:
             """Generate events with incrementing timestamps on each read."""
             base_ts = read_count[0] * 100 + 1  # Increment timestamp for each read, start from 1
             read_count[0] += 1
-            
+
             # Return batch of 2 events per read
             item1 = Mock()
             item1.gen = 0
@@ -370,9 +361,9 @@ class TestGCMonitorStreaming:
             item2.work_to_do = 10
             item2.duration = 0.002
             item2.total_duration = 2.0
-            
+
             return [item1, item2]
-        
+
         handler.read.side_effect = read_side_effect
         return handler
 
@@ -391,10 +382,10 @@ class TestGCMonitorStreaming:
 
         # File should be created with events
         assert output_file.exists()
-        
+
         # Verify file is valid Chrome Trace format
         data = _assert_valid_chrome_trace_format(output_file)
-        
+
         # Should have metadata (2) + events (at least 2 reads * 2 stats_items * 4 events)
         assert len(data) >= 10  # 2 metadata + 8 events minimum
 
@@ -448,7 +439,7 @@ class TestGCMonitorStreaming:
         self, tmp_path: Path
     ) -> None:
         """Test that GCMonitor stops gracefully when read() raises RuntimeError."""
-        handler = Mock(spec=GCMonitorHandler)
+        handler = Mock(spec=MonitorHandler)
         handler._connected = True
         # First call succeeds, second fails
         item = Mock()
@@ -477,9 +468,9 @@ class TestGCMonitorStreaming:
 
         # File should be created with events
         assert output_file.exists()
-        
+
         # Verify file is valid Chrome Trace format
         data = _assert_valid_chrome_trace_format(output_file)
-        
+
         # Should have metadata (2) + events (4 events per stats_item)
         assert len(data) >= 6  # 2 metadata + 4 events

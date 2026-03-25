@@ -7,8 +7,8 @@ import json
 import sys
 from typing import Any, override
 
-from ._gc_monitor import GCMonitorStatsItem
 from .exporter import GCMonitorExporter
+from .protocol import StatsItem
 
 __all__ = ["StdoutExporter"]
 
@@ -40,12 +40,12 @@ class StdoutExporter(GCMonitorExporter):
         self._event_count = 0
 
     @override
-    def add_event(self, stats_item: GCMonitorStatsItem) -> None:
+    def add_event(self, stats_item: StatsItem) -> None:
         """
         Write a GC event to stdout as a single JSON line.
 
         Args:
-            stats_item: GCMonitorStatsItem instance from callback
+            stats_item: StatsItem instance from callback
         """
         event: dict[str, Any] = {
             "pid": self._pid,

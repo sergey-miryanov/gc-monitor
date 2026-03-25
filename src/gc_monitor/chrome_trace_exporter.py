@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, cast, override
 
-from ._gc_monitor import GCMonitorStatsItem
 from .exporter import GCMonitorExporter
+from .protocol import StatsItem
 
 __all__ = ["TraceExporter", "combine_files", "write_jsonl_events_to_trace", "convert_jsonl_to_trace_format"]
 
@@ -298,12 +298,12 @@ class TraceExporter(GCMonitorExporter):
         self._write_metadata()
 
     @override
-    def add_event(self, stats_item: GCMonitorStatsItem) -> None:
+    def add_event(self, stats_item: StatsItem) -> None:
         """
-        Add a GC monitoring event from GCMonitorStatsItem.
+        Add a GC monitoring event.
 
         Args:
-            stats_item: GCMonitorStatsItem instance from callback
+            stats_item: StatsItem instance from callback
         """
         # Convert timestamp from nanoseconds to microseconds
         ts_us = int(stats_item.ts / 1_000)

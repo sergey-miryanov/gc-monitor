@@ -4,10 +4,8 @@ import json
 from pathlib import Path
 from unittest.mock import Mock
 
-import pytest
-
-from gc_monitor._gc_monitor import GCMonitorStatsItem
 from gc_monitor.jsonl_exporter import JsonlExporter
+from gc_monitor.protocol import StatsItem
 
 
 def _create_mock_stats_item(
@@ -25,8 +23,8 @@ def _create_mock_stats_item(
     duration: float = 0.001,
     total_duration: float = 0.005,
 ) -> Mock:
-    """Create a mock GCMonitorStatsItem with specified values."""
-    stats_item = Mock(spec=GCMonitorStatsItem)
+    """Create a mock StatsItem with specified values."""
+    stats_item = Mock(spec=StatsItem)
     stats_item.gen = gen
     stats_item.ts = ts
     stats_item.collections = collections

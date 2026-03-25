@@ -1,6 +1,6 @@
 """Base exporter interface for GC monitoring data."""
 
-from ._gc_monitor import GCMonitorStatsItem
+from .protocol import StatsItem
 
 __all__ = ["GCMonitorExporter"]
 
@@ -18,7 +18,7 @@ class GCMonitorExporter:
         self._thread_name = thread_name
         self._thread_id = thread_id
 
-    def add_event(self, stats_item: GCMonitorStatsItem) -> None:
+    def add_event(self, stats_item: StatsItem) -> None:
         """Add a GC monitoring event."""
         raise NotImplementedError
 

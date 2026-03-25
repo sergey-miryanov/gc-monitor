@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from tests.test_pyperf_hook import _assert_valid_chrome_trace_format
+from tests.test_pyperf_hook import _assert_valid_chrome_trace_format  # pyright: ignore[reportPrivateUsage]
 
 
 def test_cli_help() -> None:
