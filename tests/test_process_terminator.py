@@ -217,6 +217,7 @@ class TestTerminateProcess:
                 mock_process.communicate.assert_called_with(timeout=None)
                 assert result == (b"final output", b"")
 
+    @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
     def testterminate_process_zombie_windows(
         self, mock_process: Mock, mock_logger: Mock
     ) -> None:
