@@ -1,6 +1,5 @@
 """Core GC monitoring functionality."""
 
-import threading
 import warnings
 
 # Try to import from experimental CPython _gc_monitor module first,
@@ -14,16 +13,35 @@ except ImportError:
     from .fallback import connect as _connect
 
 from .exporter import GCMonitorExporter
+from .monitor_thread import GCMonitorThread
 from .protocol import MonitorHandler
 
-__all__ = ["GCMonitor", "connect"]
+__all__ = ["GCMonitor", "GCMonitorThread", "connect"]
 
 
 class GCMonitor:
-    """GC event monitor that polls at a fixed rate.
+    """GC event monitor that acts as a bridge between handler and exporter.
 
-    Automatically stops when the target process terminates.
-    Uses threading.Event for responsive shutdown signaling.
+    Polls a MonitorHandler for GC events and exports them via GCMonitorExporter.
+    Designed to be managed by GCMonitorThread for cooperative multi-monitor scheduling.
+
+    Example:
+        ```python
+        # Create handler and exporter
+        handler = connect(pid)
+        exporter = TraceExporter(pid=pid, output_path=Path("trace.json"))
+
+        # Create monitor (no thread started yet)
+        monitor = GCMonitor(handler, exporter, rate=0.1)
+
+        # Option 1: Use with GCMonitorThread (recommended for multiple monitors)
+        thread = GCMonitorThread(rate=0.1)
+        thread.add_monitor(monitor)
+        thread.start()
+
+        # Option 2: Use with convenience connect() function (single monitor)
+        monitor, thread = connect(pid, exporter, rate=0.1)
+        ```
     """
 
     def __init__(
@@ -32,67 +50,90 @@ class GCMonitor:
         exporter: GCMonitorExporter,
         rate: float = 0.1,
     ) -> None:
+        """Initialize the GC monitor.
+
+        Args:
+            handler: MonitorHandler to read GC events from
+            exporter: GCMonitorExporter to write GC events to
+            rate: Polling interval in seconds (default: 0.1)
+        """
         self._handler = handler
         self._exporter = exporter
         self._rate = rate
-        self._stopped = False
-        self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
+        self._enabled = True
+        self._last_ts: int = 0
+
+    def poll(self) -> bool:
+        """Perform a single polling iteration.
+
+        Reads events from the handler and exports them.
+        Skips events with timestamps already processed to avoid duplicates.
+
+        Returns:
+            True if monitoring can continue, False if should stop
+
+        Raises:
+            RuntimeError: If the target process has terminated or handler error
+        """
+        if not self._enabled:
+            return False
+
+        try:
+            events = self._handler.read()
+            for event in events:
+                # Skip events with timestamps already processed
+                if event.ts > self._last_ts:
+                    self._exporter.add_event(event)
+                    self._last_ts = event.ts
+            return True
+        except RuntimeError:
+            # Target process terminated or handler error
+            self._enabled = False
+            raise
 
     def stop(self) -> None:
-        """Stop monitoring and close the exporter.
+        """Stop monitoring and close the handler and exporter.
 
-        Signals the monitoring thread to stop and waits for it to finish.
         Safe to call multiple times.
         """
-        if self._stopped:
-            # Already stopped, but still close exporter to flush data
+        if not self._enabled:
+            # Already disabled (e.g., due to error), but still close exporter
             self._exporter.close()
             return
-        # Signal the monitoring thread to stop
-        self._stop_event.set()
-        # Wait for the thread to finish (with timeout)
-        self._thread.join(timeout=1.0)
+        self._enabled = False
         self._handler.close()
         self._exporter.close()
-        self._stopped = True
 
     @property
-    def is_running(self) -> bool:
-        """Check if monitor is still running."""
-        return not self._stopped and not self._stop_event.is_set()
+    def is_enabled(self) -> bool:
+        """Check if monitor is currently enabled."""
+        return self._enabled
 
-    def _run(self) -> None:
-        """Background thread: poll for events and export events.
+    @property
+    def pid(self) -> int:
+        """Return the process ID being monitored.
 
-        Stops automatically if the target process terminates (RuntimeError from handler)
-        or when stop_event is set.
-        Skips events with timestamps that were already processed to avoid duplicates.
+        Extracted from the exporter's pid property.
         """
-        last_ts: int = 0
-        while not self._stop_event.is_set():
-            try:
-                events = self._handler.read()
-                for event in events:
-                    # Skip events with timestamps already processed
-                    if event.ts > last_ts:
-                        self._exporter.add_event(event)
-                        last_ts = event.ts
-            except RuntimeError:
-                # Target process terminated or handler error - stop gracefully
-                break
-            # Use wait() instead of sleep() for responsive shutdown
-            # wait() returns immediately if stop_event is set
-            self._stop_event.wait(timeout=self._rate)
-        self._stopped = True
+        return self._exporter.pid
+
+    @property
+    def rate(self) -> float:
+        """Return the polling rate in seconds."""
+        return self._rate
 
 
 def connect(
-    pid: int, exporter: "GCMonitorExporter", rate: float = 0.1, use_fallback: bool = True
+    pid: int,
+    exporter: GCMonitorExporter,
+    rate: float = 0.1,
+    use_fallback: bool = True,
 ) -> GCMonitor:
     """
-    Connect to GC monitor for the given process and start monitoring.
+    Connect to GC monitor for the given process.
+
+    Creates a GCMonitor instance that can be used with GCMonitorThread
+    for cooperative multi-monitor scheduling.
 
     Args:
         pid: Process ID to monitor
@@ -105,6 +146,23 @@ def connect(
 
     Raises:
         RuntimeError: If connection fails or if _gc_monitor module is not available and use_fallback=False.
+
+    Example:
+        ```python
+        exporter = TraceExporter(pid=12345, output_path=Path("trace.json"))
+        monitor = connect(12345, exporter, rate=0.1)
+        
+        # Use with GCMonitorThread
+        thread = GCMonitorThread(rate=0.1)
+        thread.add_monitor(monitor)
+        thread.start()
+        
+        # Monitor for 5 seconds
+        time.sleep(5)
+        
+        # Stop monitoring
+        thread.stop()
+        ```
     """
     # Check if we need to use fallback and if it's allowed
     if not _gc_monitor_available and not use_fallback:

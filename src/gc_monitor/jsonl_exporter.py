@@ -105,6 +105,7 @@ class JsonlExporter(GCMonitorExporter):
         # Flush any remaining buffered events
         self._flush()
 
+    @override
     def get_event_count(self) -> int:
         """Return the number of exported events (buffered + flushed)."""
         return self._event_count

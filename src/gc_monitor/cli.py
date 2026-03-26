@@ -1,6 +1,7 @@
 """Command-line interface for gc-monitor."""
 
 import argparse
+import json
 import logging
 import os
 import signal
@@ -8,12 +9,13 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
-from . import TraceExporter, connect
+from . import GCMonitorThread, TraceExporter, connect
 from .chrome_trace_exporter import combine_files
 from .jsonl_exporter import JsonlExporter
 from .stdout_exporter import StdoutExporter
+from .socket_server import SocketCommandServer
 
 if TYPE_CHECKING:
     from .exporter import GCMonitorExporter
@@ -31,6 +33,8 @@ ENV_THREAD_NAME = f"{ENV_PREFIX}_THREAD_NAME"
 ENV_THREAD_ID = f"{ENV_PREFIX}_THREAD_ID"
 ENV_FALLBACK = f"{ENV_PREFIX}_FALLBACK"
 ENV_FLUSH_THRESHOLD = f"{ENV_PREFIX}_FLUSH_THRESHOLD"
+ENV_SERVER_HOST = f"{ENV_PREFIX}_SERVER_HOST"
+ENV_SERVER_PORT = f"{ENV_PREFIX}_SERVER_PORT"
 
 
 def _validate_output_path(value: str) -> Path:
@@ -89,10 +93,20 @@ def _setup_logging(verbose: bool) -> None:
         verbose: If True, set log level to INFO; otherwise WARNING.
     """
     level = logging.INFO if verbose else logging.WARNING
-    logging.basicConfig(
-        level=level,
-        format="[%(name)s] %(levelname)s: %(message)s",
-    )
+    logger = logging.getLogger("gc_monitor")
+    logger.setLevel(level)
+    
+    # Only add handler if none exists
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setLevel(level)
+        formatter = logging.Formatter("[%(name)s] %(levelname)s: %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    else:
+        # Update existing handlers
+        for handler in logger.handlers:
+            handler.setLevel(level)
 
 
 def _get_env_output() -> Path:
@@ -221,6 +235,33 @@ def _get_env_flush_threshold() -> int:
     return 100
 
 
+def _get_env_server_host() -> str:
+    """Get server host from environment variable.
+
+    Returns:
+        Host from GC_MONITOR_SERVER_HOST env var, or default "localhost".
+    """
+    host_str = os.environ.get(ENV_SERVER_HOST)
+    if host_str:
+        return host_str
+    return "localhost"
+
+
+def _get_env_server_port() -> int:
+    """Get server port from environment variable.
+
+    Returns:
+        Port from GC_MONITOR_SERVER_PORT env var, or default 9999.
+    """
+    port_str = os.environ.get(ENV_SERVER_PORT)
+    if port_str:
+        try:
+            return int(port_str)
+        except ValueError:
+            pass
+    return 9999
+
+
 def _create_parser() -> argparse.ArgumentParser:
     """Create the argument parser with subcommands."""
     parser = argparse.ArgumentParser(
@@ -331,6 +372,32 @@ def _create_parser() -> argparse.ArgumentParser:
         help="Normalize timestamps for each input file independently (each file starts at timestamp 0)",
     )
 
+    # Server command
+    server_parser = subparsers.add_parser(
+        "server",
+        help="Monitor a process with remote control via TCP socket",
+        description="Monitor Python's garbage collector with remote control via TCP socket.",
+    )
+    server_parser.add_argument(
+        "--host",
+        type=str,
+        default=_get_env_server_host(),
+        help=f"Host to bind to for socket server (default: localhost or {ENV_SERVER_HOST} env var)",
+    )
+    server_parser.add_argument(
+        "--port",
+        type=int,
+        default=_get_env_server_port(),
+        help=f"Port to listen on for socket server (default: 9999 or {ENV_SERVER_PORT} env var)",
+    )
+    server_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=_get_env_verbose(),
+        help=f"Enable verbose output (can also be set via {ENV_VERBOSE} env var: 1, true, yes, on)",
+    )
+
     return parser
 
 
@@ -352,6 +419,10 @@ def main(argv: list[str] | None = None) -> int:
     # Handle subcommands
     if args.command == "combine":
         return _cmd_combine(args)
+
+    # Handle server command
+    if args.command == "server":
+        return _cmd_server(args)
 
     # Default to monitor command if no command specified
     if args.command is None or args.command == "monitor":
@@ -388,7 +459,7 @@ def _cmd_monitor(args: argparse.Namespace) -> int:
             logger.info("Output: %s", output_path)
         logger.info("Format: %s", output_format)
         logger.info("Rate: %ss", rate)
-        if duration:
+        if duration is not None:
             logger.info("Duration: %ss", duration)
         else:
             logger.info("Duration: until interrupted (Ctrl+C)")
@@ -412,45 +483,22 @@ def _cmd_monitor(args: argparse.Namespace) -> int:
         logger.error("Failed to connect to GC monitor: %s", e)
         return 1
 
-    # Handle graceful shutdown on SIGINT/SIGTERM
-    shutdown_event = threading.Event()
-    shutdown_requested = False
+    # Create and start monitoring thread
+    thread = GCMonitorThread(rate=rate)
+    thread.add_monitor(monitor)
+    thread.start()
 
-    def _signal_handler(signum: int, frame: object) -> None:
-        nonlocal shutdown_requested
-        shutdown_requested = True
-        shutdown_event.set()
+    # Wait for shutdown signal or duration
+    _wait_for_shutdown(
+        verbose=verbose,
+        duration=duration,
+        is_running_check=lambda: thread.is_running,
+    )
 
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
-
-    try:
-        if duration:
-            # Run for specified duration or until target process ends
-            if verbose:
-                logger.info("Monitoring for %s seconds...", duration)
-            start_time = time.monotonic()
-            while not shutdown_event.is_set() and monitor.is_running:
-                elapsed = time.monotonic() - start_time
-                if elapsed >= duration:
-                    shutdown_event.set()
-                    break
-                # Use wait() for responsive shutdown
-                shutdown_event.wait(timeout=0.1)
-        else:
-            # Run until interrupted or target process ends
-            if verbose:
-                logger.info("Monitoring... (press Ctrl+C to stop)")
-            while not shutdown_event.is_set() and monitor.is_running:
-                # Use wait() for responsive shutdown
-                shutdown_event.wait(timeout=0.1)
-    finally:
-        # Monitor may have already stopped if target process ended
-        # stop() is safe to call multiple times
-        monitor.stop()
-
-    if shutdown_requested:
-        logger.info("Shutdown was requested...")
+    # Monitor may have already stopped if target process ended
+    # stop() is safe to call multiple times
+    monitor.stop()
+    thread.stop()
 
     event_count = exporter.get_event_count()
     if verbose:
@@ -468,6 +516,116 @@ def _cmd_monitor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _wait_for_shutdown(
+    verbose: bool,
+    duration: float | None = None,
+    is_running_check: Callable[[], bool] | None = None,
+) -> bool:
+    """Wait for shutdown signal or optional duration/running condition.
+
+    Args:
+        verbose: If True, log progress messages.
+        duration: Optional duration in seconds to wait. If None, wait indefinitely.
+        is_running_check: Optional callable that returns True if monitoring should continue.
+            If it returns False, shutdown will be triggered.
+
+    Returns:
+        True if shutdown was requested, False if completed normally.
+    """
+    shutdown_event = threading.Event()
+    shutdown_requested = False
+
+    def _signal_handler(signum: int, frame: object) -> None:
+        nonlocal shutdown_requested
+        shutdown_requested = True
+        shutdown_event.set()
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
+    try:
+        if duration:
+            # Run for specified duration or until is_running_check indicates stop
+            if verbose:
+                logger.info("Monitoring for %s seconds...", duration)
+            start_time = time.monotonic()
+            while not shutdown_event.is_set():
+                if is_running_check is not None and not is_running_check():
+                    break
+                elapsed = time.monotonic() - start_time
+                if elapsed >= duration:
+                    shutdown_event.set()
+                    break
+                # Use wait() for responsive shutdown
+                shutdown_event.wait(timeout=0.1)
+        else:
+            # Run until interrupted or is_running_check indicates stop
+            if verbose:
+                logger.info("Monitoring... (press Ctrl+C to stop)")
+            while not shutdown_event.is_set():
+                if is_running_check is not None and not is_running_check():
+                    break
+                # Use wait() for responsive shutdown
+                shutdown_event.wait(timeout=0.1)
+    finally:
+        pass
+
+    if shutdown_requested:
+        logger.info("Shutdown was requested...")
+
+    return shutdown_requested
+
+
+def _cmd_server(args: argparse.Namespace) -> int:
+    """Execute the server command.
+
+    Args:
+        args: Parsed command-line arguments for server command
+
+    Returns:
+        Exit code (0 for success, non-zero for failure)
+    """
+
+    verbose = args.verbose
+    server_host = args.host
+    server_port = args.port
+
+    if verbose:
+        logger.info("Starting server mode")
+        logger.info("Server listening on %s:%s", server_host, server_port)
+
+    # Create and start monitoring thread
+    thread = GCMonitorThread()
+    thread.start()
+
+    # Create and start socket server (blocks until stop command)
+    server = SocketCommandServer(
+        host=server_host,
+        port=server_port,
+        monitor_thread=thread,
+    )
+
+    try:
+        if verbose:
+            logger.info("Socket server started, waiting for commands...")
+        server.start()
+    except OSError as e:
+        logger.error("Socket server error: %s", e)
+        # Clean up monitor and thread
+        thread.stop()
+        return 1
+
+    # Wait for shutdown signal
+    _wait_for_shutdown(verbose=verbose, is_running_check=lambda: thread.is_running)
+
+    # Server has stopped, clean up
+    server.stop()
+    if verbose:
+        logger.info("Server stopped.")
+
+    return 0
+
+
 def _cmd_combine(args: argparse.Namespace) -> int:
     """Execute the combine command.
 
@@ -477,7 +635,6 @@ def _cmd_combine(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, non-zero for failure)
     """
-    import json
 
     input_paths = args.inputs
     output_path = args.output

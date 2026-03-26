@@ -18,6 +18,11 @@ class GCMonitorExporter:
         self._thread_name = thread_name
         self._thread_id = thread_id
 
+    @property
+    def pid(self) -> int:
+        """Return the process ID being monitored."""
+        return self._pid
+
     def add_event(self, stats_item: StatsItem) -> None:
         """Add a GC monitoring event."""
         raise NotImplementedError
@@ -25,3 +30,7 @@ class GCMonitorExporter:
     def close(self) -> None:
         """Close the exporter and write all events to file."""
         raise NotImplementedError
+
+    def get_event_count(self) -> int:
+        """Return the number of events collected."""
+        return 0

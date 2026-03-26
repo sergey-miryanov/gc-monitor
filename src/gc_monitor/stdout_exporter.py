@@ -75,6 +75,7 @@ class StdoutExporter(GCMonitorExporter):
         if self._flush:
             sys.stdout.flush()
 
+    @override
     def get_event_count(self) -> int:
         """Return the number of exported events."""
         return self._event_count

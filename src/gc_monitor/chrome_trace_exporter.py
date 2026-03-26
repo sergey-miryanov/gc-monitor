@@ -464,6 +464,7 @@ class TraceExporter(GCMonitorExporter):
         """Clear all collected events."""
         self._events.clear()
 
+    @override
     def get_event_count(self) -> int:
         """Return the number of collected events."""
         return len(self._events)

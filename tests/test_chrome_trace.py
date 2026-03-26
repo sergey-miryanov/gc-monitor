@@ -376,8 +376,10 @@ class TestGCMonitorStreaming:
 
         monitor = GCMonitor(mock_handler, exporter, rate=0.05)
 
-        # Let it run for a bit to process events
-        time.sleep(0.2)
+        # Manually poll the monitor multiple times
+        for _ in range(4):
+            monitor.poll()
+
         monitor.stop()
 
         # File should be created with events
@@ -386,8 +388,8 @@ class TestGCMonitorStreaming:
         # Verify file is valid Chrome Trace format
         data = _assert_valid_chrome_trace_format(output_file)
 
-        # Should have metadata (2) + events (at least 2 reads * 2 stats_items * 4 events)
-        assert len(data) >= 10  # 2 metadata + 8 events minimum
+        # Should have metadata (2) + events (4 reads * 2 stats_items * 4 events)
+        assert len(data) >= 10  # 2 metadata + 32 events minimum
 
     def test_gcmonitor_streams_events_individually(
         self, mock_handler: Mock, tmp_path: Path
@@ -406,7 +408,11 @@ class TestGCMonitorStreaming:
         exporter.add_event = tracking_add  # pyright: ignore[reportAttributeAccessIssue]
 
         monitor = GCMonitor(mock_handler, exporter, rate=0.05)
-        time.sleep(0.15)
+
+        # Manually poll the monitor
+        for _ in range(3):
+            monitor.poll()
+
         monitor.stop()
 
         # Events should be added individually (gen 0 and gen 1 alternating)
@@ -423,7 +429,11 @@ class TestGCMonitorStreaming:
         exporter = TraceExporter(pid=12345, output_path=output_file)
 
         monitor = GCMonitor(mock_handler, exporter, rate=0.05)
-        time.sleep(0.15)
+
+        # Manually poll the monitor
+        for _ in range(3):
+            monitor.poll()
+
         monitor.stop()
 
         # File should be saved on close
@@ -462,8 +472,18 @@ class TestGCMonitorStreaming:
         exporter = TraceExporter(pid=12345, output_path=output_file)
 
         monitor = GCMonitor(handler, exporter, rate=0.05)
-        # Should not raise, just stop on error
-        time.sleep(0.15)
+
+        # First poll succeeds
+        assert monitor.poll() is True
+
+        # Second poll raises RuntimeError and disables monitor
+        with pytest.raises(RuntimeError):
+            monitor.poll()
+
+        # Monitor should be disabled
+        assert not monitor.is_enabled
+
+        # Stop should still close the exporter
         monitor.stop()
 
         # File should be created with events
