@@ -207,25 +207,6 @@ time.sleep(5)
 monitor.stop()
 ```
 
-### Pyperf Exporter
-
-```python
-from gc_monitor import PyperfExporter, connect
-import time
-
-# Create pyperf exporter
-exporter = PyperfExporter(pid=12345)
-
-# Connect and start monitoring
-monitor = connect(pid, exporter=exporter, rate=0.1)
-
-# Monitor for some time
-time.sleep(5)
-
-# Stop and save
-monitor.stop()
-exporter.write(Path("gc_stats.json"))
-```
 
 ## Getting Started
 
