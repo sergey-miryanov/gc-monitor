@@ -193,7 +193,6 @@ class TestGCMonitorHookExit:
     """Test GCMonitorHook __exit__ method."""
 
     @pytest.mark.skipif(os.name != "posix", reason="Unix-only test")
-    @patch("gc_monitor.pyperf_hook.os.kill")
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
     @patch("gc_monitor.pyperf_hook.time.sleep")
@@ -203,7 +202,6 @@ class TestGCMonitorHookExit:
         mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
-        mock_kill: Mock,
     ) -> None:
         """__exit__ sends SIGINT on Unix systems."""
         mock_getpid.return_value = 12345
@@ -216,8 +214,8 @@ class TestGCMonitorHookExit:
         with hook:
             pass
 
-        # Verify SIGINT was sent
-        mock_kill.assert_called_once_with(54321, signal.SIGINT)
+        # Verify SIGINT was sent via send_signal
+        mock_process.send_signal.assert_called_once_with(signal.SIGINT)
         mock_process.communicate.assert_called_once_with(timeout=5.0)
 
     @pytest.mark.skipif(os.name != "nt", reason="Windows-only test")
@@ -245,7 +243,6 @@ class TestGCMonitorHookExit:
         mock_process.send_signal.assert_called_once_with(signal.CTRL_BREAK_EVENT)
 
     @pytest.mark.skipif(os.name != "posix", reason="Unix-only test")
-    @patch("gc_monitor.pyperf_hook.os.kill")
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")
     @patch("gc_monitor.pyperf_hook.os.getpid")
     @patch("gc_monitor.pyperf_hook.time.sleep")
@@ -255,7 +252,6 @@ class TestGCMonitorHookExit:
         mock_sleep: Mock,
         mock_getpid: Mock,
         mock_popen: Mock,
-        mock_kill: Mock,
     ) -> None:
         """__exit__ falls back to SIGTERM on timeout (Unix)."""
         mock_getpid.return_value = 12345
@@ -273,12 +269,11 @@ class TestGCMonitorHookExit:
         with hook:
             pass
 
-        # Verify SIGINT was sent first, then SIGTERM, then SIGKILL
-        assert mock_kill.call_count == 3
-        mock_kill.assert_any_call(54321, signal.SIGINT)
-        mock_kill.assert_any_call(54321, signal.SIGTERM)
-        # SIGKILL is sent via os.kill on Unix
-        mock_kill.assert_any_call(54321, 9)  # SIGKILL = 9 on Unix
+        # Verify SIGINT and SIGTERM were sent via send_signal, then SIGKILL via kill
+        assert mock_process.send_signal.call_count == 2
+        mock_process.send_signal.assert_any_call(signal.SIGINT)
+        mock_process.send_signal.assert_any_call(signal.SIGTERM)
+        mock_process.kill.assert_called_once()
 
     @pytest.mark.skipif(os.name != "nt", reason="Windows-only test")
     @patch("gc_monitor.pyperf_hook.subprocess.Popen")

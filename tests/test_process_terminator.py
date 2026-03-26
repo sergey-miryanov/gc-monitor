@@ -33,7 +33,7 @@ class TestTerminateProcess:
     ) -> None:
         """Test graceful termination on Unix with SIGINT."""
         with patch.object(os, "name", "posix"):
-            with patch("os.kill") as mock_kill:
+            with patch.object(mock_process, "send_signal") as mock_send_signal:
                 result = terminate_process(
                     process=mock_process,
                     verbose=False,
@@ -43,7 +43,7 @@ class TestTerminateProcess:
                 )
 
                 # Should send SIGINT
-                mock_kill.assert_called_once_with(12345, signal.SIGINT)
+                mock_send_signal.assert_called_once_with(signal.SIGINT)
                 # Should call communicate with timeout
                 mock_process.communicate.assert_called_once_with(timeout=5.0)
                 assert result == (b"stdout data", b"stderr data")
@@ -79,7 +79,7 @@ class TestTerminateProcess:
         ]
 
         with patch.object(os, "name", "posix"):
-            with patch("os.kill") as mock_kill:
+            with patch.object(mock_process, "send_signal") as mock_send_signal:
                 result = terminate_process(
                     process=mock_process,
                     verbose=False,
@@ -89,9 +89,9 @@ class TestTerminateProcess:
                 )
 
                 # Should send SIGINT first, then SIGTERM
-                assert mock_kill.call_count == 2
-                mock_kill.assert_any_call(12345, signal.SIGINT)
-                mock_kill.assert_any_call(12345, signal.SIGTERM)
+                assert mock_send_signal.call_count == 2
+                mock_send_signal.assert_any_call(signal.SIGINT)
+                mock_send_signal.assert_any_call(signal.SIGTERM)
                 assert result == (b"stdout after sigterm", b"stderr after sigterm")
 
     @pytest.mark.skipif(os.name == "nt", reason="Unix-only test")
@@ -106,21 +106,22 @@ class TestTerminateProcess:
         ]
 
         with patch.object(os, "name", "posix"):
-            with patch("os.kill") as mock_kill:
-                result = terminate_process(
-                    process=mock_process,
-                    verbose=False,
-                    logger=mock_logger,
-                    graceful_timeout=5.0,
-                    force_timeout=2.0,
-                )
+            with patch.object(mock_process, "send_signal") as mock_send_signal:
+                with patch.object(mock_process, "kill") as mock_kill:
+                    result = terminate_process(
+                        process=mock_process,
+                        verbose=False,
+                        logger=mock_logger,
+                        graceful_timeout=5.0,
+                        force_timeout=2.0,
+                    )
 
-                # Should send SIGINT, SIGTERM, then SIGKILL
-                assert mock_kill.call_count == 3
-                mock_kill.assert_any_call(12345, signal.SIGINT)
-                mock_kill.assert_any_call(12345, signal.SIGTERM)
-                mock_kill.assert_any_call(12345, signal.SIGKILL)
-                assert result == (b"stdout after sigkill", b"stderr after sigkill")
+                    # Should send SIGINT, SIGTERM via send_signal, then SIGKILL via kill
+                    assert mock_send_signal.call_count == 2
+                    mock_send_signal.assert_any_call(signal.SIGINT)
+                    mock_send_signal.assert_any_call(signal.SIGTERM)
+                    mock_kill.assert_called_once()
+                    assert result == (b"stdout after sigkill", b"stderr after sigkill")
 
     @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
     def testterminate_process_windows_timeout_then_kill(
@@ -153,7 +154,7 @@ class TestTerminateProcess:
     ) -> None:
         """Test that verbose mode logs progress."""
         with patch.object(os, "name", "posix"):
-            with patch("os.kill"):
+            with patch.object(mock_process, "send_signal"):
                 terminate_process(
                     process=mock_process,
                     verbose=True,
@@ -170,7 +171,7 @@ class TestTerminateProcess:
     ) -> None:
         """Test handling of signal sending failures."""
         with patch.object(os, "name", "posix"):
-            with patch("os.kill", side_effect=ProcessLookupError("Process not found")):
+            with patch.object(mock_process, "send_signal", side_effect=ProcessLookupError("Process not found")):
                 result = terminate_process(
                     process=mock_process,
                     verbose=False,
@@ -200,20 +201,21 @@ class TestTerminateProcess:
         ]
 
         with patch.object(os, "name", "posix"):
-            with patch("os.kill"):
-                result = terminate_process(
-                    process=mock_process,
-                    verbose=False,
-                    logger=mock_logger,
-                    graceful_timeout=5.0,
-                    force_timeout=2.0,
-                )
+            with patch.object(mock_process, "send_signal"):
+                with patch.object(mock_process, "kill"):
+                    result = terminate_process(
+                        process=mock_process,
+                        verbose=False,
+                        logger=mock_logger,
+                        graceful_timeout=5.0,
+                        force_timeout=2.0,
+                    )
 
-                # Should call communicate 4 times (graceful, force, force, infinite)
-                assert mock_process.communicate.call_count == 4
-                # Last call should be with timeout=None to prevent zombie
-                mock_process.communicate.assert_called_with(timeout=None)
-                assert result == (b"final output", b"")
+                    # Should call communicate 4 times (graceful, force, force, infinite)
+                    assert mock_process.communicate.call_count == 4
+                    # Last call should be with timeout=None to prevent zombie
+                    mock_process.communicate.assert_called_with(timeout=None)
+                    assert result == (b"final output", b"")
 
     @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
     def testterminate_process_zombie_windows(
@@ -249,7 +251,7 @@ class TestTerminateProcess:
     ) -> None:
         """Test that default logger is used when none provided."""
         with patch.object(os, "name", "posix"):
-            with patch("os.kill"):
+            with patch.object(mock_process, "send_signal"):
                 # Should not raise when logger is None
                 result = terminate_process(
                     process=mock_process,

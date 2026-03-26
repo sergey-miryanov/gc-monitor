@@ -68,7 +68,7 @@ def terminate_process(
             # Unix: SIGINT
             if verbose:
                 log.debug("Sending SIGINT to process: %s", process)
-            os.kill(process.pid, signal.SIGINT)
+            process.send_signal(signal.SIGINT)
     except (ProcessLookupError, OSError) as e:
         log.warning("Failed to send SIGINT to process: %s", e)
 
@@ -89,7 +89,7 @@ def terminate_process(
         if os.name != "nt":
             # Unix: SIGTERM then SIGKILL
             try:
-                os.kill(process.pid, signal.SIGTERM)
+                process.send_signal(signal.SIGTERM)
             except (ProcessLookupError, OSError) as e:
                 log.warning("Failed to send SIGTERM to process: %s", e)
 
@@ -98,9 +98,9 @@ def terminate_process(
             except subprocess.TimeoutExpired:
                 # Final escalation to SIGKILL (Unix only)
                 try:
-                    os.kill(process.pid, signal.SIGKILL)  # type: ignore[attr-defined]
+                    process.kill()
                 except (ProcessLookupError, OSError) as e:
-                    log.warning("Failed to send SIGKILL to process: %s", e)
+                    log.warning("Failed to kill process: %s", e)
 
                 # Final attempt to reap the process
                 try:
