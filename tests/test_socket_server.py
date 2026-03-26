@@ -230,18 +230,19 @@ class TestSocketCommandServer:
             server_thread.join(timeout=1.0)
 
     def test_server_stop_method(
-        self, mock_monitor_thread: Mock
+        self, mock_monitor_thread: Mock, server_port: int
     ) -> None:
         """Test calling stop() method directly."""
         server = SocketCommandServer(
             host="localhost",
-            port=9999,
+            port=server_port,
             monitor_thread=mock_monitor_thread,
         )
         server.start()
 
-        # Give server time to start
-        time.sleep(0.1)
+        # Wait for server to be ready
+        if not server._server_ready.wait(timeout=2.0):
+            raise RuntimeError("Server failed to start within timeout")
 
         # Call stop
         server.stop()
