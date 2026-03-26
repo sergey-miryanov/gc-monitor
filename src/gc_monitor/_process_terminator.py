@@ -18,6 +18,72 @@ DEFAULT_FORCE_TIMEOUT = 2.0  # seconds: timeout for forceful termination
 _logger = logging.getLogger("gc_monitor")
 
 
+def _is_windows() -> bool:
+    """Check if running on Windows."""
+    return os.name == "nt"
+
+
+def _send_signal_safe(
+    process: subprocess.Popen[bytes],
+    signal_value: int,
+    verbose: bool,
+    logger: logging.Logger,
+    signal_name: str,
+) -> None:
+    """
+    Send a signal to a process, catching and logging any errors.
+
+    Args:
+        process: The subprocess to send signal to
+        signal_value: The signal to send
+        verbose: If True, log detailed progress
+        logger: Logger instance
+        signal_name: Human-readable signal name for logging
+    """
+    try:
+        if verbose:
+            logger.debug("Sending %s to process: %s", signal_name, process)
+        process.send_signal(signal_value)
+    except (ProcessLookupError, OSError) as e:
+        logger.warning("Failed to send %s to process: %s", signal_name, e)
+
+
+def _communicate_with_timeout(
+    process: subprocess.Popen[bytes],
+    timeout: float | None,
+    verbose: bool,
+    logger: logging.Logger,
+    timeout_description: str,
+) -> tuple[bytes, bytes]:
+    """
+    Call process.communicate() with timeout, handling TimeoutExpired.
+
+    Args:
+        process: The subprocess to communicate with
+        timeout: Timeout in seconds, or None for indefinite wait
+        verbose: If True, log detailed progress
+        logger: Logger instance
+        timeout_description: Description of this timeout stage for logging
+
+    Returns:
+        Tuple of (stdout_data, stderr_data), or (b"", b"") on timeout
+    """
+    try:
+        if verbose:
+            logger.debug(
+                "Waiting for process to exit (%s, timeout=%s)",
+                timeout_description,
+                timeout if timeout is not None else "indefinite",
+            )
+        return process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if verbose:
+            logger.debug(
+                "Process did not exit within %s timeout", timeout_description
+            )
+        return b"", b""
+
+
 def terminate_process(
     process: subprocess.Popen[bytes],
     verbose: bool = False,
@@ -28,10 +94,13 @@ def terminate_process(
     """
     Gracefully terminate a subprocess with escalating signals.
 
-    Sends SIGINT (or CTRL_BREAK_EVENT on Windows) to the process for graceful
-    shutdown. If the process does not exit within the graceful timeout, escalates
-    to SIGTERM (Unix) or kill() (Windows). As a last resort, uses SIGKILL (Unix)
-    or kill() (Windows) to forcefully terminate the process.
+    Signal escalation flow:
+    1. Send graceful signal (SIGINT on Unix, CTRL_BREAK_EVENT on Windows)
+    2. Wait for graceful_timeout
+    3. On timeout:
+       - Unix: Send SIGTERM, wait, then SIGKILL via kill()
+       - Windows: Call kill() directly
+    4. Final wait (indefinite if needed) to prevent zombie processes
 
     All exceptions from signal operations are caught and logged internally.
     The function always returns normally with whatever output could be collected.
@@ -53,79 +122,104 @@ def terminate_process(
         The function always returns normally.
     """
     log = logger if logger is not None else _logger
+    is_windows = _is_windows()
 
-    stdout_data: bytes = b""
-    stderr_data: bytes = b""
+    # Step 1: Send graceful shutdown signal
+    if is_windows:
+        _send_signal_safe(
+            process=process,
+            signal_value=signal.CTRL_BREAK_EVENT,
+            verbose=verbose,
+            logger=log,
+            signal_name="CTRL_BREAK_EVENT",
+        )
+    else:
+        _send_signal_safe(
+            process=process,
+            signal_value=signal.SIGINT,
+            verbose=verbose,
+            logger=log,
+            signal_name="SIGINT",
+        )
 
-    # Send SIGINT for graceful shutdown
-    try:
-        if os.name == "nt":
-            # Windows: Use CTRL_BREAK_EVENT for console processes
-            if verbose:
-                log.debug("Sending CTRL_BREAK_EVENT to process: %s", process)
-            process.send_signal(signal.CTRL_BREAK_EVENT)
-        else:
-            # Unix: SIGINT
-            if verbose:
-                log.debug("Sending SIGINT to process: %s", process)
-            process.send_signal(signal.SIGINT)
-    except (ProcessLookupError, OSError) as e:
-        log.warning("Failed to send SIGINT to process: %s", e)
+    # Step 2: Wait for graceful exit
+    stdout_data, stderr_data = _communicate_with_timeout(
+        process=process,
+        timeout=graceful_timeout,
+        verbose=verbose,
+        logger=log,
+        timeout_description="graceful shutdown",
+    )
 
-    # Wait for clean exit and read output atomically
-    try:
+    # Check if process exited gracefully
+    if process.returncode is not None:
+        return stdout_data, stderr_data
+
+    # Step 3: Process still running - escalate
+    if verbose:
+        log.debug(
+            "Process did not exit gracefully, escalating to forceful termination"
+        )
+
+    if not is_windows:
+        # Unix: SIGTERM -> wait -> SIGKILL
+        _send_signal_safe(
+            process=process,
+            signal_value=signal.SIGTERM,
+            verbose=verbose,
+            logger=log,
+            signal_name="SIGTERM",
+        )
+
+        stdout_data, stderr_data = _communicate_with_timeout(
+            process=process,
+            timeout=force_timeout,
+            verbose=verbose,
+            logger=log,
+            timeout_description="SIGTERM",
+        )
+
+        # Still running? Use SIGKILL (Unix only)
+        if process.returncode is None:
+            _send_signal_safe(
+                process=process,
+                signal_value=getattr(signal, "SIGKILL", 9),
+                verbose=verbose,
+                logger=log,
+                signal_name="SIGKILL",
+            )
+    else:
+        # Windows: kill() directly
+        if verbose:
+            log.debug("Killing process: %s", process)
+        try:
+            process.kill()
+        except (ProcessLookupError, OSError) as e:
+            log.warning("Failed to kill process: %s", e)
+
+    # Step 4: Final wait to reap process (prevent zombies)
+    # First try with timeout
+    stdout_data, stderr_data = _communicate_with_timeout(
+        process=process,
+        timeout=force_timeout,
+        verbose=verbose,
+        logger=log,
+        timeout_description="final cleanup",
+    )
+
+    # If still running (shouldn't happen), wait indefinitely
+    if process.returncode is None:
         if verbose:
             log.debug(
-                "Waiting for process to exit (timeout=%ss)", graceful_timeout
+                "Process still running after forceful termination, waiting indefinitely"
             )
-        stdout_data, stderr_data = process.communicate(timeout=graceful_timeout)
-    except subprocess.TimeoutExpired:
-        # Fallback to SIGTERM, then SIGKILL
-        if verbose:
-            log.debug(
-                "Process did not exit gracefully, escalating to SIGTERM/SIGKILL"
-            )
-
-        if os.name != "nt":
-            # Unix: SIGTERM then SIGKILL
-            try:
-                process.send_signal(signal.SIGTERM)
-            except (ProcessLookupError, OSError) as e:
-                log.warning("Failed to send SIGTERM to process: %s", e)
-
-            try:
-                stdout_data, stderr_data = process.communicate(timeout=force_timeout)
-            except subprocess.TimeoutExpired:
-                # Final escalation to SIGKILL (Unix only)
-                try:
-                    process.kill()
-                except (ProcessLookupError, OSError) as e:
-                    log.warning("Failed to kill process: %s", e)
-
-                # Final attempt to reap the process
-                try:
-                    stdout_data, stderr_data = process.communicate(
-                        timeout=force_timeout
-                    )
-                except subprocess.TimeoutExpired:
-                    # Last resort: wait indefinitely to prevent zombie process
-                    stdout_data, stderr_data = process.communicate(timeout=None)
-        else:
-            # Windows: Use kill() which sends SIGKILL equivalent
-            if verbose:
-                log.debug("Killing process: %s", process)
-
-            try:
-                process.kill()
-            except (ProcessLookupError, OSError) as e:
-                log.warning("Failed to kill process: %s", e)
-
-            # Final attempt to reap the process and read output
-            try:
-                stdout_data, stderr_data = process.communicate(timeout=force_timeout)
-            except subprocess.TimeoutExpired:
-                # Last resort: wait indefinitely to prevent zombie process
-                stdout_data, stderr_data = process.communicate(timeout=None)
+        stdout_data, stderr_data = _communicate_with_timeout(
+            process=process,
+            timeout=None,
+            verbose=verbose,
+            logger=log,
+            timeout_description="indefinite cleanup",
+        )
 
     return stdout_data, stderr_data
 

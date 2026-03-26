@@ -290,12 +290,17 @@ class TestGCMonitorHookExit:
         mock_getpid.return_value = 12345
         mock_process = Mock()
         mock_process.pid = 54321
+        # Set returncode to None initially (process still running)
+        mock_process.returncode = None
         # First communicate() times out, triggering kill()
-        # Second communicate() after kill() succeeds
-        mock_process.communicate.side_effect = [
-            subprocess.TimeoutExpired(cmd="gc-monitor", timeout=5.0),
-            (b"", b""),  # Successful communicate after kill
-        ]
+        # Second communicate() after kill() succeeds and sets returncode
+        def communicate_side_effect(timeout=None):
+            if timeout == 5.0:  # Graceful timeout
+                raise subprocess.TimeoutExpired(cmd="gc-monitor", timeout=5.0)
+            else:  # After kill()
+                mock_process.returncode = 0
+                return (b"", b"")
+        mock_process.communicate.side_effect = communicate_side_effect
         mock_popen.return_value = mock_process
 
         hook = GCMonitorHook()

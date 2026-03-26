@@ -73,10 +73,21 @@ class TestTerminateProcess:
         self, mock_process: Mock, mock_logger: Mock
     ) -> None:
         """Test Unix termination with timeout followed by SIGTERM."""
-        mock_process.communicate.side_effect = [
-            subprocess.TimeoutExpired(cmd="test", timeout=5.0),  # First timeout
-            (b"stdout after sigterm", b"stderr after sigterm"),  # Success after SIGTERM
-        ]
+        # Set returncode to None initially (process still running)
+        mock_process.returncode = None
+        
+        # communicate() is called 3 times: graceful timeout, after SIGTERM, final cleanup
+        # After SIGTERM, the process exits (returncode is set)
+        def communicate_side_effect(timeout=None):
+            if timeout == 5.0:  # Graceful timeout
+                raise subprocess.TimeoutExpired(cmd="test", timeout=5.0)
+            elif timeout == 2.0:  # After SIGTERM
+                mock_process.returncode = 0  # Process exited
+                return (b"stdout after sigterm", b"stderr after sigterm")
+            else:  # Final cleanup (shouldn't be reached in this test)
+                return (b"", b"")
+        
+        mock_process.communicate.side_effect = communicate_side_effect
 
         with patch.object(os, "name", "posix"):
             with patch.object(mock_process, "send_signal") as mock_send_signal:
@@ -88,7 +99,7 @@ class TestTerminateProcess:
                     force_timeout=2.0,
                 )
 
-                # Should send SIGINT first, then SIGTERM
+                # Should send SIGINT first, then SIGTERM (no SIGKILL because process exited)
                 assert mock_send_signal.call_count == 2
                 mock_send_signal.assert_any_call(signal.SIGINT)
                 mock_send_signal.assert_any_call(signal.SIGTERM)
@@ -128,9 +139,13 @@ class TestTerminateProcess:
         self, mock_process: Mock, mock_logger: Mock
     ) -> None:
         """Test Windows termination with timeout followed by kill()."""
+        # Set returncode to None initially (process still running)
+        mock_process.returncode = None
+        # communicate() is called 3 times: graceful timeout, after kill, final cleanup
         mock_process.communicate.side_effect = [
             subprocess.TimeoutExpired(cmd="test", timeout=5.0),  # First timeout
             (b"stdout after kill", b"stderr after kill"),  # Success after kill
+            (b"stdout after kill", b"stderr after kill"),  # Final cleanup
         ]
 
         with patch.object(os, "name", "nt"):
@@ -191,6 +206,8 @@ class TestTerminateProcess:
         self, mock_process: Mock, mock_logger: Mock
     ) -> None:
         """Test handling of zombie process on Unix."""
+        # Set returncode to None initially (process still running)
+        mock_process.returncode = None
         # After all timeouts expire, communicate(timeout=None) is called
         # which will eventually return (process is reaped)
         mock_process.communicate.side_effect = [
@@ -222,6 +239,8 @@ class TestTerminateProcess:
         self, mock_process: Mock, mock_logger: Mock
     ) -> None:
         """Test handling of zombie process on Windows."""
+        # Set returncode to None initially (process still running)
+        mock_process.returncode = None
         # After timeout, communicate(timeout=None) is called to prevent zombie
         mock_process.communicate.side_effect = [
             subprocess.TimeoutExpired(cmd="test", timeout=5.0),
