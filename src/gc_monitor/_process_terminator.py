@@ -181,13 +181,12 @@ def terminate_process(
 
         # Still running? Use SIGKILL (Unix only)
         if process.returncode is None:
-            _send_signal_safe(
-                process=process,
-                signal_value=getattr(signal, "SIGKILL", 9),
-                verbose=verbose,
-                logger=log,
-                signal_name="SIGKILL",
-            )
+            if verbose:
+                log.debug("Sending SIGKILL to process: %s", process)
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError) as e:
+                log.warning("Failed to kill process: %s", e)
     else:
         # Windows: kill() directly
         if verbose:
