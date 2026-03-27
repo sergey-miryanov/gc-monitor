@@ -13,28 +13,6 @@ from gc_monitor.stdout_exporter import StdoutExporter
 class TestStdoutExporter:
     """Tests for StdoutExporter class."""
 
-    @pytest.fixture
-    def mock_stats_item(self) -> Mock:
-        """Create a mock StatsItem.
-
-        Note: ts is in nanoseconds, duration and total_duration are in seconds.
-        """
-        item = Mock(spec=StatsItem)
-        item.gen = 2
-        item.ts = 1_500_000_000  # 1.5 seconds in nanoseconds
-        item.collections = 50
-        item.collected = 200
-        item.uncollectable = 10
-        item.candidates = 40
-        item.object_visits = 600
-        item.objects_transitively_reachable = 250
-        item.objects_not_transitively_reachable = 150
-        item.heap_size = 52428800
-        item.work_to_do = 30
-        item.duration = 0.005  # 5ms in seconds
-        item.total_duration = 45.5  # 45.5 seconds in seconds
-        return item
-
     def test_init_default_parameters(self) -> None:
         """Test StdoutExporter initialization with default parameters."""
         exporter = StdoutExporter(pid=12345)

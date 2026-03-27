@@ -12,30 +12,7 @@ import pytest
 from gc_monitor.core import GCMonitorThread
 from gc_monitor.socket_server import SocketCommandServer
 
-
-class MockExporter:
-    """Mock exporter for testing."""
-
-    def __init__(self, pid: int = 12345, event_count: int = 0) -> None:
-        self._pid = pid
-        self._event_count = event_count
-
-    @property
-    def pid(self) -> int:
-        """Return the process ID."""
-        return self._pid
-
-    def get_event_count(self) -> int:
-        """Return the event count."""
-        return self._event_count
-
-    def add_event(self, stats_item: Any) -> None:
-        """Mock add_event."""
-        self._event_count += 1
-
-    def close(self) -> None:
-        """Mock close."""
-        pass
+from tests.socket_helpers import send_command, start_server_in_thread
 
 
 class TestSocketCommandServer:
@@ -59,52 +36,6 @@ class TestSocketCommandServer:
             port = s.getsockname()[1]
         return port
 
-    def _send_command(
-        self, host: str, port: int, command: dict, timeout: float = 2.0
-    ) -> dict:
-        """Send a command to the server and return the response."""
-        with socket.create_connection((host, port), timeout=timeout) as conn:
-            request = json.dumps(command) + "\n"
-            conn.sendall(request.encode("utf-8"))
-            response_data = b""
-            conn.settimeout(timeout)
-            while True:
-                try:
-                    chunk = conn.recv(4096)
-                    if not chunk:
-                        break
-                    response_data += chunk
-                    if b"\n" in response_data:
-                        break
-                except socket.timeout:
-                    break
-            return json.loads(response_data.decode("utf-8"))
-
-    def _start_server_in_thread(
-        self,
-        monitor_thread: Mock,
-        host: str,
-        port: int,
-    ) -> tuple[SocketCommandServer, threading.Thread]:
-        """Start the server in a background thread."""
-        server = SocketCommandServer(
-            host=host,
-            port=port,
-            monitor_thread=monitor_thread,
-        )
-
-        def run_server() -> None:
-            server.start()
-
-        thread = threading.Thread(target=run_server, daemon=True)
-        thread.start()
-
-        # Wait for server to be ready (with timeout)
-        if not server._server_ready.wait(timeout=2.0):
-            raise RuntimeError("Server failed to start within timeout")
-
-        return server, thread
-
     def test_server_init(self, mock_monitor_thread: Mock) -> None:
         """Test server initialization."""
         server = SocketCommandServer(
@@ -125,12 +56,12 @@ class TestSocketCommandServer:
         server_port: int,
     ) -> None:
         """Test stop command stops monitoring and server."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
         try:
-            response = self._send_command(
+            response = send_command(
                 "localhost", server_port, {"method": "stop"}
             )
 
@@ -153,12 +84,12 @@ class TestSocketCommandServer:
         server_port: int,
     ) -> None:
         """Test unknown method returns error."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
         try:
-            response = self._send_command(
+            response = send_command(
                 "localhost", server_port, {"method": "unknown_method"}
             )
 
@@ -178,7 +109,7 @@ class TestSocketCommandServer:
         server_port: int,
     ) -> None:
         """Test invalid JSON returns error."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
@@ -213,12 +144,12 @@ class TestSocketCommandServer:
         server_port: int,
     ) -> None:
         """Test request without method key returns error."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
         try:
-            response = self._send_command(
+            response = send_command(
                 "localhost", server_port, {"no_method": "test"}
             )
 
@@ -312,52 +243,6 @@ class TestMonitorCommand:
             port = s.getsockname()[1]
         return port
 
-    def _send_command(
-        self, host: str, port: int, command: dict, timeout: float = 2.0
-    ) -> dict:
-        """Send a command to the server and return the response."""
-        with socket.create_connection((host, port), timeout=timeout) as conn:
-            request = json.dumps(command) + "\n"
-            conn.sendall(request.encode("utf-8"))
-            response_data = b""
-            conn.settimeout(timeout)
-            while True:
-                try:
-                    chunk = conn.recv(4096)
-                    if not chunk:
-                        break
-                    response_data += chunk
-                    if b"\n" in response_data:
-                        break
-                except socket.timeout:
-                    break
-            return json.loads(response_data.decode("utf-8"))
-
-    def _start_server_in_thread(
-        self,
-        monitor_thread: Mock,
-        host: str,
-        port: int,
-    ) -> tuple[SocketCommandServer, threading.Thread]:
-        """Start the server in a background thread."""
-        server = SocketCommandServer(
-            host=host,
-            port=port,
-            monitor_thread=monitor_thread,
-        )
-
-        def run_server() -> None:
-            server.start()
-
-        thread = threading.Thread(target=run_server, daemon=True)
-        thread.start()
-
-        # Wait for server to be ready (with timeout)
-        if not server._server_ready.wait(timeout=2.0):
-            raise RuntimeError("Server failed to start within timeout")
-
-        return server, thread
-
     def test_monitor_command_default_params(
         self,
         mock_monitor_thread: Mock,
@@ -367,12 +252,12 @@ class TestMonitorCommand:
         temp_output_file: str,
     ) -> None:
         """Test monitor command with default parameters."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
         try:
-            response = self._send_command(
+            response = send_command(
                 "localhost",
                 server_port,
                 {"method": "monitor", "pid": 12345, "output": temp_output_file},
@@ -404,12 +289,12 @@ class TestMonitorCommand:
         temp_output_file: str,
     ) -> None:
         """Test monitor command with custom parameters."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
         try:
-            response = self._send_command(
+            response = send_command(
                 "localhost",
                 server_port,
                 {
@@ -448,12 +333,12 @@ class TestMonitorCommand:
         server_port: int,
     ) -> None:
         """Test monitor command with stdout exporter."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
         try:
-            response = self._send_command(
+            response = send_command(
                 "localhost",
                 server_port,
                 {
@@ -482,12 +367,12 @@ class TestMonitorCommand:
         temp_output_file: str,
     ) -> None:
         """Test monitor command with JSONL exporter."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
         try:
-            response = self._send_command(
+            response = send_command(
                 "localhost",
                 server_port,
                 {
@@ -518,12 +403,12 @@ class TestMonitorCommand:
         temp_output_file: str,
     ) -> None:
         """Test monitor command with Chrome Trace exporter (default)."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
         try:
-            response = self._send_command(
+            response = send_command(
                 "localhost",
                 server_port,
                 {
@@ -554,7 +439,7 @@ class TestMonitorCommand:
         temp_output_file: str,
     ) -> None:
         """Test monitor command with invalid PID."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
@@ -562,7 +447,7 @@ class TestMonitorCommand:
             # Mock connect to raise an exception when called with invalid PID
             mock_connect.side_effect = ValueError("Invalid PID: -1")
 
-            response = self._send_command(
+            response = send_command(
                 "localhost",
                 server_port,
                 {"method": "monitor", "pid": -1, "output": temp_output_file},
@@ -591,7 +476,7 @@ class TestMonitorCommand:
         temp_output_file: str,
     ) -> None:
         """Test monitor command when connection fails."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
@@ -599,7 +484,7 @@ class TestMonitorCommand:
             # Mock connect to raise RuntimeError
             mock_connect.side_effect = RuntimeError("Connection failed")
 
-            response = self._send_command(
+            response = send_command(
                 "localhost",
                 server_port,
                 {"method": "monitor", "pid": 99999, "output": temp_output_file},
@@ -627,7 +512,7 @@ class TestMonitorCommand:
         temp_output_file: str,
     ) -> None:
         """Test monitor command with missing PID (uses default -1)."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
@@ -635,7 +520,7 @@ class TestMonitorCommand:
             # Mock connect to raise an exception for invalid PID
             mock_connect.side_effect = ValueError("Invalid PID: -1")
 
-            response = self._send_command(
+            response = send_command(
                 "localhost",
                 server_port,
                 {"method": "monitor", "output": temp_output_file},  # No pid parameter
@@ -664,12 +549,12 @@ class TestMonitorCommand:
         temp_output_file: str,
     ) -> None:
         """Test monitor command with invalid rate parameter."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
         try:
-            response = self._send_command(
+            response = send_command(
                 "localhost",
                 server_port,
                 {"method": "monitor", "pid": 12345, "rate": "not-a-number", "output": temp_output_file},
@@ -698,7 +583,7 @@ class TestMonitorCommand:
         temp_output_file: str,
     ) -> None:
         """Test monitor command with various fallback parameter values."""
-        server, server_thread = self._start_server_in_thread(
+        server, server_thread = start_server_in_thread(
             mock_monitor_thread, "localhost", server_port
         )
 
@@ -720,7 +605,7 @@ class TestMonitorCommand:
             mock_monitor_thread.add_monitor.reset_mock()
 
             try:
-                response = self._send_command(
+                response = send_command(
                     "localhost",
                     server_port,
                     {"method": "monitor", "pid": 12345, "fallback": fallback_input, "output": temp_output_file},

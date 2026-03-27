@@ -14,20 +14,6 @@ from gc_monitor._process_terminator import log_process_output, terminate_process
 class TestTerminateProcess:
     """Tests for terminate_process function."""
 
-    @pytest.fixture
-    def mock_process(self) -> Mock:
-        """Create a mock subprocess.Popen instance."""
-        process = Mock(spec=subprocess.Popen)
-        process.pid = 12345
-        process.returncode = 0
-        process.communicate.return_value = (b"stdout data", b"stderr data")
-        return process
-
-    @pytest.fixture
-    def mock_logger(self) -> Mock:
-        """Create a mock logger instance."""
-        return Mock(spec=logging.Logger)
-
     def testterminate_process_unix_graceful_exit(
         self, mock_process: Mock, mock_logger: Mock
     ) -> None:
@@ -285,19 +271,6 @@ class TestTerminateProcess:
 class TestLogProcessOutput:
     """Tests for log_process_output function."""
 
-    @pytest.fixture
-    def mock_process(self) -> Mock:
-        """Create a mock subprocess.Popen instance."""
-        process = Mock(spec=subprocess.Popen)
-        process.pid = 12345
-        process.returncode = 0
-        return process
-
-    @pytest.fixture
-    def mock_logger(self) -> Mock:
-        """Create a mock logger instance."""
-        return Mock(spec=logging.Logger)
-
     def test_log_output_success_verbose(
         self, mock_process: Mock, mock_logger: Mock
     ) -> None:
@@ -502,15 +475,6 @@ class TestLogProcessOutput:
 
 class TestCrossPlatform:
     """Cross-platform compatibility tests."""
-
-    @pytest.fixture
-    def mock_process(self) -> Mock:
-        """Create a mock subprocess.Popen instance."""
-        process = Mock(spec=subprocess.Popen)
-        process.pid = 12345
-        process.returncode = 0
-        process.communicate.return_value = (b"stdout", b"stderr")
-        return process
 
     @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
     def test_windows_signal_constants(self, mock_process: Mock) -> None:

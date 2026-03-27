@@ -2,43 +2,10 @@
 
 import json
 from pathlib import Path
-from unittest.mock import Mock
 
 from gc_monitor.jsonl_exporter import JsonlExporter
-from gc_monitor.protocol import StatsItem
 
-
-def _create_mock_stats_item(
-    gen: int = 0,
-    ts: int = 1000000,
-    collections: int = 10,
-    collected: int = 5,
-    uncollectable: int = 0,
-    candidates: int = 15,
-    object_visits: int = 100,
-    objects_transitively_reachable: int = 50,
-    objects_not_transitively_reachable: int = 30,
-    heap_size: int = 1024,
-    work_to_do: int = 5,
-    duration: float = 0.001,
-    total_duration: float = 0.005,
-) -> Mock:
-    """Create a mock StatsItem with specified values."""
-    stats_item = Mock(spec=StatsItem)
-    stats_item.gen = gen
-    stats_item.ts = ts
-    stats_item.collections = collections
-    stats_item.collected = collected
-    stats_item.uncollectable = uncollectable
-    stats_item.candidates = candidates
-    stats_item.object_visits = object_visits
-    stats_item.objects_transitively_reachable = objects_transitively_reachable
-    stats_item.objects_not_transitively_reachable = objects_not_transitively_reachable
-    stats_item.heap_size = heap_size
-    stats_item.work_to_do = work_to_do
-    stats_item.duration = duration
-    stats_item.total_duration = total_duration
-    return stats_item
+from tests.helpers import create_mock_stats_item
 
 
 class TestJsonlExporter:
@@ -75,7 +42,21 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item(
+            gen=0,
+            ts=1_000_000,
+            collections=10,
+            collected=5,
+            uncollectable=0,
+            candidates=15,
+            object_visits=100,
+            objects_transitively_reachable=50,
+            objects_not_transitively_reachable=30,
+            heap_size=1024,
+            work_to_do=5,
+            duration=0.001,
+            total_duration=0.005,
+        )
 
         exporter.add_event(stats_item)
         exporter.close()
@@ -110,7 +91,7 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1000)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         assert exporter.get_event_count() == 0
 
@@ -127,7 +108,7 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1000)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         # Add 3 events
         exporter.add_event(stats_item)
@@ -150,7 +131,7 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1000)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         exporter.add_event(stats_item)
         exporter.close()
@@ -167,7 +148,7 @@ class TestJsonlExporter:
         # Set threshold high so events are buffered
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1000)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         # Add events but don't reach threshold
         exporter.add_event(stats_item)
@@ -190,7 +171,7 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1000)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         # Add 5 events
         for _ in range(5):
@@ -204,7 +185,7 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         exporter.add_event(stats_item)
         exporter.close()
@@ -220,7 +201,7 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1000)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         exporter.add_event(stats_item)
         exporter.add_event(stats_item)
@@ -243,7 +224,7 @@ class TestJsonlExporter:
             pid=12345, output_path=output_path, thread_id=5678, flush_threshold=1
         )
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         exporter.add_event(stats_item)
         exporter.close()
@@ -258,7 +239,7 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=99999, output_path=output_path, flush_threshold=1)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         exporter.add_event(stats_item)
         exporter.close()
@@ -273,7 +254,7 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         exporter.add_event(stats_item)
 
@@ -293,7 +274,7 @@ class TestJsonlExporter:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1000)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         exporter.add_event(stats_item)
         exporter.close()
@@ -336,7 +317,7 @@ class TestJsonlExporterFlushThreshold:
         # Set threshold to 10
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=10)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         # Add 5 events (below threshold)
         for _ in range(5):
@@ -363,7 +344,7 @@ class TestJsonlExporterFlushThreshold:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=5)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         # Add 4 events (below threshold)
         for i in range(4):
@@ -387,7 +368,7 @@ class TestJsonlExporterFlushThreshold:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=3)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         # Add 7 events (should trigger 2 flushes: at 3 and 6, with 1 buffered)
         for _ in range(7):
@@ -411,7 +392,7 @@ class TestJsonlExporterFlushThreshold:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=100)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         # Add 10 events (below threshold)
         for _ in range(10):
@@ -436,7 +417,7 @@ class TestJsonlExporterFlushThreshold:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=5)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         # Add 12 events (2 flushes of 5, plus 2 buffered)
         for _ in range(12):
@@ -461,7 +442,7 @@ class TestJsonlExporterFlushThreshold:
         output_path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(pid=12345, output_path=output_path, flush_threshold=1)
 
-        stats_item = _create_mock_stats_item()
+        stats_item = create_mock_stats_item()
 
         # Add first event
         exporter.add_event(stats_item)

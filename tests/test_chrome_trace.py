@@ -1,6 +1,5 @@
 """Tests for Chrome trace exporter."""
 
-import time
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -8,35 +7,13 @@ import pytest
 
 from gc_monitor.chrome_trace_exporter import TraceExporter
 from gc_monitor.core import GCMonitor
-from gc_monitor.protocol import MonitorHandler, StatsItem
+from gc_monitor.protocol import MonitorHandler
 
-from tests.test_pyperf_hook import _assert_valid_chrome_trace_format  # pyright: ignore[reportPrivateUsage]
+from tests.helpers import assert_valid_chrome_trace_format
 
 
 class TestTraceExporter:
     """Tests for TraceExporter class."""
-
-    @pytest.fixture
-    def mock_stats_item(self) -> Mock:
-        """Create a mock StatsItem.
-
-        Note: ts is in nanoseconds, duration and total_duration are in seconds.
-        """
-        item = Mock(spec=StatsItem)
-        item.gen = 2
-        item.ts = 1_500_000_000  # 1.5 seconds in nanoseconds
-        item.collections = 50
-        item.collected = 200
-        item.uncollectable = 10
-        item.candidates = 40
-        item.object_visits = 600
-        item.objects_transitively_reachable = 250
-        item.objects_not_transitively_reachable = 150
-        item.heap_size = 52428800
-        item.work_to_do = 30
-        item.duration = 0.005  # 5ms in seconds
-        item.total_duration = 45.5  # 45.5 seconds in seconds
-        return item
 
     def test_exporter_init(self, tmp_path: Path) -> None:
         """Test exporter initialization."""
@@ -71,7 +48,7 @@ class TestTraceExporter:
         exporter.close()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(output_file)
+        data = assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + events (10 * 4 = 40)
         assert len(data) == 42
@@ -95,7 +72,7 @@ class TestTraceExporter:
         exporter.close()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(output_file)
+        data = assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + all events (15 * 4 = 60)
         assert len(data) == 62
@@ -114,7 +91,7 @@ class TestTraceExporter:
         assert output_file.exists()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(output_file)
+        data = assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + events (4 per stats_item)
         assert len(data) == 6
@@ -136,7 +113,7 @@ class TestTraceExporter:
         exporter.close()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(output_file)
+        data = assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + all events (15 * 4 = 60)
         assert len(data) == 62
@@ -160,7 +137,7 @@ class TestTraceExporter:
         exporter.close()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(tmp_path / "test.json")
+        data = assert_valid_chrome_trace_format(tmp_path / "test.json")
 
         # First 2 events are metadata, then our events
         events = data[2:]
@@ -181,7 +158,7 @@ class TestTraceExporter:
         exporter.close()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(tmp_path / "test.json")
+        data = assert_valid_chrome_trace_format(tmp_path / "test.json")
 
         # First 2 events are metadata, then our events
         event = data[2]
@@ -204,7 +181,7 @@ class TestTraceExporter:
         exporter.close()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(tmp_path / "test.json")
+        data = assert_valid_chrome_trace_format(tmp_path / "test.json")
 
         # First 2 events are metadata, then our events
         # Events are: GC Pause, GC Pause (gen=X), Memory Counters, Heap Size
@@ -225,7 +202,7 @@ class TestTraceExporter:
         exporter.close()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(tmp_path / "test_trace.json")
+        data = assert_valid_chrome_trace_format(tmp_path / "test_trace.json")
 
         # Find metadata events
         metadata_events = [e for e in data if e["ph"] == "M"]
@@ -251,7 +228,7 @@ class TestTraceExporter:
         exporter.close()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(tmp_path / "test_trace.json")
+        data = assert_valid_chrome_trace_format(tmp_path / "test_trace.json")
 
         # Metadata should only appear once
         metadata_events = [e for e in data if e["ph"] == "M"]
@@ -281,7 +258,7 @@ class TestTraceExporter:
         exporter.close()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(tmp_path / "test_trace.json")
+        data = assert_valid_chrome_trace_format(tmp_path / "test_trace.json")
 
         # Find complete events (2 per gen: "GC Pause" and "GC Pause (gen=X)")
         complete_events = [e for e in data if e["ph"] == "X"]
@@ -378,7 +355,7 @@ class TestGCMonitorStreaming:
         assert output_file.exists()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(output_file)
+        data = assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + events (4 reads * 2 stats_items * 4 events)
         assert len(data) >= 10  # 2 metadata + 32 events minimum
@@ -432,7 +409,7 @@ class TestGCMonitorStreaming:
         assert output_file.exists()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(output_file)
+        data = assert_valid_chrome_trace_format(output_file)
 
         # Should have events
         assert len(data) >= 4
@@ -481,7 +458,7 @@ class TestGCMonitorStreaming:
         assert output_file.exists()
 
         # Verify file is valid Chrome Trace format
-        data = _assert_valid_chrome_trace_format(output_file)
+        data = assert_valid_chrome_trace_format(output_file)
 
         # Should have metadata (2) + events (4 events per stats_item)
         assert len(data) >= 6  # 2 metadata + 4 events

@@ -2,7 +2,6 @@
 
 import json
 import os
-import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -11,33 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.test_pyperf_hook import _assert_valid_chrome_trace_format  # pyright: ignore[reportPrivateUsage]
-
-
-def _wait_for_port(port: int, timeout: float = 5.0) -> bool:
-    """Wait for a TCP port to become available.
-    
-    Args:
-        port: Port number to check
-        timeout: Maximum time to wait in seconds
-        
-    Returns:
-        True if port is available, False if timeout
-    """
-    import time
-    
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(0.1)
-                result = s.connect_ex(('127.0.0.1', port))
-                if result == 0:
-                    return True
-        except OSError:
-            pass
-        time.sleep(0.05)
-    return False
+from tests.helpers import assert_valid_chrome_trace_format
+from tests.socket_helpers import wait_for_port
 
 
 # =============================================================================
@@ -781,7 +755,7 @@ def test_cli_server_basic(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 
     try:
         # Wait for server to start listening on port
-        assert _wait_for_port(9997, timeout=3.0), "Server should start within timeout"
+        assert wait_for_port(9997, timeout=3.0), "Server should start within timeout"
 
         # Check if process is still running (server should block)
         assert proc.poll() is None, "Server should still be running"
@@ -818,7 +792,7 @@ def test_cli_server_verbose(tmp_path: Path) -> None:
 
     try:
         # Wait for server to start listening on port
-        assert _wait_for_port(9996, timeout=3.0), "Server should start within timeout"
+        assert wait_for_port(9996, timeout=3.0), "Server should start within timeout"
 
         # Check if process is still running
         assert proc.poll() is None, "Server should still be running"
@@ -859,7 +833,7 @@ def test_cli_server_env_host_port(monkeypatch: pytest.MonkeyPatch) -> None:
 
     try:
         # Wait for server to start listening on port
-        assert _wait_for_port(9995, timeout=3.0), "Server should start within timeout"
+        assert wait_for_port(9995, timeout=3.0), "Server should start within timeout"
 
         # Check if process is still running
         assert proc.poll() is None, "Server should still be running"
@@ -1177,7 +1151,7 @@ def test_cli_basic_run(tmp_path: Path) -> None:
     assert output_file.exists()
 
     # Verify output file is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
     # Should have at least metadata events (process_name, thread_name)
     # May have more if GC events were collected before handler failure
     assert len(data) >= 2
@@ -1613,7 +1587,7 @@ def test_cli_thread_name_option(tmp_path: Path) -> None:
     assert result.returncode == 0
 
     # Verify output file was created and is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     # Verify thread name appears in the file content
     content = output_file.read_text()
@@ -2462,7 +2436,7 @@ def test_cli_combine_basic(tmp_path: Path) -> None:
     assert output_file.exists()
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 2
     assert data[0]["name"] == "event1"
@@ -2586,7 +2560,7 @@ def test_cli_combine_multiple_files(tmp_path: Path) -> None:
     assert output_file.exists()
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 3
 
@@ -2638,7 +2612,7 @@ def test_cli_combine_normalize_basic(tmp_path: Path) -> None:
     assert "Normalizing timestamps: yes" in result.stderr
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 4
     # File 1 should be normalized: 1000->0, 1100->100
@@ -2682,7 +2656,7 @@ def test_cli_combine_normalize_preserves_relative_timing(tmp_path: Path) -> None
     assert result.returncode == 0
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     # Verify relative timing is preserved
     assert data[0]["ts"] == 0
@@ -2741,7 +2715,7 @@ def test_cli_combine_normalize_multiple_files_independent(tmp_path: Path) -> Non
     assert result.returncode == 0
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 6
     # Each file should start at 0
@@ -2789,7 +2763,7 @@ def test_cli_combine_without_normalize(tmp_path: Path) -> None:
     assert result.returncode == 0
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     # Timestamps should be preserved as-is
     assert data[0]["ts"] == 1000
@@ -2831,7 +2805,7 @@ def test_cli_combine_normalize_with_metadata(tmp_path: Path) -> None:
     assert result.returncode == 0
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 4
     # Metadata events should not have ts field
@@ -2879,7 +2853,7 @@ def test_cli_combine_normalize_empty_file(tmp_path: Path) -> None:
     assert result.returncode == 0
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 1
     assert data[0]["ts"] == 0
@@ -2916,7 +2890,7 @@ def test_cli_combine_normalize_metadata_only(tmp_path: Path) -> None:
     assert result.returncode == 0
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 2
     # Metadata events should be preserved without ts field
@@ -2955,7 +2929,7 @@ def test_cli_combine_normalize_short_option(tmp_path: Path) -> None:
     assert result.returncode == 0
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     # Should be normalized to 0
     assert data[0]["ts"] == 0
@@ -3015,7 +2989,7 @@ def test_cli_combine_normalize_mixed_metadata_and_events(tmp_path: Path) -> None
     assert result.returncode == 0
 
     # Verify combined output is valid Chrome Trace format
-    data = _assert_valid_chrome_trace_format(output_file)
+    data = assert_valid_chrome_trace_format(output_file)
 
     assert len(data) == 6
     # Metadata events should not have ts
