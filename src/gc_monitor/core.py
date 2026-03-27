@@ -158,7 +158,8 @@ def connect(
         thread.add_monitor(monitor)
         thread.start()
 
-        # Monitor for 5 seconds
+        # Monitor for 5 seconds (or use your own wait logic)
+        import time
         time.sleep(5)
 
         # Stop monitoring

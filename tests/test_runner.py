@@ -188,7 +188,7 @@ class TestGCRunnerStart:
     def test_start_script_mode(self, tmp_path: Path) -> None:
         """Test starting subprocess in script mode."""
         script_file = tmp_path / "test_script.py"
-        script_file.write_text("import time; time.sleep(0.1)")
+        script_file.write_text("import time; time.sleep(0.5)")
 
         runner = GCRunner(str(script_file), is_module=False)
         try:
@@ -235,7 +235,7 @@ class TestGCRunnerStart:
     def test_start_sets_process(self, tmp_path: Path) -> None:
         """Test that start() sets the process attribute."""
         script_file = tmp_path / "test_script.py"
-        script_file.write_text("import time; time.sleep(0.2)")
+        script_file.write_text("import time; time.sleep(0.5)")
 
         runner = GCRunner(str(script_file), is_module=False)
         try:
@@ -273,7 +273,7 @@ class TestGCRunnerProperties:
     def test_is_running_after_start(self, tmp_path: Path) -> None:
         """Test is_running after starting subprocess."""
         script_file = tmp_path / "test_script.py"
-        script_file.write_text("import time; time.sleep(0.2)")
+        script_file.write_text("import time; time.sleep(0.5)")
 
         runner = GCRunner(str(script_file), is_module=False)
         try:
@@ -286,7 +286,7 @@ class TestGCRunnerProperties:
     def test_returncode_after_terminate(self, tmp_path: Path) -> None:
         """Test returncode after terminating subprocess."""
         script_file = tmp_path / "test_script.py"
-        script_file.write_text("import time; time.sleep(0.1)")
+        script_file.write_text("import time; time.sleep(0.5)")
 
         runner = GCRunner(str(script_file), is_module=False)
         runner.start()
@@ -349,7 +349,7 @@ class TestGCRunnerContextManager:
     def test_context_manager_enters(self, tmp_path: Path) -> None:
         """Test context manager __enter__."""
         script_file = tmp_path / "test_script.py"
-        script_file.write_text("import time; time.sleep(0.2)")
+        script_file.write_text("import time; time.sleep(0.5)")
 
         with GCRunner(str(script_file), is_module=False) as runner:
             assert runner.is_running is True

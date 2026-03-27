@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from ._process_terminator import log_process_output, terminate_process
+from ._utils import wait_for_process_ready
 
 __all__ = ["GCRunner"]
 
@@ -148,14 +149,10 @@ class GCRunner:
         except OSError as e:
             raise RuntimeError(f"Failed to start subprocess: {e}") from e
 
-        # Small delay to ensure process initializes
-        # This helps avoid race conditions when connecting GC monitoring
-        import time
-        time.sleep(0.1)
-
-        # Check if process exited immediately (e.g., syntax error, module not found)
-        # We only raise an error if there's stderr output indicating a problem
-        if self._process.poll() is not None:
+        # Wait briefly for process to initialize (up to 0.15 seconds)
+        # This helps detect immediate failures (syntax errors, import failures)
+        # without delaying successful starts
+        if not wait_for_process_ready(self._process, timeout=0.15):
             # Process exited immediately, collect stderr for error message
             _, stderr_data = self._process.communicate()
             stderr_str = stderr_data.decode("utf-8", errors="replace").strip()

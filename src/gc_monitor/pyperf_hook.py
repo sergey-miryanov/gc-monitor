@@ -20,6 +20,7 @@ from random import randint
 from typing import Any
 
 from ._process_terminator import log_process_output, terminate_process
+from ._utils import wait_for_process_ready
 from .chrome_trace_exporter import combine_files, write_jsonl_events_to_trace
 
 # Environment variable constants
@@ -130,7 +131,8 @@ class GCMonitorHook:
             ) from e
 
         # Small delay to ensure gc-monitor attaches before benchmark starts
-        time.sleep(0.05)
+        # Poll for process to be ready (up to 0.2 seconds)
+        wait_for_process_ready(self._process, timeout=0.2)
         if verbose:
             logger.info("Started: %s", cmd)
 

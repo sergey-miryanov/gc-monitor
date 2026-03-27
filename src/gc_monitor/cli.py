@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from . import GCMonitorThread, TraceExporter, connect
 from .chrome_trace_exporter import combine_files
@@ -612,6 +612,35 @@ def _cmd_monitor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _wait_for_subprocess_ready(runner: Any, timeout: float = 0.5) -> bool:
+    """Wait for a subprocess runner to be ready by polling.
+    
+    Checks if the process exits immediately.
+    Returns as soon as we detect the process has exited, or after timeout if running.
+    
+    Args:
+        runner: GCRunner instance to wait for
+        timeout: Maximum time to wait in seconds (default: 0.5)
+        
+    Returns:
+        True if process is still running after timeout, False if it exited
+    """
+    # Check immediately
+    if not runner.is_running:
+        return False
+        
+    # Wait up to timeout, checking periodically
+    import time
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        time.sleep(0.05)
+        if not runner.is_running:
+            return False
+    
+    # Process still running after timeout
+    return True
+
+
 def _wait_for_shutdown(
     verbose: bool,
     duration: float | None = None,
@@ -819,7 +848,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     try:
         pid = runner.start()
-        time.sleep(0.5)
+        # Wait for subprocess to initialize (up to 2 seconds)
+        _wait_for_subprocess_ready(runner, timeout=2.0)
 
     except (FileNotFoundError, ValueError, RuntimeError) as e:
         logger.error("Failed to start subprocess: %s", e)
@@ -847,8 +877,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
             monitor = connect(pid, exporter=exporter, use_fallback=use_fallback)
             break
         except RuntimeError as e:
-            print(i)
-            time.sleep(0.1 * i)
+            logger.debug("Connect attempt %d failed: %s", i + 1, e)
+            # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s
+            if i < 4:  # Don't sleep after last attempt
+                time.sleep(0.1 * (2 ** i))
             error = e
 
     if error is not None:

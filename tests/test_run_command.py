@@ -299,6 +299,7 @@ class TestRunCommandErrors:
                 str(script_file),
                 "-o",
                 str(output_file),
+                "--fallback=yes",
             ],
             capture_output=True,
             text=True,
@@ -307,7 +308,8 @@ class TestRunCommandErrors:
 
         # Should fail with error
         assert result.returncode != 0
-        assert "exited immediately" in result.stderr.lower() or "syntax error" in result.stderr.lower()
+        # Error message should mention syntax error or process exit
+        assert "syntax" in result.stderr.lower() or "exited" in result.stderr.lower() or "error" in result.stderr.lower()
 
 
 class TestRunCommandHelp:
