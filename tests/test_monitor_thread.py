@@ -1,6 +1,6 @@
 """Tests for GCMonitorThread and refactored GCMonitor."""
 
-import time
+import threading
 from unittest.mock import Mock, call
 
 import pytest
@@ -17,8 +17,12 @@ class MockHandler:
         self.events_per_read = events_per_read or []
         self._read_index = 0
         self._close_called = False
+        self._read_count = 0
+        self._read_event = threading.Event()
 
     def read(self) -> list[StatsItem]:
+        self._read_count += 1
+        self._read_event.set()  # Signal that read was called
         if self._read_index < len(self.events_per_read):
             events = self.events_per_read[self._read_index]
             self._read_index += 1
@@ -28,6 +32,12 @@ class MockHandler:
     def close(self) -> None:
         self._close_called = True
 
+    def wait_for_read(self, timeout: float = 1.0) -> bool:
+        """Wait for read() to be called."""
+        result = self._read_event.wait(timeout=timeout)
+        self._read_event.clear()
+        return result
+
 
 class MockExporter(GCMonitorExporter):
     """Mock exporter for testing."""
@@ -36,15 +46,23 @@ class MockExporter(GCMonitorExporter):
         super().__init__(pid)
         self.events: list[StatsItem] = []
         self._close_called = False
+        self._event_added = threading.Event()
 
     def add_event(self, stats_item: StatsItem) -> None:
         self.events.append(stats_item)
+        self._event_added.set()  # Signal that event was added
 
     def close(self) -> None:
         self._close_called = True
 
     def get_event_count(self) -> int:
         return len(self.events)
+
+    def wait_for_event(self, timeout: float = 1.0) -> bool:
+        """Wait for an event to be added."""
+        result = self._event_added.wait(timeout=timeout)
+        self._event_added.clear()
+        return result
 
 
 def _create_mock_stats_item(ts: int = 1000) -> StatsItem:
@@ -73,10 +91,9 @@ class TestGCMonitor:
         """Test monitor initialization."""
         handler = MockHandler()
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         assert monitor.is_enabled
-        assert monitor.rate == 0.1
         assert monitor.pid == 12345
 
     def test_monitor_poll(self) -> None:
@@ -84,7 +101,7 @@ class TestGCMonitor:
         item = _create_mock_stats_item(ts=1000)
         handler = MockHandler(events_per_read=[[item]])
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         result = monitor.poll()
 
@@ -99,7 +116,7 @@ class TestGCMonitor:
         item3 = _create_mock_stats_item(ts=2000)  # New timestamp
         handler = MockHandler(events_per_read=[[item1, item2, item3]])
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         monitor.poll()
 
@@ -113,18 +130,16 @@ class TestGCMonitor:
         handler = Mock(spec=MonitorHandler)
         handler.read.side_effect = RuntimeError("Process terminated")
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
-        with pytest.raises(RuntimeError):
-            monitor.poll()
-
+        assert monitor.poll() is False
         assert not monitor.is_enabled
 
     def test_monitor_stop(self) -> None:
         """Test stopping monitor."""
         handler = MockHandler()
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         monitor.stop()
 
@@ -136,7 +151,7 @@ class TestGCMonitor:
         """Test that stop can be called multiple times."""
         handler = MockHandler()
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         monitor.stop()
         monitor.stop()  # Should not raise
@@ -159,7 +174,7 @@ class TestGCMonitorThread:
         thread = GCMonitorThread(rate=0.1)
         handler = MockHandler()
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         thread.add_monitor(monitor)
 
@@ -170,7 +185,7 @@ class TestGCMonitorThread:
         thread = GCMonitorThread(rate=0.1)
         handler = MockHandler()
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         thread.add_monitor(monitor)
         result = thread.remove_monitor(monitor)
@@ -184,7 +199,7 @@ class TestGCMonitorThread:
         thread = GCMonitorThread(rate=0.1)
         handler = MockHandler()
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         result = thread.remove_monitor(monitor)
 
@@ -195,7 +210,7 @@ class TestGCMonitorThread:
         thread = GCMonitorThread(rate=0.1)
         handler = MockHandler(events_per_read=[[_create_mock_stats_item()]])
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         thread.add_monitor(monitor)
         thread.start()
@@ -212,7 +227,7 @@ class TestGCMonitorThread:
         thread = GCMonitorThread(rate=0.1)
         handler = MockHandler()
         exporter = MockExporter(pid=12345)
-        monitor = GCMonitor(handler, exporter, rate=0.1)
+        monitor = GCMonitor(handler, exporter)
 
         thread.add_monitor(monitor)
         thread.start()
@@ -225,21 +240,23 @@ class TestGCMonitorThread:
     def test_thread_multiple_monitors(self) -> None:
         """Test thread managing multiple monitors."""
         thread = GCMonitorThread(rate=0.05)
-        
+
         handler1 = MockHandler(events_per_read=[[_create_mock_stats_item(ts=1000)]])
         exporter1 = MockExporter(pid=12345)
-        monitor1 = GCMonitor(handler1, exporter1, rate=0.05)
+        monitor1 = GCMonitor(handler1, exporter1)
 
         handler2 = MockHandler(events_per_read=[[_create_mock_stats_item(ts=2000)]])
         exporter2 = MockExporter(pid=54321)
-        monitor2 = GCMonitor(handler2, exporter2, rate=0.05)
+        monitor2 = GCMonitor(handler2, exporter2)
 
         thread.add_monitor(monitor1)
         thread.add_monitor(monitor2)
         thread.start()
 
-        # Wait for at least one polling cycle
-        time.sleep(0.15)
+        # Wait for at least one polling cycle using event-based synchronization
+        # Both handlers should be read at least once
+        assert handler1.wait_for_read(timeout=0.5), "Handler1 should have been polled"
+        assert handler2.wait_for_read(timeout=0.5), "Handler2 should have been polled"
 
         thread.stop()
 
@@ -250,25 +267,25 @@ class TestGCMonitorThread:
     def test_thread_dynamic_add_during_runtime(self) -> None:
         """Test adding monitor while thread is running."""
         thread = GCMonitorThread(rate=0.05)
-        
+
         handler1 = MockHandler(events_per_read=[[_create_mock_stats_item(ts=1000)]])
         exporter1 = MockExporter(pid=12345)
-        monitor1 = GCMonitor(handler1, exporter1, rate=0.05)
+        monitor1 = GCMonitor(handler1, exporter1)
 
         thread.add_monitor(monitor1)
         thread.start()
 
-        # Wait for first poll
-        time.sleep(0.1)
+        # Wait for first poll using event-based synchronization
+        assert handler1.wait_for_read(timeout=0.5), "Handler1 should have been polled"
 
         # Add second monitor dynamically
         handler2 = MockHandler(events_per_read=[[_create_mock_stats_item(ts=2000)]])
         exporter2 = MockExporter(pid=54321)
-        monitor2 = GCMonitor(handler2, exporter2, rate=0.05)
+        monitor2 = GCMonitor(handler2, exporter2)
         thread.add_monitor(monitor2)
 
-        # Wait for more polls
-        time.sleep(0.15)
+        # Wait for second monitor to be polled
+        assert handler2.wait_for_read(timeout=0.5), "Handler2 should have been polled"
 
         thread.stop()
 
@@ -281,8 +298,9 @@ class TestGCMonitorThread:
         thread = GCMonitorThread(rate=0.05)
         thread.start()
 
-        # Wait a bit
-        time.sleep(0.15)
+        # Thread should be running even with no monitors
+        # Just verify it doesn't crash
+        assert thread.is_running
 
         thread.stop()
 
@@ -292,23 +310,24 @@ class TestGCMonitorThread:
     def test_thread_monitor_error_handling(self) -> None:
         """Test that thread continues when one monitor fails."""
         thread = GCMonitorThread(rate=0.05)
-        
+
         # First monitor raises error immediately
         handler1 = Mock(spec=MonitorHandler)
         handler1.read.side_effect = RuntimeError("Error")
         exporter1 = MockExporter(pid=12345)
-        monitor1 = GCMonitor(handler1, exporter1, rate=0.05)
+        monitor1 = GCMonitor(handler1, exporter1)
 
         # Second monitor works fine
         handler2 = MockHandler(events_per_read=[[_create_mock_stats_item(ts=2000)]])
         exporter2 = MockExporter(pid=54321)
-        monitor2 = GCMonitor(handler2, exporter2, rate=0.05)
+        monitor2 = GCMonitor(handler2, exporter2)
 
         thread.add_monitor(monitor1)
         thread.add_monitor(monitor2)
         thread.start()
 
-        time.sleep(0.15)
+        # Wait for second monitor to be polled (first one will fail immediately)
+        assert handler2.wait_for_read(timeout=0.5), "Handler2 should have been polled"
 
         thread.stop()
 

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gc_monitor.server")
 
 __all__ = ["SocketCommandServer"]
 
@@ -120,6 +120,7 @@ class SocketCommandServer:
 
     def start(self) -> None:
         """Start the server thread."""
+        self._monitor_thread.start()
         self._server_thread.start()
 
     def stop(self) -> None:
@@ -132,7 +133,7 @@ class SocketCommandServer:
         # Don't join if we're already in the server thread
         if threading.current_thread() != self._server_thread:
             self._server_thread.join(5.0)
-
+        self._monitor_thread.stop()
 
     def _shutdown_server(self) -> None:
         """Clean up server resources."""

@@ -148,8 +148,8 @@ class TestTraceExporter:
         exporter = TraceExporter(pid=12345, output_path=tmp_path / "trace.json")
         exporter.add_event(mock_stats_item)
 
-        # Should have 4 events per stats_item
-        assert exporter.get_event_count() == 4
+        # Should have 1 events per stats_item
+        assert exporter.get_event_count() == 1
 
     def test_add_event_timestamp_conversion(
         self, mock_stats_item: Mock, tmp_path: Path
@@ -238,14 +238,6 @@ class TestTraceExporter:
 
         thread_name = next(e for e in metadata_events if e["name"] == "thread_name")
         assert thread_name["args"]["name"] == "GC Monitor"
-
-    def test_clear(self, mock_stats_item: Mock, tmp_path: Path) -> None:
-        """Test clearing events."""
-        exporter = TraceExporter(pid=12345, output_path=tmp_path / "trace.json")
-        exporter.add_event(mock_stats_item)
-        exporter.clear()
-
-        assert exporter.get_event_count() == 0
 
     def test_multiple_close_calls(
         self, mock_stats_item: Mock, tmp_path: Path
@@ -374,7 +366,7 @@ class TestGCMonitorStreaming:
         output_file = tmp_path / "trace.json"
         exporter = TraceExporter(pid=12345, output_path=output_file)
 
-        monitor = GCMonitor(mock_handler, exporter, rate=0.05)
+        monitor = GCMonitor(mock_handler, exporter)
 
         # Manually poll the monitor multiple times
         for _ in range(4):
@@ -407,7 +399,7 @@ class TestGCMonitorStreaming:
 
         exporter.add_event = tracking_add  # pyright: ignore[reportAttributeAccessIssue]
 
-        monitor = GCMonitor(mock_handler, exporter, rate=0.05)
+        monitor = GCMonitor(mock_handler, exporter)
 
         # Manually poll the monitor
         for _ in range(3):
@@ -428,7 +420,7 @@ class TestGCMonitorStreaming:
         output_file = tmp_path / "trace.json"
         exporter = TraceExporter(pid=12345, output_path=output_file)
 
-        monitor = GCMonitor(mock_handler, exporter, rate=0.05)
+        monitor = GCMonitor(mock_handler, exporter)
 
         # Manually poll the monitor
         for _ in range(3):
@@ -471,14 +463,13 @@ class TestGCMonitorStreaming:
         output_file = tmp_path / "trace.json"
         exporter = TraceExporter(pid=12345, output_path=output_file)
 
-        monitor = GCMonitor(handler, exporter, rate=0.05)
+        monitor = GCMonitor(handler, exporter)
 
         # First poll succeeds
         assert monitor.poll() is True
 
         # Second poll raises RuntimeError and disables monitor
-        with pytest.raises(RuntimeError):
-            monitor.poll()
+        assert monitor.poll() is False
 
         # Monitor should be disabled
         assert not monitor.is_enabled

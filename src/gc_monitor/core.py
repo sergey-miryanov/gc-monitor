@@ -1,5 +1,6 @@
 """Core GC monitoring functionality."""
 
+import logging
 import warnings
 
 # Try to import from experimental CPython _gc_monitor module first,
@@ -15,6 +16,8 @@ except ImportError:
 from .exporter import GCMonitorExporter
 from .monitor_thread import GCMonitorThread
 from .protocol import MonitorHandler
+
+logger = logging.getLogger("gc_monitor.monitor")
 
 __all__ = ["GCMonitor", "GCMonitorThread", "connect"]
 
@@ -47,8 +50,7 @@ class GCMonitor:
     def __init__(
         self,
         handler: MonitorHandler,
-        exporter: GCMonitorExporter,
-        rate: float = 0.1,
+        exporter: GCMonitorExporter
     ) -> None:
         """Initialize the GC monitor.
 
@@ -59,7 +61,6 @@ class GCMonitor:
         """
         self._handler = handler
         self._exporter = exporter
-        self._rate = rate
         self._enabled = True
         self._last_ts: int = 0
 
@@ -75,8 +76,7 @@ class GCMonitor:
         Raises:
             RuntimeError: If the target process has terminated or handler error
         """
-        if not self._enabled:
-            return False
+        assert self._enabled
 
         try:
             events = self._handler.read()
@@ -87,21 +87,28 @@ class GCMonitor:
                     self._last_ts = event.ts
             return True
         except RuntimeError:
+            self._enabled =  False
+            return False
+        except Exception as exc:
+            logger.warning(
+                "Monitor for PID %s encountered error, disabling",
+                self.pid,
+                exc_info=exc
+            )
             # Target process terminated or handler error
             self._enabled = False
-            raise
+            return False
 
     def stop(self) -> None:
         """Stop monitoring and close the handler and exporter.
 
         Safe to call multiple times.
         """
-        if not self._enabled:
-            # Already disabled (e.g., due to error), but still close exporter
+        if self._enabled:
+            self._handler.close()
             self._exporter.close()
-            return
-        self._enabled = False
-        self._handler.close()
+            self._enabled = False
+
         self._exporter.close()
 
     @property
@@ -117,16 +124,10 @@ class GCMonitor:
         """
         return self._exporter.pid
 
-    @property
-    def rate(self) -> float:
-        """Return the polling rate in seconds."""
-        return self._rate
-
 
 def connect(
     pid: int,
     exporter: GCMonitorExporter,
-    rate: float = 0.1,
     use_fallback: bool = True,
 ) -> GCMonitor:
     """
@@ -151,15 +152,15 @@ def connect(
         ```python
         exporter = TraceExporter(pid=12345, output_path=Path("trace.json"))
         monitor = connect(12345, exporter, rate=0.1)
-        
+
         # Use with GCMonitorThread
         thread = GCMonitorThread(rate=0.1)
         thread.add_monitor(monitor)
         thread.start()
-        
+
         # Monitor for 5 seconds
         time.sleep(5)
-        
+
         # Stop monitoring
         thread.stop()
         ```
@@ -183,5 +184,5 @@ def connect(
         warnings.warn(warning_msg, RuntimeWarning, stacklevel=2)
 
     handler = _connect(pid)
-    monitor = GCMonitor(handler, exporter, rate)
+    monitor = GCMonitor(handler, exporter)
     return monitor

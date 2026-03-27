@@ -296,6 +296,7 @@ class TraceExporter(GCMonitorExporter):
         self._output_path = output_path
         self._closed = False
         self._write_metadata()
+        self._events_count = 0
 
     @override
     def add_event(self, stats_item: StatsItem) -> None:
@@ -395,6 +396,7 @@ class TraceExporter(GCMonitorExporter):
             }
         )
 
+        self._events_count += 1
         # Auto-flush if threshold reached
         if len(self._events) >= self._flush_threshold:
             self._flush()
@@ -460,11 +462,7 @@ class TraceExporter(GCMonitorExporter):
         self._write_finish_marker()
         self._closed = True
 
-    def clear(self) -> None:
-        """Clear all collected events."""
-        self._events.clear()
-
     @override
     def get_event_count(self) -> int:
         """Return the number of collected events."""
-        return len(self._events)
+        return self._events_count

@@ -2,9 +2,9 @@
 
 import json
 import os
+import socket
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -12,6 +12,32 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tests.test_pyperf_hook import _assert_valid_chrome_trace_format  # pyright: ignore[reportPrivateUsage]
+
+
+def _wait_for_port(port: int, timeout: float = 5.0) -> bool:
+    """Wait for a TCP port to become available.
+    
+    Args:
+        port: Port number to check
+        timeout: Maximum time to wait in seconds
+        
+    Returns:
+        True if port is available, False if timeout
+    """
+    import time
+    
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.1)
+                result = s.connect_ex(('127.0.0.1', port))
+                if result == 0:
+                    return True
+        except OSError:
+            pass
+        time.sleep(0.05)
+    return False
 
 
 # =============================================================================
@@ -237,16 +263,16 @@ def test_cmd_server_basic(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCap
     mock_args.port = 9999
     mock_args.verbose = False
 
-    # Mock server
-    mock_server = MagicMock()
-    mock_server.start = MagicMock()
-    mock_server.stop = MagicMock()
-
     # Mock thread
     mock_thread = MagicMock()
     mock_thread.is_running = True
     mock_thread.start = MagicMock()
     mock_thread.stop = MagicMock()
+
+    # Mock server - start() should call thread.start()
+    mock_server = MagicMock()
+    mock_server.start = MagicMock(side_effect=lambda: mock_thread.start())
+    mock_server.stop = MagicMock(side_effect=lambda: mock_thread.stop())
 
     with patch.object(cli, "GCMonitorThread", return_value=mock_thread):
         with patch.object(cli, "SocketCommandServer", return_value=mock_server):
@@ -306,15 +332,16 @@ def test_cmd_server_os_error(monkeypatch: pytest.MonkeyPatch, caplog: pytest.Log
     mock_args.port = 9999
     mock_args.verbose = True
 
-    # Mock server that raises OSError on start
-    mock_server = MagicMock()
-    mock_server.start = MagicMock(side_effect=OSError("Address in use"))
-
     # Mock thread
     mock_thread = MagicMock()
     mock_thread.is_running = True
     mock_thread.start = MagicMock()
     mock_thread.stop = MagicMock()
+
+    # Mock server that raises OSError on start
+    mock_server = MagicMock()
+    mock_server.start = MagicMock(side_effect=OSError("Address in use"))
+    mock_server.stop = MagicMock(side_effect=lambda: mock_thread.stop())
 
     with patch.object(cli, "GCMonitorThread", return_value=mock_thread):
         with patch.object(cli, "SocketCommandServer", return_value=mock_server):
@@ -751,11 +778,11 @@ def test_cli_server_basic(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         stderr=subprocess.PIPE,
         text=True,
     )
-    
+
     try:
-        # Give server time to start
-        time.sleep(0.5)
-        
+        # Wait for server to start listening on port
+        assert _wait_for_port(9997, timeout=3.0), "Server should start within timeout"
+
         # Check if process is still running (server should block)
         assert proc.poll() is None, "Server should still be running"
     finally:
@@ -766,7 +793,7 @@ def test_cli_server_basic(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-        
+
         # Verify no traceback in stderr
         stderr = proc.stderr.read()
         assert "Traceback" not in stderr
@@ -788,11 +815,11 @@ def test_cli_server_verbose(tmp_path: Path) -> None:
         stderr=subprocess.PIPE,
         text=True,
     )
-    
+
     try:
-        # Give server time to start and log
-        time.sleep(0.5)
-        
+        # Wait for server to start listening on port
+        assert _wait_for_port(9996, timeout=3.0), "Server should start within timeout"
+
         # Check if process is still running
         assert proc.poll() is None, "Server should still be running"
     finally:
@@ -803,10 +830,10 @@ def test_cli_server_verbose(tmp_path: Path) -> None:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-        
+
         # Read stderr output
         stderr = proc.stderr.read()
-        
+
         # Verify startup message
         assert "Starting server mode" in stderr
 
@@ -829,11 +856,11 @@ def test_cli_server_env_host_port(monkeypatch: pytest.MonkeyPatch) -> None:
         stderr=subprocess.PIPE,
         text=True,
     )
-    
+
     try:
-        # Give server time to start and log
-        time.sleep(0.5)
-        
+        # Wait for server to start listening on port
+        assert _wait_for_port(9995, timeout=3.0), "Server should start within timeout"
+
         # Check if process is still running
         assert proc.poll() is None, "Server should still be running"
     finally:
@@ -844,10 +871,10 @@ def test_cli_server_env_host_port(monkeypatch: pytest.MonkeyPatch) -> None:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-        
+
         # Read stderr output
         stderr = proc.stderr.read()
-        
+
         # Verify env vars were used
         assert "127.0.0.1" in stderr or "9995" in stderr
 

@@ -20,7 +20,7 @@ from .socket_server import SocketCommandServer
 if TYPE_CHECKING:
     from .exporter import GCMonitorExporter
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gc_monitor.cli")
 
 # Environment variable names for CLI options
 ENV_PREFIX = "GC_MONITOR"
@@ -95,7 +95,7 @@ def _setup_logging(verbose: bool) -> None:
     level = logging.INFO if verbose else logging.WARNING
     logger = logging.getLogger("gc_monitor")
     logger.setLevel(level)
-    
+
     # Only add handler if none exists
     if not logger.handlers:
         handler = logging.StreamHandler()
@@ -398,6 +398,91 @@ def _create_parser() -> argparse.ArgumentParser:
         help=f"Enable verbose output (can also be set via {ENV_VERBOSE} env var: 1, true, yes, on)",
     )
 
+    # Run command - run a Python script/module with GC monitoring
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Run a Python script/module with GC monitoring",
+        description="Run a Python script or module with GC monitoring enabled.",
+    )
+    # Target specification: -m module OR script path
+    # Both are optional in argparse, validation happens in _cmd_run
+    # Script arguments are captured via parse_known_args in main()
+    run_parser.add_argument(
+        "-m",
+        "--module",
+        dest="module_name",
+        default=None,
+        help="Module name to run (like python -m)",
+    )
+    run_parser.add_argument(
+        "-s",
+        "--script",
+        dest="script",
+        default=None,
+        help="Script path to run",
+    )
+    # Monitoring options (same as monitor command)
+    run_parser.add_argument(
+        "-o",
+        "--output",
+        type=_validate_output_path,
+        default=_get_env_output(),
+        help=f"Output file path (default: gc_trace.json, gc_monitor.jsonl for jsonl format, or {ENV_OUTPUT} env var). Ignored for --format stdout",
+    )
+    run_parser.add_argument(
+        "-r",
+        "--rate",
+        type=float,
+        default=_get_env_rate(),
+        help=f"Polling rate in seconds (default: 0.1 or {ENV_RATE} env var)",
+    )
+    run_parser.add_argument(
+        "-d",
+        "--duration",
+        type=float,
+        default=_get_env_duration(),
+        help=f"Monitoring duration in seconds (default: run until script exits or {ENV_DURATION} env var)",
+    )
+    run_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=_get_env_verbose(),
+        help=f"Enable verbose output (can also be set via {ENV_VERBOSE} env var: 1, true, yes, on)",
+    )
+    run_parser.add_argument(
+        "--format",
+        choices=["chrome", "stdout", "jsonl"],
+        default=_get_env_format(),
+        help=f"Output format: 'chrome' for Chrome DevTools, 'stdout' for one-line-per-event JSONL to stdout, 'jsonl' for JSONL file (default: chrome or {ENV_FORMAT} env var)",
+    )
+    run_parser.add_argument(
+        "--thread-name",
+        type=str,
+        default=_get_env_thread_name(),
+        help=f"Thread name for trace events (default: 'GC Monitor' or {ENV_THREAD_NAME} env var)",
+    )
+    run_parser.add_argument(
+        "--thread-id",
+        type=int,
+        default=_get_env_thread_id(),
+        help=f"Thread ID for JSONL trace events (default: 0 or {ENV_THREAD_ID} env var)",
+    )
+    run_parser.add_argument(
+        "--fallback",
+        choices=["yes", "no"],
+        default=_get_env_fallback(),
+        help=f"Use mock implementation if _gc_monitor module not available (default: yes or {ENV_FALLBACK} env var)",
+    )
+    run_parser.add_argument(
+        "--flush-threshold",
+        type=int,
+        default=_get_env_flush_threshold(),
+        help=f"Number of events to buffer before flushing to file for JSONL format (default: 100 or {ENV_FLUSH_THRESHOLD} env var)",
+    )
+    # Note: Script arguments (everything after known options) are captured
+    # via parse_known_args() in main() and stored in args.script_args
+
     return parser
 
 
@@ -411,7 +496,17 @@ def main(argv: list[str] | None = None) -> int:
         Exit code (0 for success, non-zero for failure)
     """
     parser = _create_parser()
-    args = parser.parse_args(argv)
+
+    # Check if "run" command is being used - need special handling for script args
+    if argv is None:
+        argv = sys.argv[1:]
+
+    # For run command, use parse_known_args to capture script arguments
+    if argv and argv[0] == "run":
+        args, script_args = parser.parse_known_args(argv)
+        args.script_args = script_args
+    else:
+        args = parser.parse_args(argv)
 
     # Setup logging before any logging calls
     _setup_logging(args.verbose)
@@ -423,6 +518,10 @@ def main(argv: list[str] | None = None) -> int:
     # Handle server command
     if args.command == "server":
         return _cmd_server(args)
+
+    # Handle run command
+    if args.command == "run":
+        return _cmd_run(args)
 
     # Default to monitor command if no command specified
     if args.command is None or args.command == "monitor":
@@ -478,13 +577,13 @@ def _cmd_monitor(args: argparse.Namespace) -> int:
 
     use_fallback = fallback == "yes"
     try:
-        monitor = connect(pid, exporter=exporter, rate=rate, use_fallback=use_fallback)
+        monitor = connect(pid, exporter=exporter, use_fallback=use_fallback)
     except RuntimeError as e:
         logger.error("Failed to connect to GC monitor: %s", e)
         return 1
 
     # Create and start monitoring thread
-    thread = GCMonitorThread(rate=rate)
+    thread = GCMonitorThread(rate=rate, stop_if_empty=True)
     thread.add_monitor(monitor)
     thread.start()
 
@@ -495,9 +594,6 @@ def _cmd_monitor(args: argparse.Namespace) -> int:
         is_running_check=lambda: thread.is_running,
     )
 
-    # Monitor may have already stopped if target process ended
-    # stop() is safe to call multiple times
-    monitor.stop()
     thread.stop()
 
     event_count = exporter.get_event_count()
@@ -594,11 +690,10 @@ def _cmd_server(args: argparse.Namespace) -> int:
         logger.info("Starting server mode")
         logger.info("Server listening on %s:%s", server_host, server_port)
 
-    # Create and start monitoring thread
-    thread = GCMonitorThread()
-    thread.start()
+    # Create monitoring thread
+    thread = GCMonitorThread(stop_if_empty=False)
 
-    # Create and start socket server (blocks until stop command)
+    # Create socket server (blocks until stop command)
     server = SocketCommandServer(
         host=server_host,
         port=server_port,
@@ -612,7 +707,7 @@ def _cmd_server(args: argparse.Namespace) -> int:
     except OSError as e:
         logger.error("Socket server error: %s", e)
         # Clean up monitor and thread
-        thread.stop()
+        server.stop()
         return 1
 
     # Wait for shutdown signal
@@ -657,6 +752,151 @@ def _cmd_combine(args: argparse.Namespace) -> int:
 
     if verbose:
         logger.info("Combine complete.")
+
+    return 0
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    """Execute the run command.
+
+    Args:
+        args: Parsed command-line arguments for run command
+
+    Returns:
+        Exit code (0 for success, non-zero for failure)
+    """
+    from ._runner import GCRunner
+
+    # Validate target: either script or -m must be provided, not both
+    if args.module_name and args.script:
+        logger.error("Cannot specify both script path and -m/--module")
+        return 1
+    if not args.module_name and not args.script:
+        logger.error("Must specify either script path (-s/--script) or module name (-m/--module)")
+        return 1
+
+    # Determine target
+    if args.module_name:
+        target = args.module_name
+        is_module = True
+    else:
+        target = args.script
+        is_module = False
+
+    # Script args are captured via parse_known_args in main()
+    script_args:list[str] = args.script_args or []
+    output_path = args.output
+    rate = args.rate
+    duration = args.duration
+    verbose = args.verbose
+    output_format = args.format
+    thread_name = args.thread_name
+    thread_id = args.thread_id
+    fallback = args.fallback
+    flush_threshold = args.flush_threshold
+
+    if verbose:
+        logger.info("Running: %s", target)
+        logger.info("Mode: %s", "module" if is_module else "script")
+        if script_args:
+            logger.info("Script arguments: %s", " ".join(script_args))
+        if output_format != "stdout":
+            logger.info("Output: %s", output_path)
+        logger.info("Format: %s", output_format)
+        logger.info("Rate: %ss", rate)
+        if duration is not None:
+            logger.info("Duration: %ss", duration)
+        else:
+            logger.info("Duration: until script exits")
+        logger.info("Fallback: %s", fallback)
+
+    # Create runner and start subprocess
+    runner = GCRunner(
+        target=target,
+        is_module=is_module,
+        passthrough_args=script_args,
+    )
+
+    try:
+        pid = runner.start()
+        time.sleep(0.5)
+
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
+        logger.error("Failed to start subprocess: %s", e)
+        return 1
+
+    if verbose:
+        logger.info("Started subprocess with PID: %s", pid)
+
+    # Create appropriate exporter based on format
+    exporter: GCMonitorExporter
+    if output_format == "stdout":
+        exporter = StdoutExporter(pid=pid)
+    elif output_format == "jsonl":
+        exporter = JsonlExporter(
+            pid=pid, output_path=output_path, thread_id=thread_id, flush_threshold=flush_threshold
+        )
+    else:
+        exporter = TraceExporter(pid=pid, output_path=output_path, thread_name=thread_name)
+
+    use_fallback = fallback == "yes"
+    error = None
+    monitor = None
+    for i in range(5):
+        try:
+            monitor = connect(pid, exporter=exporter, use_fallback=use_fallback)
+            break
+        except RuntimeError as e:
+            print(i)
+            time.sleep(0.1 * i)
+            error = e
+
+    if error is not None:
+        logger.error("Failed to connect to GC monitor: %s", error)
+        # Clean up subprocess
+        runner.terminate(verbose=verbose, logger=logger)
+        return 1
+
+    assert monitor is not None
+    # Create and start monitoring thread
+    thread = GCMonitorThread(rate=rate, stop_if_empty=True)
+    thread.add_monitor(monitor)
+    thread.start()
+
+    # Wait for shutdown signal, duration, or subprocess exit
+    _wait_for_shutdown(
+        verbose=verbose,
+        duration=duration,
+        is_running_check=lambda: thread.is_running and runner.is_running,
+    )
+
+    # Stop monitoring
+    thread.stop()
+
+    # Terminate subprocess if still running
+    if runner.is_running:
+        if verbose:
+            logger.info("Terminating subprocess...")
+        runner.terminate(verbose=verbose, logger=logger)
+
+    event_count = exporter.get_event_count()
+    if verbose:
+        logger.info("Monitoring complete.")
+        logger.info("Total events: %s", event_count)
+        if output_format != "stdout":
+            logger.info("Trace saved to: %s", output_path)
+    else:
+        if output_format == "stdout":
+            logger.info("Exported %s events to stdout", event_count)
+        else:
+            logger.info("Saved %s events to %s", event_count, output_path)
+
+    # Return subprocess exit code if available
+    returncode = runner.returncode
+    if returncode is not None:
+        if verbose:
+            logger.info("Subprocess exited with code: %s", returncode)
+        return returncode
 
     return 0
 

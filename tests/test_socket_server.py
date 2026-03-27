@@ -138,8 +138,8 @@ class TestSocketCommandServer:
             assert "result" in response
             assert response["result"]["message"] == "Stopping monitoring"
 
-            # Verify monitor_thread.stop() was called
-            mock_monitor_thread.stop.assert_called_once()
+            # Verify monitor_thread.stop() was called (called twice: once directly in _cmd_stop, once via self.stop())
+            assert mock_monitor_thread.stop.call_count == 2
         finally:
             server.stop()
             server_thread.join(timeout=1.0)

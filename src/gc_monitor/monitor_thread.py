@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .core import GCMonitor
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gc_monitor.monitor_thread")
 
 __all__ = ["GCMonitorThread"]
 
@@ -42,7 +42,7 @@ class GCMonitorThread:
         ```
     """
 
-    def __init__(self, rate: float = 0.1) -> None:
+    def __init__(self, rate: float = 0.1, stop_if_empty:bool=True) -> None:
         """Initialize the monitor thread.
 
         Args:
@@ -52,6 +52,7 @@ class GCMonitorThread:
         self._monitors: list[GCMonitor] = []
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
+        self._stop_if_empty = stop_if_empty
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self) -> None:
@@ -135,35 +136,36 @@ class GCMonitorThread:
         Stops when stop_event is set or when all monitors have stopped.
         """
         while not self._stop_event.is_set():
-            # Get a snapshot of monitors to iterate over
-            with self._lock:
-                monitors_snapshot = list(self._monitors)
+            try:
+                # Get a snapshot of monitors to iterate over
+                with self._lock:
+                    monitors_snapshot = list(self._monitors)
 
-            if not monitors_snapshot:
-                # No monitors to poll, wait and check again
-                self._stop_event.wait(timeout=self._rate)
-                continue
+                if not monitors_snapshot:
+                    # No monitors to poll, wait and check again
+                    self._stop_event.wait(timeout=self._rate)
+                    continue
 
-            active_count = 0
-            for monitor in monitors_snapshot:
-                if self._stop_event.is_set():
+                active_monitors = 0
+                for monitor in monitors_snapshot:
+                    if self._stop_event.is_set():
+                        break
+
+                    # Poll the monitor
+                    if not monitor.poll():
+                        self.remove_monitor(monitor)
+                    else:
+                        active_monitors += 1
+
+                if self._stop_if_empty and active_monitors == 0:
+                    # All monitors have stopped, exit loop
                     break
 
-                try:
-                    # Poll the monitor
-                    if monitor.poll():
-                        active_count += 1
-                except RuntimeError:
-                    # Monitor handler error - monitor will be disabled
-                    logger.warning(
-                        "Monitor for PID %s encountered error, disabling",
-                        monitor.pid,
-                    )
-                    self.remove_monitor(monitor)
-
-            if active_count == 0 and monitors_snapshot:
-                # All monitors have stopped, exit loop
-                break
-
-            # Wait for next polling interval
-            self._stop_event.wait(timeout=self._rate)
+                # Wait for next polling interval
+                self._stop_event.wait(timeout=self._rate)
+            except Exception as exc:
+                logger.warning(
+                    "Monitor thread has exception",
+                    exc_info=exc
+                )
+                self.stop()
