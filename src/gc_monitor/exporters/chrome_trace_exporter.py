@@ -44,7 +44,7 @@ class TraceExporter(EventsExporter):
         self._events_count = 0
         self._written_count = 0
         self._tids: set[tuple[int, int]] = set()
-        self._pids: set[int] = set((metadata["pid"],))
+        self._pids: set[int] = {metadata["pid"],}
 
         self._write_begin_marker()
 

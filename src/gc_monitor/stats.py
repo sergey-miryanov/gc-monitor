@@ -1,5 +1,6 @@
 from collections import OrderedDict, deque
-from typing import Protocol, Sequence
+from collections.abc import Sequence
+from typing import Protocol
 
 try:
     from ddsketch import DDSketch
@@ -171,7 +172,7 @@ class StreamingStats:
                         s.materialize()
                 self._materialized_metrics[old_pid] = old_stats
 
-            self._metrics_per_pid[pid] = {m: {gen: Stats() for gen in self.GENS} for m in METRICS.keys()}
+            self._metrics_per_pid[pid] = {m: {gen: Stats() for gen in self.GENS} for m in METRICS}
 
         self._metrics_per_pid.move_to_end(pid)
 

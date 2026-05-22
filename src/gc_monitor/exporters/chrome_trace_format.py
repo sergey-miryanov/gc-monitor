@@ -6,23 +6,23 @@ from ..data import dur_to_us, ts_to_us
 from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, is_incremental
 
 __all__ = [
-    "PauseData",
-    "IncData",
     "CounterData",
-    "NameInfo",
-    "PauseEvent",
-    "IncrementalEvent",
     "CounterEvent",
+    "IncData",
+    "IncrementalEvent",
+    "NameInfo",
+    "PauseData",
+    "PauseEvent",
     "ProcessMeta",
     "ThreadMeta",
     "TraceEvent",
-    "process_meta",
-    "thread_meta",
-    "pause_event",
-    "inc_event",
-    "counter_event",
     "convert_item_to_trace_format",
     "convert_to_trace_format",
+    "counter_event",
+    "inc_event",
+    "pause_event",
+    "process_meta",
+    "thread_meta",
 ]
 
 

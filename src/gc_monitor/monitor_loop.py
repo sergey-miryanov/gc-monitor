@@ -33,7 +33,7 @@ class MonitorLoop:
         with self._monitor, set_on_exit(self._stop_event):
             for _ in self._runner.run(self._stop_event.is_set):
                 wait: list[bool] = []
-                children: list[int] = [self._monitor.pid] + self._monitor.get_child_pids()
+                children: list[int] = [self._monitor.pid, *self._monitor.get_child_pids()]
                 for pid in children:
                     if self._stop_event.is_set():
                         break

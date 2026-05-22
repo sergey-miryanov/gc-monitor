@@ -16,9 +16,7 @@ class WaitPolicyFactory(Protocol):
 class NoWaitPolicy(WaitPolicy):
     @override
     def wait(self, status: PollStatus) -> bool:
-        if status == PollStatus.OK:
-            return True
-        return False
+        return status == PollStatus.OK
 
 
 class StartupTimeoutPolicy(WaitPolicy):

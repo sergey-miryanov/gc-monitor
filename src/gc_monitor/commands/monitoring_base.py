@@ -10,8 +10,8 @@ from gc_monitor.lock_strategy import NoLock
 from gc_monitor.monitor import create_monitor
 from gc_monitor.monitor_loop import MonitorLoop
 from gc_monitor.run_policy import RunnerFactory
-from gc_monitor.stats_output import print_stats
 from gc_monitor.stats import StreamingStats
+from gc_monitor.stats_output import print_stats
 from gc_monitor.target_process import TargetProcess
 from gc_monitor.utils import replace_signals
 from gc_monitor.wait_policy import WaitPolicy
@@ -56,7 +56,7 @@ def run_monitoring_loop(
         if options.output_format != "stdout":
             logger.info("Trace saved to: %s", options.output_path)
 
-        if True or options.show_stats:
+        if options.show_stats:
             print_stats(stats, table_format=options.table_format)
 
         return 0
