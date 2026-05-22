@@ -33,5 +33,5 @@ runs:
           poetry-cache-${{ inputs.cache-prefix }}-${{ runner.os }}-py${{ inputs.python-version }}-
 
     - name: Install dependencies
-      run: poetry install --no-interaction --extras stats
+      run: poetry install --all-groups --all-extras --no-interaction
       shell: bash

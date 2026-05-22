@@ -113,7 +113,7 @@ class ChildProcessRunner:
 
         # Configure subprocess creation flags for cross-platform compatibility
         creationflags = 0
-        if os.name == "nt":
+        if sys.platform == "win32":
             # Windows: Create new process group for proper signal handling
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
