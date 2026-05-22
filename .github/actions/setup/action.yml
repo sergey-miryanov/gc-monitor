@@ -1,0 +1,43 @@
+name: Setup Python and Poetry
+description: Checkout, setup Python, install Poetry, restore cache, and install dependencies
+inputs:
+  python-version:
+    description: Python version
+    required: true
+  cache-prefix:
+    description: Prefix for cache key
+    required: true
+  extras:
+    description: Extra group for poetry install (e.g. "stats")
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      with:
+        python-version: ${{ inputs.python-version }}
+        allow-prereleases: true
+
+    - name: Install Poetry
+      run: pipx install poetry
+      shell: bash
+
+    - name: Restore Poetry cache
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      with:
+        path: ${{ runner.os == 'Windows' && '~\AppData\Local\pypoetry\Cache' || runner.os == 'macOS' && '~/Library/Caches/pypoetry' || '~/.cache/pypoetry' }}
+        key: poetry-cache-${{ inputs.cache-prefix }}-${{ runner.os }}-py${{ inputs.python-version }}-${{ hashFiles('poetry.lock') }}
+        restore-keys: |
+          poetry-cache-${{ inputs.cache-prefix }}-${{ runner.os }}-py${{ inputs.python-version }}-
+
+    - name: Install dependencies
+      run: >-
+        poetry install --no-interaction
+        ${{ inputs.extras != '' && format('--extras {0}', inputs.extras) || '' }}
+      shell: bash
