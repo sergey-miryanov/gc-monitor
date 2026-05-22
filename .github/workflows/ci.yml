@@ -24,7 +24,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           python-version: ${{ matrix.python-version }}
-          cache-prefix: lint
+          cache-prefix: main
 
       - name: Lint with ruff
         run: |
@@ -40,7 +40,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           python-version: ${{ matrix.python-version }}
-          cache-prefix: mypy
+          cache-prefix: main
 
       - name: Type check with mypy
         run: |
@@ -56,7 +56,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           python-version: ${{ matrix.python-version }}
-          cache-prefix: pyrefly
+          cache-prefix: main
 
       - name: Type check with pyrefly
         run: |
@@ -73,8 +73,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           python-version: ${{ matrix.python-version }}
-          cache-prefix: test
-          extras: stats
+          cache-prefix: main
 
       - name: Build distribution
         run: |

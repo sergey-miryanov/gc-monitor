@@ -7,10 +7,6 @@ inputs:
   cache-prefix:
     description: Prefix for cache key
     required: true
-  extras:
-    description: Extra group for poetry install (e.g. "stats")
-    required: false
-    default: ''
 
 runs:
   using: composite
@@ -37,7 +33,5 @@ runs:
           poetry-cache-${{ inputs.cache-prefix }}-${{ runner.os }}-py${{ inputs.python-version }}-
 
     - name: Install dependencies
-      run: >-
-        poetry install --no-interaction
-        ${{ inputs.extras != '' && format('--extras {0}', inputs.extras) || '' }}
+      run: poetry install --no-interaction --extras stats
       shell: bash
