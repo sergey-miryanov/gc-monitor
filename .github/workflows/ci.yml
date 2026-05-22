@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -28,23 +32,11 @@ jobs:
           cache: 'poetry'
 
       - name: Install Poetry
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade poetry
+        run: pipx install poetry
 
       - name: Install dependencies
         run: |
-          poetry install
-
-      - name: Cache Poetry virtualenv
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/pypoetry/virtualenvs
-            ~/.local/share/pypoetry
-          key: poetry-venv-lint-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
-          restore-keys: |
-            poetry-venv-lint-${{ runner.os }}-py${{ matrix.python-version }}-
+          poetry install --no-interaction
 
       - name: Lint with ruff
         run: |
@@ -68,23 +60,11 @@ jobs:
           cache: 'poetry'
 
       - name: Install Poetry
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade poetry
+        run: pipx install poetry
 
       - name: Install dependencies
         run: |
-          poetry install
-
-      - name: Cache Poetry virtualenv
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/pypoetry/virtualenvs
-            ~/.local/share/pypoetry
-          key: poetry-venv-typecheck-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
-          restore-keys: |
-            poetry-venv-typecheck-${{ runner.os }}-py${{ matrix.python-version }}-
+          poetry install --no-interaction
 
       - name: Type check with mypy
         run: |
@@ -112,23 +92,11 @@ jobs:
           cache: 'poetry'
 
       - name: Install Poetry
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade poetry
+        run: pipx install poetry
 
       - name: Install dependencies
         run: |
-          poetry install
-
-      - name: Cache Poetry virtualenv
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/pypoetry/virtualenvs
-            ~/.local/share/pypoetry
-          key: poetry-venv-test-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
-          restore-keys: |
-            poetry-venv-test-${{ runner.os }}-py${{ matrix.python-version }}-
+          poetry install --no-interaction
 
       - name: Build distribution
         run: |
