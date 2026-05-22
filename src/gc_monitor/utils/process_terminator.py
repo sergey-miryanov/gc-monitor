@@ -5,9 +5,9 @@ with escalating signals and timeout handling.
 """
 
 import logging
-import os
 import signal
 import subprocess
+import sys
 
 __all__ = ["log_process_output", "terminate_process"]
 
@@ -18,18 +18,14 @@ DEFAULT_FORCE_TIMEOUT = 2.0  # seconds: timeout for forceful termination
 _logger = logging.getLogger("gc_monitor.process")
 
 
-def _is_windows() -> bool:
-    """Check if running on Windows."""
-    return os.name == "nt"
-
-
 def _send_sigint(process: subprocess.Popen[bytes]) -> None:
     """
     Send a signal to a process, catching and logging any errors.
     """
-    signal_value, name = (signal.SIGINT, "SIGINT")
-    if _is_windows():
+    if sys.platform == "win32":
         signal_value, name = (signal.CTRL_BREAK_EVENT, "CTRL_BREAK_EVENT")
+    else:
+        signal_value, name = (signal.SIGINT, "SIGINT")
 
     try:
         _logger.debug("Sending %s to process: %s", name, process)

@@ -78,7 +78,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          poetry install --no-interaction
+          poetry install --all-groups --all-extras --no-interaction
 
       - name: Type check with mypy
         run: |
