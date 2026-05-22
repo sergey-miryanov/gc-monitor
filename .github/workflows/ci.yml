@@ -33,6 +33,14 @@ jobs:
       - name: Install Poetry
         run: pipx install poetry
 
+      - name: Restore Poetry cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-cache-lint-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-cache-lint-${{ runner.os }}-py${{ matrix.python-version }}-
+
       - name: Install dependencies
         run: |
           poetry install --no-interaction
@@ -59,6 +67,14 @@ jobs:
 
       - name: Install Poetry
         run: pipx install poetry
+
+      - name: Restore Poetry cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-cache-typecheck-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-cache-typecheck-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Install dependencies
         run: |
@@ -91,6 +107,14 @@ jobs:
       - name: Install Poetry
         run: pipx install poetry
 
+      - name: Restore Poetry cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-cache-test-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-cache-test-${{ runner.os }}-py${{ matrix.python-version }}-
+
       - name: Install dependencies
         run: |
           poetry install --no-interaction --extras stats
@@ -106,10 +130,6 @@ jobs:
         run: |
           poetry run pytest -q --cov=src/gc_monitor --cov-report=xml --cov-report=term-missing --junitxml=reports/tests.xml
 
-      - name: Coverage summary
-        run: |
-          poetry run coverage report
-
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -124,6 +144,7 @@ jobs:
           path: coverage.xml
 
       - name: Upload coverage reports to Codecov
+        if: always()
         uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
