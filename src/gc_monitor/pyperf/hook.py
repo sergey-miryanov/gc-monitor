@@ -111,15 +111,16 @@ class GCMonitorHook:
         cmd = self._build_command()
 
         try:
+            creationflags = 0
+            if sys.platform == "win32":
+                # Windows: Create new process group for proper signal handling
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+
             self._process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                creationflags=(
-                    subprocess.CREATE_NEW_PROCESS_GROUP
-                    if sys.platform == "win32"
-                    else 0
-                ),
+                creationflags=creationflags,
             )
         except Exception as e:
             raise RuntimeError(
