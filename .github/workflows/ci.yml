@@ -47,7 +47,7 @@ jobs:
 
       - name: Lint with ruff
         run: |
-          poetry run ruff check .
+          poetry run ruff check src
 
   typecheck:
     runs-on: ubuntu-latest
@@ -82,11 +82,11 @@ jobs:
 
       - name: Type check with mypy
         run: |
-          poetry run mypy .
+          poetry run mypy src
 
       - name: Type check with pyrefly
         run: |
-          poetry run pyrefly check
+          poetry run pyrefly check src
 
   test:
     runs-on: ubuntu-latest
