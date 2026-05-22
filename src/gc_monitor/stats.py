@@ -1,5 +1,5 @@
 from collections import OrderedDict, deque
-from typing import Protocol
+from typing import Protocol, Sequence
 
 try:
     from ddsketch import DDSketch
@@ -11,7 +11,7 @@ from .data import dur_to_us
 from .protocol import TGCStatsInfo, TIncrementalGCStatsInfo, is_incremental
 
 
-def get_quantile_value(buffer:list[float], q:int) -> float:
+def get_quantile_value(buffer:Sequence[float], q:int) -> float:
     if not buffer:
         return 0.0
 

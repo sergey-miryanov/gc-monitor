@@ -113,15 +113,18 @@ def _parse_events(content: str | bytes) -> list[TraceEvent]:
 
 
 def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
-    timestamps = [event["ts"] for event in events if "ts" in event]
-    if not timestamps:
+    timed: list[PauseEvent | IncrementalEvent | CounterEvent] = []
+    for event in events:
+        if event["ph"] == "X" or event["ph"] == "C":
+            timed.append(event)
+
+    if not timed:
         return
 
-    min_ts = min(timestamps)
+    min_ts = min(e["ts"] for e in timed)
 
-    for event in events:
-        if "ts" in event:
-            event["ts"] = event["ts"] - min_ts
+    for e in timed:
+        e["ts"] = e["ts"] - min_ts
 
 
 def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo]]) -> None:

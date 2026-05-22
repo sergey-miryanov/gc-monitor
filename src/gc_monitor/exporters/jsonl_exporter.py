@@ -4,8 +4,9 @@ Exports GC events to a file in JSONL format (one JSON object per line).
 """
 
 import json
+from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import override
+from typing import TextIO, override
 
 from ..lock_strategy import LockStrategy
 from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, to_mapping
@@ -66,7 +67,7 @@ class JsonlExporter(EventsExporter):
                 w.write(json.dumps(event) + "\n")
             w.flush()
 
-    def _open_writer(self):
+    def _open_writer(self) -> AbstractContextManager[TextIO]:
         assert self._output_path is not None
         return open(self._output_path, "a", encoding="utf-8")
 

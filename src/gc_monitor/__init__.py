@@ -16,7 +16,6 @@ __all__ = [
     "GCMonitorHook",
     "JsonlExporter",
     "MonitorThread",
-    "SocketCommandServer",
     "StdoutExporter",
     "TraceExporter",
     "__version__",

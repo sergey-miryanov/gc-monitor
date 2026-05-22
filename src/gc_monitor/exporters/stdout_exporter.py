@@ -5,7 +5,8 @@ Exports GC events to stdout in a one-line-per-item format (JSONL/NDJSON).
 
 import contextlib
 import sys
-from typing import override
+from contextlib import AbstractContextManager
+from typing import TextIO, override
 
 from ..lock_strategy import LockStrategy
 from ..target_process import TargetProcessMetadata
@@ -33,7 +34,7 @@ class StdoutExporter(JsonlExporter):
     ) -> None:
         super().__init__(lock, metadata, flush_threshold=flush_threshold)
 
-    def _open_writer(self):
+    def _open_writer(self) -> AbstractContextManager[TextIO]:
         return contextlib.nullcontext(sys.stdout)
 
     @override
