@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any, Self, override
 
+from ._control import ControlServer, set_control_env
 from .target_process import TargetProcess, TargetProcessMetadata
 from .utils.process_terminator import log_process_output, terminate_process
 
@@ -37,11 +38,13 @@ class ChildProcessRunner:
         is_module: bool = False,
         passthrough_args: list[str] | None = None,
         env: dict[str, str] | None = None,
+        control: ControlServer | None = None,
     ) -> None:
         self._target = target
         self._is_module = is_module
         self._passthrough_args = passthrough_args or []
         self._env = env
+        self._control = control
         self._process: subprocess.Popen[bytes] | None = None
         self._stdout_thread: ProcessStdoutReader | None = None
 
@@ -89,6 +92,10 @@ class ChildProcessRunner:
         if self._env:
             env.update(self._env)
 
+        # Inject control plane address for child processes
+        if self._control is not None:
+            set_control_env(env, self._control.address)
+
         return env
 
     def start(self) -> ChildProcess:
@@ -104,6 +111,10 @@ class ChildProcessRunner:
         """
         # Validate target before spawning
         self._validate_target()
+
+        # Start control plane before spawning
+        if self._control is not None:
+            self._control.start()
 
         # Build command and environment
         cmd = self._build_command()

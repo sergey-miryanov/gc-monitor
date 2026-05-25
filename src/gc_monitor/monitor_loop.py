@@ -1,5 +1,6 @@
 import logging
 import threading
+from collections.abc import Callable
 from typing import Any, Self
 
 from .monitor import EventsMonitor
@@ -19,12 +20,14 @@ class MonitorLoop:
         runner: Runner,
         wait_policy: WaitPolicy,
         rate: float = 0.1,
+        enabled: Callable[[int], bool] | None = None,
     ) -> None:
         self._monitor = monitor
         self._runner = runner
         self._wait_policy = wait_policy
         self._rate = rate
         self._stop_event = threading.Event()
+        self._enabled = enabled
 
     def close(self) -> None:
         self._stop_event.set()
@@ -37,6 +40,9 @@ class MonitorLoop:
                 for pid in children:
                     if self._stop_event.is_set():
                         break
+
+                    if self._enabled is not None and not self._enabled(pid):
+                        continue
 
                     rc = self._monitor.poll(pid)
                     wait.append(self._wait_policy.wait(rc))

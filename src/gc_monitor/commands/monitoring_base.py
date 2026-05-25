@@ -24,6 +24,7 @@ def run_monitoring_loop(
     wait_policy: WaitPolicy,
     options: MonitoringOptions,
     cleanup: Callable[[], None] | None = None,
+    enabled: Callable[[int], bool] | None = None,
 ) -> int:
     """Run monitoring loop.
 
@@ -40,7 +41,7 @@ def run_monitoring_loop(
         )
         stats = StreamingStats()
         monitor = create_monitor(process, exporter_factory, stats)
-        loop = MonitorLoop(monitor, run_policy, wait_policy, rate=options.rate)
+        loop = MonitorLoop(monitor, run_policy, wait_policy, rate=options.rate, enabled=enabled)
 
         def _signal_handler(signum: int, frame: object) -> None:
             loop.close()
