@@ -90,6 +90,20 @@ def run_monitor(gc_monitor_cmd: list[str]) -> Any:
 
 
 @pytest.fixture
+def run_monitor_self(gc_monitor_cmd: list[str]) -> Any:
+    """Run gc-monitor monitor subprocess with common defaults.
+
+    Usage:
+        result = run_monitor(["-d", "0.1"], timeout=5)
+    """
+    def _run(extra_args: list[str] | None = None, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        cmd = gc_monitor_cmd + ["monitor", "-1"] + (extra_args or [])
+        return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+
+    return _run
+
+
+@pytest.fixture
 def monitoring_options() -> Any:
     """Factory fixture for MonitoringOptions objects.
 

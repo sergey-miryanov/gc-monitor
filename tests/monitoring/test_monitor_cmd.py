@@ -85,31 +85,31 @@ def test_cli_monitor_invocation(run_monitor: Any) -> None:
 
 
 class TestCliBasicRun:
-    def test_short_duration(self, run_monitor: Any, tmp_path: Path) -> None:
-        result = run_monitor(["-o", str(tmp_path / "test.json"), "-d", "0.01", "-v"], timeout=15)
+    def test_short_duration(self, run_monitor_self: Any, tmp_path: Path) -> None:
+        result = run_monitor_self(["-o", str(tmp_path / "test.json"), "-d", "0.01", "-v"], timeout=15)
         assert result.returncode == 0
         assert "Duration: 0.01s" in result.stderr
 
-    def test_creates_valid_trace(self, run_monitor: Any, tmp_path: Path) -> None:
+    def test_creates_valid_trace(self, run_monitor_self: Any, tmp_path: Path) -> None:
         output_file = tmp_path / "test_trace.json"
-        result = run_monitor(["-o", str(output_file), "-d", "0.5", "-r", "0.1"])
+        result = run_monitor_self(["-o", str(output_file), "-d", "0.5", "-r", "0.1"])
         assert result.returncode == 0
         assert output_file.exists()
         assert len(assert_valid_chrome_trace_format(output_file)) >= 1
 
-    def test_default_output_file(self, run_monitor: Any, tmp_path: Path) -> None:
-        assert run_monitor(["-d", "0.3"], cwd=tmp_path).returncode == 0
+    def test_default_output_file(self, run_monitor_self: Any, tmp_path: Path) -> None:
+        assert run_monitor_self(["-d", "0.3"], cwd=tmp_path).returncode == 0
         assert (tmp_path / "gc_trace.json").exists()
 
-    def test_custom_rate(self, run_monitor: Any, tmp_path: Path) -> None:
-        result = run_monitor(["-o", str(tmp_path / "test_trace.json"), "-d", "0.5", "-r", "0.05", "-v"])
+    def test_custom_rate(self, run_monitor_self: Any, tmp_path: Path) -> None:
+        result = run_monitor_self(["-o", str(tmp_path / "test_trace.json"), "-d", "0.5", "-r", "0.05", "-v"])
         assert result.returncode == 0
         assert "Rate: 0.05" in result.stderr
 
-    def test_duration_based(self, run_monitor: Any, tmp_path: Path) -> None:
+    def test_duration_based(self, run_monitor_self: Any, tmp_path: Path) -> None:
         import time
         start = time.monotonic()
-        result = run_monitor(["-o", str(tmp_path / "test_trace.json"), "-d", "0.5", "-r", "0.1", "-v"])
+        result = run_monitor_self(["-o", str(tmp_path / "test_trace.json"), "-d", "0.5", "-r", "0.1", "-v"])
         assert result.returncode == 0
         assert time.monotonic() - start >= 0.05
         assert "Duration: 0.5s" in result.stderr
