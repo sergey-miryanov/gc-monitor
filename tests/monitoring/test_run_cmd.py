@@ -331,7 +331,7 @@ class TestRunCommandModuleMode:
     def test_run_module_long(self, tmp_path: Path) -> None:
         output_file = tmp_path / "trace.json"
 
-        result = run_module("test", "test_gc", gc_args=["-v", "-o", str(output_file)])
+        result = run_module("test", "test_gc", gc_args=["-vvv", "-o", str(output_file)])
 
         # Should exit (duration expired)
         assert result.returncode == 0
