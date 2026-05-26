@@ -21,6 +21,84 @@ from tests.helpers import assert_valid_chrome_trace_format
 # =============================================================================
 
 
+def assert_jsonl_format(output_file: Path) -> None:
+    assert output_file.exists()
+    assert read_jsonl(output_file)
+
+
+def assert_stdout_format(output:str)->None:
+    assert "pid" in output
+    assert "gen" in output
+    assert "ts_start" in output
+    assert "ts_stop" in output
+    assert "heap_size" in output
+    assert "collections" in output
+    assert "collected" in output
+    assert "uncollectable" in output
+    assert "candidates" in output
+    assert "duration" in output
+
+
+def get_long_running_script(*args:list[Any]) -> str:
+    script:str = """
+import gc
+import sys
+import time
+gc.collect()
+n = 1000
+d = {}
+t1 = time.monotonic()
+for i in range(n):
+    for j in range(n):
+        d[(i, j)] = i * n + j
+t2 = time.monotonic()
+gc.collect()
+print('')
+print(f'ts={(t2-t1)/1_000.0}')
+
+"""
+    return script + "\n".join([str(s) for s in args]) + "\nsys.exit(0)"
+
+def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
+    gc_opts = gc_args or []
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-u",
+            "-m",
+            "gc_monitor",
+            "run",
+            *gc_opts,
+            "-s",
+            str(script_file.as_posix()),
+        ] + list(script_args),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return proc
+
+def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
+    gc_opts = gc_args or []
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-u",
+            "-m",
+            "gc_monitor",
+            "run",
+            *gc_opts,
+            "-m",
+            str(module_name),
+        ] + list(script_args),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return proc
+
+
+
 class TestCmdRunUnit:
     """Unit tests for cmd_run function."""
 
@@ -163,134 +241,64 @@ class TestCmdRunUnit:
         assert "Rate must be positive" in caplog.text
 
 
-def get_long_running_script(*args:list[Any]) -> str:
-    script:str = """
-import gc
-import sys
-import time
-gc.collect()
-n = 1000
-d = {}
-t1 = time.monotonic()
-for i in range(n):
-    for j in range(n):
-        d[(i, j)] = i * n + j
-    print('.', end='')
-t2 = time.monotonic()
-gc.collect()
-print('')
-print(f'ts={(t2-t1)/1_000.0}')
-
-"""
-    return script + "\n".join([str(s) for s in args]) + "\nsys.exit(0)"
-
-def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
-    gc_opts = gc_args or []
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-u",
-            "-m",
-            "gc_monitor",
-            "run",
-            *gc_opts,
-            "-s",
-            str(script_file.as_posix()),
-        ] + list(script_args),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return proc
-
-def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
-    gc_opts = gc_args or []
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-u",
-            "-m",
-            "gc_monitor",
-            "run",
-            *gc_opts,
-            "-m",
-            str(module_name),
-        ] + list(script_args),
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return proc
-
-
 class TestRunCommandScriptMode:
     """Integration tests for run command in script mode."""
 
-    def test_run_simple_script(self, tmp_path: Path) -> None:
+    def test_run_script_no_args(self, tmp_path: Path) -> None:
         """Test running a simple script with GC monitoring."""
-        # Create a simple test script
         output_file = tmp_path / "trace.json"
         script_file = tmp_path / "test_script.py"
         script_file.write_text(get_long_running_script("print('Hello')", "sys.exit(42)"))
 
-        # Run gc-monitor run command
         result = run_script(script_file, gc_args=["-v", "-o", str(output_file)])
 
-        # Script exit code should be propagated
         assert result.returncode == 42
         assert "Hello" in result.stdout
 
-        # Output file should be created
         assert_valid_chrome_trace_format(output_file)
 
-    def test_run_script_with_args(self, tmp_path: Path) -> None:
+    def test_run_script_with_args_chrome_trace_format(self, tmp_path: Path) -> None:
         """Test running a script with arguments."""
         output_file = tmp_path / "trace.json"
         script_file = tmp_path / "test_script.py"
         script_file.write_text(get_long_running_script("print('Args: ', sys.argv[1:])"))
 
-        result = run_script(script_file, "arg1", "arg2", "--flag", gc_args=["-o", str(output_file)])
+        gc_args = ["-vvv", "--format", "chrome", "-o", str(output_file)]
+        result = run_script(script_file, "arg1", "arg2", "--flag", gc_args=gc_args)
 
-        # Script should exit successfully
         assert result.returncode == 0
         assert "Args:  ['arg1', 'arg2', '--flag']" in result.stdout
-        # Output file should be created
+
         assert_valid_chrome_trace_format(output_file)
 
-    def test_run_script_jsonl_format(self, tmp_path: Path) -> None:
+    def test_run_script_with_args_jsonl_format(self, tmp_path: Path) -> None:
         """Test running a script with JSONL format."""
         output_file = tmp_path / "trace.jsonl"
         script_file = tmp_path / "test_script.py"
-        script_file.write_text(get_long_running_script("print('Done')"))
+        script_file.write_text(get_long_running_script("print('Args: ', sys.argv[1:])"))
 
-        result = run_script(script_file, gc_args=["-vvv", "--format", "jsonl", "-o", str(output_file)])
+        gc_args = ["-vvv", "--format", "jsonl", "-o", str(output_file)]
+        result = run_script(script_file, "arg1", "arg2", "--flag", gc_args=gc_args)
 
-        print (result.stdout)
-        print (result.stderr)
-
-        # Script should exit successfully
         assert result.returncode == 0
-        assert "Done" in result.stdout
+        assert "Args:  ['arg1', 'arg2', '--flag']" in result.stdout
 
-        # Output file should be created
-        assert output_file.exists()
+        assert_jsonl_format(output_file)
 
-        # JSONL file should have valid JSON lines
-        jsonl = read_jsonl(output_file)
-        assert jsonl
-
-    def test_run_script_stdout_format(self, tmp_path: Path) -> None:
+    def test_run_script_with_args_stdout_format(self, tmp_path: Path) -> None:
         """Test running a script with stdout format."""
         script_file = tmp_path / "test_script.py"
-        script_file.write_text(get_long_running_script("print('Done')"))
+        script_file.write_text(get_long_running_script("print('Args: ', sys.argv[1:])"))
 
-        result = run_script(script_file, gc_args=["--format", "stdout"])
+        gc_args = ["-vvv", "--format", "stdout"]
+        result = run_script(script_file, "arg1", "arg2", "--flag", gc_args=gc_args)
 
-        # Script should exit successfully
+        output = (result.stdout + result.stderr).lower()
+
         assert result.returncode == 0
+        assert "Args:  ['arg1', 'arg2', '--flag']" in result.stdout
 
-        # Should have output to stdout
-        assert "Done" in result.stdout
+        assert_stdout_format(output)
 
     def test_run_script_with_overlapping_args(self, tmp_path: Path) -> None:
         """Script args after -s are passed verbatim, even if they overlap with gc-monitor options."""
@@ -299,24 +307,12 @@ class TestRunCommandScriptMode:
         script_file.write_text(get_long_running_script("print('Args: ', sys.argv[1:])"))
 
         # gc-monitor options BEFORE -s, script args AFTER (including overlapping --format, -v)
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-u",
-                "-m",
-                "gc_monitor",
-                "run",
-                "-v", "--format", "chrome", "-o", str(output_file),
-                "-s", str(script_file.as_posix()),
-                "--format", "json", "-v", "--format", "csv",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        gc_args = ["-v", "--format", "chrome", "-o", str(output_file)]
+        result = run_script(script_file, "--format", "json", "-v", "--format", "csv", gc_args=gc_args)
 
-        assert proc.returncode == 0
-        assert "Args:  ['--format', 'json', '-v', '--format', 'csv']" in proc.stdout
+        assert result.returncode == 0
+        assert "Args:  ['--format', 'json', '-v', '--format', 'csv']" in result.stdout
+
         assert_valid_chrome_trace_format(output_file)
 
 
@@ -326,48 +322,45 @@ class TestRunCommandModuleMode:
     def test_run_module_short(self, tmp_path: Path) -> None:
         output_file = tmp_path / "trace.json"
 
-        result = run_module("timeit", "-n", "1", "pass", gc_args=["-o", str(output_file)])
+        result = run_module("timeit", "-n", "1", "pass", gc_args=["-vvv", "-o", str(output_file)])
 
-        # timeit should exit successfully
         assert result.returncode == 0
-
-        # Output file should be created
         assert_valid_chrome_trace_format(output_file)
 
-    def test_run_module_long(self, tmp_path: Path) -> None:
+    def test_run_module_long_running_chrome_trace_format(self, tmp_path: Path) -> None:
         output_file = tmp_path / "trace.json"
 
-        result = run_module("test", "test_gc", gc_args=["-vvv", "-o", str(output_file)])
+        gc_args = ["-vvv", "--format", "chrome", "-o", str(output_file)]
+        result = run_module("timeit", "-n", "10", "import sys", gc_args=gc_args)
 
-        print(result.stdout)
-        print(result.stderr)
-
-        # Should exit (duration expired)
         assert result.returncode == 0
-
-        # Output file should be created
         assert_valid_chrome_trace_format(output_file)
+
+    def test_run_module_long_running_jsonl_format(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "trace.jsonl"
+
+        gc_args = ["-vvv", "--format", "jsonl", "-o", str(output_file)]
+        result = run_module("timeit", "import sys", gc_args=gc_args)
+
+        assert result.returncode == 0
+        assert_jsonl_format(output_file)
+
+    def test_run_module_long_running_stdout_format(self) -> None:
+        gc_args = ["-vvv", "--format", "stdout"]
+        result = run_module("timeit", "import sys", gc_args=gc_args)
+
+        output = (result.stdout + result.stderr).lower()
+
+        assert result.returncode == 0
+        assert_stdout_format(output)
 
     def test_run_module_with_overlapping_args(self, tmp_path: Path) -> None:
         """Script args after -m are passed verbatim, even if they overlap with gc-monitor options."""
         output_file = tmp_path / "trace.json"
 
         # gc-monitor options BEFORE -m, script args AFTER (including overlapping --format, -v)
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-u",
-                "-m",
-                "gc_monitor",
-                "run",
-                "-v", "--format", "chrome", "-o", str(output_file),
-                "-m", "timeit",
-                "--format", "json", "-v", "--format", "csv",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        gc_args = ["-v", "--format", "chrome", "-o", str(output_file)]
+        run_module("timeit", "--format", "json", "-v", "--format", "csv", gc_args=gc_args)
 
         # timeit may exit non-zero with unknown args depending on Python version
         # The key assertion is that gc-monitor processed its options correctly
@@ -383,11 +376,12 @@ class TestRunCommandErrors:
         """Test running non-existent script."""
         output_file = tmp_path / "trace.json"
 
-        result = run_script(Path("/nonexistent/script.py"), gc_args=["-o", str(output_file)])
+        result = run_script(Path("/nonexistent/script.py"), gc_args=["-vvv", "-o", str(output_file)])
 
-        # Should fail with error
+        output = (result.stdout + result.stderr).lower()
+
         assert result.returncode != 0
-        assert "Failed to start subprocess" in result.stderr or "not found" in result.stderr.lower()
+        assert "script not found" in output
 
     def test_run_module_not_found(self, tmp_path: Path) -> None:
         """Test running non-existent module."""
@@ -395,24 +389,23 @@ class TestRunCommandErrors:
 
         result = run_module("nonexistent_module_xyz", gc_args=["-vvv", "-o", str(output_file)])
 
-        # Should fail with error (returncode != 0)
+        output = (result.stdout + result.stderr).lower()
+
         assert result.returncode != 0
-        # Error message should be in stderr (could be module error or GC monitor error)
-        assert result.stderr or result.returncode != 0
+        assert "no module named nonexistent_module_xyz" in output
 
     def test_run_script_syntax_error(self, tmp_path: Path) -> None:
         """Test running script with syntax error."""
         output_file = tmp_path / "trace.json"
         script_file = tmp_path / "bad_script.py"
-        script_file.write_text("invalid syntax !!!")
+        script_file.write_text("invalid !!!")
 
         result = run_script(script_file, gc_args=["-vvv", "-o", str(output_file)])
 
-        # Should fail with error
+        output = (result.stdout + result.stderr).lower()
+
         assert result.returncode != 0
-        # Error message should mention syntax error (may be in stdout or stderr)
-        combined = (result.stdout + result.stderr).lower()
-        assert "syntax" in combined or "error" in combined
+        assert "syntax" in output or "error" in output
 
 
 class TestRunCommandHelp:
