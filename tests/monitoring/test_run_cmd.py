@@ -333,6 +333,9 @@ class TestRunCommandModuleMode:
 
         result = run_module("test", "test_gc", gc_args=["-vvv", "-d", "1", "-o", str(output_file)])
 
+        print(result.stdout)
+        print(result.stderr)
+
         # Should exit (duration expired)
         assert result.returncode == 0
 
