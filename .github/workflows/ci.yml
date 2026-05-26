@@ -88,6 +88,13 @@ jobs:
         run: mkdir -p reports
         shell: bash
 
+      - name: Check Python Entitlements
+        if: runner.os == 'macOS'
+        run: |
+          PYTHON_BIN=$(python -c "import sys; print(sys.executable)")
+          echo "Checking entitlements for: $PYTHON_BIN"
+          codesign -d --entitlements - "$PYTHON_BIN" || true
+
       - name: Codesign Python with task-port entitlement
         if: runner.os == 'macOS'
         run: |
