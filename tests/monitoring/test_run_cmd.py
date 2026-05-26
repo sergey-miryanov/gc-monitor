@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gc_monitor.exporters.chrome_trace_io import read_jsonl
 
 from monitoring.conftest import MonitorArgsFactory
 from tests.helpers import assert_valid_chrome_trace_format
@@ -33,7 +34,6 @@ class TestCmdRunUnit:
             "duration": 0.05,
             "verbose": 1,
             "format": "chrome",
-            "thread_id": 0,
             "flush_threshold": 100,
             "stats": False,
             "table_format": None,
@@ -171,10 +171,15 @@ import time
 gc.collect()
 n = 1000
 d = {}
+t1 = time.monotonic()
 for i in range(n):
     for j in range(n):
         d[(i, j)] = i * n + j
+    print('.', end='')
+t2 = time.monotonic()
 gc.collect()
+print('')
+print(f'ts={(t2-t1)/1_000.0}')
 
 """
     return script + "\n".join([str(s) for s in args])
@@ -258,7 +263,10 @@ class TestRunCommandScriptMode:
         script_file = tmp_path / "test_script.py"
         script_file.write_text(get_long_running_script("print('Done')"))
 
-        result = run_script(script_file, gc_args=["--format", "jsonl", "-o", str(output_file)])
+        result = run_script(script_file, gc_args=["-vvv", "--format", "jsonl", "-o", str(output_file)])
+
+        print (result.stdout)
+        print (result.stderr)
 
         # Script should exit successfully
         assert result.returncode == 0
@@ -268,10 +276,8 @@ class TestRunCommandScriptMode:
         assert output_file.exists()
 
         # JSONL file should have valid JSON lines
-        lines = output_file.read_text().strip().split("\n")
-        for line in lines:
-            if line.strip():
-                json.loads(line)  # Should not raise
+        jsonl = read_jsonl(output_file)
+        assert jsonl
 
     def test_run_script_stdout_format(self, tmp_path: Path) -> None:
         """Test running a script with stdout format."""
