@@ -182,7 +182,7 @@ print('')
 print(f'ts={(t2-t1)/1_000.0}')
 
 """
-    return script + "\n".join([str(s) for s in args])
+    return script + "\n".join([str(s) for s in args]) + "\nsys.exit(0)"
 
 def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
     gc_opts = gc_args or []
