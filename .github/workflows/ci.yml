@@ -88,6 +88,7 @@ jobs:
         shell: bash
 
       - name: Codesign Python with task-port entitlement
+        if: runner.os == 'macOS'
         run: |
           cat > /tmp/entitlements.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
