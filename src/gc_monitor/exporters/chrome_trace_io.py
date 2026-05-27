@@ -122,7 +122,7 @@ def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
     timed: list[PauseEvent | IncrementalEvent | CounterEvent | InstantEvent] = []
     for event in events:
         if event["ph"] in ("X", "C", "I"):
-            timed.append(event)  # type: ignore[arg-type]
+            timed.append(event)
 
     if not timed:
         return
