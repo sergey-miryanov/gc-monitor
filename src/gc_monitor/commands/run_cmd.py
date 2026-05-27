@@ -93,6 +93,7 @@ def cmd_run(args: Namespace) -> int:
         wait_policy = StartupTimeoutPolicy(2)
         exit_code = run_monitoring_loop(
             process, wait_policy, options,
+            control_server=control,
             cleanup=_cleanup,
             enabled=control.is_enabled,
         )

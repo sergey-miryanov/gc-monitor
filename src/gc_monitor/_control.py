@@ -5,6 +5,9 @@ import logging
 import threading
 from multiprocessing.connection import Connection, Listener, wait
 
+from gc_monitor.exporters.exporter import EventsExporter
+from gc_monitor.data import instant_msg
+
 logger = logging.getLogger("gc_monitor.control")
 
 CONTROL_ADDRESS_ENV = "GC_MONITOR_CONTROL_ADDRESS"
@@ -28,6 +31,7 @@ class ControlServer:
         self._stop_event = threading.Event()
         self._has_msg_event = threading.Event()
         self._running = False
+        self._exporter: EventsExporter | None = None
         self._accept_thread: threading.Thread = threading.Thread(
             target=self._accept_loop, daemon=True
         )
@@ -78,6 +82,12 @@ class ControlServer:
                             with self._lock:
                                 self._enabled[pid] = m == "start"
 
+                                if self._exporter is not None:
+                                    self._exporter.add_instant_event(
+                                        pid,
+                                        instant_msg(f"{m} GC monitor")
+                                    )
+
                     except EOFError:
                         to_remove.append(conn)
                     except Exception as e:
@@ -90,6 +100,11 @@ class ControlServer:
                             self._connections.remove(conn)
 
             self._has_msg_event.wait(READER_POLL_INTERVAL)
+
+    def set_exporter(self, exporter: EventsExporter) -> None:
+        """Set the exporter to record control plane events."""
+        with self._lock:
+            self._exporter = exporter
 
     def is_enabled(self, pid: int) -> bool:
         """Check if monitoring is enabled for the given PID.

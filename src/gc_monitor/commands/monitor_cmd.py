@@ -5,6 +5,7 @@ import logging
 import os
 from argparse import Namespace
 
+from gc_monitor._control import ControlServer
 from gc_monitor.commands.monitoring_base import run_monitoring_loop
 from gc_monitor.commands.monitoring_options import add_monitoring_options, get_monitoring_options
 from gc_monitor.commands.parser_factory import ParserFactory
@@ -48,4 +49,5 @@ def cmd_monitor(args: Namespace) -> int:
 
     process = ExternalProcess(pid)
     wait_policy = NoWaitPolicy()
-    return run_monitoring_loop(process, wait_policy, options)
+    control = ControlServer()
+    return run_monitoring_loop(process, wait_policy, options, control_server=control)

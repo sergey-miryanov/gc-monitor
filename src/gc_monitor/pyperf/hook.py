@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ..exporters.chrome_trace_io import read_jsonl
+from ..protocol import is_gc_stats
 from ..stats import StreamingStats
 from ..utils.process_terminator import log_process_output, terminate_process
 
@@ -202,7 +203,8 @@ class GCMonitorHook:
                     parsed = read_jsonl(output_path)
                     for pid, items in parsed.items():
                         for item in items:
-                            ss.update(pid, item)
+                            if is_gc_stats(item):
+                                ss.update(pid, item)
                 except Exception as e:
                     logger.warning("Failed to read combined GC metrics: %s", e)
 

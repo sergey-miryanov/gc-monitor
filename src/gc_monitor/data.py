@@ -1,4 +1,6 @@
 from collections.abc import Mapping
+from enum import Enum
+import time
 
 import msgspec
 
@@ -27,10 +29,22 @@ class IncrementalGCStatsInfo(GCStatsInfo):
     ts_deduce_uncreachable_stop: int
 
 
-def from_mapping(data: Mapping[str, int | float]) -> GCStatsInfo | IncrementalGCStatsInfo:
+class InstantMsg(msgspec.Struct):
+    type: str
+    name: str
+    ts: int
+
+
+def from_mapping(data: Mapping[str, str | int | float]) -> GCStatsInfo | IncrementalGCStatsInfo | InstantMsg:
+    if data.get("type") == "i":
+        return msgspec.convert(data, InstantMsg)
     if "increment_size" in data:
         return msgspec.convert(data, IncrementalGCStatsInfo)
     return msgspec.convert(data, GCStatsInfo)
+
+
+def instant_msg(name: str) -> InstantMsg:
+    return InstantMsg("i", name, time.monotonic_ns())
 
 
 def ts_to_us(ts_ns: int) -> int:

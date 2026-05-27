@@ -4,6 +4,7 @@ import logging
 import os
 from collections.abc import Callable
 
+from gc_monitor._control import ControlServer
 from gc_monitor.commands.monitoring_options import MonitoringOptions
 from gc_monitor.exporters import EventsExporterFactory
 from gc_monitor.lock_strategy import NoLock
@@ -23,6 +24,7 @@ def run_monitoring_loop(
     process: TargetProcess,
     wait_policy: WaitPolicy,
     options: MonitoringOptions,
+    control_server: ControlServer,
     cleanup: Callable[[], None] | None = None,
     enabled: Callable[[int], bool] | None = None,
 ) -> int:
@@ -41,6 +43,7 @@ def run_monitoring_loop(
         )
         stats = StreamingStats()
         monitor = create_monitor(process, exporter_factory, stats)
+        control_server.set_exporter(monitor.exporter)
         loop = MonitorLoop(monitor, run_policy, wait_policy, rate=options.rate, enabled=enabled)
 
         def _signal_handler(signum: int, frame: object) -> None:

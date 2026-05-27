@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TextIO, override
 
 from ..lock_strategy import LockStrategy
-from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, to_mapping
+from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg, to_mapping
 from ..target_process import TargetProcessMetadata
 from .exporter import EventsExporter
 
@@ -38,18 +38,18 @@ class JsonlExporter(EventsExporter):
         self._lock = lock()
         self._flush_threshold = flush_threshold
         self._event_count = 0
-        self._events: list[dict[str, int | float]] = []
+        self._events: list[dict[str, str | int | float]] = []
         self._output_path = output_path
 
     @override
     def add_event(self, pid: int, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> None:
-        event: dict[str, int | float] = {
+        event: dict[str, str | int | float] = {
             "pid": pid,
             "tid": item.iid,
         }
         event.update(to_mapping(item))
 
-        events: list[dict[str, int | float]] = []
+        events: list[dict[str, str | int | float]] = []
         with self._lock.lock():
             self._events.append(event)
             self._event_count += 1
@@ -59,7 +59,24 @@ class JsonlExporter(EventsExporter):
 
         self._flush(events)
 
-    def _flush(self, events: list[dict[str, int | float]]) -> None:
+    @override
+    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+        event: dict[str, str | int | float] = {
+            "pid": pid,
+        }
+        event.update(to_mapping(item))
+
+        events: list[dict[str, str | int | float]] = []
+        with self._lock.lock():
+            self._events.append(event)
+            self._event_count += 1
+            if len(self._events) >= self._flush_threshold:
+                events = self._events[:]
+                self._events.clear()
+
+        self._flush(events)
+
+    def _flush(self, events: list[dict[str, str|int|float]]) -> None:
         if not events:
             return
         with self._open_writer() as w:

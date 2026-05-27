@@ -6,10 +6,14 @@ from pathlib import Path
 import msgspec
 
 from ..data import from_mapping
-from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, is_incremental, to_mapping
+from ..protocol import (
+    TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg,
+    is_gc_stats, is_incremental, to_mapping, is_instant
+)
 from .chrome_trace_format import (
     CounterEvent,
     IncrementalEvent,
+    InstantEvent,
     PauseEvent,
     ProcessMeta,
     ThreadMeta,
@@ -25,14 +29,14 @@ __all__ = [
 ]
 
 
-def json_to_item(data: Mapping[str, int | float]) -> tuple[int, TGCStatsInfo | TIncrementalGCStatsInfo]:
+def json_to_item(data: Mapping[str, str | int | float]) -> tuple[int, TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]:
     pid = int(data["pid"])
     item = from_mapping(data)
     return pid, item
 
 
-def read_jsonl(filename: Path) -> dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo]]:
-    items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo]] = {}
+def read_jsonl(filename: Path) -> dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]]:
+    items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]] = {}
     with open(filename, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -64,17 +68,17 @@ def write_trace_events(filename: Path, events: list[TraceEvent]) -> None:
         f.flush()
 
 
-def write_jsonl(filename: Path, items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo]]) -> None:
+def write_jsonl(filename: Path, items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]]) -> None:
     """Write GC stats items to a JSONL file."""
     with open(filename, "wb") as f:
         for pid, pid_items in items.items():
             for item in pid_items:
-                event: dict[str, int | float] = {
-                    "pid": pid,
-                    "tid": item.iid,
-                    **to_mapping(item),
-                }
-                f.write(msgspec.json.encode(event))
+                rec: dict[str, str | int | float] = {"pid": pid}
+                if is_gc_stats(item):
+                    rec["tid"] = item.iid
+
+                rec.update(to_mapping(item))
+                f.write(msgspec.json.encode(rec))
                 f.write(b"\n")
             f.flush()
 
@@ -109,14 +113,16 @@ def _parse_events(content: str | bytes) -> list[TraceEvent]:
                     result.append(msgspec.convert(obj, IncrementalEvent))
             else:
                 raise ValueError(f"Expected args should dict, not: {type(args)}")
+        elif ph == "I":
+            result.append(msgspec.convert(obj, InstantEvent))
     return result
 
 
 def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
-    timed: list[PauseEvent | IncrementalEvent | CounterEvent] = []
+    timed: list[PauseEvent | IncrementalEvent | CounterEvent | InstantEvent] = []
     for event in events:
-        if event["ph"] == "X" or event["ph"] == "C":
-            timed.append(event)
+        if event["ph"] in ("X", "C", "I"):
+            timed.append(event)  # type: ignore[arg-type]
 
     if not timed:
         return
@@ -127,8 +133,14 @@ def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
         e["ts"] = e["ts"] - min_ts
 
 
-def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo]]) -> None:
-    timestamps = [item.ts_start for pid_items in items.values() for item in pid_items]
+def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]]) -> None:
+    timestamps: list[int] = []
+    for pid_items in items.values():
+        for item in pid_items:
+            if is_instant(item):
+                timestamps.append(item.ts)
+            elif is_gc_stats(item):
+                timestamps.append(item.ts_start)
     if not timestamps:
         return
 
@@ -136,15 +148,18 @@ def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TIncrementa
 
     for pid_items in items.values():
         for item in pid_items:
-            item.ts_start -= min_ts
-            item.ts_stop -= min_ts
-            if is_incremental(item):
-                item.ts_mark_alive_start -= min_ts
-                item.ts_mark_alive_stop -= min_ts
-                item.ts_fill_increment_start -= min_ts
-                item.ts_fill_increment_stop -= min_ts
-                item.ts_deduce_uncreachable_start -= min_ts
-                item.ts_deduce_uncreachable_stop -= min_ts
+            if is_instant(item):
+                item.ts -= min_ts
+            elif is_gc_stats(item):
+                item.ts_start -= min_ts
+                item.ts_stop -= min_ts
+                if is_incremental(item):
+                    item.ts_mark_alive_start -= min_ts
+                    item.ts_mark_alive_stop -= min_ts
+                    item.ts_fill_increment_start -= min_ts
+                    item.ts_fill_increment_stop -= min_ts
+                    item.ts_deduce_uncreachable_start -= min_ts
+                    item.ts_deduce_uncreachable_stop -= min_ts
 
 
 def combine_files(input_paths: list[Path], output_path: Path, normalize: bool = False,
@@ -184,7 +199,7 @@ def combine_files(input_paths: list[Path], output_path: Path, normalize: bool = 
         write_trace_events(output_path, trace_events)
 
     elif input_format == "jsonl" and output_format == "jsonl":
-        all_items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo]] = {}
+        all_items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]] = {}
 
         for input_path in input_paths:
             items = read_jsonl(input_path)

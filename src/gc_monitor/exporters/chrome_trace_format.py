@@ -3,13 +3,17 @@
 from typing import Literal, NotRequired, TypedDict
 
 from ..data import dur_to_us, ts_to_us
-from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, is_incremental
+from ..protocol import (
+    TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg,
+    is_gc_stats, is_incremental, is_instant,
+)
 
 __all__ = [
     "CounterData",
     "CounterEvent",
     "IncData",
     "IncrementalEvent",
+    "InstantEvent",
     "NameInfo",
     "PauseData",
     "PauseEvent",
@@ -20,6 +24,7 @@ __all__ = [
     "convert_to_trace_format",
     "counter_event",
     "inc_event",
+    "instant_event",
     "pause_event",
     "process_meta",
     "thread_meta",
@@ -56,6 +61,14 @@ class CounterData(TypedDict):
 
 class NameInfo(TypedDict):
     name: str
+
+
+class InstantEvent(TypedDict):
+    name: str
+    ph: Literal["I"]
+    s: Literal["p"]
+    ts: int
+    pid: int
 
 
 class PauseEvent(TypedDict):
@@ -104,7 +117,7 @@ class ThreadMeta(TypedDict):
     args: NameInfo
 
 
-TraceEvent = PauseEvent | IncrementalEvent | CounterEvent | ProcessMeta | ThreadMeta
+TraceEvent = PauseEvent | IncrementalEvent | CounterEvent | ProcessMeta | ThreadMeta | InstantEvent
 
 
 def process_meta(pid: int, name: str) -> ProcessMeta:
@@ -153,6 +166,18 @@ def inc_event(
         "pid": pid,
         "tid": tid,
         "args": args,
+    }
+
+
+def instant_event(
+    pid: int, name: str, ts_us: int,
+) -> InstantEvent:
+    return {
+        "name": name,
+        "ph": "I",
+        "s": "p",
+        "pid": pid,
+        "ts": ts_us,
     }
 
 
@@ -268,15 +293,20 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo | TIncrementalGCSt
     return events
 
 
-def convert_to_trace_format(items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo]]) -> list[TraceEvent]:
+def convert_to_trace_format(
+    items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]]
+) -> list[TraceEvent]:
     events: list[TraceEvent] = []
     for pid, pid_items in items.items():
         events.append(process_meta(pid, f"{pid}"))
         threads: set[int] = set()
         pid_events: list[TraceEvent] = []
         for item in pid_items:
-            threads.add(item.iid)
-            pid_events.extend(convert_item_to_trace_format(pid, item))
+            if is_instant(item):
+                pid_events.append(instant_event(pid, item.name, ts_to_us(item.ts)))
+            elif is_gc_stats(item):
+                threads.add(item.iid)
+                pid_events.extend(convert_item_to_trace_format(pid, item))
 
         events.extend(thread_meta(pid, tid, f"{pid}:{tid}") for tid in threads)
         events.extend(pid_events)
