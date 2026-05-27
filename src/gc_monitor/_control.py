@@ -69,10 +69,13 @@ class ControlServer:
 
             to_remove: list[Connection] = []
             if conns:
-                ready: list[Connection] = wait(conns, timeout=READER_POLL_INTERVAL)
+                ready = wait(conns, timeout=READER_POLL_INTERVAL)
                 for conn in ready:
                     if self._stop_event.is_set():
                         break
+
+                    if not isinstance(conn, Connection):
+                        continue
 
                     try:
                         msg = conn.recv()

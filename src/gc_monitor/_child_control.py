@@ -6,6 +6,7 @@ import os
 import threading
 from contextlib import contextmanager
 from multiprocessing.connection import Client, Connection
+from typing import Any, Generator
 
 from gc_monitor._control import CONTROL_ADDRESS_ENV, CONTROL_FAMILY_ENV
 
@@ -15,6 +16,27 @@ _conn: Connection | None = None
 _lock = threading.Lock()
 
 
+def _create_connection() -> Connection | None:
+    address_str = os.environ.get(CONTROL_ADDRESS_ENV)
+    if not address_str:
+        return None
+    try:
+        address = tuple(json.loads(address_str))
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("Invalid control address: %s", address_str)
+        return None
+
+    family_str = os.environ.get(CONTROL_FAMILY_ENV)
+    family = family_str or "AF_INET"
+
+    try:
+        conn = Client(address, family=family)
+        return conn
+    except Exception as e:
+        logger.warning("Failed to connect to control plane: %s", e)
+        return None
+
+
 def _ensure_connected() -> Connection | None:
     global _conn
 
@@ -22,25 +44,8 @@ def _ensure_connected() -> Connection | None:
         return _conn
 
     with _lock:
-        if _conn is not None:
-            return _conn
-
-        address_str = os.environ.get(CONTROL_ADDRESS_ENV)
-        if not address_str:
-            return None
-        try:
-            address = tuple(json.loads(address_str))
-        except (json.JSONDecodeError, ValueError):
-            logger.warning("Invalid control address: %s", address_str)
-            return None
-
-        family_str = os.environ.get(CONTROL_FAMILY_ENV)
-        family = family_str or "AF_INET"
-
-        try:
-            _conn = Client(address, family=family)
-        except Exception as e:
-            logger.warning("Failed to connect to control plane: %s", e)
+        if _conn is None:
+            _conn = _create_connection()
 
     return _conn
 
@@ -66,7 +71,7 @@ def stop_monitoring() -> None:
 
 
 @contextmanager
-def pause_monitoring():
+def pause_monitoring() -> Generator[None, Any, None]:
     """Context manager that pauses monitoring and resumes on exit."""
     stop_monitoring()
     try:
