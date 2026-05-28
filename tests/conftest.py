@@ -19,8 +19,12 @@ from tests.helpers import MockExporter, create_mock_stats_item
 def _caplog_gc_monitor(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     """Auto-configure gc_monitor logger to INFO level for caplog."""
     logger = logging.getLogger("gc_monitor")
-    logger.setLevel(logging.INFO)
-    return caplog
+    original_level = logger.level
+    try:
+        logger.setLevel(logging.INFO)
+        yield caplog
+    finally:
+        logger.setLevel(original_level)
 
 
 DEFAULT_PID: int = 12345
@@ -129,18 +133,3 @@ def env_module():
     """Provide the _env module for testing."""
     from gc_monitor import _env
     return _env
-
-
-@pytest.fixture
-def env_var_specs():
-    """Specification table for env var getter tests (default/custom/invalid)."""
-    from gc_monitor import _env
-    return [
-        (_env.ENV_OUTPUT, "output", "custom.json", Path("gc_trace.json"), "path"),
-        (_env.ENV_RATE, "rate", "0.05", 0.1, "float"),
-        (_env.ENV_DURATION, "duration", "30.0", None, "float_or_none"),
-        (_env.ENV_THREAD_ID, "thread_id", "9999", 0, "int"),
-        (_env.ENV_FLUSH_THRESHOLD, "flush_threshold", "50", 100, "int"),
-        (_env.ENV_SERVER_HOST, "server_host", "127.0.0.1", "localhost", "str"),
-        (_env.ENV_SERVER_PORT, "server_port", "8888", 9999, "int"),
-    ]

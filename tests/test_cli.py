@@ -32,12 +32,12 @@ class TestSetupLogging:
             logging.root.removeHandler(handler)
         logging.getLogger("gc_monitor").handlers.clear()
 
-    @pytest.mark.parametrize("verbose_count, expected_level, expected_name", [
-        (1, "INFO", "INFO"),
-        (0, "WARNING", "WARNING"),
-        (2, "DEBUG", "DEBUG"),
+    @pytest.mark.parametrize("verbose_count, expected_level", [
+        (1, "INFO"),
+        (0, "WARNING"),
+        (2, "DEBUG"),
     ])
-    def test_setup_logging(self, cli_module, verbose_count: int, expected_level: str, expected_name: str) -> None:
+    def test_setup_logging(self, cli_module, verbose_count: int, expected_level: str) -> None:
         import logging
         cli_module._setup_logging(verbose_count=verbose_count)
         logger = logging.getLogger("gc_monitor")

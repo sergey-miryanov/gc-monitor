@@ -7,7 +7,6 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Mapping
-from unittest.mock import Mock
 
 from gc_monitor.exporters.exporter import EventsExporter
 from gc_monitor.protocol import TGCStatsInfo, TInstantMsg
@@ -17,9 +16,7 @@ from gc_monitor.target_process import TargetProcessMetadata
 
 
 __all__ = [
-    "MockHandler",
     "MockExporter",
-    "MockGCMonitorThread",
     "create_mock_stats_item",
     "create_jsonl_record",
     "assert_valid_chrome_trace_format",
@@ -27,58 +24,9 @@ __all__ = [
     "assert_is_counter",
     "assert_is_process_meta",
     "assert_is_thread_meta",
+    "assert_is_instant_event",
+    "assert_is_instant_msg",
 ]
-
-
-class MockHandler:
-    """Mock MonitorHandler for testing.
-
-    This class simulates a MonitorHandler that returns predefined events
-    on each read() call. It supports event-based synchronization for tests.
-    """
-
-    def __init__(self, events_per_read: list[list[TGCStatsInfo]] | None = None) -> None:
-        """Initialize the mock handler.
-
-        Args:
-            events_per_read: List of event batches to return on each read() call.
-        """
-        self.events_per_read = events_per_read or []
-        self._read_index = 0
-        self._close_called = False
-        self._read_count = 0
-        self._read_event = threading.Event()
-
-    def read(self) -> list[TGCStatsInfo]:
-        """Read and return the next batch of events.
-
-        Returns:
-            List of GCStatsItem instances for this read call.
-        """
-        self._read_count += 1
-        self._read_event.set()  # Signal that read was called
-        if self._read_index < len(self.events_per_read):
-            events = self.events_per_read[self._read_index]
-            self._read_index += 1
-            return events
-        return []
-
-    def close(self) -> None:
-        """Close the handler."""
-        self._close_called = True
-
-    def wait_for_read(self, timeout: float = 1.0) -> bool:
-        """Wait for read() to be called.
-
-        Args:
-            timeout: Maximum time to wait in seconds.
-
-        Returns:
-            True if read() was called within timeout, False otherwise.
-        """
-        result = self._read_event.wait(timeout=timeout)
-        self._read_event.clear()
-        return result
 
 
 class MockExporter(EventsExporter):
@@ -144,60 +92,6 @@ class MockExporter(EventsExporter):
         result = self._event_added.wait(timeout=timeout)
         self._event_added.clear()
         return result
-
-
-class MockGCMonitorThread:
-    """Mock GCMonitorThread for testing.
-
-    This class simulates a GCMonitorThread that can be used in tests
-    without actually starting a background thread.
-    """
-
-    def __init__(self) -> None:
-        """Initialize the mock monitor thread."""
-        self.is_running = False
-        self.monitor_count = 0
-        self._monitors: list[Any] = []
-
-    def add_monitor(self, monitor: Any) -> None:
-        """Add a monitor to the thread.
-
-        Args:
-            monitor: The monitor to add.
-        """
-        self._monitors.append(monitor)
-        self.monitor_count = len(self._monitors)
-
-    def remove_monitor(self, monitor: Any) -> bool:
-        """Remove a monitor from the thread.
-
-        Args:
-            monitor: The monitor to remove.
-
-        Returns:
-            True if the monitor was removed, False if not found.
-        """
-        if monitor in self._monitors:
-            self._monitors.remove(monitor)
-            self.monitor_count = len(self._monitors)
-            return True
-        return False
-
-    def start(self) -> None:
-        """Start the monitor thread."""
-        if self.is_running:
-            raise RuntimeError("Thread is already running")
-        self.is_running = True
-
-    def stop(self) -> None:
-        """Stop the monitor thread."""
-        self.is_running = False
-        # Disable all monitors
-        for monitor in self._monitors:
-            if hasattr(monitor, "stop"):
-                monitor.stop()
-        self._monitors.clear()
-        self.monitor_count = 0
 
 
 def create_mock_stats_item(

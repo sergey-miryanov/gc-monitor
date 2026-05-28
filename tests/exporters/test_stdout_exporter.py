@@ -86,18 +86,7 @@ class TestStdoutExporter:
             data: dict[str, Any] = json.loads(line)
             assert data["gen"] == i
 
-    def test_close_with_flush_true(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
-        """Test close() flushes stdout."""
-        exporter = StdoutExporter(NoLock, DEFAULT_METADATA, flush_threshold=1)
-        exporter.add_event(DEFAULT_PID, mock_stats_item)
-
-        # Close should flush stdout
-        exporter.close()
-
-        # Event count should remain the same
-        assert exporter.get_event_count() == 1
-
-    def test_close_with_flush_false(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_close_with_flush(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
         """Test close() flushes stdout."""
         exporter = StdoutExporter(NoLock, DEFAULT_METADATA, flush_threshold=1000)
         exporter.add_event(DEFAULT_PID, mock_stats_item)

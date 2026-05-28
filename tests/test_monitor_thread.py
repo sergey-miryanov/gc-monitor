@@ -214,10 +214,12 @@ class TestGCMonitorThread:
 
         item2 = create_mock_stats_item(ts_start=2_000_000_000, ts_stop=2_005_000_000)
 
-        mock_gc_stats.side_effect = lambda pid, all_interpreters=False: (
-            (_ for _ in ()).throw(RuntimeError("Failed to initialize process handle"))
-            if pid == 12345 else [item2]
-        )
+        def _mock_gc_stats(pid, all_interpreters=False):
+            if pid == 12345:
+                raise RuntimeError("Failed to initialize process handle")
+            return [item2]
+
+        mock_gc_stats.side_effect = _mock_gc_stats
 
         exporter1 = MockExporter()
         exporter2 = MockExporter()

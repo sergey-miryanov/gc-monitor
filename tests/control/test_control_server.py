@@ -27,12 +27,13 @@ def _send_msg(server: ControlServer, msg: str, pid: int) -> None:
     finally:
         conn.close()
 
-def _wait_msg(control_server: ControlServer, pid:int, expected: bool, timeout:int=1):
+def _wait_msg(control_server: ControlServer, pid: int, expected: bool, timeout: int = 1) -> bool:
     ts = time.monotonic()
     while control_server.is_enabled(pid) is not expected:
         time.sleep(0)
         if time.monotonic() - ts > timeout:
-            break
+            return False
+    return True
 
 
 class TestControlServerInit:
@@ -55,8 +56,7 @@ class TestControlServerStart:
 
     def test_accepts_connection(self, control_server: ControlServer) -> None:
         _send_msg(control_server, msg="stop", pid=42)
-        _wait_msg(control_server, pid=42, expected=False)
-        assert control_server.is_enabled(42) is False
+        assert _wait_msg(control_server, pid=42, expected=False)
 
 
 class TestControlServerEnabled:
@@ -65,28 +65,28 @@ class TestControlServerEnabled:
 
     def test_stop_sets_enabled_false(self, control_server: ControlServer) -> None:
         _send_msg(control_server, "stop", 42)
-        _wait_msg(control_server, pid=42, expected=False)
+        assert _wait_msg(control_server, pid=42, expected=False)
         assert control_server.is_enabled(42) is False
 
     def test_start_sets_enabled_true(self, control_server: ControlServer) -> None:
         _send_msg(control_server, "stop", 42)
-        _wait_msg(control_server, 42, False)
+        assert _wait_msg(control_server, 42, False)
         assert control_server.is_enabled(42) is False
 
         _send_msg(control_server, "start", 42)
-        _wait_msg(control_server, 42, True)
+        assert _wait_msg(control_server, 42, True)
         assert control_server.is_enabled(42) is True
 
     def test_multiple_pids_independent(self, control_server: ControlServer) -> None:
         _send_msg(control_server, "stop", 1)
         _send_msg(control_server, "stop", 2)
-        _wait_msg(control_server, 2, False)
+        assert _wait_msg(control_server, 2, False)
         assert control_server.is_enabled(1) is False
         assert control_server.is_enabled(2) is False
         assert control_server.is_enabled(3) is True  # unknown, default True
 
         _send_msg(control_server, "start", 1)
-        _wait_msg(control_server, 1, True)
+        assert _wait_msg(control_server, 1, True)
         assert control_server.is_enabled(1) is True
         assert control_server.is_enabled(2) is False
 
@@ -99,7 +99,7 @@ class TestControlServerExporter:
         control_server.set_exporter(exporter)
 
         _send_msg(control_server, "stop", 42)
-        _wait_msg(control_server, 42, False)
+        assert _wait_msg(control_server, 42, False)
 
         assert len(exporter.instant_events) >= 1
         pid, msg = exporter.instant_events[0]
@@ -114,9 +114,9 @@ class TestControlServerExporter:
         control_server.set_exporter(exporter)
 
         _send_msg(control_server, "stop", 1)
-        _wait_msg(control_server, 1, False)
+        assert _wait_msg(control_server, 1, False)
         _send_msg(control_server, "start", 1)
-        _wait_msg(control_server, 1, True)
+        assert _wait_msg(control_server, 1, True)
 
         assert len(exporter.instant_events) == 2
         assert exporter.instant_events[0][1].name == "stop GC monitor"
