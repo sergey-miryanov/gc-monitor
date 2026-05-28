@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Mapping
 
+from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo
 from gc_monitor.exporters.exporter import EventsExporter
 from gc_monitor.protocol import TGCStatsInfo, TInstantMsg
 from gc_monitor.target_process import TargetProcessMetadata
@@ -18,6 +18,7 @@ from gc_monitor.target_process import TargetProcessMetadata
 __all__ = [
     "MockExporter",
     "create_mock_stats_item",
+    "create_mock_incremental_item",
     "create_jsonl_record",
     "assert_valid_chrome_trace_format",
     "assert_is_complete",
@@ -103,53 +104,35 @@ def create_mock_stats_item(
     collected: int = 200,
     uncollectable: int = 10,
     candidates: int = 40,
-    object_visits: int = 600,
-    objects_transitively_reachable: int = 250,
-    objects_not_transitively_reachable: int = 150,
     heap_size: int = 52428800,
-    work_to_do: int = 30,
     duration: float = 0.005,
-) -> TGCStatsInfo:
-    """Create a mock GCStatsItem with specified values.
-
-    This is a factory function for creating GCStatsItem dicts
-    with all required fields.
-
-    Args:
-        gen: GC generation (0, 1, or 2).
-        ts_start: Start timestamp in nanoseconds.
-        ts_stop: Stop timestamp in nanoseconds.
-        iid: Interpreter ID.
-        collections: Number of collections.
-        collected: Number of objects collected.
-        uncollectable: Number of uncollectable objects.
-        candidates: Number of candidate objects.
-        object_visits: Number of object visits.
-        objects_transitively_reachable: Number of transitively reachable objects.
-        objects_not_transitively_reachable: Number of non-transitively reachable objects.
-        heap_size: Heap size in bytes.
-        work_to_do: Amount of work to do.
-        duration: Duration in seconds.
-
-    Returns:
-        GCStatsItem dict with all fields set.
-    """
-    return SimpleNamespace(
+) -> GCStatsInfo:
+    return GCStatsInfo(
         gen=gen,
         iid=iid,
         ts_start=ts_start,
         ts_stop=ts_stop,
+        heap_size=heap_size,
         collections=collections,
         collected=collected,
         uncollectable=uncollectable,
         candidates=candidates,
-        object_visits=object_visits,
-        objects_transitively_reachable=objects_transitively_reachable,
-        objects_not_transitively_reachable=objects_not_transitively_reachable,
-        heap_size=heap_size,
-        work_to_do=work_to_do,
         duration=duration,
     )
+
+
+def create_mock_incremental_item(**kwargs: object) -> IncrementalGCStatsInfo:
+    defaults: dict[str, object] = dict(
+        gen=0, iid=0, ts_start=1_500_000_000, ts_stop=1_505_000_000,
+        heap_size=52428800, collections=50, collected=200, uncollectable=10,
+        candidates=40, duration=0.005,
+        increment_size=1000, alive_size=800,
+        ts_mark_alive_start=1_500_000_000, ts_mark_alive_stop=1_501_000_000,
+        ts_fill_increment_start=1_501_000_000, ts_fill_increment_stop=1_502_000_000,
+        ts_deduce_unreachable_start=1_502_000_000, ts_deduce_unreachable_stop=1_503_000_000,
+    )
+    defaults.update(kwargs)
+    return IncrementalGCStatsInfo(**defaults)  # type: ignore[arg-type]
 
 
 def create_jsonl_record(

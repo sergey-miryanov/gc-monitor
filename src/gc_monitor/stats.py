@@ -83,6 +83,18 @@ class Stats:
     def sum(self) -> float:
         return self._sum
 
+    @property
+    def buffer(self) -> Sequence[float]:
+        return self._data
+
+    @property
+    def has_sketch(self) -> bool:
+        return self._sketch is not None
+
+    @property
+    def percentiles(self) -> dict[int, float] | None:
+        return self._percentiles
+
 
 class Metric(Protocol):
     name: str

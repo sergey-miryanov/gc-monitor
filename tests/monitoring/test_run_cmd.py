@@ -13,7 +13,7 @@ import pytest
 from gc_monitor.exporters.chrome_trace_io import read_jsonl
 
 from gc_monitor.control.control_server import ControlServer
-from monitoring.conftest import MonitorArgsFactory
+from tests.monitoring.conftest import MonitorArgsFactory
 from tests.helpers import assert_valid_chrome_trace_format
 
 
@@ -27,7 +27,7 @@ def assert_jsonl_format(output_file: Path) -> None:
     assert read_jsonl(output_file)
 
 
-def assert_stdout_format(output:str)->None:
+def assert_stdout_format(output: str) -> None:
     assert "pid" in output
     assert "gen" in output
     assert "ts_start" in output
@@ -40,8 +40,8 @@ def assert_stdout_format(output:str)->None:
     assert "duration" in output
 
 
-def get_long_running_script(*args:list[Any]) -> str:
-    script:str = """
+def get_long_running_script(*args: list[Any]) -> str:
+    script: str = """
 import gc
 import sys
 import time

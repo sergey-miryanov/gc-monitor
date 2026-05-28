@@ -91,3 +91,9 @@ class TestToMapping:
         assert result["type"] == "i"
         assert result["name"] == "start GC monitor"
         assert result["ts"] == 5_000_000
+
+    def test_to_mapping_unknown_type_raises(self):
+        import pytest
+        from gc_monitor.protocol import to_mapping
+        with pytest.raises(NotImplementedError, match="Unknown item type"):
+            to_mapping("not a valid item")

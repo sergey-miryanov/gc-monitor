@@ -60,11 +60,7 @@ def mock_stats_item_batch() -> list[TGCStatsInfo]:
             collected=50 * (gen + 1),
             uncollectable=gen,
             candidates=20 * (gen + 1),
-            object_visits=100 * (gen + 1),
-            objects_transitively_reachable=50 * (gen + 1),
-            objects_not_transitively_reachable=30 * (gen + 1),
             heap_size=1_000_000 * (gen + 1),
-            work_to_do=5 * (gen + 1),
             duration=0.001 * (gen + 1),
         )
         items.append(item)

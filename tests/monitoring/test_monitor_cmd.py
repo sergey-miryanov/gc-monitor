@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from monitoring.conftest import MonitorArgsFactory
+from tests.monitoring.conftest import MonitorArgsFactory
 from tests.helpers import assert_valid_chrome_trace_format
 
 

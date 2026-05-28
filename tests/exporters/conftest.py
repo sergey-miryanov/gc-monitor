@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,7 @@ from tests.conftest import DEFAULT_METADATA
 
 
 @pytest.fixture
-def jsonl_exporter(tmp_path: Path) -> Any:
+def jsonl_exporter(tmp_path: Path) -> Callable[..., tuple[JsonlExporter, Path]]:
     """Factory fixture for JsonlExporter instances.
 
     Usage:
@@ -29,7 +30,7 @@ def jsonl_exporter(tmp_path: Path) -> Any:
 
 
 @pytest.fixture
-def trace_exporter(tmp_path: Path) -> Any:
+def trace_exporter(tmp_path: Path) -> Callable[..., tuple[TraceExporter, Path]]:
     """Factory fixture for TraceExporter instances.
 
     Usage:
@@ -43,7 +44,7 @@ def trace_exporter(tmp_path: Path) -> Any:
 
 
 @pytest.fixture
-def read_jsonl() -> Any:
+def read_jsonl() -> Callable[..., list[dict[str, Any]]]:
     """Read a JSONL file and return list of parsed events."""
     def _read(path: Path) -> list[dict[str, Any]]:
         with open(path, "r", encoding="utf-8") as f:

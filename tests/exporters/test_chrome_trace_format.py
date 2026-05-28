@@ -129,7 +129,11 @@ def _make_incremental_item(
 ) -> SimpleNamespace:
     base = create_mock_stats_item(gen=gen, ts_start=ts_start, ts_stop=ts_stop)
     return SimpleNamespace(
-        **{k: getattr(base, k) for k in vars(base)},
+        gen=base.gen, iid=base.iid,
+        ts_start=base.ts_start, ts_stop=base.ts_stop,
+        collections=base.collections, heap_size=base.heap_size,
+        collected=base.collected, uncollectable=base.uncollectable,
+        candidates=base.candidates, duration=base.duration,
         increment_size=increment_size,
         alive_size=alive_size,
         ts_mark_alive_start=ts_start,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from unittest.mock import MagicMock
 
 import pytest
@@ -28,12 +29,12 @@ class TestStatsUpdate:
 
     def test_update_appends_to_buffer(self, stats: Stats) -> None:
         stats.update(42.0)
-        assert len(stats._data) == 1
-        assert 42.0 in stats._data
+        assert len(stats.buffer) == 1
+        assert 42.0 in stats.buffer
 
     @pytest.mark.skipif(not HAS_DDSKETCH, reason="ddsketch not installed")
     def test_update_with_sketch(self, stats: Stats) -> None:
-        assert stats._sketch is not None
+        assert stats.has_sketch
         mock_sketch = MagicMock()
         stats._sketch = mock_sketch
 
@@ -41,7 +42,7 @@ class TestStatsUpdate:
         mock_sketch.add.assert_called_once_with(150.0)
 
     def test_update_without_sketch(self, stats_without_ddsketch: Stats) -> None:
-        assert stats_without_ddsketch._sketch is None
+        assert not stats_without_ddsketch.has_sketch
         stats_without_ddsketch.update(150.0)
         assert stats_without_ddsketch.count() == 1
         assert stats_without_ddsketch.sum() == 150.0
@@ -52,28 +53,30 @@ class TestStatsMaterialize:
 
     def test_materialize_computes_percentiles(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
-        assert stats_with_data._percentiles is not None
-        assert 50 in stats_with_data._percentiles
-        assert 90 in stats_with_data._percentiles
-        assert 95 in stats_with_data._percentiles
-        assert 99 in stats_with_data._percentiles
+        p = stats_with_data.percentiles
+        assert p is not None
+        assert 50 in p
+        assert 90 in p
+        assert 95 in p
+        assert 99 in p
 
     def test_materialize_percentile_values_correct(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
-        assert stats_with_data._percentiles is not None
-        assert stats_with_data._percentiles[50] == 300.0
+        p = stats_with_data.percentiles
+        assert p is not None
+        assert p[50] == 300.0
 
     def test_materialize_clears_buffer(self, stats_with_data: Stats) -> None:
-        assert len(stats_with_data._data) == 5
+        assert len(stats_with_data.buffer) == 5
         stats_with_data.materialize()
-        assert len(stats_with_data._data) == 0
+        assert len(stats_with_data.buffer) == 0
 
     def test_materialize_disables_sketch(self, stats: Stats) -> None:
         for i in range(10):
             stats.update(float(i))
-        assert stats._sketch is not None
+        assert stats.has_sketch
         stats.materialize()
-        assert stats._sketch is None
+        assert not stats.has_sketch
 
     def test_update_after_materialize_raises(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
@@ -82,14 +85,14 @@ class TestStatsMaterialize:
 
     def test_materialize_called_twice_is_noop(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
-        first_percentiles = stats_with_data._percentiles.copy()
+        first_percentiles = stats_with_data.percentiles.copy()
         stats_with_data.materialize()
-        assert stats_with_data._percentiles == first_percentiles
+        assert stats_with_data.percentiles == first_percentiles
 
     def test_materialize_empty_stats(self, stats: Stats) -> None:
         assert stats.count() == 0
         stats.materialize()
-        assert stats._percentiles is None
+        assert stats.percentiles is None
 
 
 class TestStatsAverage:
@@ -166,7 +169,7 @@ class TestStatsBufferLimit:
     def test_buffer_respects_maxlen(self, stats: Stats) -> None:
         for i in range(Stats.MAX_BUFFER_LEN + 1000):
             stats.update(float(i))
-        assert len(stats._data) == Stats.MAX_BUFFER_LEN
+        assert len(stats.buffer) == Stats.MAX_BUFFER_LEN
 
     def test_buffer_count_not_affected_by_limit(self, stats: Stats) -> None:
         total_updates = Stats.MAX_BUFFER_LEN + 500
@@ -179,3 +182,17 @@ class TestStatsBufferLimit:
         for _ in range(total_updates):
             stats.update(2.0)
         assert stats.sum() == float(total_updates) * 2.0
+
+
+class TestStatsNonNumbers:
+
+    def test_update_nan(self, stats: Stats) -> None:
+        stats.update(float("nan"))
+        assert stats.count() == 1
+        assert math.isnan(stats.sum())
+
+    def test_update_inf_without_ddsketch(self, stats_without_ddsketch: Stats) -> None:
+        stats_without_ddsketch.update(float("inf"))
+        assert stats_without_ddsketch.count() == 1
+        assert stats_without_ddsketch.sum() == float("inf")
+        assert stats_without_ddsketch.average() == float("inf")

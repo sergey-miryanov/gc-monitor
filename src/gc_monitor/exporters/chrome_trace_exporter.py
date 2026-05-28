@@ -19,7 +19,10 @@ from .chrome_trace_format import (
 )
 from .exporter import EventsExporter
 
+PARENT_PROCESS_NAME = "Parent Process"
+
 __all__ = [
+    "PARENT_PROCESS_NAME",
     "TraceExporter",
 ]
 
@@ -109,7 +112,7 @@ class TraceExporter(EventsExporter):
         pid = self._metadata["pid"]
         with open(self._output_path, "w", encoding="utf-8") as f:
             linesep = "\n"
-            f.write(f"[{linesep}{json.dumps(process_meta(pid, 'Parent Process'))}")
+            f.write(f"[{linesep}{json.dumps(process_meta(pid, PARENT_PROCESS_NAME))}")
 
     def _write_finish_marker(self) -> None:
         with open(self._output_path, "a", encoding="utf-8") as f:

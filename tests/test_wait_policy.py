@@ -74,3 +74,13 @@ class TestStartupTimeoutPolicy:
         policy = make_policy()
         assert policy.wait(PollStatus.OK) is True
         assert policy.wait(PollStatus.OK) is True
+
+    def test_float_timeout(self, make_policy):
+        with patch("time.monotonic", side_effect=[100.0, 102]):
+            policy = make_policy(3)
+            assert policy.wait(PollStatus.INVALID_PROCESS) is True
+
+    def test_float_timeout_expired(self, make_policy):
+        with patch("time.monotonic", side_effect=[100.0, 104.0]):
+            policy = make_policy(3)
+            assert policy.wait(PollStatus.INVALID_PROCESS) is False

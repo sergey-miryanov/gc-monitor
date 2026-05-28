@@ -1,10 +1,10 @@
+import msgspec
 import pytest
 
 from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo, InstantMsg, from_mapping, instant_msg
 from gc_monitor.protocol import to_mapping
 
 from tests.data_helpers import simple_item, incremental_item, instant_item
-
 
 
 @pytest.fixture
@@ -118,3 +118,7 @@ class TestFromMapping:
         assert result.type == "i"
         assert result.name == "start GC monitor"
         assert result.ts == 5_000_000
+
+    def test_from_mapping_empty_raises(self):
+        with pytest.raises(msgspec.ValidationError):
+            from_mapping({})

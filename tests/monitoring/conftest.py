@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from argparse import Namespace
+from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
@@ -76,7 +77,7 @@ def gc_monitor_cmd() -> list[str]:
 
 
 @pytest.fixture
-def run_monitor(gc_monitor_cmd: list[str]) -> Any:
+def run_monitor(gc_monitor_cmd: list[str]) -> Callable[..., subprocess.CompletedProcess[str]]:
     """Run gc-monitor monitor subprocess with common defaults.
 
     Usage:
@@ -90,7 +91,7 @@ def run_monitor(gc_monitor_cmd: list[str]) -> Any:
 
 
 @pytest.fixture
-def run_monitor_self(gc_monitor_cmd: list[str]) -> Any:
+def run_monitor_self(gc_monitor_cmd: list[str]) -> Callable[..., subprocess.CompletedProcess[str]]:
     """Run gc-monitor monitor subprocess with common defaults.
 
     Usage:
@@ -104,7 +105,7 @@ def run_monitor_self(gc_monitor_cmd: list[str]) -> Any:
 
 
 @pytest.fixture
-def monitoring_options() -> Any:
+def monitoring_options() -> Callable[..., MonitoringOptions]:
     """Factory fixture for MonitoringOptions objects.
 
     Usage:

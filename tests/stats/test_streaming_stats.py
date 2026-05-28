@@ -226,7 +226,7 @@ class TestStreamingStatsAggregate:
         streaming_stats: StreamingStats,
         gc_stats_item_factory: Callable[..., GCStatsInfo],
     ) -> None:
-        item = gc_stats_item_factory(ts_stop=1_000_000, heap_size=1_000_000)
+        item = gc_stats_item_factory(ts_start=0, ts_stop=1_000_000, heap_size=1_000_000)
         streaming_stats.update(12345, item)
         result = streaming_stats.aggregate()
         assert result["pause_gen_0_sum"] == 1.0

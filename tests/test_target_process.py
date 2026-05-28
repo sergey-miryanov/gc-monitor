@@ -26,5 +26,13 @@ class TestExternalProcess:
     def test_metadata_zero(self, zero_process):
         assert zero_process.metadata() == {"pid": 0}
 
+    def test_negative_pid(self):
+        proc = ExternalProcess(pid=-1)
+        assert proc.pid == -1
+
+    def test_negative_pid_metadata(self):
+        proc = ExternalProcess(pid=-1)
+        assert proc.metadata() == {"pid": -1}
+
     def test_is_target_process_protocol(self, external_process):
         assert isinstance(external_process, TargetProcess)

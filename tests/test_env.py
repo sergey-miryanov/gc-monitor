@@ -116,3 +116,41 @@ class TestEnvOutputSpecialCases:
         monkeypatch.setenv(env_module.ENV_FORMAT, "jsonl")
         monkeypatch.delenv(env_module.ENV_OUTPUT, raising=False)
         assert env_module.get_env_output() == Path("gc_monitor.jsonl")
+
+
+class TestEnvStats:
+    """Tests for GC_MONITOR_STATS parsing."""
+
+    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+        monkeypatch.delenv(env_module.ENV_STATS, raising=False)
+        assert env_module.get_env_stats() is False
+
+    @pytest.mark.parametrize("value", ["1", "true", "yes", "on"])
+    def test_truthy_values(self, monkeypatch: pytest.MonkeyPatch, env_module, value: str) -> None:
+        monkeypatch.setenv(env_module.ENV_STATS, value)
+        assert env_module.get_env_stats() is True
+
+    def test_false_value(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+        monkeypatch.setenv(env_module.ENV_STATS, "0")
+        assert env_module.get_env_stats() is False
+
+    def test_random_string(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+        monkeypatch.setenv(env_module.ENV_STATS, "nope")
+        assert env_module.get_env_stats() is False
+
+
+class TestEnvTableFormat:
+    """Tests for GC_MONITOR_TABLE_FORMAT parsing."""
+
+    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+        monkeypatch.delenv(env_module.ENV_TABLE_FORMAT, raising=False)
+        assert env_module.get_env_table_format() == env_module.TableFormat.PLAIN
+
+    @pytest.mark.parametrize("value", ["md", "markdown", "MD", "Markdown"])
+    def test_markdown_values(self, monkeypatch: pytest.MonkeyPatch, env_module, value: str) -> None:
+        monkeypatch.setenv(env_module.ENV_TABLE_FORMAT, value)
+        assert env_module.get_env_table_format() == env_module.TableFormat.MARKDOWN
+
+    def test_invalid_value_returns_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+        monkeypatch.setenv(env_module.ENV_TABLE_FORMAT, "html")
+        assert env_module.get_env_table_format() == env_module.TableFormat.PLAIN

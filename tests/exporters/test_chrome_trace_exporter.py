@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from gc_monitor.data import ts_to_us
+from gc_monitor.exporters.chrome_trace_exporter import PARENT_PROCESS_NAME
 from gc_monitor.monitor import EventsMonitor
 from gc_monitor.stats import StreamingStats
 from gc_monitor.target_process import ExternalProcess
@@ -39,7 +40,7 @@ class TestTraceExporter:
         assert len(counters) == num_items
         assert all(e["name"] == "GC Pause (gen=0)" for e in completes)
         assert all(e["name"] == "G0" for e in counters)
-        assert_is_process_meta(next(e for e in metas if e["name"] == "process_name"), pid=12345, args={"name": "Parent Process"})
+        assert_is_process_meta(next(e for e in metas if e["name"] == "process_name"), pid=12345, args={"name": PARENT_PROCESS_NAME})
         assert_is_thread_meta(next(e for e in metas if e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
 
     def test_flushes_at_threshold(self, mock_stats_item, trace_exporter) -> None:
@@ -72,7 +73,7 @@ class TestTraceExporter:
             elif event["ph"] == "C":
                 assert_is_counter(event, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40, "heap_size": 52428800})
             elif event["ph"] == "M" and event["name"] == "process_name":
-                assert_is_process_meta(event, pid=12345, args={"name": "Parent Process"})
+                assert_is_process_meta(event, pid=12345, args={"name": PARENT_PROCESS_NAME})
             elif event["ph"] == "M" and event["name"] == "thread_name":
                 assert_is_thread_meta(event, pid=12345, tid=0, args={"name": "Thread 0"})
 
@@ -124,7 +125,7 @@ class TestTraceExporter:
         exporter.close()
 
         data = assert_valid_chrome_trace_format(path)
-        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Parent Process"})
+        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": PARENT_PROCESS_NAME})
         assert_is_thread_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
 
     def test_multiple_close_calls(self, mock_stats_item, trace_exporter) -> None:
@@ -216,16 +217,12 @@ def mock_read_events():
         item1 = create_mock_stats_item(
             gen=0, ts_start=base_ts, ts_stop=base_ts + 5_000_000,
             collections=10, collected=50, uncollectable=1, candidates=20,
-            object_visits=100, objects_transitively_reachable=50,
-            objects_not_transitively_reachable=30, heap_size=1000000,
-            work_to_do=5, duration=0.001,
+            heap_size=1000000, duration=0.001,
         )
         item2 = create_mock_stats_item(
             gen=1, ts_start=base_ts + 1_000_000, ts_stop=base_ts + 6_000_000,
             collections=20, collected=100, uncollectable=2, candidates=40,
-            object_visits=200, objects_transitively_reachable=100,
-            objects_not_transitively_reachable=60, heap_size=2000000,
-            work_to_do=10, duration=0.002,
+            heap_size=2000000, duration=0.002,
         )
         return [item1, item2]
 
@@ -250,7 +247,7 @@ class TestGCMonitorStreaming:
         monitor.stop()
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
-        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Parent Process"})
+        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": PARENT_PROCESS_NAME})
         assert any(e["name"] == "GC Pause (gen=1)" for e in data)
         # At least one complete event per poll
         assert len([e for e in data if e["ph"] == "X"]) >= 4
@@ -272,7 +269,7 @@ class TestGCMonitorStreaming:
         monitor.stop()
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
-        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Parent Process"})
+        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": PARENT_PROCESS_NAME})
         assert next((e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), None) is not None
         assert len([e for e in data if e["ph"] == "X"]) >= 3
         assert len([e for e in data if e["ph"] == "C"]) >= 3
@@ -282,9 +279,7 @@ class TestGCMonitorStreaming:
         item = create_mock_stats_item(
             gen=0, ts_start=1_500_000_000, ts_stop=1_505_000_000,
             collections=10, collected=50, uncollectable=1, candidates=20,
-            object_visits=100, objects_transitively_reachable=50,
-            objects_not_transitively_reachable=30, heap_size=1000000,
-            work_to_do=5, duration=0.001,
+            heap_size=1000000, duration=0.001,
         )
         call_count = [0]
         def side_effect(*args, **kwargs):
@@ -303,7 +298,7 @@ class TestGCMonitorStreaming:
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
         # 1 successful poll = 1 GC event (X + C) + metadata
-        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Parent Process"})
+        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": PARENT_PROCESS_NAME})
         assert_is_thread_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
         assert len([e for e in data if e["ph"] == "X"]) == 1
         assert len([e for e in data if e["ph"] == "C"]) == 1

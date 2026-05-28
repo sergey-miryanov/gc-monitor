@@ -10,6 +10,8 @@ import pytest
 from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo
 from gc_monitor.stats import Stats, StreamingStats
 
+from tests.helpers import create_mock_stats_item, create_mock_incremental_item
+
 
 @pytest.fixture
 def stats() -> Stats:
@@ -57,17 +59,7 @@ def gc_stats_item_factory() -> Callable[..., GCStatsInfo]:
     Usage:
         item = gc_stats_item_factory(heap_size=1_000_000, ts_stop=5000)
     """
-
-    def _factory(**kwargs: object) -> GCStatsInfo:
-        defaults: dict[str, object] = dict(
-            gen=0, iid=0, ts_start=0, ts_stop=1000,
-            heap_size=0, collections=0, collected=0, uncollectable=0,
-            candidates=0, duration=0.0,
-        )
-        defaults.update(kwargs)
-        return GCStatsInfo(**defaults)  # type: ignore[arg-type]
-
-    return _factory
+    return create_mock_stats_item
 
 
 @pytest.fixture
@@ -77,21 +69,7 @@ def incremental_gc_stats_item_factory() -> Callable[..., IncrementalGCStatsInfo]
     Usage:
         item = incremental_gc_stats_item_factory(ts_mark_alive_stop=5000)
     """
-
-    def _factory(**kwargs: object) -> IncrementalGCStatsInfo:
-        defaults: dict[str, object] = dict(
-            gen=0, iid=0, ts_start=0, ts_stop=10000,
-            heap_size=0, collections=0, collected=0, uncollectable=0,
-            candidates=0, duration=0.0,
-            increment_size=0, alive_size=0,
-            ts_mark_alive_start=0, ts_mark_alive_stop=2000,
-            ts_fill_increment_start=2000, ts_fill_increment_stop=5000,
-            ts_deduce_unreachable_start=5000, ts_deduce_unreachable_stop=10000,
-        )
-        defaults.update(kwargs)
-        return IncrementalGCStatsInfo(**defaults)  # type: ignore[arg-type]
-
-    return _factory
+    return create_mock_incremental_item
 
 
 @pytest.fixture
@@ -107,5 +85,5 @@ def stats_without_ddsketch() -> Stats:
     """Create a Stats instance with DDSketch disabled."""
     with patch("gc_monitor.stats.HAS_DDSKETCH", False):
         s = Stats()
-        assert s._sketch is None
+        assert not s.has_sketch
         return s

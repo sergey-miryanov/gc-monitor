@@ -60,7 +60,18 @@ class TestDurationRunner:
             runner = make_duration_runner(0)
             gen = runner.run(lambda: False)
             results = list(gen)
+            # Duration=0: the check (ts - ts_start) > 0 is True on first yield
+            # because 100.01 - 100.0 = 0.01 > 0
             assert len(results) == 1
+
+    def test_negative_duration(self, make_duration_runner):
+        with patch("time.monotonic", side_effect=[100.0, 100.0]):
+            runner = make_duration_runner(-1.0)
+            gen = runner.run(lambda: False)
+            next(gen)  # first yield always happens
+            # Negative duration: (ts - ts_start) > -1.0 = True, so break on next iteration
+            with pytest.raises(StopIteration):
+                next(gen)
 
 
 class TestRunnerFactory:
