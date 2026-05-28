@@ -7,8 +7,13 @@ import msgspec
 
 from ..data import from_mapping
 from ..protocol import (
-    TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg,
-    is_gc_stats, is_incremental, to_mapping, is_instant
+    TGCStatsInfo,
+    TIncrementalGCStatsInfo,
+    TInstantMsg,
+    is_gc_stats,
+    is_incremental,
+    is_instant,
+    to_mapping,
 )
 from .chrome_trace_format import (
     CounterEvent,

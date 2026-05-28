@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Protocol, TypeGuard, cast
+from typing import Protocol, TypeGuard
 
 
 class TGCStatsInfo(Protocol):

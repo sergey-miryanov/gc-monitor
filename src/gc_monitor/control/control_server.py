@@ -5,8 +5,8 @@ import logging
 import threading
 from multiprocessing.connection import Connection, Listener, wait
 
-from gc_monitor.exporters.exporter import EventsExporter
 from gc_monitor.data import instant_msg
+from gc_monitor.exporters.exporter import EventsExporter
 
 logger = logging.getLogger("gc_monitor.control")
 

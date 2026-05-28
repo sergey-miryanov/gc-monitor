@@ -4,9 +4,10 @@ import json
 import logging
 import os
 import threading
+from collections.abc import Generator
 from contextlib import contextmanager
 from multiprocessing.connection import Client, Connection
-from typing import Any, Generator
+from typing import Any
 
 from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV, CONTROL_FAMILY_ENV
 
@@ -71,7 +72,7 @@ def stop_monitoring() -> None:
 
 
 @contextmanager
-def pause_monitoring() -> Generator[None, Any, None]:
+def pause_monitoring() -> Generator[None, Any]:
     """Context manager that pauses monitoring and resumes on exit."""
     stop_monitoring()
     try:

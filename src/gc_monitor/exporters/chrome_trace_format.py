@@ -4,8 +4,12 @@ from typing import Literal, NotRequired, TypedDict
 
 from ..data import dur_to_us, ts_to_us
 from ..protocol import (
-    TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg,
-    is_gc_stats, is_incremental, is_instant,
+    TGCStatsInfo,
+    TIncrementalGCStatsInfo,
+    TInstantMsg,
+    is_gc_stats,
+    is_incremental,
+    is_instant,
 )
 
 __all__ = [
