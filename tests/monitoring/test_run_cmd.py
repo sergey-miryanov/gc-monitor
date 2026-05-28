@@ -56,9 +56,10 @@ t2 = time.monotonic()
 gc.collect()
 print('')
 print(f'ts={(t2-t1)/1_000.0}')
+sys.stdout.flush()
 
 """
-    return script + "\n".join([str(s) for s in args]) + "\nsys.exit(0)"
+    return script + "\n".join([str(s) for s in args]) + "\nsys.stdout.flush()\nsys.exit(0)"
 
 def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
     gc_opts = gc_args or []
@@ -255,7 +256,7 @@ class TestRunCommandScriptMode:
         script_file = tmp_path / "test_script.py"
         script_file.write_text(get_long_running_script("print('Hello')", "sys.exit(42)"))
 
-        result = run_script(script_file, gc_args=["-v", "-o", str(output_file)])
+        result = run_script(script_file, gc_args=["-vvv", "-o", str(output_file)])
 
         assert result.returncode == 42
         assert "Hello" in result.stdout
@@ -312,7 +313,7 @@ class TestRunCommandScriptMode:
         script_file.write_text(get_long_running_script("print('Args: ', sys.argv[1:])"))
 
         # gc-monitor options BEFORE -s, script args AFTER (including overlapping --format, -v)
-        gc_args = ["-v", "--format", "chrome", "-o", str(output_file)]
+        gc_args = ["-vvv", "--format", "chrome", "-o", str(output_file)]
         result = run_script(script_file, "--format", "json", "-v", "--format", "csv", gc_args=gc_args)
 
         assert result.returncode == 0
@@ -336,7 +337,7 @@ class TestRunCommandModuleMode:
         output_file = tmp_path / "trace.json"
 
         gc_args = ["-vvv", "--format", "chrome", "-o", str(output_file)]
-        result = run_module("timeit", "-n", "10", "import sys", gc_args=gc_args)
+        result = run_module("test", "test_gc", "-v", gc_args=gc_args)
 
         assert result.returncode == 0
         assert_valid_chrome_trace_format(output_file)
@@ -345,14 +346,14 @@ class TestRunCommandModuleMode:
         output_file = tmp_path / "trace.jsonl"
 
         gc_args = ["-vvv", "--format", "jsonl", "-o", str(output_file)]
-        result = run_module("timeit", "import sys", gc_args=gc_args)
+        result = run_module("test", "test_gc", "-v", gc_args=gc_args)
 
         assert result.returncode == 0
         assert_jsonl_format(output_file)
 
     def test_run_module_long_running_stdout_format(self) -> None:
         gc_args = ["-vvv", "--format", "stdout"]
-        result = run_module("timeit", "import sys", gc_args=gc_args)
+        result = run_module("test", "test_gc", "-v", gc_args=gc_args)
 
         output = (result.stdout + result.stderr).lower()
 
@@ -365,11 +366,8 @@ class TestRunCommandModuleMode:
 
         # gc-monitor options BEFORE -m, script args AFTER (including overlapping --format, -v)
         gc_args = ["-v", "--format", "chrome", "-o", str(output_file)]
-        run_module("timeit", "--format", "json", "-v", "--format", "csv", gc_args=gc_args)
+        run_module("test", "test_gc", "-v", gc_args=gc_args)
 
-        # timeit may exit non-zero with unknown args depending on Python version
-        # The key assertion is that gc-monitor processed its options correctly
-        # and the output file was created
         assert output_file.exists()
         assert_valid_chrome_trace_format(output_file)
 
@@ -403,7 +401,7 @@ class TestRunCommandErrors:
         """Test running script with syntax error."""
         output_file = tmp_path / "trace.json"
         script_file = tmp_path / "bad_script.py"
-        script_file.write_text("invalid !!!")
+        script_file.write_text(get_long_running_script("invalid !!!"))
 
         result = run_script(script_file, gc_args=["-vvv", "-o", str(output_file)])
 
