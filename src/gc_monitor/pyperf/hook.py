@@ -163,7 +163,8 @@ class GCMonitorHook:
 
         Spawns the external gc-monitor process as a background subprocess.
         """
-        start_monitoring()
+        verbose = _get_env_pyperf_hook_verbose()
+        start_monitoring(verbose)
         return self
 
     def __exit__(
@@ -175,7 +176,8 @@ class GCMonitorHook:
         """
         Called immediately after running benchmark code.
         """
-        stop_monitoring()
+        verbose = _get_env_pyperf_hook_verbose()
+        stop_monitoring(verbose)
 
     def teardown(self, metadata: dict[str, Any]) -> None:
         """

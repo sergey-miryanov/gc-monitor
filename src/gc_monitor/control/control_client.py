@@ -51,7 +51,7 @@ def _ensure_connected() -> Connection | None:
     return _conn
 
 
-def _send(msg: dict[str,str|int]) -> None:
+def _send(msg: dict[str,str|int], *, verbose:bool=False) -> None:
     conn = _ensure_connected()
     if conn is not None:
         try:
@@ -59,23 +59,26 @@ def _send(msg: dict[str,str|int]) -> None:
             conn.send(msg)
         except Exception as e:
             logger.debug("Failed to send control message: %s", e)
+    elif verbose:
+        # logger.debug("No connection")
+        print("No connection")
 
 
-def start_monitoring() -> None:
+def start_monitoring(verbose:bool = False) -> None:
     """Resume/enable GC monitoring for this process."""
-    _send({"msg": "start"})
+    _send({"msg": "start"}, verbose=verbose)
 
 
-def stop_monitoring() -> None:
+def stop_monitoring(verbose:bool = False) -> None:
     """Pause/disable GC monitoring for this process."""
-    _send({"msg": "stop"})
+    _send({"msg": "stop"}, verbose=verbose)
 
 
 @contextmanager
-def pause_monitoring() -> Generator[None, Any]:
+def pause_monitoring(verbose:bool = False) -> Generator[None, Any]:
     """Context manager that pauses monitoring and resumes on exit."""
-    stop_monitoring()
+    stop_monitoring(verbose)
     try:
         yield
     finally:
-        start_monitoring()
+        start_monitoring(verbose)
