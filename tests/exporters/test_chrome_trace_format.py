@@ -136,8 +136,8 @@ def _make_incremental_item(
         ts_mark_alive_stop=ts_start + sub_step_dur,
         ts_fill_increment_start=ts_start + sub_step_dur,
         ts_fill_increment_stop=ts_start + 2 * sub_step_dur,
-        ts_deduce_uncreachable_start=ts_start + 2 * sub_step_dur,
-        ts_deduce_uncreachable_stop=ts_start + 3 * sub_step_dur,
+        ts_deduce_unreachable_start=ts_start + 2 * sub_step_dur,
+        ts_deduce_unreachable_stop=ts_start + 3 * sub_step_dur,
     )
 
 
@@ -214,8 +214,8 @@ class TestConvertItemToTraceFormat:
             ts_mark_alive_stop=1_500_000_000,
             ts_fill_increment_start=1_500_000_000,
             ts_fill_increment_stop=1_501_000_000,
-            ts_deduce_uncreachable_start=1_501_000_000,
-            ts_deduce_uncreachable_stop=1_501_000_000,
+            ts_deduce_unreachable_start=1_501_000_000,
+            ts_deduce_unreachable_stop=1_501_000_000,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
         names = {e["name"] for e in events if e["ph"] == "X"}

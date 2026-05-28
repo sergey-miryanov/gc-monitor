@@ -163,8 +163,8 @@ def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TIncrementa
                     item.ts_mark_alive_stop -= min_ts
                     item.ts_fill_increment_start -= min_ts
                     item.ts_fill_increment_stop -= min_ts
-                    item.ts_deduce_uncreachable_start -= min_ts
-                    item.ts_deduce_uncreachable_stop -= min_ts
+                    item.ts_deduce_unreachable_start -= min_ts
+                    item.ts_deduce_unreachable_stop -= min_ts
 
 
 def combine_files(input_paths: list[Path], output_path: Path, normalize: bool = False,

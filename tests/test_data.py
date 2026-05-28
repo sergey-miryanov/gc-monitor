@@ -54,8 +54,8 @@ class TestIncrementalGCStatsInfo:
         assert incremental_item.ts_mark_alive_stop == 3_001_000
         assert incremental_item.ts_fill_increment_start == 3_001_500
         assert incremental_item.ts_fill_increment_stop == 3_002_000
-        assert incremental_item.ts_deduce_uncreachable_start == 3_002_500
-        assert incremental_item.ts_deduce_uncreachable_stop == 3_003_000
+        assert incremental_item.ts_deduce_unreachable_start == 3_002_500
+        assert incremental_item.ts_deduce_unreachable_stop == 3_003_000
 
 
 class TestInstantMsg:
@@ -109,8 +109,8 @@ class TestFromMapping:
         assert result.ts_mark_alive_stop == 3_001_000
         assert result.ts_fill_increment_start == 3_001_500
         assert result.ts_fill_increment_stop == 3_002_000
-        assert result.ts_deduce_uncreachable_start == 3_002_500
-        assert result.ts_deduce_uncreachable_stop == 3_003_000
+        assert result.ts_deduce_unreachable_start == 3_002_500
+        assert result.ts_deduce_unreachable_stop == 3_003_000
 
     def test_from_mapping_returns_instant_msg(self, instant_dict):
         result = from_mapping(instant_dict)

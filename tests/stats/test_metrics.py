@@ -106,7 +106,7 @@ class TestDeduceUnreachableMetric:
     ) -> None:
         metric = DeduceUnreachableMetric()
         item = incremental_gc_stats_item_factory(
-            ts_deduce_uncreachable_start=7000, ts_deduce_uncreachable_stop=9000,
+            ts_deduce_unreachable_start=7000, ts_deduce_unreachable_stop=9000,
         )
         ts_start, ts_stop = metric.get_values(item)
         assert ts_start == 7000

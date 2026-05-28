@@ -115,7 +115,7 @@ class DeduceUnreachableMetric:
 
     def get_values(self, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> tuple[int, int]:
         assert(is_incremental(item))
-        return item.ts_deduce_uncreachable_start, item.ts_deduce_uncreachable_stop
+        return item.ts_deduce_unreachable_start, item.ts_deduce_unreachable_stop
 
 
 

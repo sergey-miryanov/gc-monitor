@@ -81,8 +81,8 @@ class TestToMapping:
         assert result["ts_mark_alive_stop"] == 3_001_000
         assert result["ts_fill_increment_start"] == 3_001_500
         assert result["ts_fill_increment_stop"] == 3_002_000
-        assert result["ts_deduce_uncreachable_start"] == 3_002_500
-        assert result["ts_deduce_uncreachable_stop"] == 3_003_000
+        assert result["ts_deduce_unreachable_start"] == 3_002_500
+        assert result["ts_deduce_unreachable_stop"] == 3_003_000
 
     def test_instant_item(self, instant_item):
         result = to_mapping(instant_item)

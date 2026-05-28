@@ -24,8 +24,8 @@ class IncrementalGCStatsInfo(GCStatsInfo, Protocol):
     ts_mark_alive_stop: int
     ts_fill_increment_start: int
     ts_fill_increment_stop: int
-    ts_deduce_uncreachable_start: int
-    ts_deduce_uncreachable_stop: int
+    ts_deduce_unreachable_start: int
+    ts_deduce_unreachable_stop: int
 
 
 def get_child_pids(pid: int, *, recursive: bool) -> list[int]: ...

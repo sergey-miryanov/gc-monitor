@@ -271,15 +271,15 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo | TIncrementalGCSt
                     inc_data,
                 )
             )
-        if item.ts_deduce_uncreachable_stop - item.ts_deduce_uncreachable_start > 0:
+        if item.ts_deduce_unreachable_stop - item.ts_deduce_unreachable_start > 0:
             events.append(
                 inc_event(
                     pid,
                     tid,
                     f"Deduce Unreachable (gen={item.gen})",
                     f"gc.deduce(gen={item.gen})",
-                    ts_to_us(item.ts_deduce_uncreachable_start),
-                    dur_to_us(item.ts_deduce_uncreachable_start, item.ts_deduce_uncreachable_stop),
+                    ts_to_us(item.ts_deduce_unreachable_start),
+                    dur_to_us(item.ts_deduce_unreachable_start, item.ts_deduce_unreachable_stop),
                     inc_data,
                 )
             )

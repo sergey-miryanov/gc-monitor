@@ -22,8 +22,8 @@ class TIncrementalGCStatsInfo(TGCStatsInfo, Protocol):
     ts_mark_alive_stop: int
     ts_fill_increment_start: int
     ts_fill_increment_stop: int
-    ts_deduce_uncreachable_start: int
-    ts_deduce_uncreachable_stop: int
+    ts_deduce_unreachable_start: int
+    ts_deduce_unreachable_stop: int
 
 
 class TInstantMsg(Protocol):
@@ -72,8 +72,8 @@ def to_mapping(item: TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg) -> Ma
             m["ts_mark_alive_stop"] = item.ts_mark_alive_stop
             m["ts_fill_increment_start"] = item.ts_fill_increment_start
             m["ts_fill_increment_stop"] = item.ts_fill_increment_stop
-            m["ts_deduce_uncreachable_start"] = item.ts_deduce_uncreachable_start
-            m["ts_deduce_uncreachable_stop"] = item.ts_deduce_uncreachable_stop
+            m["ts_deduce_unreachable_start"] = item.ts_deduce_unreachable_start
+            m["ts_deduce_unreachable_stop"] = item.ts_deduce_unreachable_stop
 
         return m
 

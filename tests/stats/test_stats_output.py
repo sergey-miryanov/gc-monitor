@@ -230,7 +230,7 @@ class TestPrintStatsEdgeCases:
             ts_mark_alive_stop=5000,
             ts_fill_increment_start=5000,
             ts_fill_increment_stop=7000,
-            ts_deduce_uncreachable_start=7000,
+            ts_deduce_unreachable_start=7000,
         )
         stats.update(12345, item)
 

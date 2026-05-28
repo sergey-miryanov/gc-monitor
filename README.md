@@ -134,7 +134,7 @@ each line is a JSON object representing one GC event:
 | `duration` | Pause duration (milliseconds) |
 
 For incremental GC events, additional fields (`increment_size`, `alive_size`,
-`ts_mark_alive_*`, `ts_fill_increment_*`, `ts_deduce_uncreachable_*`) are included.
+`ts_mark_alive_*`, `ts_fill_increment_*`, `ts_deduce_unreachable_*`) are included.
 
 ## When to Use
 

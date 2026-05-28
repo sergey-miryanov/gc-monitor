@@ -86,7 +86,7 @@ def incremental_gc_stats_item_factory() -> Callable[..., IncrementalGCStatsInfo]
             increment_size=0, alive_size=0,
             ts_mark_alive_start=0, ts_mark_alive_stop=2000,
             ts_fill_increment_start=2000, ts_fill_increment_stop=5000,
-            ts_deduce_uncreachable_start=5000, ts_deduce_uncreachable_stop=10000,
+            ts_deduce_unreachable_start=5000, ts_deduce_unreachable_stop=10000,
         )
         defaults.update(kwargs)
         return IncrementalGCStatsInfo(**defaults)  # type: ignore[arg-type]

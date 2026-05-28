@@ -43,8 +43,8 @@ def _make_inc_item(
         ts_mark_alive_stop=ts_start + 100,
         ts_fill_increment_start=ts_start + 100,
         ts_fill_increment_stop=ts_start + 200,
-        ts_deduce_uncreachable_start=ts_start + 200,
-        ts_deduce_uncreachable_stop=ts_start + 300,
+        ts_deduce_unreachable_start=ts_start + 200,
+        ts_deduce_unreachable_stop=ts_start + 300,
     )
 
 
@@ -60,8 +60,8 @@ def _make_inc_jsonl_record(
         "ts_mark_alive_stop": ts_start + 100,
         "ts_fill_increment_start": ts_start + 100,
         "ts_fill_increment_stop": ts_start + 200,
-        "ts_deduce_uncreachable_start": ts_start + 200,
-        "ts_deduce_uncreachable_stop": ts_start + 300,
+        "ts_deduce_unreachable_start": ts_start + 200,
+        "ts_deduce_unreachable_stop": ts_start + 300,
     })
     return record
 
