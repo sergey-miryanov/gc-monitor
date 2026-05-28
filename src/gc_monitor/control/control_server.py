@@ -1,5 +1,6 @@
 """Control plane for parent-child IPC via multiprocessing.connection."""
 
+import contextlib
 import json
 import logging
 import threading
@@ -128,17 +129,13 @@ class ControlServer:
             self._enabled.clear()
 
         for conn in conns:
-            try:
+            with contextlib.suppress(OSError):
                 conn.close()
-            except OSError:
-                pass
 
         if self._listener is not None:
-            try:
+            with contextlib.suppress(OSError):
                 self._listener.close()
-            except OSError:
-                pass
-            self._listener = None
+                self._listener = None
 
 
 def set_control_env(env: dict[str, str], address: str|tuple[str, int]) -> None:
