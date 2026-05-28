@@ -75,13 +75,15 @@ class TestStatsMaterialize:
         stats.materialize()
         assert stats._sketch is None
 
-    def test_materialize_idempotent(self, stats_with_data: Stats) -> None:
+    def test_update_after_materialize_raises(self, stats_with_data: Stats) -> None:
+        stats_with_data.materialize()
+        with pytest.raises(RuntimeError, match="Cannot update Stats after materialize"):
+            stats_with_data.update(999.0)
+
+    def test_materialize_called_twice_is_noop(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
         first_percentiles = stats_with_data._percentiles.copy()
-
-        stats_with_data.update(999.0)
         stats_with_data.materialize()
-
         assert stats_with_data._percentiles == first_percentiles
 
     def test_materialize_empty_stats(self, stats: Stats) -> None:

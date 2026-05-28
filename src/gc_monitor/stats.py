@@ -39,6 +39,9 @@ class Stats:
         self._percentiles: dict[int, float] | None = None
 
     def update(self, value: float) -> None:
+        if self._percentiles is not None:
+            raise RuntimeError("Cannot update Stats after materialize() has been called")
+
         if self._sketch is not None:
             self._sketch.add(value)
 
