@@ -64,15 +64,10 @@ class TestGCMonitorHookInit:
 
     def test_hook_init_default_values(self) -> None:
         """Hook initializes with default values."""
-        hook = GCMonitorHook()
-        assert hook._temp_files == []  # type: ignore[reportPrivateUsage]
-        assert hook._process is None  # type: ignore[reportPrivateUsage]
-        assert hook._pid > 0  # type: ignore[reportPrivateUsage]
-
-    def test_hook_init_sets_pid(self) -> None:
-        """Hook initializes with current process PID."""
-        hook = GCMonitorHook()
-        assert hook._pid == os.getpid()  # type: ignore[reportPrivateUsage]
+        hook = gc_monitor_hook()
+        assert len(hook._temp_files) > 0
+        assert hook._process is not None
+        assert hook._pid == os.getpid()
 
 
 class TestGCMonitorHookEnter:
@@ -85,10 +80,10 @@ class TestGCMonitorHookEnter:
         """__enter__ spawns subprocess with correct command."""
         mock_popen, _mock_process = mock_popen_process
 
-        hook = GCMonitorHook()
-        with hook:
-            assert hook._pid == 12345  # type: ignore[reportPrivateUsage]
-            assert hook._process is not None  # type: ignore[reportPrivateUsage]
+        hook = gc_monitor_hook()
+
+        assert hook._pid == 12345  # type: ignore[reportPrivateUsage]
+        assert hook._process is not None  # type: ignore[reportPrivateUsage]
 
         # Verify subprocess.Popen was called with correct args
         mock_popen.assert_called_once()
@@ -111,10 +106,8 @@ class TestGCMonitorHookEnter:
         mock_popen, _mock_process = mock_popen_process
         mock_popen.side_effect = FileNotFoundError("module not found")
 
-        hook = GCMonitorHook()
         with pytest.raises(RuntimeError) as exc_info:
-            with hook:
-                pass
+            gc_monitor_hook()
 
         assert "Failed to run gc-monitor module" in str(exc_info.value)
         assert "Ensure gc-monitor is installed" in str(exc_info.value)
@@ -126,7 +119,7 @@ class TestGCMonitorHookEnter:
         """__enter__ creates temp file path with PID."""
         mock_popen, _mock_process = mock_popen_process
 
-        hook = GCMonitorHook()
+        hook = gc_monitor_hook()
         with hook:
             assert len(hook._temp_files) == 1  # type: ignore[reportPrivateUsage]
             assert "gc_monitor_12345_" in str(hook._temp_files[0])  # type: ignore[reportPrivateUsage]
@@ -138,7 +131,7 @@ class TestGCMonitorHookEnter:
         """__enter__ accumulates temp files for multiple calls."""
         mock_popen, _mock_process = mock_popen_process
 
-        hook = GCMonitorHook()
+        hook = gc_monitor_hook()
 
         # First enter
         with hook:
@@ -146,8 +139,8 @@ class TestGCMonitorHookEnter:
 
         # Second enter (simulating multiple benchmark runs)
         with hook:
-            assert len(hook._temp_files) == 2  # type: ignore[reportPrivateUsage]
-            assert "gc_monitor_12345_" in str(hook._temp_files[1])  # type: ignore[reportPrivateUsage]
+            assert len(hook._temp_files) == 1
+            assert "gc_monitor_12345_" in str(hook._temp_files[0])
 
 
 class TestGCMonitorHookExit:
@@ -164,9 +157,8 @@ class TestGCMonitorHookExit:
             "gc_monitor.pyperf.hook.terminate_process",
             return_value=(b"", b""),
         ) as mock_terminate:
-            hook = GCMonitorHook()
-            with hook:
-                pass
+            hook = gc_monitor_hook()
+            hook.teardown({})
 
         mock_terminate.assert_called_once_with(
             process=mock_process,
@@ -183,7 +175,7 @@ class TestGCMonitorHookTeardown:
         tmp_path: Path,
     ) -> None:
         """teardown reads JSONL files and adds metrics to metadata."""
-        hook = GCMonitorHook()
+        hook = gc_monitor_hook()
         temp_file = tmp_path / "gc_monitor_12345_0.jsonl"
         hook._temp_files = [temp_file]
         _write_jsonl(temp_file, _make_jsonl_event())
@@ -201,7 +193,7 @@ class TestGCMonitorHookTeardown:
 
     def test_teardown_handles_missing_file(self) -> None:
         """teardown handles missing temp file gracefully."""
-        hook = GCMonitorHook()
+        hook = gc_monitor_hook()
         metadata: dict[str, object] = {}
         hook.teardown(metadata)
 
@@ -215,7 +207,7 @@ class TestGCMonitorHookTeardown:
         """teardown removes temp files after reading."""
         _mock_popen, _mock_process = mock_popen_process
 
-        hook = GCMonitorHook()
+        hook = gc_monitor_hook()
         with hook:
             temp_file = hook._temp_files[0]  # type: ignore[reportPrivateUsage]
             assert temp_file is not None
@@ -238,7 +230,7 @@ class TestGCMonitorHookTeardown:
         """teardown combines events from multiple temp files."""
         _mock_popen, _mock_process = mock_popen_process
 
-        hook = GCMonitorHook()
+        hook = gc_monitor_hook()
 
         # Simulate multiple benchmark runs
         with hook:
@@ -247,7 +239,7 @@ class TestGCMonitorHookTeardown:
             _write_jsonl(temp_file_0, _make_jsonl_event())
 
         with hook:
-            temp_file_1 = hook._temp_files[1]
+            temp_file_1 = hook._temp_files[0]
             _write_jsonl(temp_file_1, _make_jsonl_event(
                 tid=1, iid=1,
                 ts_start=2_000_000_000, ts_stop=2_005_000_000,
@@ -327,11 +319,6 @@ class TestAggregateGcStats:
 class TestGcMonitorHookFactory:
     """Test gc_monitor_hook factory function."""
 
-    def test_factory_creates_hook_with_defaults(self) -> None:
-        """Factory creates hook with default values."""
-        hook = gc_monitor_hook()
-        assert hook._temp_files == []  # type: ignore[reportPrivateUsage]
-
     def test_factory_returns_new_hook_each_time(self) -> None:
         """Factory returns a new hook instance each time."""
         hook1 = gc_monitor_hook()
@@ -357,7 +344,7 @@ class TestGCMonitorHookSharedOutput:
         shared_output = tmp_path / "shared_gc_output.json"
 
         # Create first hook instance (first pyperf run)
-        hook1 = GCMonitorHook()
+        hook1 = gc_monitor_hook()
 
         # Mock the temp file for first run
         temp_file_1 = tmp_path / "gc_monitor_run_0_12345.jsonl"
@@ -375,7 +362,7 @@ class TestGCMonitorHookSharedOutput:
             hook1.teardown(metadata1)
 
         # Create second hook instance (second pyperf run)
-        hook2 = GCMonitorHook()
+        hook2 = gc_monitor_hook()
 
         # Mock the temp file for second run
         temp_file_2 = tmp_path / "gc_monitor_run_1_12345.jsonl"
@@ -429,7 +416,7 @@ class TestGCMonitorHookBenchNameSubstitution:
         """Test {bench_name} substitution in GC_MONITOR_PYPERF_HOOK_OUTPUT."""
         output_pattern = str(tmp_path / pattern)
         with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
-            hook = GCMonitorHook()
+            hook = gc_monitor_hook()
             temp_file = tmp_path / "gc_monitor_12345_0_50.jsonl"
             hook._temp_files = [temp_file]
             _write_jsonl(temp_file, _make_jsonl_event(tid=1))
@@ -460,7 +447,7 @@ class TestGCMonitorHookBenchNameSubstitution:
 
         with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
             for idx, config in enumerate(benchmark_configs):
-                hook = GCMonitorHook()
+                hook = gc_monitor_hook()
 
                 # Mock temp file
                 temp_file = tmp_path / f"gc_monitor_12345_{idx}_50.jsonl"
@@ -510,7 +497,7 @@ class TestGCMonitorHookBenchNameSubstitution:
 
         with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
             # First run
-            hook1 = GCMonitorHook()
+            hook1 = gc_monitor_hook()
             temp_file_1 = tmp_path / "gc_monitor_12345_0_50.jsonl"
             hook1._temp_files = [temp_file_1]
 
@@ -520,7 +507,7 @@ class TestGCMonitorHookBenchNameSubstitution:
             hook1.teardown(metadata1)
 
             # Second run with same benchmark name
-            hook2 = GCMonitorHook()
+            hook2 = gc_monitor_hook()
             temp_file_2 = tmp_path / "gc_monitor_12345_1_50.jsonl"
             hook2._temp_files = [temp_file_2]
 

@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from ..control.control_client import start_monitoring, stop_monitoring
 from ..exporters.chrome_trace_io import read_jsonl
 from ..protocol import is_gc_stats
 from ..stats import StreamingStats
@@ -103,18 +104,10 @@ class GCMonitorHook:
         self._temp_dir = tempfile.TemporaryDirectory(dir=_get_env_pyperf_hook_temp_dir())
         self._pid: int = os.getpid()
 
-    def __enter__(self) -> GCMonitorHook:
-        """
-        Called immediately before running benchmark code.
+        self._run_monitor()
 
-        Spawns the external gc-monitor process as a background subprocess.
-        """
+    def _run_monitor(self):
         cmd = self._build_command()
-
-        if sys.platform == "win32":
-            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            creationflags = 0
 
         try:
             creationflags = 0
@@ -139,17 +132,7 @@ class GCMonitorHook:
         if verbose:
             logger.debug("Started: %s", cmd)
 
-        return self
-
-    def __exit__(
-        self,
-        _exc_type: type[BaseException] | None,
-        _exc_value: BaseException | None,
-        _traceback: object | None,
-    ) -> None:
-        """
-        Called immediately after running benchmark code.
-        """
+    def _close_monitor(self):
         if self._process is None:
             return
 
@@ -174,6 +157,26 @@ class GCMonitorHook:
                 logger.debug("Stopped gc-monitor process: %s", self._process)
             self._process = None
 
+    def __enter__(self) -> GCMonitorHook:
+        """
+        Called immediately before running benchmark code.
+
+        Spawns the external gc-monitor process as a background subprocess.
+        """
+        start_monitoring()
+        return self
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_value: BaseException | None,
+        _traceback: object | None,
+    ) -> None:
+        """
+        Called immediately after running benchmark code.
+        """
+        stop_monitoring()
+
     def teardown(self, metadata: dict[str, Any]) -> None:
         """
         Called when the hook is completed for a process.
@@ -181,6 +184,8 @@ class GCMonitorHook:
         Combines all temp JSONL files into a single JSONL file,
         aggregates statistics, and adds them to pyperf metadata.
         """
+        self._close_monitor()
+
         if not self._temp_files:
             return
 
