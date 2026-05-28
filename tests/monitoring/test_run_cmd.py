@@ -93,7 +93,9 @@ def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = 
             "-m",
             str(module_name),
         ] + list(script_args),
-        capture_output=True,
+        # capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
         timeout=30,
     )
