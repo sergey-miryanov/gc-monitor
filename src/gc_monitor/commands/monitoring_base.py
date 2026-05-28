@@ -4,7 +4,7 @@ import logging
 import os
 from collections.abc import Callable
 
-from gc_monitor._control import ControlServer
+from gc_monitor.control.control_server import ControlServer
 from gc_monitor.commands.monitoring_options import MonitoringOptions
 from gc_monitor.exporters import EventsExporterFactory
 from gc_monitor.lock_strategy import NoLock

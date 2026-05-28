@@ -1,7 +1,8 @@
 """Tests for the JSONL file exporter."""
 
 from tests.conftest import DEFAULT_PID
-from tests.helpers import create_mock_stats_item
+from tests.helpers import create_mock_stats_item, assert_is_instant_msg
+from tests.data_helpers import create_instant_msg
 
 
 class TestJsonlExporter:
@@ -192,3 +193,65 @@ class TestJsonlExporterFlushThreshold:
         assert len(read_jsonl(path)) == 1
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         assert len(read_jsonl(path)) == 2
+
+
+class TestJsonlExporterInstantEvents:
+    def test_add_instant_event_json_output_format(self, jsonl_exporter, read_jsonl) -> None:
+        exporter, path = jsonl_exporter(threshold=1)
+        instant = create_instant_msg(name="start GC monitor", ts=1_500_000_000)
+        exporter.add_instant_event(DEFAULT_PID, instant)
+        exporter.close()
+
+        events = read_jsonl(path)
+        assert len(events) == 1
+        event = events[0]
+        assert_is_instant_msg(
+            event,
+            pid=DEFAULT_PID,
+            name=instant.name,
+            ts=instant.ts,
+        )
+
+    def test_add_instant_event_increments_event_count(self, jsonl_exporter, read_jsonl) -> None:
+        exporter, path = jsonl_exporter(threshold=1000)
+        assert exporter.get_event_count() == 0
+        exporter.add_instant_event(DEFAULT_PID, create_instant_msg(name="event", ts=1000))
+        assert exporter.get_event_count() == 1
+        exporter.close()
+
+    def test_add_instant_event_multiple(self, jsonl_exporter, read_jsonl) -> None:
+        exporter, path = jsonl_exporter(threshold=1000)
+        for name in ("start", "stop"):
+            exporter.add_instant_event(DEFAULT_PID, create_instant_msg(name=name, ts=1000))
+        exporter.close()
+
+        events = read_jsonl(path)
+        assert len(events) == 2
+        for event, name in zip(events, ("start", "stop")):
+            assert_is_instant_msg(event, pid=DEFAULT_PID, name=name, ts=1_000)
+
+    def test_mixed_instant_and_gc_events(self, mock_stats_item, jsonl_exporter, read_jsonl) -> None:
+        instant = create_instant_msg(name="stop", ts=2_000)
+        exporter, path = jsonl_exporter(threshold=1_000)
+        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        exporter.add_instant_event(DEFAULT_PID, instant)
+        exporter.close()
+
+        events = read_jsonl(path)
+        assert len(events) == 2
+        assert events[0].get("type") is None  # GC event has no type field
+        assert events[1]["type"] == "i"
+        assert_is_instant_msg(
+            events[1],
+            pid=DEFAULT_PID,
+            name=instant.name,
+            ts=instant.ts,
+            )
+
+    def test_add_instant_event_flushes_at_threshold(self, jsonl_exporter, read_jsonl) -> None:
+        exporter, path = jsonl_exporter(threshold=3)
+        for _ in range(5):
+            exporter.add_instant_event(DEFAULT_PID, create_instant_msg(name="e", ts=1000))
+        assert len(read_jsonl(path)) == 3
+        exporter.close()
+        assert len(read_jsonl(path)) == 5

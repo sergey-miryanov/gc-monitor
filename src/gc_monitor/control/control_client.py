@@ -8,9 +8,9 @@ from contextlib import contextmanager
 from multiprocessing.connection import Client, Connection
 from typing import Any, Generator
 
-from gc_monitor._control import CONTROL_ADDRESS_ENV, CONTROL_FAMILY_ENV
+from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV, CONTROL_FAMILY_ENV
 
-logger = logging.getLogger("gc_monitor.child_control")
+logger = logging.getLogger("gc_monitor.control")
 
 _conn: Connection | None = None
 _lock = threading.Lock()

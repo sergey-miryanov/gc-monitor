@@ -1,0 +1,52 @@
+import pytest
+
+from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo, InstantMsg
+
+
+@pytest.fixture
+def simple_item():
+    return GCStatsInfo(
+        gen=0,
+        iid=1,
+        ts_start=1_000_000,
+        ts_stop=2_000_000,
+        heap_size=1024,
+        collections=5,
+        collected=50,
+        uncollectable=0,
+        candidates=10,
+        duration=0.005,
+    )
+
+
+@pytest.fixture
+def incremental_item():
+    return IncrementalGCStatsInfo(
+        gen=1,
+        iid=2,
+        ts_start=3_000_000,
+        ts_stop=4_000_000,
+        heap_size=2048,
+        collections=10,
+        collected=100,
+        uncollectable=1,
+        candidates=20,
+        duration=0.01,
+        increment_size=500,
+        alive_size=300,
+        ts_mark_alive_start=3_000_500,
+        ts_mark_alive_stop=3_001_000,
+        ts_fill_increment_start=3_001_500,
+        ts_fill_increment_stop=3_002_000,
+        ts_deduce_uncreachable_start=3_002_500,
+        ts_deduce_uncreachable_stop=3_003_000,
+    )
+
+
+def create_instant_msg(name: str="start GC monitor", ts:int = 5_000_000):
+    return InstantMsg(type="i", name=name, ts=ts)
+
+
+@pytest.fixture
+def instant_item():
+    return create_instant_msg()

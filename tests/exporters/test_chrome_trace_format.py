@@ -2,24 +2,24 @@
 
 from types import SimpleNamespace
 
-import pytest
-
 from gc_monitor.exporters.chrome_trace_format import (
     CounterEvent,
     IncrementalEvent,
+    InstantEvent,
     PauseEvent,
     ProcessMeta,
     ThreadMeta,
-    TraceEvent,
     convert_item_to_trace_format,
     convert_to_trace_format,
     counter_event,
     inc_event,
+    instant_event,
     pause_event,
     process_meta,
     thread_meta,
 )
 
+from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_stats_item
 
 
@@ -100,6 +100,18 @@ class TestCounterEvent:
         assert event["name"] == "G0"
         assert event["ts"] == 1000
         assert event["args"]["heap_size"] == 1024
+
+
+class TestInstantEvent:
+    def test_returns_instant_event(self) -> None:
+        event = instant_event(pid=123, name="start GC monitor", ts_us=5_000)
+        assert event == {
+            "name": "start GC monitor",
+            "ph": "I",
+            "s": "p",
+            "pid": 123,
+            "ts": 5_000,
+        }
 
 
 # =============================================================================
@@ -242,11 +254,6 @@ class TestConvertItemToTraceFormat:
                 assert event["tid"] == 42
 
 
-# =============================================================================
-# convert_to_trace_format tests
-# =============================================================================
-
-
 class TestConvertToTraceFormat:
     def test_empty_items_returns_empty_events(self) -> None:
         events = convert_to_trace_format({})
@@ -285,17 +292,73 @@ class TestConvertToTraceFormat:
             assert "ph" in event
 
 
+class TestConvertToTraceFormatWithInstant:
+    def test_instant_msg_only(self) -> None:
+        items = [create_instant_msg(name="start GC monitor", ts=1_500_000_000)]
+        events = convert_to_trace_format({1: items})
+        instants = [e for e in events if e["ph"] == "I"]
+        assert len(instants) == 1
+        assert instants[0]["name"] == "start GC monitor"
+        assert instants[0]["pid"] == 1
+        assert instants[0]["ts"] == 1_500_000  # ns -> us
+
+    def test_mixed_gc_stats_and_instant_msg(self) -> None:
+        item = create_mock_stats_item()
+        instant = create_instant_msg(name="stop GC monitor", ts=2_000_000_000)
+        items = {12345: [item, instant]}
+        events = convert_to_trace_format(items)
+        assert any(e["ph"] == "I" for e in events)
+        assert any(e["ph"] == "X" for e in events)
+        assert any(e["ph"] == "C" for e in events)
+
+    def test_multiple_instant_messages(self) -> None:
+        items = [
+            create_instant_msg(name="start GC monitor", ts=1_000_000_000),
+            create_instant_msg(name="stop GC monitor", ts=2_000_000_000),
+        ]
+        events = convert_to_trace_format({1: items})
+        instants = [e for e in events if e["ph"] == "I"]
+        assert len(instants) == 2
+        assert instants[0]["name"] == "start GC monitor"
+        assert instants[0]["ts"] == 1_000_000
+        assert instants[1]["name"] == "stop GC monitor"
+        assert instants[1]["ts"] == 2_000_000
+
+
 class TestTraceEventType:
     def test_trace_event_is_union_of_all_event_types(self) -> None:
         assert PauseEvent.__annotations__["ph"].__args__ == ("X",)
+        assert IncrementalEvent.__annotations__["ph"].__args__ == ("X",)
         assert CounterEvent.__annotations__["ph"].__args__ == ("C",)
+        assert InstantEvent.__annotations__["ph"].__args__ == ("I",)
+        assert ProcessMeta.__annotations__["ph"].__args__ == ("M",)
+        assert ThreadMeta.__annotations__["ph"].__args__ == ("M",)
+
         assert ProcessMeta.__annotations__["name"].__args__ == ("process_name",)
         assert ThreadMeta.__annotations__["name"].__args__ == ("thread_name",)
+
+        assert InstantEvent.__annotations__["s"].__args__ == ("p",)
 
     def test_pause_event_has_required_fields(self) -> None:
         required = {"name", "cat", "ph", "ts", "dur", "pid", "tid", "args"}
         assert set(PauseEvent.__annotations__) == required
 
+    def test_incremental_event_has_required_fields(self) -> None:
+        required = {"name", "cat", "ph", "ts", "dur", "pid", "tid", "args"}
+        assert set(IncrementalEvent.__annotations__) == required
+
     def test_counter_event_has_required_fields(self) -> None:
         required = {"name", "ph", "ts", "pid", "tid", "args"}
         assert set(CounterEvent.__annotations__) == required
+
+    def test_instant_event_has_required_fields(self) -> None:
+        required = {"name", "ph", "ts", "pid", "s"}
+        assert set(InstantEvent.__annotations__) == required
+
+    def test_process_meta_has_required_fields(self) -> None:
+        required = {"name", "ph", "pid", "args"}
+        assert set(ProcessMeta.__annotations__) == required
+
+    def test_thread_meta_has_required_fields(self) -> None:
+        required = {"name", "ph", "pid", "tid", "args"}
+        assert set(ThreadMeta.__annotations__) == required

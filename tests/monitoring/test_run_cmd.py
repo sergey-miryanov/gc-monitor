@@ -12,7 +12,7 @@ import pytest
 
 from gc_monitor.exporters.chrome_trace_io import read_jsonl
 
-from gc_monitor._control import ControlServer
+from gc_monitor.control.control_server import ControlServer
 from monitoring.conftest import MonitorArgsFactory
 from tests.helpers import assert_valid_chrome_trace_format
 

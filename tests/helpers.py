@@ -6,11 +6,11 @@ import json
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Mapping
 from unittest.mock import Mock
 
 from gc_monitor.exporters.exporter import EventsExporter
-from gc_monitor.protocol import TGCStatsInfo
+from gc_monitor.protocol import TGCStatsInfo, TInstantMsg
 from gc_monitor.target_process import TargetProcessMetadata
 
 # pyright: reportImplicitOverride=none
@@ -96,6 +96,7 @@ class MockExporter(EventsExporter):
         """
         super().__init__(metadata or {"pid": 0})
         self.events: list[TGCStatsInfo] = []
+        self.instant_events: list[tuple[int, TInstantMsg]] = []
         self._close_called = False
         self._event_added = threading.Event()
 
@@ -108,6 +109,16 @@ class MockExporter(EventsExporter):
         """
         self.events.append(item)
         self._event_added.set()  # Signal that event was added
+
+    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+        """Add an instant event to the exporter.
+
+        Args:
+            pid: Process ID.
+            item: The instant message to add.
+        """
+        self.instant_events.append((pid, item))
+        self._event_added.set()
 
     def close(self) -> None:
         """Close the exporter."""
@@ -307,7 +318,6 @@ def assert_valid_jsonl_format(file_path: Path) -> list[dict[str, Any]]:
     return data
 
 
-# pyright: reportUnknownVariableType=none, reportUnknownArgumentType=none
 def assert_valid_chrome_trace_format(file_path: Path) -> list[dict[str, Any]]:
     """Validate that a file contains valid Chrome Trace format (JSON array of objects).
 
@@ -390,3 +400,17 @@ def assert_is_thread_meta(event: dict, **expected: Any) -> None:
                 assert event["args"][arg_key] == arg_value
         else:
             assert event[key] == value
+
+
+def assert_is_instant_event(event: dict, **expected: Mapping[str, str|int]) -> None:
+    assert event["ph"] == "I"
+    assert event["s"] == "p"
+
+    for key, value in expected.items():
+        assert event[key] == value
+
+def assert_is_instant_msg(msg: dict[str, Any], **expected: Mapping[str, str|int]) -> None:
+    assert msg["type"] == "i"
+
+    for key, value in expected.items():
+        assert msg[key] == value

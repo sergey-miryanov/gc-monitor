@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any, Self, override
 
-from ._control import ControlServer, set_control_env
+from .control.control_server import ControlServer, set_control_env
 from .target_process import TargetProcess, TargetProcessMetadata
 from .utils.process_terminator import log_process_output, terminate_process
 

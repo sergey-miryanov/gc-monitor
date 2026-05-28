@@ -4,18 +4,19 @@ from unittest.mock import patch
 
 import pytest
 
-from gc_monitor.exporters import TraceExporter
-from gc_monitor.lock_strategy import NoLock
+from gc_monitor.data import ts_to_us
 from gc_monitor.monitor import EventsMonitor
 from gc_monitor.stats import StreamingStats
 from gc_monitor.target_process import ExternalProcess
 
-from tests.conftest import DEFAULT_METADATA, DEFAULT_PID
+from tests.conftest import DEFAULT_PID
+from tests.data_helpers import create_instant_msg
 from tests.helpers import (
     assert_is_complete,
     assert_is_counter,
     assert_is_process_meta,
     assert_is_thread_meta,
+    assert_is_instant_event,
     assert_valid_chrome_trace_format,
     create_mock_stats_item,
 )
@@ -147,6 +148,61 @@ class TestTraceExporter:
         complete_events = [e for e in data if e["ph"] == "X"]
         assert len(complete_events) == 3
         assert {e["args"]["generation"] for e in complete_events} == {0, 1, 2}
+
+    def test_add_instant_event_writes_instant_event(self, trace_exporter) -> None:
+        exporter, path = trace_exporter()
+        instant = create_instant_msg(name="start GC monitor", ts=1_500_000_000)
+        exporter.add_instant_event(DEFAULT_PID, instant)
+        exporter.close()
+
+        data = assert_valid_chrome_trace_format(path)
+        instants = [e for e in data if e["ph"] == "I"]
+        assert len(instants) == 1
+        assert_is_instant_event(
+            instants[0],
+            pid=DEFAULT_PID,
+            name=instant.name,
+            ts=ts_to_us(instant.ts),
+        )
+
+    def test_add_instant_event_alongside_add_event(self, mock_stats_item, trace_exporter) -> None:
+        exporter, path = trace_exporter()
+        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        instant = create_instant_msg(name="stop GC monitor", ts=2_000_000_000)
+        exporter.add_instant_event(DEFAULT_PID, instant)
+        exporter.close()
+
+        data = assert_valid_chrome_trace_format(path)
+        assert any(e["ph"] == "I" for e in data)
+        assert any(e["ph"] == "X" for e in data)
+        assert any(e["ph"] == "C" for e in data)
+        assert any(e["ph"] == "M" for e in data)
+
+        instants = [e for e in data if e["ph"] == "I"]
+        assert len(instants) == 1
+        assert_is_instant_event(
+            instants[0],
+            pid=DEFAULT_PID,
+            name=instant.name,
+            ts=ts_to_us(instant.ts),
+        )
+
+    def test_add_instant_event_not_counted_in_get_event_count(self, trace_exporter) -> None:
+        exporter, path = trace_exporter()
+        instant = create_instant_msg(name="event", ts=1_000_000_000)
+        exporter.add_instant_event(DEFAULT_PID, instant)
+        assert exporter.get_event_count() == 0  # instant events not counted
+
+    def test_multiple_add_instant_event(self, trace_exporter) -> None:
+        exporter, path = trace_exporter()
+        for name in ("start GC monitor", "stop GC monitor"):
+            exporter.add_instant_event(DEFAULT_PID, create_instant_msg(name=name, ts=1_500_000_000))
+        exporter.close()
+
+        data = assert_valid_chrome_trace_format(path)
+        instants = [e for e in data if e["ph"] == "I"]
+        assert len(instants) == 2
+        assert [e["name"] for e in instants] == ["start GC monitor", "stop GC monitor"]
 
 
 @pytest.fixture

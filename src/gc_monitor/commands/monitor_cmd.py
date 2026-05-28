@@ -5,7 +5,7 @@ import logging
 import os
 from argparse import Namespace
 
-from gc_monitor._control import ControlServer
+from gc_monitor.control.control_server import ControlServer
 from gc_monitor.commands.monitoring_base import run_monitoring_loop
 from gc_monitor.commands.monitoring_options import add_monitoring_options, get_monitoring_options
 from gc_monitor.commands.parser_factory import ParserFactory
