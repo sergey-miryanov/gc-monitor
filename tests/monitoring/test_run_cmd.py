@@ -357,7 +357,7 @@ class TestRunCommandModuleMode:
         gc_args = ["-vvv", "--format", "stdout"]
         result = run_module("test", "test_gc", "-v", gc_args=gc_args)
 
-        output = (result.stdout + result.stderr).lower()
+        output = (result.stdout).lower()
 
         assert result.returncode == 0
         assert_stdout_format(output)
@@ -394,7 +394,7 @@ class TestRunCommandErrors:
 
         result = run_module("nonexistent_module_xyz", gc_args=["-vvv", "-o", str(output_file)])
 
-        output = (result.stdout + result.stderr).lower()
+        output = (result.stdout).lower()
 
         assert result.returncode != 0
         assert "no module named nonexistent_module_xyz" in output
