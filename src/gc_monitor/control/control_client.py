@@ -17,14 +17,18 @@ _conn: Connection | None = None
 _lock = threading.Lock()
 
 
-def _create_connection() -> Connection | None:
+def _create_connection(verbose:bool=False) -> Connection | None:
     address_str = os.environ.get(CONTROL_ADDRESS_ENV)
     if not address_str:
+        if verbose:
+            print("No address str")
         return None
     try:
         address = tuple(json.loads(address_str))
     except (json.JSONDecodeError, ValueError):
         logger.warning("Invalid control address: %s", address_str)
+        if verbose:
+            print(f"Invalid control address: {address_str}")
         return None
 
     family_str = os.environ.get(CONTROL_FAMILY_ENV)
@@ -35,10 +39,12 @@ def _create_connection() -> Connection | None:
         return conn
     except Exception as e:
         logger.warning("Failed to connect to control plane: %s", e)
+        if verbose:
+            print(f"Failed to connect to control plane: {e}")
         return None
 
 
-def _ensure_connected() -> Connection | None:
+def _ensure_connected(verbose:bool=False) -> Connection | None:
     global _conn
 
     if _conn is not None:
@@ -46,13 +52,13 @@ def _ensure_connected() -> Connection | None:
 
     with _lock:
         if _conn is None:
-            _conn = _create_connection()
+            _conn = _create_connection(verbose)
 
     return _conn
 
 
 def _send(msg: dict[str,str|int], *, verbose:bool=False) -> None:
-    conn = _ensure_connected()
+    conn = _ensure_connected(verbose)
     if conn is not None:
         try:
             msg.update({"pid": os.getpid()})
