@@ -107,6 +107,7 @@ def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = 
         print("-"*80)
         print(exc.stderr)
         print("="*80)
+        raise
 
 
 
