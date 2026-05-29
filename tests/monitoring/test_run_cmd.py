@@ -82,24 +82,33 @@ def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None =
 
 def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
     gc_opts = gc_args or []
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-u",
-            "-m",
-            "gc_monitor",
-            "run",
-            *gc_opts,
-            "-m",
-            str(module_name),
-        ] + list(script_args),
-        # capture_output=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        timeout=30,
-    )
-    return proc
+    try:
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-u",
+                "-m",
+                "gc_monitor",
+                "run",
+                *gc_opts,
+                "-m",
+                str(module_name),
+            ] + list(script_args),
+            # capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=30,
+        )
+        return proc
+    except subprocess.TimeoutExpired as exc:
+        print("="*80)
+        print(exc.stdout)
+        print("-"*80)
+        print(exc.stderr)
+        print("="*80)
+
+
 
 
 
