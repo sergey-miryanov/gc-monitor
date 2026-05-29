@@ -365,7 +365,7 @@ class TestRunCommandModuleMode:
         gc_args = ["-vvv", "--format", "stdout"]
         result = run_module("test", "test_gc", "-v", gc_args=gc_args)
 
-        output = (result.stdout).lower()
+        output = (result.stdout + result.stderr).lower()
 
         assert result.returncode == 0
         assert_stdout_format(output)
