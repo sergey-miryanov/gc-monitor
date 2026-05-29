@@ -80,13 +80,9 @@ def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None =
             timeout=30,
         )
         return proc
-        return proc
     except subprocess.TimeoutExpired as exc:
-        print("="*80)
         print(exc.stdout)
-        print("-"*80)
         print(exc.stderr)
-        print("="*80)
         raise
 
 
@@ -104,19 +100,14 @@ def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = 
                 "-m",
                 str(module_name),
             ] + list(script_args),
-            # capture_output=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            capture_output=True,
             text=True,
             timeout=30,
         )
         return proc
     except subprocess.TimeoutExpired as exc:
-        print("="*80)
         print(exc.stdout)
-        print("-"*80)
         print(exc.stderr)
-        print("="*80)
         raise
 
 
