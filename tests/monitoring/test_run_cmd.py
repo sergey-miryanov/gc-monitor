@@ -402,7 +402,7 @@ class TestRunCommandErrors:
 
         result = run_module("nonexistent_module_xyz", gc_args=["-vvv", "-o", str(output_file)])
 
-        output = (result.stdout).lower()
+        output = (result.stdout + result.stderr).lower()
 
         assert result.returncode != 0
         assert "no module named nonexistent_module_xyz" in output
@@ -411,7 +411,7 @@ class TestRunCommandErrors:
         """Test running script with syntax error."""
         output_file = tmp_path / "trace.json"
         script_file = tmp_path / "bad_script.py"
-        script_file.write_text(get_long_running_script("invalid !!!"))
+        script_file.write_text("invalid !!!")
 
         result = run_script(script_file, gc_args=["-vvv", "-o", str(output_file)])
 
