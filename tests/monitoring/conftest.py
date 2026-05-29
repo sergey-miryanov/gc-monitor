@@ -31,6 +31,7 @@ class MonitorArgsFactory:
         "flush_threshold": 100,
         "stats": False,
         "table_format": None,
+        "control_name": None,
     }
 
     def __call__(self, **overrides: object) -> Namespace:

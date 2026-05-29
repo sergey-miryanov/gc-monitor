@@ -90,7 +90,6 @@ class TestCreateConnection:
 
         with patch.dict(os.environ, {
             "GC_MONITOR_CONTROL_ADDRESS": "not-json",
-            "GC_MONITOR_CONTROL_FAMILY": "AF_INET",
         }, clear=True):
             result = _create_connection()
             assert result is None
@@ -99,8 +98,7 @@ class TestCreateConnection:
         from gc_monitor.control.control_client import _create_connection
 
         with patch.dict(os.environ, {
-            "GC_MONITOR_CONTROL_ADDRESS": '["localhost", 99999]',
-            "GC_MONITOR_CONTROL_FAMILY": "AF_INET",
+            "GC_MONITOR_CONTROL_ADDRESS": "/nonexistent/control/socket",
         }, clear=True):
             result = _create_connection()
             assert result is None

@@ -1,8 +1,8 @@
 """Control plane for parent-child IPC via multiprocessing.connection."""
 
 import contextlib
-import json
 import logging
+import sys
 import threading
 from multiprocessing.connection import Connection, Listener, wait
 
@@ -12,9 +12,15 @@ from gc_monitor.exporters.exporter import EventsExporter
 logger = logging.getLogger("gc_monitor.control")
 
 CONTROL_ADDRESS_ENV = "GC_MONITOR_CONTROL_ADDRESS"
-CONTROL_FAMILY_ENV = "GC_MONITOR_CONTROL_FAMILY"
+_PREFIX = "gc-monitor-"
 
 READER_POLL_INTERVAL = 0.1
+
+
+def _make_address(name: str) -> str:
+    if sys.platform == "win32":
+        return rf"\\.\pipe\{_PREFIX}{name}"
+    return f"/tmp/{_PREFIX}{name}"
 
 
 class ControlServer:
@@ -24,8 +30,9 @@ class ControlServer:
     monitoring enabled via start/stop messages.
     """
 
-    def __init__(self) -> None:
-        self._listener: Listener|None = Listener(("localhost", 0), family="AF_INET")
+    def __init__(self, address: str | None = None) -> None:
+        full_address = _make_address(address) if address is not None else None
+        self._listener: Listener|None = Listener(full_address)
         self._connections: set[Connection] = set()
         self._enabled: dict[int, bool] = {}
         self._lock = threading.Lock()
@@ -41,7 +48,7 @@ class ControlServer:
         )
 
     @property
-    def address(self) -> str|tuple[str, int]:
+    def address(self) -> str:
         assert self._listener is not None
         return self._listener.address
 
@@ -74,9 +81,6 @@ class ControlServer:
                 for conn in ready:
                     if self._stop_event.is_set():
                         break
-
-                    if not isinstance(conn, Connection):
-                        continue
 
                     try:
                         msg = conn.recv()
@@ -138,7 +142,6 @@ class ControlServer:
                 self._listener = None
 
 
-def set_control_env(env: dict[str, str], address: str|tuple[str, int]) -> None:
+def set_control_env(env: dict[str, str], address: str) -> None:
     """Populate env dict with control plane connection info."""
-    env[CONTROL_ADDRESS_ENV] = json.dumps(address)
-    env[CONTROL_FAMILY_ENV] = "AF_INET"
+    env[CONTROL_ADDRESS_ENV] = address

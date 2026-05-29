@@ -1,12 +1,11 @@
 """Tests for the control plane (ControlServer)."""
 
-import json
 import time
 from multiprocessing.connection import Client
 
 import pytest
 
-from gc_monitor.control.control_server import ControlServer, set_control_env, CONTROL_ADDRESS_ENV, CONTROL_FAMILY_ENV
+from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV, ControlServer, set_control_env
 
 
 @pytest.fixture
@@ -21,7 +20,7 @@ def control_server() -> ControlServer:
 
 def _send_msg(server: ControlServer, msg: str, pid: int) -> None:
     address = server.address
-    conn = Client(address, family="AF_INET")
+    conn = Client(address)
     try:
         conn.send({"msg": msg, "pid": pid})
     finally:
@@ -37,12 +36,9 @@ def _wait_msg(control_server: ControlServer, pid: int, expected: bool, timeout: 
 
 
 class TestControlServerInit:
-    def test_address_returns_tuple(self, control_server) -> None:
+    def test_address_returns_string(self, control_server) -> None:
         addr = control_server.address
-        assert isinstance(addr, tuple)
-        assert len(addr) == 2
-        assert isinstance(addr[0], str)
-        assert isinstance(addr[1], int)
+        assert isinstance(addr, str)
 
     def test_is_enabled_defaults_to_true(self, control_server) -> None:
         assert control_server.is_enabled(99999) is True
@@ -147,13 +143,7 @@ class TestControlServerClose:
 
 
 class TestSetControlEnv:
-    def test_sets_address_and_family(self) -> None:
+    def test_sets_address(self) -> None:
         env: dict[str, str] = {}
-        set_control_env(env, ("localhost", 9999))
-        assert json.loads(env[CONTROL_ADDRESS_ENV]) == ["localhost", 9999]
-        assert env[CONTROL_FAMILY_ENV] == "AF_INET"
-
-    def test_sets_string_address(self) -> None:
-        env: dict[str, str] = {}
-        set_control_env(env, "/tmp/control.sock")
-        assert json.loads(env[CONTROL_ADDRESS_ENV]) == "/tmp/control.sock"
+        set_control_env(env, "/tmp/gc-monitor-test")
+        assert env[CONTROL_ADDRESS_ENV] == "/tmp/gc-monitor-test"

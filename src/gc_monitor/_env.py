@@ -18,8 +18,10 @@ ENV_SERVER_HOST = f"{ENV_PREFIX}_SERVER_HOST"
 ENV_SERVER_PORT = f"{ENV_PREFIX}_SERVER_PORT"
 ENV_STATS = f"{ENV_PREFIX}_STATS"
 ENV_TABLE_FORMAT = f"{ENV_PREFIX}_TABLE_FORMAT"
+ENV_CONTROL_NAME = f"{ENV_PREFIX}_CONTROL_NAME"
 
 __all__ = [
+    "ENV_CONTROL_NAME",
     "ENV_DURATION",
     "ENV_FLUSH_THRESHOLD",
     "ENV_FORMAT",
@@ -32,6 +34,7 @@ __all__ = [
     "ENV_TABLE_FORMAT",
     "ENV_THREAD_ID",
     "ENV_VERBOSE",
+    "get_env_control_name",
     "get_env_duration",
     "get_env_flush_threshold",
     "get_env_format",
@@ -195,6 +198,15 @@ def get_env_stats() -> bool:
     if not stats_str:
         return False
     return stats_str in ("1", "true", "yes", "on")
+
+
+def get_env_control_name() -> str | None:
+    """Get control plane name from environment variable.
+
+    Returns:
+        Name from GC_MONITOR_CONTROL_NAME env var, or None.
+    """
+    return os.environ.get(ENV_CONTROL_NAME) or None
 
 
 def get_env_table_format() -> TableFormat:

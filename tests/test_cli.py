@@ -70,9 +70,9 @@ class TestCliHelp:
             "Monitor Python's garbage collector",
             "monitor", "combine", "run",
         ]),
-        ("monitor", ["pid", "--output", "--rate", "--duration", "--verbose", "--stats"]),
+        ("monitor", ["pid", "--output", "--rate", "--duration", "--verbose", "--stats", "--control-name"]),
         ("combine", ["Combine multiple Chrome Trace Format or JSONL files", "inputs", "--output"]),
-        ("run", ["Run a Python script or module", "--module", "--script", "--stats"]),
+        ("run", ["Run a Python script or module", "--module", "--script", "--stats", "--control-name"]),
     ])
     def test_help_subcommand(self, gc_monitor_cli, subcommand: str, expected_texts: list[str]) -> None:
         cmd = gc_monitor_cli + ([subcommand] if subcommand else []) + ["--help"]
