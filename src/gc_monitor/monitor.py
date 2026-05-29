@@ -65,7 +65,7 @@ class EventsMonitor:
                 case "Failed to get Python runtime address":
                     return PollStatus.INVALID_PROCESS
                 case "Failed to read debug offsets":
-                    return PollStatus.INVALID_PYTHON
+                    return PollStatus.INVALID_PROCESS
                 case "Invalid debug offsets found":
                     return PollStatus.INVALID_PYTHON
                 case "No interpreter state found":
