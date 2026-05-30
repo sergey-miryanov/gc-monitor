@@ -76,6 +76,7 @@ class TestControlServerEnabled:
     def test_multiple_pids_independent(self, control_server: ControlServer) -> None:
         _send_msg(control_server, "stop", 1)
         _send_msg(control_server, "stop", 2)
+        assert _wait_msg(control_server, 1, False)
         assert _wait_msg(control_server, 2, False)
         assert control_server.is_enabled(1) is False
         assert control_server.is_enabled(2) is False
@@ -124,7 +125,7 @@ class TestControlServerClose:
         server = ControlServer()
         server.start()
         server.close()
-        assert server._listener is None
+        assert not server.is_running()
 
     def test_close_clears_enabled(self) -> None:
         server = ControlServer()
