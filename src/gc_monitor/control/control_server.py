@@ -2,7 +2,6 @@
 
 import contextlib
 import logging
-import os
 import sys
 import threading
 from multiprocessing.connection import Connection, Client, Listener, wait
@@ -10,6 +9,7 @@ if sys.platform == "win32":
     from multiprocessing.connection import PipeConnection
 
 from typing import Optional, TypeAlias
+import msgspec
 
 from gc_monitor.data import instant_msg
 from gc_monitor.exporters.exporter import EventsExporter
@@ -43,6 +43,11 @@ else:
 
     def _wait(conns: list[Connection]) -> list[Connection]:
         return wait(conns, timeout=READER_POLL_INTERVAL) # type: ignore
+
+
+class ControlMsg(msgspec.Struct):
+    msg: str
+    pid: int
 
 
 class ControlServer:
@@ -120,8 +125,8 @@ class ControlServer:
                     msg = self._recv(conn, to_remove)
                     if msg is not None:
                         try:
-                            m = msg["msg"]
-                            pid = msg["pid"]
+                            m = msg.msg
+                            pid = msg.pid
                             if m == "start":
                                 m = "start GC monitor"
                                 with self._lock:
@@ -141,10 +146,10 @@ class ControlServer:
 
             self._stop_event.wait(READER_POLL_INTERVAL)
 
-    def _recv(self, conn: TConnection, to_remove: list[TConnection]) -> Optional[dict[str, str|int]]:
+    def _recv(self, conn: TConnection, to_remove: list[TConnection]) -> Optional[ControlMsg]:
         try:
             msg = conn.recv()
-            return msg
+            return msgspec.convert(msg, ControlMsg)
         except (EOFError, OSError, ConnectionError):
             to_remove.append(conn)
         except Exception as e:
