@@ -4,11 +4,11 @@ import contextlib
 import logging
 import sys
 import threading
-from multiprocessing.connection import Connection, Client, Listener, wait
+from multiprocessing.connection import Client, Connection, Listener, wait
+
 if sys.platform == "win32":
     from multiprocessing.connection import PipeConnection
 
-from typing import Optional, TypeAlias
 import msgspec
 
 from gc_monitor.data import instant_msg
@@ -22,7 +22,7 @@ _PREFIX = "gc-monitor-"
 READER_POLL_INTERVAL = 0.1
 
 if sys.platform == "win32":
-    TConnection: TypeAlias = PipeConnection
+    type TConnection = PipeConnection
 
     def _make_address(name: str) -> str:
         return rf"\\.\pipe\{_PREFIX}{name}"
@@ -33,7 +33,7 @@ if sys.platform == "win32":
     def _wait(conns: list[PipeConnection]) -> list[PipeConnection]:
         return wait(conns, timeout=READER_POLL_INTERVAL) # type: ignore
 else:
-    TConnection: TypeAlias = Connection
+    type TConnection = Connection
 
     def _make_address(name: str) -> str:
         return f"/tmp/{_PREFIX}{name}"
@@ -146,7 +146,7 @@ class ControlServer:
 
             self._stop_event.wait(READER_POLL_INTERVAL)
 
-    def _recv(self, conn: TConnection, to_remove: list[TConnection]) -> Optional[ControlMsg]:
+    def _recv(self, conn: TConnection, to_remove: list[TConnection]) -> ControlMsg | None:
         try:
             msg = conn.recv()
             return msgspec.convert(msg, ControlMsg)
@@ -223,9 +223,8 @@ class ControlServer:
         if self._running:
             self._reader_thread.join(1)
 
-            with contextlib.suppress(Exception):
-                with Client(self.address):
-                    pass
+            with contextlib.suppress(Exception), Client(self.address):
+                pass
 
             self._accept_thread.join(1)
 
