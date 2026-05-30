@@ -22,7 +22,7 @@ _PREFIX = "gc-monitor-"
 READER_POLL_INTERVAL = 0.1
 
 if sys.platform == "win32":
-    type TConnection = PipeConnection
+    TConnection = PipeConnection
 
     def _make_address(name: str) -> str:
         return rf"\\.\pipe\{_PREFIX}{name}"
@@ -33,7 +33,7 @@ if sys.platform == "win32":
     def _wait(conns: list[PipeConnection]) -> list[PipeConnection]:
         return wait(conns, timeout=READER_POLL_INTERVAL) # type: ignore
 else:
-    type TConnection = Connection
+    TConnection = Connection
 
     def _make_address(name: str) -> str:
         return f"/tmp/{_PREFIX}{name}"
