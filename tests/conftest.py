@@ -15,6 +15,18 @@ from gc_monitor.target_process import ExternalProcess, TargetProcessMetadata
 from tests.helpers import MockExporter, create_mock_stats_item
 
 
+DEFAULT_PID: int = 12345
+DEFAULT_METADATA: TargetProcessMetadata = {"pid": DEFAULT_PID}
+
+
+def pytest_addoption(parser):
+    parser.addoption('--count', default=1, type=int, metavar='count', help='Run each test the specified number of times')
+
+def pytest_collection_modifyitems(session, config, items):
+    count = config.option.count
+    items[:] = items * count  # add each test multiple times
+
+
 @pytest.fixture(autouse=True)
 def _caplog_gc_monitor(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     """Auto-configure gc_monitor logger to INFO level for caplog."""
@@ -25,10 +37,6 @@ def _caplog_gc_monitor(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFix
         yield caplog
     finally:
         logger.setLevel(original_level)
-
-
-DEFAULT_PID: int = 12345
-DEFAULT_METADATA: TargetProcessMetadata = {"pid": DEFAULT_PID}
 
 
 @pytest.fixture
