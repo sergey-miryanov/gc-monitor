@@ -53,8 +53,10 @@ class ControlServer:
     """
 
     def __init__(self, address: str | None = None) -> None:
-        self._full_address = _make_address(address or f"default-{os.getpid()}")
-        self._listener: Listener|None = Listener(self._full_address)
+        full_address = _make_address(address) if address is not None else None
+        self._listener: Listener|None = Listener(full_address)
+        assert isinstance(self._listener.address, str)
+        self._full_address = self._listener.address
         self._connections: set[TConnection] = set()
         self._enabled: dict[int, bool] = {}
         self._lock = threading.Lock()
