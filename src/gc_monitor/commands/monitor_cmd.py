@@ -49,5 +49,5 @@ def cmd_monitor(args: Namespace) -> int:
 
     process = ExternalProcess(pid)
     wait_policy = NoWaitPolicy()
-    control = ControlServer()
+    control = ControlServer(address=args.control_name)
     return run_monitoring_loop(process, wait_policy, options, control_server=control)

@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 
 from gc_monitor._env import (
+    ENV_CONTROL_NAME,
     ENV_DURATION,
     ENV_FLUSH_THRESHOLD,
     ENV_FORMAT,
@@ -13,6 +14,7 @@ from gc_monitor._env import (
     ENV_STATS,
     ENV_TABLE_FORMAT,
     ENV_VERBOSE,
+    get_env_control_name,
     get_env_duration,
     get_env_flush_threshold,
     get_env_format,
@@ -89,6 +91,11 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         type=_normalize_table_format,
         default=get_env_table_format(),
         help=f"Table format: 'plain' for standard dashes, 'markdown' or 'md' for blank separators (default: plain or {ENV_TABLE_FORMAT} env var)",
+    )
+    parser.add_argument(
+        "--control-name",
+        default=get_env_control_name(),
+        help=f"Control plane name. Full address: gc-monitor-<name> (default: auto, or {ENV_CONTROL_NAME} env var)",
     )
 
 

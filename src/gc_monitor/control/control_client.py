@@ -1,6 +1,5 @@
 """Child-side control plane API for start/stop/pause monitoring."""
 
-import json
 import logging
 import os
 import threading
@@ -9,7 +8,7 @@ from contextlib import contextmanager
 from multiprocessing.connection import Client, Connection
 from typing import Any
 
-from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV, CONTROL_FAMILY_ENV
+from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV
 
 logger = logging.getLogger("gc_monitor.control")
 
@@ -18,25 +17,11 @@ _lock = threading.Lock()
 
 
 def _create_connection(verbose:bool=False) -> Connection | None:
-    address_str = os.environ.get(CONTROL_ADDRESS_ENV)
-    if not address_str:
-        if verbose:
-            print("No address str")
+    address = os.environ.get(CONTROL_ADDRESS_ENV)
+    if not address:
         return None
     try:
-        address = tuple(json.loads(address_str))
-    except (json.JSONDecodeError, ValueError):
-        logger.warning("Invalid control address: %s", address_str)
-        if verbose:
-            print(f"Invalid control address: {address_str}")
-        return None
-
-    family_str = os.environ.get(CONTROL_FAMILY_ENV)
-    family = family_str or "AF_INET"
-
-    try:
-        conn = Client(address, family=family)
-        return conn
+        return Client(address)
     except Exception as e:
         logger.warning("Failed to connect to control plane: %s", e)
         if verbose:

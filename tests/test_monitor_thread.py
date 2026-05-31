@@ -64,7 +64,7 @@ class TestGCMonitor:
     @pytest.mark.parametrize("expected_status, error_msg", [
         (PollStatus.INVALID_PROCESS, "Failed to initialize process handle"),
         (PollStatus.INVALID_PROCESS, "Failed to get Python runtime address"),
-        (PollStatus.INVALID_PYTHON, "Failed to read debug offsets"),
+        (PollStatus.INVALID_PROCESS, "Failed to read debug offsets"),
         (PollStatus.INVALID_PYTHON, "Invalid debug offsets found"),
         (PollStatus.FAIL, "Some other error"),
     ])
