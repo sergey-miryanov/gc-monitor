@@ -10,26 +10,25 @@ from typing import Any
 
 from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV
 
-logger = logging.getLogger("gc_monitor.control")
+logger = logging.getLogger("gc_monitor")
+
 
 _conn: Connection | None = None
 _lock = threading.Lock()
 
 
-def _create_connection(verbose:bool=False) -> Connection | None:
-    address = os.environ.get(CONTROL_ADDRESS_ENV)
+def _create_connection(control_address: str="") -> Connection | None:
+    address = control_address or os.environ.get(CONTROL_ADDRESS_ENV)
     if not address:
         return None
     try:
         return Client(address)
     except Exception as e:
         logger.warning("Failed to connect to control plane: %s", e)
-        if verbose:
-            print(f"Failed to connect to control plane: {e}")
         return None
 
 
-def _ensure_connected(verbose:bool=False) -> Connection | None:
+def _ensure_connected(control_address: str="") -> Connection | None:
     global _conn
 
     if _conn is not None:
@@ -37,39 +36,44 @@ def _ensure_connected(verbose:bool=False) -> Connection | None:
 
     with _lock:
         if _conn is None:
-            _conn = _create_connection(verbose)
+            _conn = _create_connection(control_address)
 
     return _conn
 
 
-def _send(msg: dict[str,str|int], *, verbose:bool=False) -> None:
-    conn = _ensure_connected(verbose)
+def _send(msg: dict[str,str|int], *, control_address:str="") -> None:
+    conn = _ensure_connected(control_address)
     if conn is not None:
         try:
             msg.update({"pid": os.getpid()})
             conn.send(msg)
+            logger.debug("Sent control message=%s", msg)
         except Exception as e:
-            logger.debug("Failed to send control message: %s", e)
-    elif verbose:
-        # logger.debug("No connection")
-        print("No connection")
+            logger.debug("Failed to send control message=%s: %s", msg, e)
+    else:
+        logger.debug("No connection: msg=%s, address=%s", msg, control_address)
 
 
-def start_monitoring(verbose:bool = False) -> None:
+def start_monitoring(control_address: str="") -> None:
     """Resume/enable GC monitoring for this process."""
-    _send({"msg": "start"}, verbose=verbose)
+    _send({"msg": "start"}, control_address=control_address)
 
 
-def stop_monitoring(verbose:bool = False) -> None:
+def stop_monitoring(control_address: str="") -> None:
     """Pause/disable GC monitoring for this process."""
-    _send({"msg": "stop"}, verbose=verbose)
+    _send({"msg": "stop"}, control_address=control_address)
 
 
 @contextmanager
-def pause_monitoring(verbose:bool = False) -> Generator[None, Any]:
+def pause_monitoring(control_address: str="") -> Generator[None, Any]:
     """Context manager that pauses monitoring and resumes on exit."""
-    stop_monitoring(verbose)
+    stop_monitoring(control_address)
     try:
         yield
     finally:
-        start_monitoring(verbose)
+        start_monitoring(control_address)
+
+def reset_connection():
+    global _conn
+    with _lock:
+        _conn = None

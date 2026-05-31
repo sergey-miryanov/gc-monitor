@@ -77,6 +77,8 @@ def cmd_run(args: Namespace) -> int:
         return 1
 
     control = ControlServer(address=args.control_name)
+    control.start()
+
     runner = ChildProcessRunner(
         target=target,
         is_module=is_module,

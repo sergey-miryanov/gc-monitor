@@ -16,7 +16,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ..control.control_client import start_monitoring, stop_monitoring
+from ..control.control_client import start_monitoring, stop_monitoring, reset_connection
+from ..control.control_server import _make_address
 from ..exporters.chrome_trace_io import read_jsonl
 from ..protocol import is_gc_stats
 from ..stats import StreamingStats
@@ -103,6 +104,31 @@ class GCMonitorHook:
         self._temp_files: list[Path] = []
         self._temp_dir = tempfile.TemporaryDirectory(dir=_get_env_pyperf_hook_temp_dir())
         self._pid: int = os.getpid()
+        self._control_name = f"pyperf-hook-{self._pid}"
+        self._control_address = _make_address(self._control_name)
+        verbose = _get_env_pyperf_hook_verbose()
+        level = logging.WARNING
+        if verbose:
+            level = logging.DEBUG
+            logger.setLevel(level)
+
+        logging.addLevelName(logging.WARNING, "W")
+        logging.addLevelName(logging.DEBUG, "D")
+        logging.addLevelName(logging.INFO, "I")
+        logging.addLevelName(logging.ERROR, "E")
+        logging.addLevelName(logging.CRITICAL, "C")
+
+        # Only add handler if none exists
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setLevel(level)
+            formatter = logging.Formatter("[%(name)s] %(levelname)s: %(message)s")
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+        else:
+            # Update existing handlers
+            for handler in logger.handlers:  # type: ignore[assignment]
+                handler.setLevel(level)
 
         self._run_monitor()
 
@@ -121,6 +147,7 @@ class GCMonitorHook:
                 stderr=subprocess.STDOUT,
                 creationflags=creationflags,
             )
+
         except Exception as e:
             raise RuntimeError(
                 "Failed to run gc-monitor module: "
@@ -163,8 +190,7 @@ class GCMonitorHook:
 
         Spawns the external gc-monitor process as a background subprocess.
         """
-        verbose = _get_env_pyperf_hook_verbose()
-        start_monitoring(verbose)
+        start_monitoring(self._control_address)
         return self
 
     def __exit__(
@@ -176,8 +202,7 @@ class GCMonitorHook:
         """
         Called immediately after running benchmark code.
         """
-        verbose = _get_env_pyperf_hook_verbose()
-        stop_monitoring(verbose)
+        stop_monitoring(self._control_address)
 
     def teardown(self, metadata: dict[str, Any]) -> None:
         """
@@ -187,6 +212,7 @@ class GCMonitorHook:
         aggregates statistics, and adds them to pyperf metadata.
         """
         self._close_monitor()
+        reset_connection()
 
         if not self._temp_files:
             return
@@ -234,20 +260,25 @@ class GCMonitorHook:
             suffix=".jsonl",
         )
         os.close(fd)
-        self._temp_files.append(Path(filename))
+        filepath = Path(filename)
+        self._temp_files.append(filepath)
 
         return [
             sys.executable,
+            "-u",
             "-m",
             "gc_monitor",
             "monitor",
             str(self._pid),
+            "-vvv",
             "-o",
-            filename,
+            filepath.as_posix(),
             "--format",
             "jsonl",
             "--flush-threshold",
             "10",
+            "--control-name",
+            self._control_name,
         ]
 
 # Entry point factory function

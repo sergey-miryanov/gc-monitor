@@ -14,7 +14,7 @@ import msgspec
 from gc_monitor.data import instant_msg
 from gc_monitor.exporters.exporter import EventsExporter
 
-logger = logging.getLogger("gc_monitor.control")
+logger = logging.getLogger("gc_monitor")
 
 CONTROL_ADDRESS_ENV = "GC_MONITOR_CONTROL_ADDRESS"
 _PREFIX = "gc-monitor-"
@@ -87,6 +87,8 @@ class ControlServer:
         self._reader_thread.start()
         self._running = True
 
+        logger.info("Running server on %s", self.address)
+
     def _accept_loop(self) -> None:
         conn: TConnection | None = None
         while not self._stop_event.is_set():
@@ -110,6 +112,8 @@ class ControlServer:
                 conn.close()
                 conn = None
 
+        logger.debug("Stoped accept loop")
+
     def _reader_loop(self) -> None:
         while not self._stop_event.is_set():
             with self._lock:
@@ -123,6 +127,7 @@ class ControlServer:
                         break
 
                     msg = self._recv(conn, to_remove)
+                    logger.debug("Got message: %s", msg)
                     if msg is not None:
                         try:
                             m = msg.msg
@@ -182,6 +187,8 @@ class ControlServer:
             return []
 
     def _remove_connections(self, to_remove: list[TConnection]) -> None:
+        logger.debug("Remove connections: %s", to_remove)
+
         with self._lock:
             self._connections -= set(to_remove)
 

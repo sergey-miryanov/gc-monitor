@@ -12,7 +12,7 @@ from .utils.process_terminator import log_process_output, terminate_process
 
 __all__ = ["ChildProcess", "ChildProcessRunner"]
 
-logger = logging.getLogger("gc_monitor.runner")
+logger = logging.getLogger("gc_monitor")
 
 
 class ChildProcess(TargetProcess):
@@ -111,10 +111,6 @@ class ChildProcessRunner:
         """
         # Validate target before spawning
         self._validate_target()
-
-        # Start control plane before spawning
-        if self._control is not None:
-            self._control.start()
 
         # Build command and environment
         cmd = self._build_command()

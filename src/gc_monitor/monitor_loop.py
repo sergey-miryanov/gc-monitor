@@ -8,7 +8,7 @@ from .run_policy import Runner
 from .utils import set_on_exit
 from .wait_policy import WaitPolicy
 
-logger = logging.getLogger("gc_monitor.monitor_loop")
+logger = logging.getLogger("gc_monitor")
 
 __all__ = ["MonitorLoop"]
 
