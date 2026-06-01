@@ -3,77 +3,85 @@
 import logging
 import os
 import threading
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from multiprocessing.connection import Client, Connection
-from typing import Any
+from typing import Any, Callable
 
 from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV
 
 logger = logging.getLogger("gc_monitor")
 
 
-_conn: Connection | None = None
-_lock = threading.Lock()
-
-
-def _create_connection(control_address: str="") -> Connection | None:
-    address = control_address or os.environ.get(CONTROL_ADDRESS_ENV)
-    if not address:
-        return None
-    try:
-        return Client(address)
-    except Exception as e:
-        logger.warning("Failed to connect to control plane: %s", e)
-        return None
-
-
-def _ensure_connected(control_address: str="") -> Connection | None:
-    global _conn
-
-    if _conn is not None:
-        return _conn
-
-    with _lock:
-        if _conn is None:
-            _conn = _create_connection(control_address)
-
-    return _conn
-
-
-def _send(msg: dict[str,str|int], *, control_address:str="") -> None:
-    conn = _ensure_connected(control_address)
-    if conn is not None:
+def connect_with_retry(
+    address: str,
+    timeout: float = 5.0,
+    retry_interval: float = 0.05,
+) -> Connection | None:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
         try:
-            msg.update({"pid": os.getpid()})
-            conn.send(msg)
-            logger.debug("Sent control message=%s", msg)
+            return Client(address)
         except Exception as e:
-            logger.debug("Failed to send control message=%s: %s", msg, e)
-    else:
-        logger.debug("No connection: msg=%s, address=%s", msg, control_address)
+            last_error = e
+            time.sleep(retry_interval)
+    logger.warning("Failed to connect to control plane: %s", last_error)
+    return None
 
 
-def start_monitoring(control_address: str="") -> None:
-    """Resume/enable GC monitoring for this process."""
-    _send({"msg": "start"}, control_address=control_address)
+def _default_connect(address: str) -> Connection | None:
+    return connect_with_retry(address)
 
 
-def stop_monitoring(control_address: str="") -> None:
-    """Pause/disable GC monitoring for this process."""
-    _send({"msg": "stop"}, control_address=control_address)
+class ControlClient:
+    def __init__(
+        self,
+        control_address: str = "",
+        *,
+        connection_factory: Callable[[str], Connection | None] | None = None,
+    ) -> None:
+        self._control_address = control_address
+        self._conn: Connection | None = None
+        self._lock = threading.Lock()
+        self._connect = connection_factory or _default_connect
 
+    def _ensure_connected(self) -> Connection | None:
+        if self._conn is not None:
+            return self._conn
+        with self._lock:
+            if self._conn is None:
+                address = self._control_address or os.environ.get(CONTROL_ADDRESS_ENV)
+                if address:
+                    self._conn = self._connect(address)
+        return self._conn
 
-@contextmanager
-def pause_monitoring(control_address: str="") -> Generator[None, Any]:
-    """Context manager that pauses monitoring and resumes on exit."""
-    stop_monitoring(control_address)
-    try:
-        yield
-    finally:
-        start_monitoring(control_address)
+    def _send(self, msg: dict[str, str | int]) -> None:
+        conn = self._ensure_connected()
+        if conn is not None:
+            try:
+                msg.update({"pid": os.getpid()})
+                conn.send(msg)
+                logger.debug("Sent control message=%s", msg)
+            except Exception as e:
+                logger.debug("Failed to send control message=%s: %s", msg, e)
+        else:
+            logger.debug("No connection: msg=%s, address=%s", msg, self._control_address)
 
-def reset_connection():
-    global _conn
-    with _lock:
-        _conn = None
+    def start_monitoring(self) -> None:
+        """Resume/enable GC monitoring for this process."""
+        self._send({"msg": "start"})
+
+    def stop_monitoring(self) -> None:
+        """Pause/disable GC monitoring for this process."""
+        self._send({"msg": "stop"})
+
+    @contextmanager
+    def pause_monitoring(self) -> Generator[None, Any]:
+        """Context manager that pauses monitoring and resumes on exit."""
+        self.stop_monitoring()
+        try:
+            yield
+        finally:
+            self.start_monitoring()

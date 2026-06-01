@@ -5,129 +5,115 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-@pytest.fixture(autouse=True)
-def _reset_conn():
-    """Reset the module-level connection state before and after each test."""
-    import gc_monitor.control.control_client as cc
-    before = cc._conn
-    cc._conn = None
-    yield
-    cc._conn = None
+from gc_monitor.control.control_client import ControlClient, _default_connect, connect_with_retry
 
 
 @pytest.fixture
-def mock_conn() -> MagicMock:
+def mock_conn():
     return MagicMock()
 
 
 @pytest.fixture
-def patch_create_connection(mock_conn: MagicMock) -> None:
-    with patch("gc_monitor.control.control_client._create_connection", return_value=mock_conn):
-        yield
+def mock_connection_factory(mock_conn):
+    return MagicMock(return_value=mock_conn)
+
+
+@pytest.fixture
+def client(mock_connection_factory):
+    return ControlClient("test-address", connection_factory=mock_connection_factory)
 
 
 class TestStartMonitoring:
-    def test_sends_start_message(self, patch_create_connection, mock_conn: MagicMock) -> None:
-        from gc_monitor.control.control_client import start_monitoring
-
-        start_monitoring()
-
-        mock_conn.send.assert_called_once()
-        call_args = mock_conn.send.call_args[0][0]
-        assert call_args["msg"] == "start"
-        assert call_args["pid"] == os.getpid()
+    def test_sends_start_message(self, client, mock_conn):
+        client.start_monitoring()
+        mock_conn.send.assert_called_once_with({"msg": "start", "pid": os.getpid()})
 
 
 class TestStopMonitoring:
-    def test_sends_stop_message(self, patch_create_connection, mock_conn: MagicMock) -> None:
-        from gc_monitor.control.control_client import stop_monitoring
-
-        stop_monitoring()
-
-        mock_conn.send.assert_called_once()
-        call_args = mock_conn.send.call_args[0][0]
-        assert call_args["msg"] == "stop"
-        assert call_args["pid"] == os.getpid()
+    def test_sends_stop_message(self, client, mock_conn):
+        client.stop_monitoring()
+        mock_conn.send.assert_called_once_with({"msg": "stop", "pid": os.getpid()})
 
 
 class TestPauseMonitoring:
-    def test_sends_stop_then_start(self, patch_create_connection, mock_conn: MagicMock) -> None:
-        from gc_monitor.control.control_client import pause_monitoring
-
-        with pause_monitoring():
+    def test_sends_stop_then_start(self, client, mock_conn):
+        with client.pause_monitoring():
             pass
-
         assert mock_conn.send.call_count == 2
-        stop_msg = mock_conn.send.call_args_list[0][0][0]
-        start_msg = mock_conn.send.call_args_list[1][0][0]
-        assert stop_msg["msg"] == "stop"
-        assert start_msg["msg"] == "start"
+        assert mock_conn.send.call_args_list[0][0][0]["msg"] == "stop"
+        assert mock_conn.send.call_args_list[1][0][0]["msg"] == "start"
 
-    def test_resumes_on_exception(self, patch_create_connection, mock_conn: MagicMock) -> None:
-        from gc_monitor.control.control_client import pause_monitoring
-
+    def test_resumes_on_exception(self, client, mock_conn):
         with pytest.raises(RuntimeError):
-            with pause_monitoring():
-                raise RuntimeError("test error")
-
+            with client.pause_monitoring():
+                raise RuntimeError()
         assert mock_conn.send.call_count == 2
-        stop_msg = mock_conn.send.call_args_list[0][0][0]
-        start_msg = mock_conn.send.call_args_list[1][0][0]
-        assert stop_msg["msg"] == "stop"
-        assert start_msg["msg"] == "start"
-
-class TestCreateConnection:
-    def test_returns_none_without_env(self) -> None:
-        from gc_monitor.control.control_client import _create_connection
-
-        with patch.dict(os.environ, {}, clear=True):
-            result = _create_connection()
-            assert result is None
-
-    def test_returns_none_with_invalid_address(self) -> None:
-        from gc_monitor.control.control_client import _create_connection
-
-        with patch.dict(os.environ, {
-            "GC_MONITOR_CONTROL_ADDRESS": "not-json",
-        }, clear=True):
-            result = _create_connection()
-            assert result is None
-
-    def test_returns_none_on_connection_failure(self) -> None:
-        from gc_monitor.control.control_client import _create_connection
-
-        with patch.dict(os.environ, {
-            "GC_MONITOR_CONTROL_ADDRESS": "/nonexistent/control/socket",
-        }, clear=True):
-            result = _create_connection()
-            assert result is None
-
-
-class TestEnsureConnected:
-    def test_creates_connection_once(self, mock_conn: MagicMock) -> None:
-        from gc_monitor.control.control_client import _ensure_connected
-
-        with patch("gc_monitor.control.control_client._create_connection", return_value=mock_conn) as mock_create:
-            result1 = _ensure_connected()
-            result2 = _ensure_connected()
-
-            assert result1 is mock_conn
-            assert result2 is mock_conn
-            mock_create.assert_called_once()
+        assert mock_conn.send.call_args_list[0][0][0]["msg"] == "stop"
+        assert mock_conn.send.call_args_list[1][0][0]["msg"] == "start"
 
 
 class TestSend:
-    def test_noop_when_not_connected(self) -> None:
-        from gc_monitor.control.control_client import _send
+    def test_noop_when_not_connected(self):
+        client = ControlClient(connection_factory=MagicMock(return_value=None))
+        client._send({"msg": "test"})
 
-        with patch("gc_monitor.control.control_client._ensure_connected", return_value=None):
-            _send({"msg": "test"})  # should not raise
+    def test_sends_message_when_connected(self, client, mock_conn):
+        client._send({"msg": "test"})
+        mock_conn.send.assert_called_once_with({"msg": "test", "pid": os.getpid()})
 
-    def test_sends_message_when_connected(self, mock_conn: MagicMock) -> None:
-        from gc_monitor.control.control_client import _send
 
-        with patch("gc_monitor.control.control_client._ensure_connected", return_value=mock_conn):
-            _send({"msg": "test"})
+class TestEnsureConnected:
+    def test_creates_connection_once(self, mock_connection_factory, mock_conn):
+        client = ControlClient("test-address", connection_factory=mock_connection_factory)
+        result1 = client._ensure_connected()
+        result2 = client._ensure_connected()
+        assert result1 is mock_conn
+        assert result2 is mock_conn
+        mock_connection_factory.assert_called_once_with("test-address")
 
-        mock_conn.send.assert_called_once()
+    def test_returns_none_without_address(self, monkeypatch):
+        monkeypatch.delenv("GC_MONITOR_CONTROL_ADDRESS", raising=False)
+        client = ControlClient(connection_factory=MagicMock())
+        assert client._ensure_connected() is None
+
+    def test_falls_back_to_env_var(self, monkeypatch, mock_connection_factory, mock_conn):
+        monkeypatch.setenv("GC_MONITOR_CONTROL_ADDRESS", "env-address")
+        client = ControlClient(connection_factory=mock_connection_factory)
+        assert client._ensure_connected() is mock_conn
+        mock_connection_factory.assert_called_once_with("env-address")
+
+
+class TestDefaultConnect:
+    def test_returns_none_on_connection_failure(self):
+        with patch("gc_monitor.control.control_client.time.sleep"):
+            assert _default_connect("/nonexistent/control/socket") is None
+
+
+class TestConnectWithRetry:
+    def test_connects_on_first_attempt(self):
+        mock_conn = MagicMock()
+        factory = MagicMock(return_value=mock_conn)
+        with patch("gc_monitor.control.control_client.Client", factory):
+            result = connect_with_retry("test-address")
+        assert result is mock_conn
+        factory.assert_called_once_with("test-address")
+
+    def test_retries_on_failure_and_succeeds(self):
+        mock_conn = MagicMock()
+        factory = MagicMock(side_effect=[OSError("conn refused"), mock_conn])
+        with (
+            patch("gc_monitor.control.control_client.Client", factory),
+            patch("gc_monitor.control.control_client.time.sleep"),
+        ):
+            result = connect_with_retry("test-address")
+        assert result is mock_conn
+        assert factory.call_count == 2
+
+    def test_returns_none_after_timeout(self):
+        factory = MagicMock(side_effect=OSError("conn refused"))
+        with (
+            patch("gc_monitor.control.control_client.Client", factory),
+            patch("gc_monitor.control.control_client.time.sleep"),
+        ):
+            result = connect_with_retry("test-address", timeout=0.1)
+        assert result is None

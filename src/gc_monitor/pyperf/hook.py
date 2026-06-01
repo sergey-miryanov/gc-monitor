@@ -13,10 +13,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from functools import partial
 from pathlib import Path
 from typing import Any
 
-from ..control.control_client import start_monitoring, stop_monitoring, reset_connection
+from ..control.control_client import ControlClient, connect_with_retry
 from ..control.control_server import _make_address
 from ..exporters.chrome_trace_io import read_jsonl
 from ..protocol import is_gc_stats
@@ -131,6 +132,10 @@ class GCMonitorHook:
                 handler.setLevel(level)
 
         self._run_monitor()
+        self._control_client = ControlClient(
+            self._control_address,
+            connection_factory=partial(connect_with_retry, timeout=10.0),
+        )
 
     def _run_monitor(self):
         cmd = self._build_command()
@@ -190,7 +195,7 @@ class GCMonitorHook:
 
         Spawns the external gc-monitor process as a background subprocess.
         """
-        start_monitoring(self._control_address)
+        self._control_client.start_monitoring()
         return self
 
     def __exit__(
@@ -202,7 +207,7 @@ class GCMonitorHook:
         """
         Called immediately after running benchmark code.
         """
-        stop_monitoring(self._control_address)
+        self._control_client.stop_monitoring()
 
     def teardown(self, metadata: dict[str, Any]) -> None:
         """
@@ -212,7 +217,6 @@ class GCMonitorHook:
         aggregates statistics, and adds them to pyperf metadata.
         """
         self._close_monitor()
-        reset_connection()
 
         if not self._temp_files:
             return
@@ -265,7 +269,6 @@ class GCMonitorHook:
 
         return [
             sys.executable,
-            "-u",
             "-m",
             "gc_monitor",
             "monitor",

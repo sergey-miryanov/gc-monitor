@@ -18,6 +18,13 @@ from gc_monitor.stats import StreamingStats
 from tests.helpers import assert_valid_jsonl_format
 
 
+@pytest.fixture(autouse=True)
+def _mock_control_connect():
+    """Prevent real control plane connection attempts in hook tests."""
+    with patch("gc_monitor.pyperf.hook.connect_with_retry", return_value=None):
+        yield
+
+
 @pytest.fixture
 def mock_popen_process():
     """Patches Popen and getpid with defaults. Yields (mock_popen, mock_process)."""
