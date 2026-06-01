@@ -11,12 +11,11 @@ import pytest
 from gc_monitor.monitor import EventsMonitor
 from gc_monitor.protocol import TGCStatsInfo
 from gc_monitor.stats import StreamingStats
-from gc_monitor.target_process import ExternalProcess, TargetProcessMetadata
+from gc_monitor.target_process import ExternalProcess
 from tests.helpers import MockExporter, create_mock_stats_item
 
 
 DEFAULT_PID: int = 12345
-DEFAULT_METADATA: TargetProcessMetadata = {"pid": DEFAULT_PID}
 
 
 def pytest_addoption(parser):
@@ -116,7 +115,7 @@ def stats() -> StreamingStats:
 
 @pytest.fixture
 def exporter_factory(exporter: MockExporter):
-    return lambda meta: exporter
+    return lambda: exporter
 
 
 @pytest.fixture
@@ -128,7 +127,7 @@ def monitor(exporter_factory, process: ExternalProcess, stats: StreamingStats) -
 def make_monitor(exporter, stats):
     def _make(pid: int = 12345, exp=None):
         proc = ExternalProcess(pid=pid)
-        return EventsMonitor(proc, lambda meta: exp or exporter, stats)
+        return EventsMonitor(proc, lambda: exp or exporter, stats)
     return _make
 
 

@@ -23,7 +23,7 @@ class EventsMonitor:
     ) -> None:
 
         self._process = process
-        self._exporter = exporter_factory(process.metadata())
+        self._exporter = exporter_factory()
         self._enabled = True
         self._last_ts: int = 0
         self._stats = stats

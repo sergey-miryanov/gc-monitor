@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Self, override
 
 from .control.control_server import ControlServer, set_control_env
-from .target_process import TargetProcess, TargetProcessMetadata
+from .target_process import TargetProcess
 from .utils.process_terminator import log_process_output, terminate_process
 
 __all__ = ["ChildProcess", "ChildProcessRunner"]
@@ -23,13 +23,6 @@ class ChildProcess(TargetProcess):
     @override
     def pid(self) -> int:
         return self._pid
-
-    @override
-    def metadata(self) -> TargetProcessMetadata:
-        return {
-            "pid": self._pid,
-        }
-
 
 class ChildProcessRunner:
     def __init__(

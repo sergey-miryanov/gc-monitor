@@ -55,7 +55,7 @@ class TestCreateMonitor:
     def test_returns_events_monitor(
         self, exporter: MockExporter, process, stats
     ) -> None:
-        factory = lambda meta: exporter
+        factory = lambda: exporter
         result = create_monitor(process, factory, stats)
         assert isinstance(result, EventsMonitor)
         assert result.is_enabled

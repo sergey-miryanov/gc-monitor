@@ -1,7 +1,6 @@
 """Base exporter interface for GC monitoring data."""
 
 from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg
-from ..target_process import TargetProcessMetadata
 
 __all__ = ["EventsExporter"]
 
@@ -9,8 +8,8 @@ __all__ = ["EventsExporter"]
 class EventsExporter:
     """Base class for exporters that collect GC events and save them."""
 
-    def __init__(self, metadata: TargetProcessMetadata) -> None:
-        self._metadata = metadata
+    def __init__(self) -> None:
+        pass
 
     def add_event(self, pid: int, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> None:
         """Add a GC monitoring event."""

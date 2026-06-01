@@ -17,22 +17,12 @@ class TestExternalProcess:
     def test_pid(self, external_process):
         assert external_process.pid == 12345
 
-    def test_metadata(self, external_process):
-        assert external_process.metadata() == {"pid": 12345}
-
     def test_pid_zero(self, zero_process):
         assert zero_process.pid == 0
-
-    def test_metadata_zero(self, zero_process):
-        assert zero_process.metadata() == {"pid": 0}
 
     def test_negative_pid(self):
         proc = ExternalProcess(pid=-1)
         assert proc.pid == -1
-
-    def test_negative_pid_metadata(self):
-        proc = ExternalProcess(pid=-1)
-        assert proc.metadata() == {"pid": -1}
 
     def test_is_target_process_protocol(self, external_process):
         assert isinstance(external_process, TargetProcess)

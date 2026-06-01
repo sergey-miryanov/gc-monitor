@@ -10,7 +10,6 @@ from typing import TextIO, override
 
 from ..lock_strategy import LockStrategy
 from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg, to_mapping
-from ..target_process import TargetProcessMetadata
 from .exporter import EventsExporter
 
 __all__ = ["JsonlExporter"]
@@ -30,11 +29,10 @@ class JsonlExporter(EventsExporter):
     def __init__(
         self,
         lock: type[LockStrategy],
-        metadata: TargetProcessMetadata,
         output_path: Path | None = None,
         flush_threshold: int = 100,
     ) -> None:
-        super().__init__(metadata)
+        super().__init__()
         self._lock = lock()
         self._flush_threshold = flush_threshold
         self._event_count = 0

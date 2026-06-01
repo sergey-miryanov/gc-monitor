@@ -10,7 +10,6 @@ from typing import Any, Mapping
 from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo
 from gc_monitor.exporters.exporter import EventsExporter
 from gc_monitor.protocol import TGCStatsInfo, TInstantMsg
-from gc_monitor.target_process import TargetProcessMetadata
 
 # pyright: reportImplicitOverride=none
 
@@ -37,13 +36,9 @@ class MockExporter(EventsExporter):
     It supports event-based synchronization for tests.
     """
 
-    def __init__(self, metadata: TargetProcessMetadata | None = None) -> None:
-        """Initialize the mock exporter.
-
-        Args:
-            metadata: Target process metadata (defaults to {"pid": 0}).
-        """
-        super().__init__(metadata or {"pid": 0})
+    def __init__(self) -> None:
+        """Initialize the mock exporter."""
+        super().__init__()
         self.events: list[TGCStatsInfo] = []
         self.instant_events: list[tuple[int, TInstantMsg]] = []
         self._close_called = False
