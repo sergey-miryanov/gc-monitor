@@ -160,14 +160,21 @@ class TestGCMonitorHookExit:
     def test_exit_calls_terminate_process(
         self,
         mock_popen_process: tuple[Mock, Mock],
+        tmp_path: Path,
     ) -> None:
         """__exit__ calls terminate_process with correct arguments."""
         _mock_popen, mock_process = mock_popen_process
 
-        with patch(
-            "gc_monitor.pyperf.hook.terminate_process",
-            return_value=(b"", b""),
-        ) as mock_terminate:
+        with (
+            patch(
+                "gc_monitor.pyperf.hook.terminate_process",
+                return_value=(b"", b""),
+            ) as mock_terminate,
+            patch(
+                "gc_monitor.pyperf.hook._get_env_pyperf_hook_output",
+                return_value=tmp_path / "out.jsonl",
+            ),
+        ):
             hook = gc_monitor_hook()
             hook.teardown({})
 
@@ -202,11 +209,12 @@ class TestGCMonitorHookTeardown:
         assert metadata["gc_pause_gen_0_p99"] > 0
         assert "gc_heap_size_p99" in metadata
 
-    def test_teardown_handles_missing_file(self) -> None:
+    def test_teardown_handles_missing_file(self, tmp_path: Path) -> None:
         """teardown handles missing temp file gracefully."""
         hook = gc_monitor_hook()
         metadata: dict[str, object] = {}
-        hook.teardown(metadata)
+        with patch("gc_monitor.pyperf.hook._get_env_pyperf_hook_output", return_value=tmp_path / "out.jsonl"):
+            hook.teardown(metadata)
 
         # Should not add any keys if file doesn't exist
         assert metadata == {}
@@ -214,6 +222,7 @@ class TestGCMonitorHookTeardown:
     def test_teardown_cleans_up_temp_files(
         self,
         mock_popen_process: tuple[Mock, Mock],
+        tmp_path: Path,
     ) -> None:
         """teardown removes temp files after reading."""
         _mock_popen, _mock_process = mock_popen_process
@@ -228,7 +237,8 @@ class TestGCMonitorHookTeardown:
             assert temp_file.exists()
 
         metadata: dict[str, Any] = {}
-        hook.teardown(metadata)
+        with patch("gc_monitor.pyperf.hook._get_env_pyperf_hook_output", return_value=tmp_path / "out.jsonl"):
+            hook.teardown(metadata)
 
         # Temp file should be removed
         assert not temp_file.exists()
