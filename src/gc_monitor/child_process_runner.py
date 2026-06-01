@@ -4,7 +4,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Self, override
+from typing import Self, override
 
 from .control.control_server import set_control_env
 from .target_process import TargetProcess

@@ -1,7 +1,7 @@
 import logging
 import threading
 from collections.abc import Callable
-from typing import Any, Self
+from typing import Self
 
 from .monitor import EventsMonitor
 from .run_policy import Runner

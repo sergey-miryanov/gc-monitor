@@ -4,10 +4,10 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from multiprocessing.connection import Client, Connection
-from typing import Any, Callable
+from typing import Any
 
 from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV
 

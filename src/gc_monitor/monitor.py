@@ -2,7 +2,7 @@
 
 import logging
 from _remote_debugging import get_child_pids, get_gc_stats
-from typing import Any, Self
+from typing import Self
 
 from .exporters import EventsExporter
 from .poll_status import PollStatus

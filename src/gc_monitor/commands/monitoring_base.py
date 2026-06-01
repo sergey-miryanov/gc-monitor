@@ -12,9 +12,9 @@ from gc_monitor.monitor_loop import MonitorLoop
 from gc_monitor.run_policy import RunnerFactory
 from gc_monitor.stats import StreamingStats
 from gc_monitor.stats_output import print_stats
+from gc_monitor.target_process import ProcessRunnerFactory
 from gc_monitor.utils import replace_signals
 from gc_monitor.wait_policy import WaitPolicy
-from gc_monitor.target_process import ProcessRunnerFactory
 
 logger = logging.getLogger("gc_monitor")
 

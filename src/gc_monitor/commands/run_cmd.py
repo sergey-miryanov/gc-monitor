@@ -9,8 +9,8 @@ from gc_monitor.child_process_runner import ChildProcessRunner
 from gc_monitor.commands.monitoring_base import run_monitoring_loop
 from gc_monitor.commands.monitoring_options import add_monitoring_options, get_monitoring_options
 from gc_monitor.commands.parser_factory import ParserFactory
-from gc_monitor.wait_policy import StartupTimeoutPolicy
 from gc_monitor.target_process import ProcessFactory
+from gc_monitor.wait_policy import StartupTimeoutPolicy
 
 logger = logging.getLogger("gc_monitor")
 
