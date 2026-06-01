@@ -33,7 +33,9 @@ def server_not_started() -> ControlServer:
 
 @pytest.fixture
 def mock_conn():
-    return MagicMock()
+    m = MagicMock()
+    m.poll.return_value = False
+    return m
 
 
 @pytest.fixture
@@ -501,6 +503,97 @@ class TestControlServerReaderLoop:
             patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
         ):
             server_not_started._reader_loop()
+
+    def test_reader_loop_drains_pending_messages(self, server_not_started) -> None:
+        mock_conn = MagicMock()
+        mock_conn.recv.return_value = {"msg": "stop", "pid": 42}
+        mock_conn.poll.side_effect = [True, False]
+        server_not_started._connections.add(mock_conn)
+
+        with (
+            patch("gc_monitor.control.control_server._wait", return_value=[]),
+            patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
+        ):
+            server_not_started._reader_loop()
+
+        assert server_not_started._enabled.get(42) is False
+
+
+# =============================================================================
+# Drain connections tests
+# =============================================================================
+
+
+class TestDrainConnections:
+    def test_drain_no_connections(self, server_not_started) -> None:
+        server_not_started._drain_connections()
+
+    def test_drain_no_data_exits_immediately(self, server_not_started, mock_conn) -> None:
+        server_not_started._connections.add(mock_conn)
+        server_not_started._drain_connections()
+
+    def test_drain_poll_exception_removes_conn(self, server_not_started) -> None:
+        mock_conn = MagicMock()
+        mock_conn.poll.side_effect = OSError("pipe broken")
+        server_not_started._connections.add(mock_conn)
+
+        server_not_started._drain_connections()
+
+        assert mock_conn not in server_not_started._connections
+        mock_conn.close.assert_called_once()
+
+    def test_drain_recv_eof_removes_conn(self, server_not_started) -> None:
+        mock_conn = MagicMock()
+        mock_conn.poll.return_value = True
+        mock_conn.recv.side_effect = EOFError()
+        server_not_started._connections.add(mock_conn)
+
+        server_not_started._drain_connections()
+
+        assert mock_conn not in server_not_started._connections
+        mock_conn.close.assert_called_once()
+
+    def test_drain_handle_msg_error_is_nonfatal(self, server_not_started) -> None:
+        mock_exporter = MagicMock()
+        mock_exporter.add_instant_event.side_effect = ValueError("exporter failure")
+        server_not_started.set_exporter(mock_exporter)
+
+        mock_conn = MagicMock()
+        mock_conn.poll.side_effect = [True, False]
+        mock_conn.recv.return_value = {"msg": "stop", "pid": 42}
+        server_not_started._connections.add(mock_conn)
+
+        server_not_started._drain_connections()
+
+        assert mock_conn in server_not_started._connections
+        mock_conn.close.assert_not_called()
+
+    def test_drain_processes_messages_round_robin(self, server_not_started) -> None:
+        c1 = MagicMock()
+        c1.poll.side_effect = [True, False]
+        c1.recv.return_value = {"msg": "stop", "pid": 1}
+        c2 = MagicMock()
+        c2.poll.side_effect = [True, False]
+        c2.recv.return_value = {"msg": "stop", "pid": 2}
+        server_not_started._connections.update([c1, c2])
+
+        server_not_started._drain_connections()
+
+        assert server_not_started._enabled.get(1) is False
+        assert server_not_started._enabled.get(2) is False
+
+    def test_drain_timeout_expiry(self, server_not_started) -> None:
+        mock_conn = MagicMock()
+        mock_conn.poll.return_value = True
+        mock_conn.recv.return_value = {"msg": "stop", "pid": 999}
+        server_not_started._connections.add(mock_conn)
+
+        start = time.monotonic()
+        server_not_started._drain_connections(timeout=0.05)
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 1.0
+        assert server_not_started._enabled.get(999) is False
 
 
 # =============================================================================

@@ -36,6 +36,7 @@ class TestRunMonitoringLoop:
         assert result == 0
         assert "Monitoring complete" in caplog.text
         assert "Total events: 5" in caplog.text
+        mock_control_server.close.assert_called_once()
 
     def test_exception_returns_1(
         self, caplog: pytest.LogCaptureFixture, mock_process: MagicMock, mock_wait_policy: MagicMock,

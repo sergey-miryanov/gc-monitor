@@ -4,6 +4,7 @@ import contextlib
 import logging
 import sys
 import threading
+import time
 from multiprocessing.connection import Client, Connection, Listener, wait
 
 if sys.platform == "win32":
@@ -129,27 +130,14 @@ class ControlServer:
                     msg = self._recv(conn, to_remove)
                     logger.debug("Got message: %s", msg)
                     if msg is not None:
-                        try:
-                            m = msg.msg
-                            pid = msg.pid
-                            if m == "start":
-                                m = "start GC monitor"
-                                with self._lock:
-                                    self._enabled.pop(pid, None)
-                            elif m == "stop":
-                                m = "stop GC monitor"
-                                with self._lock:
-                                    self._enabled[pid] = False
-
-                            self._add_event(m, pid)
-
-                        except Exception as e:
-                            logger.debug("Error while handling data from child: %s", e)
+                        self._handle_msg(msg)
 
             if to_remove:
                 self._remove_connections(to_remove)
 
             self._stop_event.wait(READER_POLL_INTERVAL)
+
+        self._drain_connections()
 
     def _recv(self, conn: TConnection, to_remove: list[TConnection]) -> ControlMsg | None:
         try:
@@ -162,6 +150,45 @@ class ControlServer:
             to_remove.append(conn)
 
         return None
+
+    def _handle_msg(self, msg: ControlMsg) -> None:
+        try:
+            m = msg.msg
+            pid = msg.pid
+            if m == "start":
+                m = "start GC monitor"
+                with self._lock:
+                    self._enabled.pop(pid, None)
+            elif m == "stop":
+                m = "stop GC monitor"
+                with self._lock:
+                    self._enabled[pid] = False
+            self._add_event(m, pid)
+        except Exception as e:
+            logger.debug("Error while handling message: %s", e)
+
+    def _drain_connections(self, timeout: float = 0.5) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                conns = list(self._connections)
+            if not conns:
+                return
+            to_remove: list[TConnection] = []
+            any_data = False
+            for conn in conns:
+                try:
+                    if conn.poll(timeout=0):
+                        msg = self._recv(conn, to_remove)
+                        if msg is not None:
+                            self._handle_msg(msg)
+                            any_data = True
+                except Exception:
+                    to_remove.append(conn)
+            if to_remove:
+                self._remove_connections(to_remove)
+            if not any_data:
+                break
 
     def _add_event(self, m:str, pid:int) -> None:
         with self._exporter_lock:
@@ -225,10 +252,8 @@ class ControlServer:
         """Shut down all connections and the listener."""
         self._stop_event.set()
 
-        self._clear_connections()
-
         if self._running:
-            self._reader_thread.join(1)
+            self._reader_thread.join(2)
 
             with contextlib.suppress(Exception), Client(self.address):
                 pass
@@ -240,7 +265,6 @@ class ControlServer:
             self._enabled.clear()
 
         if self._running:
-
             with self._lock:
                 if self._listener is not None:
                     self._listener.close()

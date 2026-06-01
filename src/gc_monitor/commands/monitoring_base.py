@@ -52,6 +52,8 @@ def run_monitoring_loop(
         with replace_signals(_signal_handler):
             loop.run()
 
+        control_server.close()
+
         if cleanup is not None:
             cleanup()
 
