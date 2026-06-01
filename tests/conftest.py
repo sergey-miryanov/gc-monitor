@@ -11,12 +11,11 @@ import pytest
 from gc_monitor.monitor import EventsMonitor
 from gc_monitor.protocol import TGCStatsInfo
 from gc_monitor.stats import StreamingStats
-from gc_monitor.target_process import ExternalProcess, TargetProcessMetadata
+from gc_monitor.target_process import ExternalProcess
 from tests.helpers import MockExporter, create_mock_stats_item
 
 
 DEFAULT_PID: int = 12345
-DEFAULT_METADATA: TargetProcessMetadata = {"pid": DEFAULT_PID}
 
 
 def pytest_addoption(parser):

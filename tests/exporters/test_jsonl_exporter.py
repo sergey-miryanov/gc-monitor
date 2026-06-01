@@ -110,7 +110,7 @@ class TestJsonlExporter:
         assert event["tid"] == 5678
 
     def test_pid_in_output(self, mock_stats_item, jsonl_exporter, read_jsonl) -> None:
-        exporter, path = jsonl_exporter(threshold=1, metadata={"pid": 99999})
+        exporter, path = jsonl_exporter(threshold=1)
         exporter.add_event(99999, mock_stats_item)
         exporter.close()
         event = read_jsonl(path)[0]

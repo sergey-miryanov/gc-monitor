@@ -1,15 +1,10 @@
-from typing import Protocol, Self, TypedDict, override, runtime_checkable
-
-
-class TargetProcessMetadata(TypedDict):
-    pid: int
+from typing import Protocol, Self, override, runtime_checkable
 
 
 @runtime_checkable
 class TargetProcess(Protocol):
     @property
     def pid(self) -> int: ...
-    def metadata(self) -> TargetProcessMetadata: ...
 
 class ProcessFactory(Protocol):
     def start(self)-> TargetProcess:...
@@ -25,12 +20,6 @@ class ExternalProcess(TargetProcess):
     @override
     def pid(self) -> int:
         return self._pid
-
-    @override
-    def metadata(self) -> TargetProcessMetadata:
-        return {
-            "pid": self._pid,
-        }
 
     def start(self) -> ExternalProcess:
         return self

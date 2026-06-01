@@ -10,9 +10,6 @@ from typing import Any
 import pytest
 
 from gc_monitor.exporters import JsonlExporter, TraceExporter
-from gc_monitor.lock_strategy import NoLock
-
-from tests.conftest import DEFAULT_METADATA
 
 
 @pytest.fixture
@@ -22,9 +19,9 @@ def jsonl_exporter(tmp_path: Path) -> Callable[..., tuple[JsonlExporter, Path]]:
     Usage:
         exporter, path = jsonl_exporter(threshold=50)
     """
-    def _make(threshold: int = 100, metadata: dict | None = None) -> tuple[JsonlExporter, Path]:
+    def _make(threshold: int = 100) -> tuple[JsonlExporter, Path]:
         path = tmp_path / "test.jsonl"
-        exporter = JsonlExporter(NoLock, metadata or DEFAULT_METADATA, output_path=path, flush_threshold=threshold)
+        exporter = JsonlExporter(output_path=path, flush_threshold=threshold)
         return exporter, path
     return _make
 
@@ -36,9 +33,9 @@ def trace_exporter(tmp_path: Path) -> Callable[..., tuple[TraceExporter, Path]]:
     Usage:
         exporter, path = trace_exporter(threshold=50)
     """
-    def _make(threshold: int = 100, metadata: dict | None = None) -> tuple[TraceExporter, Path]:
+    def _make(threshold: int = 100) -> tuple[TraceExporter, Path]:
         path = tmp_path / "trace.json"
-        exporter = TraceExporter(NoLock, metadata or DEFAULT_METADATA, output_path=path, flush_threshold=threshold)
+        exporter = TraceExporter(output_path=path, flush_threshold=threshold)
         return exporter, path
     return _make
 

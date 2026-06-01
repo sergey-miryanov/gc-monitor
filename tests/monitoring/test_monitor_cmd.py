@@ -130,9 +130,7 @@ class TestCliOutput:
     def test_json_structure(self, run_monitor: Any, tmp_path: Path) -> None:
         output_file = tmp_path / "test_trace.json"
         assert run_monitor(["-o", str(output_file), "-d", "0.3"]).returncode == 0
-        with open(output_file) as f:
-            data: list[dict[str, Any]] = json.load(f)
-        assert len([e for e in data if e.get("ph") == "M"]) >= 1
+        assert_valid_chrome_trace_format(output_file)
 
     def test_path_traversal_warning(self, run_monitor: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         output_file = tmp_path / "subdir" / "output.json"

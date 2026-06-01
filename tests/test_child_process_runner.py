@@ -39,10 +39,6 @@ class TestChildProcess:
         cp = ChildProcess(pid=12345)
         assert cp.pid == 12345
 
-    def test_metadata(self):
-        cp = ChildProcess(pid=12345)
-        assert cp.metadata() == {"pid": 12345}
-
 
 class TestChildProcessRunnerInit:
     def test_stores_target(self, runner):
