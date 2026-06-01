@@ -134,6 +134,7 @@ def mock_monitoring_base_deps() -> dict[str, Any]:
     Returns dict of mocks that tests can customize (e.g. deps["StreamingStats"].return_value.count.return_value = 0).
     """
     patch_targets = [
+        "ControlServer",
         "RunnerFactory",
         "EventsExporterFactory",
         "StreamingStats",
@@ -146,6 +147,9 @@ def mock_monitoring_base_deps() -> dict[str, Any]:
         deps: dict[str, Any] = {}
         for name in patch_targets:
             deps[name] = stack.enter_context(patch(f"gc_monitor.commands.monitoring_base.{name}"))
+        mock_control_instance = MagicMock()
+        mock_control_instance.address = "/tmp/test-address"
+        deps["ControlServer"].return_value = mock_control_instance
         deps["StreamingStats"].return_value.count.return_value = 5
         deps["MonitorLoop"].return_value = MagicMock()
         deps["RunnerFactory"].return_value = MagicMock()

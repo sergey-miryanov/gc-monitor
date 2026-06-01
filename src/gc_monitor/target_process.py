@@ -6,11 +6,17 @@ class TargetProcess(Protocol):
     @property
     def pid(self) -> int: ...
 
-class ProcessFactory(Protocol):
-    def start(self)-> TargetProcess:...
+class ProcessRunnerFactory(Protocol):
+    def __call__(self, control_address:str) -> ProcessFactory:...
 
-    def __enter__(self) -> Self:...
-    def __exit__(self, *args: object) -> None:...
+class ProcessFactory(Protocol):
+    def start(self) -> TargetProcess: ...
+    def __enter__(self) -> Self: ...
+    def __exit__(self, *args: object) -> None: ...
+
+    @property
+    def returncode(self) -> int | None: ...
+
 
 class ExternalProcess(TargetProcess):
     def __init__(self, pid: int):
@@ -23,6 +29,10 @@ class ExternalProcess(TargetProcess):
 
     def start(self) -> ExternalProcess:
         return self
+
+    @property
+    def returncode(self) -> int | None:
+        return None
 
     def __enter__(self) -> Self:
         return self

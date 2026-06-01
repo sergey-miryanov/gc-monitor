@@ -14,13 +14,13 @@ from gc_monitor.stats import StreamingStats
 from gc_monitor.stats_output import print_stats
 from gc_monitor.utils import replace_signals
 from gc_monitor.wait_policy import WaitPolicy
-from gc_monitor.target_process import ProcessFactory
+from gc_monitor.target_process import ProcessRunnerFactory
 
 logger = logging.getLogger("gc_monitor")
 
 
 def run_monitoring_loop(
-    factory: ProcessFactory,
+    factory: ProcessRunnerFactory,
     wait_policy: WaitPolicy,
     options: MonitoringOptions,
     address: str | None = None,
@@ -33,15 +33,16 @@ def run_monitoring_loop(
             exporter_factory = EventsExporterFactory(
                 options.output_format, options.output_path, options.flush_threshold
             )
-            exporter = exporter_factory({"pid": 0})
+            exporter = exporter_factory()
 
             control_server = ControlServer(exporter, address=address)
             control_server.start()
             stack.enter_context(control_server)
 
-            process = factory.start()
-            stack.enter_context(factory)
+            runner = factory(control_server.address)
+            stack.enter_context(runner)
 
+            process = runner.start()
             logger.info("Monitoring PID: %s", process.pid)
 
             stats = StreamingStats()
@@ -58,6 +59,7 @@ def run_monitoring_loop(
             stack.enter_context(replace_signals(_signal_handler))
 
             loop.run()
+            returncode = runner.returncode or 0
 
         logger.info("Monitoring complete.")
         logger.info("Total events: %s", stats.count())
@@ -67,7 +69,7 @@ def run_monitoring_loop(
         if options.show_stats:
             print_stats(stats, table_format=options.table_format)
 
-        return 0
+        return returncode
 
     except Exception as e:
         logger.error("Failed to run GC monitor: %s", e, exc_info=True)

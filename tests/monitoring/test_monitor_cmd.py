@@ -72,7 +72,9 @@ def test_cmd_monitor_self_pid(monitor_args: MonitorArgsFactory) -> None:
     with patch("gc_monitor.commands.monitor_cmd.run_monitoring_loop", return_value=0) as mock_loop:
         result = monitor_cmd.cmd_monitor(monitor_args(pid=-1, duration=0.05))
     assert result == 0
-    assert mock_loop.call_args[0][0].pid == os.getpid()
+    factory_fn = mock_loop.call_args[1]["factory"]
+    process = factory_fn("dummy-address")
+    assert process.pid == os.getpid()
 
 
 # =============================================================================

@@ -12,7 +12,6 @@ import pytest
 
 from gc_monitor.exporters.chrome_trace_io import read_jsonl
 
-from gc_monitor.control.control_server import ControlServer
 from tests.monitoring.conftest import MonitorArgsFactory
 from tests.helpers import assert_valid_chrome_trace_format
 
@@ -154,97 +153,76 @@ class TestCmdRunUnit:
         assert "Must specify either" in caplog.text
 
     def test_cmd_run_module_mode(self) -> None:
-        """Test cmd_run creates ChildProcessRunner with is_module=True."""
+        """Test cmd_run passes factory with correct params for module mode."""
         from gc_monitor.commands import run_cmd
 
         args = self._make_run_args(module_name="timeit", script_args=["-n", "1"])
 
-        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=0):
+        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop:
             with patch("gc_monitor.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
                 mock_runner = MagicMock()
                 mock_runner.returncode = 0
-                mock_runner.__enter__ = MagicMock(return_value=mock_runner)
-                mock_runner.__exit__ = MagicMock(return_value=False)
                 mock_runner_cls.return_value = mock_runner
                 mock_runner.start.return_value = MagicMock(pid=999)
 
                 run_cmd.cmd_run(args)
+
+                factory_fn = mock_loop.call_args[1]["factory"]
+                runner = factory_fn("test-addr")
 
                 mock_runner_cls.assert_called_once_with(
                     target="timeit",
                     is_module=True,
                     passthrough_args=["-n", "1"],
-                    control=mock_runner_cls.call_args[1]["control"],
+                    control_address="test-addr",
                 )
-                assert isinstance(mock_runner_cls.call_args[1]["control"], ControlServer)
+                assert runner is mock_runner
 
     def test_cmd_run_script_mode(self) -> None:
-        """Test cmd_run creates ChildProcessRunner with is_module=False."""
+        """Test cmd_run passes factory with correct params for script mode."""
         from gc_monitor.commands import run_cmd
 
         args = self._make_run_args(script="myscript.py", script_args=["arg1"])
 
-        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=0):
+        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop:
             with patch("gc_monitor.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
                 mock_runner = MagicMock()
                 mock_runner.returncode = 0
-                mock_runner.__enter__ = MagicMock(return_value=mock_runner)
-                mock_runner.__exit__ = MagicMock(return_value=False)
                 mock_runner_cls.return_value = mock_runner
                 mock_runner.start.return_value = MagicMock(pid=999)
 
                 run_cmd.cmd_run(args)
+
+                factory_fn = mock_loop.call_args[1]["factory"]
+                runner = factory_fn("test-addr")
 
                 mock_runner_cls.assert_called_once_with(
                     target="myscript.py",
                     is_module=False,
                     passthrough_args=["arg1"],
-                    control=mock_runner_cls.call_args[1]["control"],
+                    control_address="test-addr",
                 )
-                assert isinstance(mock_runner_cls.call_args[1]["control"], ControlServer)
-
-    def test_cmd_run_cleanup_called(self) -> None:
-        """Test cleanup callback calls runner.terminate()."""
-        from gc_monitor.commands import run_cmd
-
-        args = self._make_run_args(module_name="timeit")
-
-        def mock_loop(process, wait_policy, options, cleanup=None, **kwargs):
-            if cleanup is not None:
-                cleanup()
-            return 0
-
-        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", side_effect=mock_loop):
-            with patch("gc_monitor.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
-                mock_runner = MagicMock()
-                mock_runner.returncode = 0
-                mock_runner.__enter__ = MagicMock(return_value=mock_runner)
-                mock_runner.__exit__ = MagicMock(return_value=False)
-                mock_runner_cls.return_value = mock_runner
-                mock_runner.start.return_value = MagicMock(pid=999)
-
-                run_cmd.cmd_run(args)
-
-                mock_runner.terminate.assert_called_once()
+                assert runner is mock_runner
 
     def test_cmd_run_subprocess_returncode(self) -> None:
-        """Test non-zero subprocess returncode is propagated."""
+        """Test non-zero subprocess returncode is propagated from run_monitoring_loop."""
         from gc_monitor.commands import run_cmd
 
         args = self._make_run_args(module_name="timeit")
 
-        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=0):
-            with patch("gc_monitor.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
-                mock_runner = MagicMock()
-                mock_runner.returncode = 42
-                mock_runner.__enter__ = MagicMock(return_value=mock_runner)
-                mock_runner.__exit__ = MagicMock(return_value=False)
-                mock_runner_cls.return_value = mock_runner
-                mock_runner.start.return_value = MagicMock(pid=999)
+        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=42):
+            result = run_cmd.cmd_run(args)
+            assert result == 42
 
-                result = run_cmd.cmd_run(args)
+    def test_cmd_run_returns_monitoring_loop_failure(self) -> None:
+        """Test monitoring loop failure (1) is propagated."""
+        from gc_monitor.commands import run_cmd
 
-                assert result == 42
+        args = self._make_run_args(module_name="timeit")
+
+        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=1):
+            result = run_cmd.cmd_run(args)
+            assert result == 1
 
     def test_cmd_run_validation_failure(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test cmd_run returns 1 when get_monitoring_options fails."""

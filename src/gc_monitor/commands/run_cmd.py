@@ -84,13 +84,9 @@ def cmd_run(args: Namespace) -> int:
             control_address=control_address,
         )
 
-    exit_code = run_monitoring_loop(
+    return run_monitoring_loop(
         factory=factory,
         wait_policy=StartupTimeoutPolicy(2),
         options=options,
         address=args.control_name,
     )
-
-    if factory.returncode is not None:
-        return factory.returncode
-    return exit_code
