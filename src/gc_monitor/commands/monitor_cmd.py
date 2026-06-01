@@ -8,7 +8,6 @@ from argparse import Namespace
 from gc_monitor.commands.monitoring_base import run_monitoring_loop
 from gc_monitor.commands.monitoring_options import add_monitoring_options, get_monitoring_options
 from gc_monitor.commands.parser_factory import ParserFactory
-from gc_monitor.control.control_server import ControlServer
 from gc_monitor.target_process import ExternalProcess
 from gc_monitor.wait_policy import StartupTimeoutPolicy
 
@@ -49,7 +48,10 @@ def cmd_monitor(args: Namespace) -> int:
 
     process = ExternalProcess(pid)
     wait_policy = StartupTimeoutPolicy(2)
-    control = ControlServer(address=args.control_name)
-    control.start()
 
-    return run_monitoring_loop(process, wait_policy, options, control_server=control)
+    return run_monitoring_loop(
+        factory=process,
+        wait_policy=wait_policy,
+        options=options,
+        address=args.control_name,
+    )

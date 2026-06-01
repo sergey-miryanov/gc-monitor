@@ -60,7 +60,7 @@ class ControlServer:
     monitoring enabled via start/stop messages.
     """
 
-    def __init__(self, address: str | None = None) -> None:
+    def __init__(self, exporter: EventsExporter, address: str | None = None) -> None:
         full_address = _make_address(address) if address is not None else None
         self._listener: Listener|None = Listener(full_address)
         assert isinstance(self._listener.address, str)
@@ -68,10 +68,9 @@ class ControlServer:
         self._connections: set[TConnection] = set()
         self._enabled: dict[int, bool] = {}
         self._lock = threading.Lock()
-        self._exporter_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._running = False
-        self._exporter: EventsExporter | None = None
+        self._exporter: EventsExporter = exporter
         self._accept_thread: threading.Thread = threading.Thread(
             target=self._accept_loop, daemon=True
         )
@@ -192,11 +191,9 @@ class ControlServer:
             if not any_data:
                 break
 
-    def _add_event(self, m:str, pid:int) -> None:
-        with self._exporter_lock:
-            if self._exporter is not None:
-                msg = instant_msg(m)
-                self._exporter.add_instant_event(pid, msg)
+    def _add_event(self, m: str, pid: int) -> None:
+        msg = instant_msg(m)
+        self._exporter.add_instant_event(pid, msg)
 
     def _safe_wait(self, conns: list[TConnection]) -> list[TConnection]:
         try:
@@ -234,10 +231,6 @@ class ControlServer:
         for conn in conns:
             with contextlib.suppress(Exception):
                 conn.close()
-
-    def set_exporter(self, exporter: EventsExporter) -> None:
-        with self._exporter_lock:
-            self._exporter = exporter
 
     def is_running(self) -> bool:
         return self._running
