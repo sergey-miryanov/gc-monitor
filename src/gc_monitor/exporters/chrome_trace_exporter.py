@@ -39,8 +39,6 @@ class TraceExporter(EventsExporter):
         super().__init__()
         self._lock = lock()
         self._events: list[TraceEvent] = []
-        self._control_events: list[TraceEvent] = []
-        self._control_lock: LockStrategy = lock()
         self._flush_threshold = flush_threshold
         self._output_path = output_path
         self._closed = False
@@ -49,6 +47,16 @@ class TraceExporter(EventsExporter):
         self._tids: set[tuple[int, int]] = set()
         self._pids: set[int] = set()
         self._has_written = False
+
+    def _add_events(self, events: list[TraceEvent], count: int = 0) -> None:
+        events_to_flush = []
+        with self._lock.lock():
+            self._events_count += count
+            self._events.extend(events)
+            if len(self._events) >= self._flush_threshold:
+                events_to_flush = self._events[:]
+                self._events.clear()
+        self._flush(events_to_flush)
 
     @override
     def add_event(self, pid: int, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> None:
@@ -59,33 +67,15 @@ class TraceExporter(EventsExporter):
         if (pid, item.iid) not in self._tids:
             self._tids.add((pid, item.iid))
             meta_events.append(thread_meta(pid, item.iid, f"Thread {item.iid}"))
-
-        events = meta_events + convert_item_to_trace_format(pid, item)
-
-        events_to_flush = []
-        with self._lock.lock():
-            self._events_count += 1
-            self._events.extend(events)
-            if len(self._events) >= self._flush_threshold:
-                events_to_flush = self._events[:]
-                self._events.clear()
-
-        self._flush(events_to_flush)
+        self._add_events(meta_events + convert_item_to_trace_format(pid, item), count=1)
 
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
-        event = instant_event(pid, item.name, ts_to_us(item.ts))
-
-        events: list[TraceEvent] = []
-        with self._control_lock.lock():
-            if pid not in self._pids:
-                self._pids.add(pid)
-                self._control_events.append(process_meta(pid, f"Process {pid}"))
-            self._control_events.append(event)
-            events = self._control_events[:]
-            self._control_events.clear()
-
-        self._flush(events)
+        meta_events: list[TraceEvent] = []
+        if pid not in self._pids:
+            self._pids.add(pid)
+            meta_events.append(process_meta(pid, f"Process {pid}"))
+        self._add_events(meta_events + [instant_event(pid, item.name, ts_to_us(item.ts))])
 
     def _flush(self, events: Sequence[TraceEvent]) -> None:
         if events:
@@ -118,16 +108,11 @@ class TraceExporter(EventsExporter):
             return
 
         events: list[TraceEvent] = []
-        control_events: list[TraceEvent] = []
         with self._lock.lock():
             events = self._events[:]
             self._events.clear()
-        with self._control_lock.lock():
-            control_events = self._control_events[:]
-            self._control_events.clear()
 
         self._flush(events)
-        self._flush(control_events)
 
         if not self._has_written:
             with open(self._output_path, "w", encoding="utf-8") as f:
