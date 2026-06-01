@@ -4,7 +4,7 @@ import logging
 from _remote_debugging import get_child_pids, get_gc_stats
 from typing import Any, Self
 
-from .exporters import EventsExporter, EventsExporterFactory
+from .exporters import EventsExporter
 from .poll_status import PollStatus
 from .stats import StreamingStats
 from .target_process import TargetProcess
@@ -18,12 +18,12 @@ class EventsMonitor:
     def __init__(
         self,
         process: TargetProcess,
-        exporter_factory: EventsExporterFactory,
+        exporter: EventsExporter,
         stats: StreamingStats,
     ) -> None:
 
         self._process = process
-        self._exporter = exporter_factory(process.metadata())
+        self._exporter = exporter
         self._enabled = True
         self._last_ts: int = 0
         self._stats = stats
@@ -110,16 +110,16 @@ class EventsMonitor:
 
 def create_monitor(
     process: TargetProcess,
-    exporter_factory: EventsExporterFactory,
+    exporter: EventsExporter,
     stats: StreamingStats,
 ) -> EventsMonitor:
     """Create a GCMonitor for the given process.
 
     Args:
         process: Target process to monitor.
-        exporter_factory: Factory for creating GC events exporter.
+        exporter: Events exporter.
 
     Returns:
         A GCMonitor instance ready to be added to a GCMonitorThread.
     """
-    return EventsMonitor(process, exporter_factory, stats)
+    return EventsMonitor(process, exporter, stats)

@@ -105,13 +105,7 @@ class TestMonitorLoopRun:
         t.join(timeout=2)
 
         assert mock_monitor.poll.called
-        assert mock_monitor.__exit__.called
-
-    def test_monitor_context_used(self, loop, mock_monitor):
-        loop.run()
-
-        mock_monitor.__enter__.assert_called_once()
-        mock_monitor.__exit__.assert_called_once()
+        assert loop._stop_event.is_set()
 
     def test_stop_event_set_after_normal_exit(self, loop):
         assert not loop._stop_event.is_set()

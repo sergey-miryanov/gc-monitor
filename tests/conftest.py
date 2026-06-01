@@ -115,20 +115,15 @@ def stats() -> StreamingStats:
 
 
 @pytest.fixture
-def exporter_factory(exporter: MockExporter):
-    return lambda meta: exporter
-
-
-@pytest.fixture
-def monitor(exporter_factory, process: ExternalProcess, stats: StreamingStats) -> EventsMonitor:
-    return EventsMonitor(process, exporter_factory, stats)
+def monitor(exporter, process: ExternalProcess, stats: StreamingStats) -> EventsMonitor:
+    return EventsMonitor(process, exporter, stats)
 
 
 @pytest.fixture
 def make_monitor(exporter, stats):
     def _make(pid: int = 12345, exp=None):
         proc = ExternalProcess(pid=pid)
-        return EventsMonitor(proc, lambda meta: exp or exporter, stats)
+        return EventsMonitor(proc, exp or exporter, stats)
     return _make
 
 

@@ -33,6 +33,7 @@ def run_monitoring_loop(
     Returns:
         Exit code (0 on success)
     """
+    monitor = None
     try:
         logger.info("Self PID: %s", os.getpid())
         logger.info("Monitoring PID: %s", process.pid)
@@ -42,8 +43,9 @@ def run_monitoring_loop(
             NoLock, options.output_format, options.output_path, options.flush_threshold
         )
         stats = StreamingStats()
-        monitor = create_monitor(process, exporter_factory, stats)
-        control_server.set_exporter(monitor.exporter)
+        exporter = exporter_factory(process.metadata())
+        monitor = create_monitor(process, exporter, stats)
+        control_server.set_exporter(exporter)
         loop = MonitorLoop(monitor, run_policy, wait_policy, rate=options.rate, enabled=enabled)
 
         def _signal_handler(signum: int, frame: object) -> None:
@@ -51,8 +53,6 @@ def run_monitoring_loop(
 
         with replace_signals(_signal_handler):
             loop.run()
-
-        control_server.close()
 
         if cleanup is not None:
             cleanup()
@@ -70,3 +70,7 @@ def run_monitoring_loop(
     except Exception as e:
         logger.error("Failed to run GC monitor: %s", e, exc_info=True)
         return 1
+    finally:
+        control_server.close()
+        if monitor is not None:
+            monitor.stop()

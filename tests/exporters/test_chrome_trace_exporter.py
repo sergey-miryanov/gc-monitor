@@ -234,7 +234,7 @@ def monitor_with_exporter(trace_exporter):
     """Create an EventsMonitor wired to a TraceExporter."""
     exporter, path = trace_exporter()
     process = ExternalProcess(pid=12345)
-    monitor = EventsMonitor(process, lambda meta: exporter, StreamingStats())
+    monitor = EventsMonitor(process, exporter, StreamingStats())
     return monitor, exporter, path
 
 
