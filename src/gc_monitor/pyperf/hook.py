@@ -31,6 +31,7 @@ FORCE_TIMEOUT = 2.0
 ENV_PYPERF_HOOK_OUTPUT = "GC_MONITOR_PYPERF_HOOK_OUTPUT"
 ENV_PYPERF_HOOK_TEMP_DIR = "GC_MONITOR_PYPERF_HOOK_TEMP_DIR"
 ENV_PYPERF_HOOK_VERBOSE = "GC_MONITOR_PYPERF_HOOK_VERBOSE"
+ENV_PYPERF_HOOK_CONTROL_TIMEOUT = "GC_MONITOR_PYPERF_HOOK_CONTROL_TIMEOUT"
 
 logger = logging.getLogger("gc_monitor")
 
@@ -45,6 +46,16 @@ def _get_env_pyperf_hook_verbose() -> bool:
     """
     value = os.environ.get(ENV_PYPERF_HOOK_VERBOSE, "").lower()
     return value in ("1", "yes", "on", "true")
+
+
+def _get_env_pyperf_hook_control_timeout() -> float:
+    value = os.environ.get(ENV_PYPERF_HOOK_CONTROL_TIMEOUT, "")
+    if value:
+        try:
+            return float(value)
+        except ValueError:
+            pass
+    return 10.0
 
 
 def _get_env_pyperf_hook_temp_dir() -> str | None:
@@ -134,7 +145,10 @@ class GCMonitorHook:
         self._run_monitor()
         self._control_client = ControlClient(
             self._control_address,
-            connection_factory=partial(connect_with_retry, timeout=10.0),
+            connection_factory=partial(
+                connect_with_retry,
+                timeout=_get_env_pyperf_hook_control_timeout(),
+            ),
         )
 
     def _run_monitor(self):

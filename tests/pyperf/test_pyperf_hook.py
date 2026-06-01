@@ -12,7 +12,11 @@ from unittest.mock import Mock, patch
 import pytest
 
 from gc_monitor.data import GCStatsInfo
-from gc_monitor.pyperf.hook import gc_monitor_hook, GCMonitorHook
+from gc_monitor.pyperf.hook import (
+    GCMonitorHook,
+    _get_env_pyperf_hook_control_timeout,
+    gc_monitor_hook,
+)
 from gc_monitor.stats import StreamingStats
 
 from tests.helpers import assert_valid_jsonl_format
@@ -542,3 +546,17 @@ class TestGCMonitorHookBenchNameSubstitution:
             expected_output.unlink(missing_ok=True)
             temp_file_1.unlink(missing_ok=True)
             temp_file_2.unlink(missing_ok=True)
+
+
+class TestGetEnvControlTimeout:
+    def test_default_value(self):
+        with patch.dict(os.environ, clear=True):
+            assert _get_env_pyperf_hook_control_timeout() == 10.0
+
+    def test_custom_value(self):
+        with patch.dict(os.environ, {"GC_MONITOR_PYPERF_HOOK_CONTROL_TIMEOUT": "30"}):
+            assert _get_env_pyperf_hook_control_timeout() == 30.0
+
+    def test_invalid_value_returns_default(self):
+        with patch.dict(os.environ, {"GC_MONITOR_PYPERF_HOOK_CONTROL_TIMEOUT": "not-a-number"}):
+            assert _get_env_pyperf_hook_control_timeout() == 10.0
