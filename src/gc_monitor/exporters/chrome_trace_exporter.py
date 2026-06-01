@@ -1,12 +1,12 @@
 """Chrome Trace Event format exporter for GC monitoring data."""
 
 import json
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 from typing import override
 
 from ..data import ts_to_us
-from ..lock_strategy import LockStrategy
 from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg
 from .chrome_trace_format import (
     TraceEvent,
@@ -32,12 +32,11 @@ class TraceExporter(EventsExporter):
 
     def __init__(
         self,
-        lock: type[LockStrategy],
         output_path: Path,
         flush_threshold: int = 1000,
     ) -> None:
         super().__init__()
-        self._lock = lock()
+        self._lock = threading.Lock()
         self._events: list[TraceEvent] = []
         self._flush_threshold = flush_threshold
         self._output_path = output_path
@@ -50,7 +49,7 @@ class TraceExporter(EventsExporter):
 
     def _add_events(self, events: list[TraceEvent], count: int = 0) -> None:
         events_to_flush = []
-        with self._lock.lock():
+        with self._lock:
             self._events_count += count
             self._events.extend(events)
             if len(self._events) >= self._flush_threshold:
@@ -108,7 +107,7 @@ class TraceExporter(EventsExporter):
             return
 
         events: list[TraceEvent] = []
-        with self._lock.lock():
+        with self._lock:
             events = self._events[:]
             self._events.clear()
 

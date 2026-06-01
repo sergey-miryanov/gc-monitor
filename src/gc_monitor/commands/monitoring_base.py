@@ -7,7 +7,6 @@ from collections.abc import Callable
 from gc_monitor.commands.monitoring_options import MonitoringOptions
 from gc_monitor.control.control_server import ControlServer
 from gc_monitor.exporters import EventsExporterFactory
-from gc_monitor.lock_strategy import NoLock
 from gc_monitor.monitor import create_monitor
 from gc_monitor.monitor_loop import MonitorLoop
 from gc_monitor.run_policy import RunnerFactory
@@ -39,7 +38,7 @@ def run_monitoring_loop(
 
         run_policy = RunnerFactory(options.duration)
         exporter_factory = EventsExporterFactory(
-            NoLock, options.output_format, options.output_path, options.flush_threshold
+            options.output_format, options.output_path, options.flush_threshold
         )
         stats = StreamingStats()
         monitor = create_monitor(process, exporter_factory, stats)

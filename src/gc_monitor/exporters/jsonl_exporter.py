@@ -4,11 +4,11 @@ Exports GC events to a file in JSONL format (one JSON object per line).
 """
 
 import json
+import threading
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TextIO, override
 
-from ..lock_strategy import LockStrategy
 from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg, to_mapping
 from .exporter import EventsExporter
 
@@ -22,18 +22,15 @@ class JsonlExporter(EventsExporter):
     Output goes to the destination provided by _open_writer() (file or stdout).
     Events are buffered in memory and flushed when the buffer reaches
     flush_threshold events.
-
-    Thread safety is ensured via a LockStrategy instance passed at construction.
     """
 
     def __init__(
         self,
-        lock: type[LockStrategy],
         output_path: Path | None = None,
         flush_threshold: int = 100,
     ) -> None:
         super().__init__()
-        self._lock = lock()
+        self._lock = threading.Lock()
         self._flush_threshold = flush_threshold
         self._event_count = 0
         self._events: list[dict[str, str | int | float]] = []
@@ -48,7 +45,7 @@ class JsonlExporter(EventsExporter):
         event.update(to_mapping(item))
 
         events: list[dict[str, str | int | float]] = []
-        with self._lock.lock():
+        with self._lock:
             self._events.append(event)
             self._event_count += 1
             if len(self._events) >= self._flush_threshold:
@@ -65,7 +62,7 @@ class JsonlExporter(EventsExporter):
         event.update(to_mapping(item))
 
         events: list[dict[str, str | int | float]] = []
-        with self._lock.lock():
+        with self._lock:
             self._events.append(event)
             self._event_count += 1
             if len(self._events) >= self._flush_threshold:

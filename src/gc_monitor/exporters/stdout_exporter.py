@@ -8,7 +8,6 @@ import sys
 from contextlib import AbstractContextManager
 from typing import TextIO, override
 
-from ..lock_strategy import LockStrategy
 from .jsonl_exporter import JsonlExporter
 
 __all__ = ["StdoutExporter"]
@@ -27,10 +26,9 @@ class StdoutExporter(JsonlExporter):
 
     def __init__(
         self,
-        lock: type[LockStrategy],
         flush_threshold: int = 100,
     ) -> None:
-        super().__init__(lock, flush_threshold=flush_threshold)
+        super().__init__(flush_threshold=flush_threshold)
 
     def _open_writer(self) -> AbstractContextManager[TextIO]:
         return contextlib.nullcontext(sys.stdout)
