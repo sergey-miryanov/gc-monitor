@@ -104,7 +104,7 @@ class EventsMonitor:
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, type_: Any, value: Any, traceback: Any) -> None:
+    def __exit__(self, *args: object) -> None:
         self.stop()
 
 

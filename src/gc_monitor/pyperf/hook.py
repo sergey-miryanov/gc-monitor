@@ -151,7 +151,7 @@ class GCMonitorHook:
             ),
         )
 
-    def _run_monitor(self):
+    def _run_monitor(self) -> None:
         cmd = self._build_command()
 
         try:
@@ -178,7 +178,7 @@ class GCMonitorHook:
         if verbose:
             logger.debug("Started: %s", cmd)
 
-    def _close_monitor(self):
+    def _close_monitor(self) -> None:
         if self._process is None:
             return
 
@@ -212,12 +212,7 @@ class GCMonitorHook:
         self._control_client.start_monitoring()
         return self
 
-    def __exit__(
-        self,
-        _exc_type: type[BaseException] | None,
-        _exc_value: BaseException | None,
-        _traceback: object | None,
-    ) -> None:
+    def __exit__(self, *args: object) -> None:
         """
         Called immediately after running benchmark code.
         """

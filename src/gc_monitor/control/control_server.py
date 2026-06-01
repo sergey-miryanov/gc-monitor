@@ -10,6 +10,8 @@ from multiprocessing.connection import Client, Connection, Listener, wait
 if sys.platform == "win32":
     from multiprocessing.connection import PipeConnection
 
+from typing import Self
+
 import msgspec
 
 from gc_monitor.data import instant_msg
@@ -271,6 +273,12 @@ class ControlServer:
                     self._listener = None
 
         self._running = False
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
 
 def set_control_env(env: dict[str, str], address: str) -> None:

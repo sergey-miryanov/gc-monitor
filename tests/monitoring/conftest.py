@@ -140,6 +140,7 @@ def mock_monitoring_base_deps() -> dict[str, Any]:
         "create_monitor",
         "MonitorLoop",
         "replace_signals",
+        "print_stats",
     ]
     with ExitStack() as stack:
         deps: dict[str, Any] = {}

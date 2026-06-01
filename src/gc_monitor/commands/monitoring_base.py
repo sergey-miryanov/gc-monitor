@@ -3,6 +3,7 @@
 import logging
 import os
 from collections.abc import Callable
+from contextlib import ExitStack
 
 from gc_monitor.commands.monitoring_options import MonitoringOptions
 from gc_monitor.control.control_server import ControlServer
@@ -33,25 +34,31 @@ def run_monitoring_loop(
     Returns:
         Exit code (0 on success)
     """
-    monitor = None
     try:
         logger.info("Self PID: %s", os.getpid())
         logger.info("Monitoring PID: %s", process.pid)
 
-        run_policy = RunnerFactory(options.duration)
-        exporter_factory = EventsExporterFactory(
-            NoLock, options.output_format, options.output_path, options.flush_threshold
-        )
-        stats = StreamingStats()
-        exporter = exporter_factory(process.metadata())
-        monitor = create_monitor(process, exporter, stats)
-        control_server.set_exporter(exporter)
-        loop = MonitorLoop(monitor, run_policy, wait_policy, rate=options.rate, enabled=enabled)
+        with ExitStack() as stack:
+            exporter_factory = EventsExporterFactory(
+                NoLock, options.output_format, options.output_path, options.flush_threshold
+            )
+            stats = StreamingStats()
+            exporter = exporter_factory(process.metadata())
+            monitor = create_monitor(process, exporter, stats)
 
-        def _signal_handler(signum: int, frame: object) -> None:
-            loop.close()
+            stack.enter_context(monitor)
+            stack.enter_context(control_server)
 
-        with replace_signals(_signal_handler):
+            control_server.set_exporter(exporter)
+
+            run_policy = RunnerFactory(options.duration)
+            loop = MonitorLoop(monitor, run_policy, wait_policy, rate=options.rate, enabled=enabled)
+
+            def _signal_handler(signum: int, frame: object) -> None:
+                loop.close()
+
+            stack.enter_context(replace_signals(_signal_handler))
+
             loop.run()
 
         if cleanup is not None:
@@ -70,7 +77,3 @@ def run_monitoring_loop(
     except Exception as e:
         logger.error("Failed to run GC monitor: %s", e, exc_info=True)
         return 1
-    finally:
-        control_server.close()
-        if monitor is not None:
-            monitor.stop()

@@ -210,7 +210,7 @@ class ChildProcessRunner:
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+    def __exit__(self, *args: object) -> None:
         self.terminate()
 
 
