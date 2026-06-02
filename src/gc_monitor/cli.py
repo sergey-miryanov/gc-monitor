@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # No command specified — default to monitor
     if args.command is None:
-        return main(["monitor"], *argv)
+        return main(["monitor", *argv])
 
     # Unknown command (should not happen due to argparse)
     logger.error("Unknown command: %s", args.command)
