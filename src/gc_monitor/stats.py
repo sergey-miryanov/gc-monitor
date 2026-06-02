@@ -72,7 +72,7 @@ class Stats:
         if self._percentiles is not None:
             return self._percentiles.get(p, 0.0)
         if self._sketch is not None and self._count >= self.MAX_BUFFER_LEN:
-            q = self._sketch.get_quantile_value(p/100.0)
+            q = self._sketch.get_quantile_value(p / 100.0)
             if q is not None:
                 return q
         return get_quantile_value(sorted(self._data), p)
@@ -160,7 +160,7 @@ def _record(stats: TStatsData, item: TGCStatsInfo | TIncrementalGCStatsInfo, met
 
 class StreamingStats:
     MAX_ACTIVE_PIDS = 64
-    GENS = (0,1,2)
+    GENS = (0, 1, 2)
 
     def __init__(self) -> None:
         self._count: int = 0
@@ -207,7 +207,7 @@ class StreamingStats:
     def count(self) -> int:
         return self._count
 
-    def aggregate(self) -> dict[str, int|float]:
+    def aggregate(self) -> dict[str, int | float]:
         result: dict[str, int|float] = {}
         for gen in self.GENS:
             s = self.metrics["pause"][gen]

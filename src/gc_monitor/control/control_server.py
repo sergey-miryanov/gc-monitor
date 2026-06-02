@@ -152,7 +152,7 @@ class ControlServer:
         except (EOFError, OSError, ConnectionError):
             to_remove.append(conn)
         except Exception as e:
-            logger.debug("Error while receving data from child: %s", e)
+            logger.debug("Error while receiving data from child: %s", e)
             to_remove.append(conn)
 
         return None
@@ -232,7 +232,7 @@ class ControlServer:
 
         self._close_connections(conns)
 
-    def _close_connections(self, conns:list[TConnection])->None:
+    def _close_connections(self, conns: list[TConnection]) -> None:
         for conn in conns:
             with contextlib.suppress(Exception):
                 conn.close()

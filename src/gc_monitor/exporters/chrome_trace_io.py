@@ -117,7 +117,7 @@ def _parse_events(content: str | bytes) -> list[TraceEvent]:
                 else:
                     result.append(msgspec.convert(obj, IncrementalEvent))
             else:
-                raise ValueError(f"Expected args should dict, not: {type(args)}")
+                raise ValueError(f"Expected args should be a dict, not: {type(args)}")
         elif ph == "I":
             result.append(msgspec.convert(obj, InstantEvent))
     return result

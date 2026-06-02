@@ -324,7 +324,7 @@ class TestParseEvents:
             {"name": "e1", "cat": "c", "ph": "X", "ts": 1000, "dur": 100,
              "pid": 1, "tid": 1, "args": "not_a_dict"},
         ])
-        with pytest.raises(ValueError, match="Expected args should dict"):
+        with pytest.raises(ValueError, match="Expected args should be a dict"):
             _parse_events(raw)
 
 
