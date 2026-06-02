@@ -79,7 +79,8 @@ class TraceExporter(EventsExporter):
             if pid not in self._pids:
                 self._pids.add(pid)
                 meta_events.append(process_meta(pid, f"Process {pid}"))
-        self._add_events(meta_events + [instant_event(pid, item.name, ts_to_us(item.ts))])
+        meta_events.append(instant_event(pid, item.name, ts_to_us(item.ts)))
+        self._add_events(meta_events)
 
     def _flush(self, events: Sequence[TraceEvent]) -> None:
         if events:
