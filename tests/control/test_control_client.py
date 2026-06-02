@@ -61,6 +61,53 @@ class TestSend:
         client._send({"msg": "test"})
         mock_conn.send.assert_called_once_with({"msg": "test", "pid": os.getpid()})
 
+    def test_clears_stale_connection_on_failure(self, client, mock_conn):
+        mock_conn.send.side_effect = OSError("broken pipe")
+        client._send({"msg": "test"})
+        assert client._conn is None
+        mock_conn.close.assert_called_once()
+
+    def test_reconnects_after_cleared_connection(self, mock_connection_factory, mock_conn):
+        mock_conn.send.side_effect = OSError("broken pipe")
+        client = ControlClient("test-address", connection_factory=mock_connection_factory)
+        client._send({"msg": "test"})
+        assert mock_connection_factory.call_count == 1
+        mock_conn.send.side_effect = None
+        client._send({"msg": "retry"})
+        assert mock_connection_factory.call_count == 2
+
+
+class TestClose:
+    def test_closes_connection(self, client, mock_conn):
+        client._ensure_connected()
+        client.close()
+        mock_conn.close.assert_called_once()
+        assert client._conn is None
+
+    def test_safe_to_call_multiple_times(self, client, mock_conn):
+        client._ensure_connected()
+        client.close()
+        client.close()
+        mock_conn.close.assert_called_once()
+
+    def test_noop_when_not_connected(self):
+        client = ControlClient("addr", connection_factory=MagicMock(return_value=None))
+        client.close()
+
+
+class TestContextManager:
+    def test_exit_calls_close(self, client, mock_conn):
+        client._ensure_connected()
+        with client:
+            pass
+        mock_conn.close.assert_called_once()
+
+    def test_exit_clears_connection(self, client):
+        client._ensure_connected()
+        with client:
+            pass
+        assert client._conn is None
+
 
 class TestEnsureConnected:
     def test_creates_connection_once(self, mock_connection_factory, mock_conn):

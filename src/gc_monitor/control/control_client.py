@@ -5,9 +5,9 @@ import os
 import threading
 import time
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from multiprocessing.connection import Client, Connection
-from typing import Any
+from typing import Any, Self
 
 from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV
 
@@ -66,6 +66,10 @@ class ControlClient:
                 logger.debug("Sent control message=%s", msg)
             except Exception as e:
                 logger.debug("Failed to send control message=%s: %s", msg, e)
+                with self._lock:
+                    self._conn = None
+                with suppress(Exception):
+                    conn.close()
         else:
             logger.debug("No connection: msg=%s, address=%s", msg, self._control_address)
 
@@ -85,3 +89,17 @@ class ControlClient:
             yield
         finally:
             self.start_monitoring()
+
+    def close(self) -> None:
+        """Close the control connection."""
+        with self._lock:
+            if self._conn is not None:
+                with suppress(Exception):
+                    self._conn.close()
+                self._conn = None
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()

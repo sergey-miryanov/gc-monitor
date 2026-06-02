@@ -243,6 +243,24 @@ class TestGCMonitorHookTeardown:
         # Temp file should be removed
         assert not temp_file.exists()
 
+    def test_teardown_closes_control_client(
+        self,
+        mock_popen_process: tuple[Mock, Mock],
+        tmp_path: Path,
+    ) -> None:
+        """teardown closes the control plane connection."""
+        _mock_popen, _mock_process = mock_popen_process
+
+        hook = gc_monitor_hook()
+        with hook:
+            pass
+
+        with patch("gc_monitor.pyperf.hook._get_env_pyperf_hook_output", return_value=tmp_path / "out.jsonl"):
+            with patch.object(hook._control_client, "close") as mock_close:
+                hook.teardown({})
+
+        mock_close.assert_called_once()
+
     def test_teardown_combines_multiple_files(
         self,
         mock_popen_process: tuple[Mock, Mock],

@@ -219,6 +219,7 @@ class GCMonitorHook:
         Combines all temp JSONL files into a single JSONL file,
         aggregates statistics, and adds them to pyperf metadata.
         """
+        self._control_client.close()
         self._close_monitor()
 
         if not self._temp_files:
