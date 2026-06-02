@@ -18,5 +18,7 @@ class EventsExporterFactory:
                 return StdoutExporter(flush_threshold=self._flush_threshold)
             case "jsonl":
                 return JsonlExporter(output_path=self._output_path, flush_threshold=self._flush_threshold)
-            case _:
+            case "chrome" | "trace":
                 return TraceExporter(output_path=self._output_path, flush_threshold=self._flush_threshold)
+            case _:
+                raise ValueError(f"Unknown output format: {self._output_format}")
