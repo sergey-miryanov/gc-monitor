@@ -158,6 +158,12 @@ def get_monitoring_options(
         logger.error("Flush threshold must be positive, got %s", flush_threshold)
         return None
 
+    if output_format != "stdout":
+        resolved = output_path.resolve()
+        if not resolved.parent.is_dir():
+            logger.error("Output directory does not exist: %s", resolved.parent)
+            return None
+
     return MonitoringOptions(
         output_path=output_path,
         rate=rate,
