@@ -230,7 +230,7 @@ class ProcessStdoutReader:
         if pipe is None:
             return
 
-        for line in iter(pipe.readline, ""):
+        for line in iter(pipe.readline, b""):
             if line:
                 print(line.decode("utf-8", errors="replace"), end="", flush=True)
             if self._stop_event.is_set():
