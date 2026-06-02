@@ -108,13 +108,10 @@ class GCMonitorHook:
         pyperf run --hook=gc_monitor ...
     """
 
-    def __init__(self) -> None:
-        """
-        Initialize the hook (called once per process).
-        """
+    def __init__(self, temp_dir: tempfile.TemporaryDirectory) -> None:
         self._process: subprocess.Popen[bytes] | None = None
         self._temp_files: list[Path] = []
-        self._temp_dir = tempfile.TemporaryDirectory(dir=_get_env_pyperf_hook_temp_dir())
+        self._temp_dir = temp_dir
         self._pid: int = os.getpid()
         self._control_name = f"pyperf-hook-{self._pid}"
         self._control_address = _make_address(self._control_name)
@@ -290,4 +287,9 @@ class GCMonitorHook:
 
 # Entry point factory function
 def gc_monitor_hook() -> GCMonitorHook:
-    return GCMonitorHook()
+    temp_dir = tempfile.TemporaryDirectory(dir=_get_env_pyperf_hook_temp_dir())
+    try:
+        return GCMonitorHook(temp_dir=temp_dir)
+    except Exception:
+        temp_dir.cleanup()
+        raise

@@ -5,6 +5,7 @@
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -117,11 +118,15 @@ class TestGCMonitorHookEnter:
         mock_popen, _mock_process = mock_popen_process
         mock_popen.side_effect = FileNotFoundError("module not found")
 
-        with pytest.raises(RuntimeError) as exc_info:
-            gc_monitor_hook()
+        mock_temp_dir = Mock(spec=tempfile.TemporaryDirectory)
+        mock_temp_dir.name = tempfile.mkdtemp()
+        with patch("gc_monitor.pyperf.hook.tempfile.TemporaryDirectory", return_value=mock_temp_dir):
+            with pytest.raises(RuntimeError) as exc_info:
+                gc_monitor_hook()
 
         assert "Failed to run gc-monitor module" in str(exc_info.value)
         assert "Ensure gc-monitor is installed" in str(exc_info.value)
+        mock_temp_dir.cleanup.assert_called_once()
 
     def test_enter_creates_temp_file_path(
         self,
