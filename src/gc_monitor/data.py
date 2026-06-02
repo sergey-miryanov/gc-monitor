@@ -52,5 +52,5 @@ def ts_to_us(ts_ns: int) -> int:
 
 
 def dur_to_us(ts_start_ns: int, ts_stop_ns: int) -> int:
-    """Convert duration from seconds to microseconds"""
+    """Convert duration from nanoseconds to microseconds"""
     return int((ts_stop_ns - ts_start_ns) / 1_000)
