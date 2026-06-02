@@ -133,7 +133,7 @@ class TestControlServerStart:
             server_not_started.close()
 
     def test_start_twice_raises(self, control_server) -> None:
-        with pytest.raises(AssertionError):
+        with pytest.raises(RuntimeError, match="already running"):
             control_server.start()
 
 

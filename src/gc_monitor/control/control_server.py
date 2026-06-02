@@ -83,7 +83,8 @@ class ControlServer:
         return self._full_address
 
     def start(self) -> None:
-        assert not self._running
+        if self._running:
+            raise RuntimeError("ControlServer is already running")
         self._stop_event.clear()
         self._accept_thread.start()
         self._reader_thread.start()
