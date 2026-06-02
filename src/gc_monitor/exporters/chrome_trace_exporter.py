@@ -37,6 +37,7 @@ class TraceExporter(EventsExporter):
     ) -> None:
         super().__init__()
         self._lock = threading.Lock()
+        self._io_lock = threading.Lock()
         self._events: list[TraceEvent] = []
         self._flush_threshold = flush_threshold
         self._output_path = output_path
@@ -55,27 +56,30 @@ class TraceExporter(EventsExporter):
             if len(self._events) >= self._flush_threshold:
                 events_to_flush = self._events[:]
                 self._events.clear()
-        self._flush(events_to_flush)
+        if events_to_flush:
+            with self._io_lock:
+                self._flush(events_to_flush)
 
     @override
     def add_event(self, pid: int, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> None:
         meta_events: list[TraceEvent] = []
-        if pid not in self._pids:
-            self._pids.add(pid)
-            meta_events.append(process_meta(pid, f"Process {pid}"))
-        if (pid, item.iid) not in self._tids:
-            self._tids.add((pid, item.iid))
-            meta_events.append(thread_meta(pid, item.iid, f"Thread {item.iid}"))
+        with self._lock:
+            if pid not in self._pids:
+                self._pids.add(pid)
+                meta_events.append(process_meta(pid, f"Process {pid}"))
+            if (pid, item.iid) not in self._tids:
+                self._tids.add((pid, item.iid))
+                meta_events.append(thread_meta(pid, item.iid, f"Thread {item.iid}"))
         self._add_events(meta_events + convert_item_to_trace_format(pid, item), count=1)
 
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
         meta_events: list[TraceEvent] = []
-        if pid not in self._pids:
-            self._pids.add(pid)
-            meta_events.append(process_meta(pid, f"Process {pid}"))
-        meta_events.append(instant_event(pid, item.name, ts_to_us(item.ts)))
-        self._add_events(meta_events)
+        with self._lock:
+            if pid not in self._pids:
+                self._pids.add(pid)
+                meta_events.append(process_meta(pid, f"Process {pid}"))
+        self._add_events(meta_events + [instant_event(pid, item.name, ts_to_us(item.ts))])
 
     def _flush(self, events: Sequence[TraceEvent]) -> None:
         if events:
@@ -104,23 +108,21 @@ class TraceExporter(EventsExporter):
 
         Safe to call multiple times - only the first call writes the file.
         """
-        if self._closed:
-            return
-
-        events: list[TraceEvent] = []
         with self._lock:
+            if self._closed:
+                return
+            self._closed = True
             events = self._events[:]
             self._events.clear()
 
-        self._flush(events)
+        with self._io_lock:
+            self._flush(events)
 
-        if not self._has_written:
-            with open(self._output_path, "w", encoding="utf-8") as f:
-                f.write("[]\n")
-        else:
-            self._write_finish_marker()
-
-        self._closed = True
+            if not self._has_written:
+                with open(self._output_path, "w", encoding="utf-8") as f:
+                    f.write("[]\n")
+            else:
+                self._write_finish_marker()
 
     @override
     def get_event_count(self) -> int:
