@@ -124,12 +124,6 @@ class GCMonitorHook:
             level = logging.DEBUG
             logger.setLevel(level)
 
-        logging.addLevelName(logging.WARNING, "W")
-        logging.addLevelName(logging.DEBUG, "D")
-        logging.addLevelName(logging.INFO, "I")
-        logging.addLevelName(logging.ERROR, "E")
-        logging.addLevelName(logging.CRITICAL, "C")
-
         # Only add handler if none exists
         if not logger.handlers:
             handler = logging.StreamHandler()
