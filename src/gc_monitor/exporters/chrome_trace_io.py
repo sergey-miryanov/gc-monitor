@@ -127,7 +127,7 @@ def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
     timed: list[PauseEvent | IncrementalEvent | CounterEvent | InstantEvent] = []
     for event in events:
         if event["ph"] in ("X", "C", "I"):
-            timed.append(event)
+            timed.append(event)  # pyrefly: ignore[bad-argument-type]
 
     if not timed:
         return
