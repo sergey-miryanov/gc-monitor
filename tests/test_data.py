@@ -64,15 +64,12 @@ class TestInstantMsg:
         assert instant_item.name == "start GC monitor"
         assert instant_item.ts == 5_000_000
 
-    def test_instant_msg_uses_monotonic_ns(self):
-        import time
-        before = time.monotonic_ns()
-        msg = instant_msg("test event")
-        after = time.monotonic_ns()
+    def test_instant_msg_with_explicit_ts(self):
+        msg = instant_msg("test event", 12345)
         assert isinstance(msg, InstantMsg)
         assert msg.type == "i"
         assert msg.name == "test event"
-        assert before <= msg.ts <= after
+        assert msg.ts == 12345
 
 
 class TestFromMapping:

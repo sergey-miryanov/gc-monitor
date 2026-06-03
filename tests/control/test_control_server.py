@@ -45,10 +45,11 @@ def mock_exporter():
 
 
 def _send_msg(server: ControlServer, msg: str, pid: int) -> None:
+    import time
     address = server.address
     conn = Client(address)
     try:
-        conn.send({"msg": msg, "pid": pid})
+        conn.send({"msg": msg, "pid": pid, "ts": time.monotonic_ns()})
     finally:
         conn.close()
 
@@ -232,12 +233,13 @@ class TestControlServerExporter:
 
 class TestControlServerInternal:
     def test_add_event_with_exporter(self, server_not_started, mock_exporter) -> None:
-        server_not_started._add_event("test event", 42)
+        server_not_started._add_event("test event", 42, 12345)
         mock_exporter.add_instant_event.assert_called_once()
         args = mock_exporter.add_instant_event.call_args[0]
         assert args[0] == 42
         assert args[1].name == "test event"
         assert args[1].type == "i"
+        assert args[1].ts == 12345
 
     def test_remove_connections_closes_and_removes(self, server_not_started, mock_conn) -> None:
         server_not_started._connections.add(mock_conn)
@@ -283,12 +285,13 @@ class TestControlServerInternal:
         server_not_started._close_connections([])
 
     def test_recv_returns_control_msg(self, server_not_started, mock_conn) -> None:
-        mock_conn.recv.return_value = {"msg": "start", "pid": 42}
+        mock_conn.recv.return_value = {"msg": "start", "pid": 42, "ts": 12345}
         to_remove = []
         result = server_not_started._recv(mock_conn, to_remove)
         assert result is not None
         assert result.msg == "start"
         assert result.pid == 42
+        assert result.ts == 12345
         assert to_remove == []
 
     def test_recv_eof_removes_conn(self, server_not_started, mock_conn) -> None:
@@ -435,7 +438,7 @@ class TestControlServerReaderLoop:
         server_not_started._reader_loop()
 
     def test_reader_loop_processes_start_msg(self, server_not_started, mock_conn) -> None:
-        mock_conn.recv.return_value = {"msg": "start", "pid": 42}
+        mock_conn.recv.return_value = {"msg": "start", "pid": 42, "ts": 12345}
         server_not_started._connections.add(mock_conn)
         server_not_started._enabled[42] = False
 
@@ -448,7 +451,7 @@ class TestControlServerReaderLoop:
         assert 42 not in server_not_started._enabled
 
     def test_reader_loop_processes_stop_msg(self, server_not_started, mock_conn) -> None:
-        mock_conn.recv.return_value = {"msg": "stop", "pid": 42}
+        mock_conn.recv.return_value = {"msg": "stop", "pid": 42, "ts": 12345}
         server_not_started._connections.add(mock_conn)
 
         with (
@@ -473,7 +476,7 @@ class TestControlServerReaderLoop:
         mock_conn.close.assert_called_once()
 
     def test_reader_loop_handles_malformed_msg(self, server_not_started, mock_conn) -> None:
-        mock_conn.recv.return_value = {"bad": "data"}
+        mock_conn.recv.return_value = {"bad": "data", "ts": 12345}
         server_not_started._connections.add(mock_conn)
 
         with (
@@ -494,7 +497,7 @@ class TestControlServerReaderLoop:
 
     def test_reader_loop_drains_pending_messages(self, server_not_started) -> None:
         mock_conn = MagicMock()
-        mock_conn.recv.return_value = {"msg": "stop", "pid": 42}
+        mock_conn.recv.return_value = {"msg": "stop", "pid": 42, "ts": 12345}
         mock_conn.poll.side_effect = [True, False]
         server_not_started._connections.add(mock_conn)
 
@@ -523,6 +526,7 @@ class TestDrainConnections:
     def test_drain_poll_exception_removes_conn(self, server_not_started) -> None:
         mock_conn = MagicMock()
         mock_conn.poll.side_effect = OSError("pipe broken")
+        mock_conn.recv.return_value = {"msg": "stop", "pid": 1, "ts": 12345}
         server_not_started._connections.add(mock_conn)
 
         server_not_started._drain_connections()
@@ -548,7 +552,7 @@ class TestDrainConnections:
 
         mock_conn = MagicMock()
         mock_conn.poll.side_effect = [True, False]
-        mock_conn.recv.return_value = {"msg": "stop", "pid": 42}
+        mock_conn.recv.return_value = {"msg": "stop", "pid": 42, "ts": 12345}
         server_not_started._connections.add(mock_conn)
 
         server_not_started._drain_connections()
@@ -559,10 +563,10 @@ class TestDrainConnections:
     def test_drain_processes_messages_round_robin(self, server_not_started) -> None:
         c1 = MagicMock()
         c1.poll.side_effect = [True, False]
-        c1.recv.return_value = {"msg": "stop", "pid": 1}
+        c1.recv.return_value = {"msg": "stop", "pid": 1, "ts": 12345}
         c2 = MagicMock()
         c2.poll.side_effect = [True, False]
-        c2.recv.return_value = {"msg": "stop", "pid": 2}
+        c2.recv.return_value = {"msg": "stop", "pid": 2, "ts": 12346}
         server_not_started._connections.update([c1, c2])
 
         server_not_started._drain_connections()
@@ -573,7 +577,7 @@ class TestDrainConnections:
     def test_drain_timeout_expiry(self, server_not_started) -> None:
         mock_conn = MagicMock()
         mock_conn.poll.return_value = True
-        mock_conn.recv.return_value = {"msg": "stop", "pid": 999}
+        mock_conn.recv.return_value = {"msg": "stop", "pid": 999, "ts": 12345}
         server_not_started._connections.add(mock_conn)
 
         start = time.monotonic()
@@ -713,7 +717,7 @@ class TestControlServerThreadSafety:
         def add_event_loop():
             try:
                 for _ in range(20):
-                    control_server._add_event("test", 1)
+                    control_server._add_event("test", 1, 0)
             except Exception as e:
                 errors.append(e)
 

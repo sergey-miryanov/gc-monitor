@@ -57,29 +57,40 @@ class ControlClient:
                     self._conn = self._connect(address)
         return self._conn
 
-    def _send(self, msg: dict[str, str | int]) -> None:
+    def _send(self, msg: str) -> None:
+        to_send = {
+            "msg": msg,
+            "pid": os.getpid(),
+            "ts": time.monotonic_ns(),
+        }
+
         conn = self._ensure_connected()
-        if conn is not None:
+        if conn is None:
+            logger.debug("No connection: msg=%s, address=%s", msg, self._control_address)
+            return
+
+        with self._lock:
+            if self._conn is not conn:
+                return
             try:
-                msg.update({"pid": os.getpid()})
-                conn.send(msg)
-                logger.debug("Sent control message=%s", msg)
+                conn.send(to_send)
+                logger.debug("Sent control message=%s", to_send)
             except Exception as e:
-                logger.debug("Failed to send control message=%s: %s", msg, e)
-                with self._lock:
-                    self._conn = None
+                logger.debug("Failed to send control message=%s: %s", to_send, e)
+                self._conn = None
                 with suppress(Exception):
                     conn.close()
-        else:
-            logger.debug("No connection: msg=%s, address=%s", msg, self._control_address)
 
     def start_monitoring(self) -> None:
         """Resume/enable GC monitoring for this process."""
-        self._send({"msg": "start"})
+        self._send("start")
 
     def stop_monitoring(self) -> None:
         """Pause/disable GC monitoring for this process."""
-        self._send({"msg": "stop"})
+        self._send("stop")
+
+    def instant_msg(self, msg: str) -> None:
+        self._send(msg)
 
     @contextmanager
     def pause_monitoring(self) -> Generator[None, Any]:

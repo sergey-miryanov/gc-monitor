@@ -51,6 +51,7 @@ else:
 class ControlMsg(msgspec.Struct):
     msg: str
     pid: int
+    ts: int
 
 
 class ControlServer:
@@ -170,7 +171,7 @@ class ControlServer:
                 m = "stop GC monitor"
                 with self._lock:
                     self._enabled[pid] = False
-            self._add_event(m, pid)
+            self._add_event(m, pid, msg.ts)
         except Exception as e:
             logger.debug("Error while handling message: %s", e)
 
@@ -197,8 +198,8 @@ class ControlServer:
             if not any_data:
                 break
 
-    def _add_event(self, m: str, pid: int) -> None:
-        msg = instant_msg(m)
+    def _add_event(self, m: str, pid: int, ts: int) -> None:
+        msg = instant_msg(m, ts)
         self._exporter.add_instant_event(pid, msg)
 
     def _safe_wait(self, conns: list[TConnection]) -> list[TConnection]:

@@ -42,8 +42,8 @@ def from_mapping(data: Mapping[str, str | int | float]) -> GCStatsInfo | Increme
     return msgspec.convert(data, GCStatsInfo)
 
 
-def instant_msg(name: str) -> InstantMsg:
-    return InstantMsg("i", name, time.monotonic_ns())
+def instant_msg(name: str, ts: int) -> InstantMsg:
+    return InstantMsg("i", name, ts)
 
 
 def ts_to_us(ts_ns: int) -> int:
