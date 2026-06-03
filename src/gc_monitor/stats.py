@@ -9,7 +9,7 @@ except ImportError:
     HAS_DDSKETCH = False
 
 from .data import dur_to_us
-from .protocol import TGCStatsInfo, TIncrementalGCStatsInfo, is_incremental
+from .protocol import TGCStatsInfo, TIncrementalGCStatsInfo, is_incremental, has_pause_ts, has_incremental, has_mark_alive, has_deduce_unreachable
 
 
 def get_quantile_value(buffer:Sequence[float], q:int) -> float:
@@ -98,39 +98,44 @@ class Stats:
 
 class Metric(Protocol):
     name: str
-    def get_values(self, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> tuple[int, int]:...
+    def get_values(self, item: object) -> tuple[int, int]:...
 
 
 class PauseMetric:
     def __init__(self) -> None:
         self.name = "GC Pause"
 
-    def get_values(self, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> tuple[int, int]:
-        return item.ts_start, item.ts_stop
+    def get_values(self, item: object) -> tuple[int, int]:
+        if has_pause_ts(item):
+            return item.ts_start, item.ts_stop
+        return 0,0
 
 class MarkAliveMetric:
     def __init__(self) -> None:
         self.name = "GC Mark Alive"
 
-    def get_values(self, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> tuple[int, int]:
-        assert(is_incremental(item))
-        return item.ts_mark_alive_start, item.ts_mark_alive_stop
+    def get_values(self, item: object) -> tuple[int, int]:
+        if has_mark_alive(item):
+            return item.ts_mark_alive_start, item.ts_mark_alive_stop
+        return 0, 0
 
 class FillIncrementMetric:
     def __init__(self) -> None:
         self.name = "GC Fill Increment"
 
-    def get_values(self, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> tuple[int, int]:
-        assert(is_incremental(item))
-        return item.ts_fill_increment_start, item.ts_fill_increment_stop
+    def get_values(self, item: object) -> tuple[int, int]:
+        if has_incremental(item):
+            return item.ts_fill_increment_start, item.ts_fill_increment_stop
+        return 0, 0
 
 class DeduceUnreachableMetric:
     def __init__(self) -> None:
         self.name = "GC Deduce Unreachable"
 
-    def get_values(self, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> tuple[int, int]:
-        assert(is_incremental(item))
-        return item.ts_deduce_unreachable_start, item.ts_deduce_unreachable_stop
+    def get_values(self, item: object) -> tuple[int, int]:
+        if has_deduce_unreachable(item):
+            return item.ts_deduce_unreachable_start, item.ts_deduce_unreachable_stop
+        return 0, 0
 
 
 
@@ -149,7 +154,7 @@ METRICS: dict[str, Metric] = {
 TStatsData = dict[str, dict[int, Stats]]
 
 
-def _record(stats: TStatsData, item: TGCStatsInfo | TIncrementalGCStatsInfo, metric_name: str) -> None:
+def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
     metric = METRICS[metric_name]
     ts_start, ts_stop = metric.get_values(item)
     gen = item.gen
@@ -174,10 +179,8 @@ class StreamingStats:
     def update(self, pid: int, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> None:
         self._count += 1
 
-        _record(self.metrics, item, "pause")
-        if is_incremental(item):
-            for metric in INCREMENTAL_METRICS:
-                _record(self.metrics, item, metric)
+        for metric in METRICS:
+            _record(self.metrics, item, metric)
 
         if pid not in self._metrics_per_pid:
             if len(self._metrics_per_pid) >= self.MAX_ACTIVE_PIDS:
@@ -192,9 +195,8 @@ class StreamingStats:
         self._metrics_per_pid.move_to_end(pid)
 
         _record(self._metrics_per_pid[pid], item, "pause")
-        if is_incremental(item):
-            for metric in INCREMENTAL_METRICS:
-                _record(self._metrics_per_pid[pid], item, metric)
+        for metric in METRICS:
+            _record(self._metrics_per_pid[pid], item, metric)
 
         self._heap_size[pid] = max(self._heap_size.get(pid, 0), item.heap_size)
 

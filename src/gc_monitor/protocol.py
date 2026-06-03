@@ -26,11 +26,42 @@ class TIncrementalGCStatsInfo(TGCStatsInfo, Protocol):
     ts_deduce_unreachable_stop: int
 
 
+class TIncrementalInfo(Protocol):
+    increment_size: int
+    ts_fill_increment_start: int
+    ts_fill_increment_stop: int
+
+
+class TMarkAliveInfo(Protocol):
+    alive_size: int
+    ts_mark_alive_start: int
+    ts_mark_alive_stop: int
+
+
+class TExtraTimes(Protocol):
+    ts_deduce_unreachable_start: int
+    ts_deduce_unreachable_stop: int
+
 class TInstantMsg(Protocol):
     type: str
     name: str
     ts: int
 
+
+def has_pause_ts(item: object) -> TypeGuard[TGCStatsInfo]:
+    return hasattr(item, "ts_start")
+
+def has_incremental(item: object) -> TypeGuard[TIncrementalInfo]:
+    return hasattr(item, "increment_size")
+
+def has_mark_alive(item: object) -> TypeGuard[TMarkAliveInfo]:
+    return hasattr(item, "alive_size")
+
+def has_deduce_unreachable(item: object) -> TypeGuard[TExtraTimes]:
+    return hasattr(item, "ts_deduce_unreachable_start")
+
+def has_gen(item: object) -> TypeGuard[TGCStatsInfo]:
+    return hasattr(item, "gen")
 
 def is_gc_stats(item: TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg) -> TypeGuard[TGCStatsInfo | TIncrementalGCStatsInfo]:
     return hasattr(item, "gen")

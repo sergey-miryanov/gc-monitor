@@ -60,8 +60,9 @@ class TestMarkAliveMetric:
     ) -> None:
         metric = MarkAliveMetric()
         item = gc_stats_item_factory()
-        with pytest.raises(AssertionError):
-            metric.get_values(item)
+        ts1, ts2 = metric.get_values(item)
+        assert(ts1 == 0)
+        assert(ts2 == 0)
 
 
 class TestFillIncrementMetric:
@@ -89,8 +90,9 @@ class TestFillIncrementMetric:
     ) -> None:
         metric = FillIncrementMetric()
         item = gc_stats_item_factory()
-        with pytest.raises(AssertionError):
-            metric.get_values(item)
+        ts1, ts2 = metric.get_values(item)
+        assert(ts1 == 0)
+        assert(ts2 == 0)
 
 
 class TestDeduceUnreachableMetric:
@@ -118,8 +120,9 @@ class TestDeduceUnreachableMetric:
     ) -> None:
         metric = DeduceUnreachableMetric()
         item = gc_stats_item_factory()
-        with pytest.raises(AssertionError):
-            metric.get_values(item)
+        ts1, ts2 = metric.get_values(item)
+        assert(ts1 == 0)
+        assert(ts2 == 0)
 
 
 class TestMetricDictionaries:
