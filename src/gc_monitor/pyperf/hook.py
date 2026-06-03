@@ -108,7 +108,7 @@ class GCMonitorHook:
         pyperf run --hook=gc_monitor ...
     """
 
-    def __init__(self, temp_dir: tempfile.TemporaryDirectory) -> None:
+    def __init__(self, temp_dir: tempfile.TemporaryDirectory[str]) -> None:
         self._process: subprocess.Popen[bytes] | None = None
         self._temp_files: list[Path] = []
         self._temp_dir = temp_dir
