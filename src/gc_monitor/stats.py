@@ -9,7 +9,14 @@ except ImportError:
     HAS_DDSKETCH = False
 
 from .data import dur_to_us
-from .protocol import TGCStatsInfo, TIncrementalGCStatsInfo, is_incremental, has_pause_ts, has_incremental, has_mark_alive, has_deduce_unreachable
+from .protocol import (
+    TGCStatsInfo,
+    TIncrementalGCStatsInfo,
+    has_deduce_unreachable,
+    has_incremental,
+    has_mark_alive,
+    has_pause_ts,
+)
 
 
 def get_quantile_value(buffer:Sequence[float], q:int) -> float:
