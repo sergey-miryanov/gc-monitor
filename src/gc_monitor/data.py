@@ -14,17 +14,14 @@ class GCStatsInfo(msgspec.Struct):
     uncollectable: int
     candidates: int
     duration: float
-
-
-class IncrementalGCStatsInfo(GCStatsInfo):
-    increment_size: int
-    alive_size: int
-    ts_mark_alive_start: int
-    ts_mark_alive_stop: int
-    ts_fill_increment_start: int
-    ts_fill_increment_stop: int
-    ts_deduce_unreachable_start: int
-    ts_deduce_unreachable_stop: int
+    increment_size: int | None = None
+    alive_size: int | None = None
+    ts_mark_alive_start: int | None = None
+    ts_mark_alive_stop: int | None = None
+    ts_fill_increment_start: int | None = None
+    ts_fill_increment_stop: int | None = None
+    ts_deduce_unreachable_start: int | None = None
+    ts_deduce_unreachable_stop: int | None = None
 
 
 class InstantMsg(msgspec.Struct):
@@ -33,11 +30,9 @@ class InstantMsg(msgspec.Struct):
     ts: int
 
 
-def from_mapping(data: Mapping[str, str | int | float]) -> GCStatsInfo | IncrementalGCStatsInfo | InstantMsg:
+def from_mapping(data: Mapping[str, str | int | float]) -> GCStatsInfo | InstantMsg:
     if data.get("type") == "i":
         return msgspec.convert(data, InstantMsg)
-    if "increment_size" in data:
-        return msgspec.convert(data, IncrementalGCStatsInfo)
     return msgspec.convert(data, GCStatsInfo)
 
 

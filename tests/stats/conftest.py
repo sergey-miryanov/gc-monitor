@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo
+from gc_monitor.data import GCStatsInfo
 from gc_monitor.stats import Stats, StreamingStats
 
 from tests.helpers import create_mock_stats_item, create_mock_incremental_item
@@ -63,20 +63,16 @@ def gc_stats_item_factory() -> Callable[..., GCStatsInfo]:
 
 
 @pytest.fixture
-def incremental_gc_stats_item_factory() -> Callable[..., IncrementalGCStatsInfo]:
-    """Factory fixture that creates IncrementalGCStatsInfo with overridable defaults.
-
-    Usage:
-        item = incremental_gc_stats_item_factory(ts_mark_alive_stop=5000)
-    """
+def incremental_gc_stats_item_factory() -> Callable[..., GCStatsInfo]:
+    """Factory fixture that creates GCStatsInfo (with optional incremental fields)."""
     return create_mock_incremental_item
 
 
 @pytest.fixture
 def incremental_gc_stats_item(
-    incremental_gc_stats_item_factory: Callable[..., IncrementalGCStatsInfo],
-) -> IncrementalGCStatsInfo:
-    """Create a ready-made IncrementalGCStatsInfo instance."""
+    incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
+) -> GCStatsInfo:
+    """Create a ready-made GCStatsInfo with incremental fields."""
     return incremental_gc_stats_item_factory()
 
 

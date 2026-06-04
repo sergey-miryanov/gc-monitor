@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 from typing import Any, Mapping
 
-from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo
+from gc_monitor.data import GCStatsInfo
 from gc_monitor.exporters.exporter import EventsExporter
 from gc_monitor.protocol import TGCStatsInfo, TInstantMsg
 
@@ -116,7 +116,7 @@ def create_mock_stats_item(
     )
 
 
-def create_mock_incremental_item(**kwargs: object) -> IncrementalGCStatsInfo:
+def create_mock_incremental_item(**kwargs: object) -> GCStatsInfo:
     defaults: dict[str, object] = dict(
         gen=0, iid=0, ts_start=1_500_000_000, ts_stop=1_505_000_000,
         heap_size=52428800, collections=50, collected=200, uncollectable=10,
@@ -127,7 +127,7 @@ def create_mock_incremental_item(**kwargs: object) -> IncrementalGCStatsInfo:
         ts_deduce_unreachable_start=1_502_000_000, ts_deduce_unreachable_stop=1_503_000_000,
     )
     defaults.update(kwargs)
-    return IncrementalGCStatsInfo(**defaults)  # type: ignore[arg-type]
+    return GCStatsInfo(**defaults)
 
 
 def create_jsonl_record(

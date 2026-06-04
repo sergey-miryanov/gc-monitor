@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo
+from gc_monitor.data import GCStatsInfo
 from gc_monitor.protocol import TGCStatsInfo
 from gc_monitor.stats import StreamingStats, get_quantile_value
 
@@ -83,7 +83,7 @@ class TestStreamingStatsUpdate:
     def test_update_records_incremental_metrics(
         self,
         streaming_stats: StreamingStats,
-        incremental_gc_stats_item: IncrementalGCStatsInfo,
+        incremental_gc_stats_item: GCStatsInfo,
     ) -> None:
         streaming_stats.update(12345, incremental_gc_stats_item)
         assert streaming_stats.metrics["mark_alive"][0].count() == 1

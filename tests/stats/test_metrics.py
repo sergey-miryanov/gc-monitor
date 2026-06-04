@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo
+from gc_monitor.data import GCStatsInfo
 from gc_monitor.stats import (
     INCREMENTAL_METRICS,
     METRICS,
@@ -44,7 +44,7 @@ class TestMarkAliveMetric:
 
     def test_get_values(
         self,
-        incremental_gc_stats_item_factory: Callable[..., IncrementalGCStatsInfo],
+        incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
     ) -> None:
         metric = MarkAliveMetric()
         item = incremental_gc_stats_item_factory(
@@ -74,7 +74,7 @@ class TestFillIncrementMetric:
 
     def test_get_values(
         self,
-        incremental_gc_stats_item_factory: Callable[..., IncrementalGCStatsInfo],
+        incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
     ) -> None:
         metric = FillIncrementMetric()
         item = incremental_gc_stats_item_factory(
@@ -104,7 +104,7 @@ class TestDeduceUnreachableMetric:
 
     def test_get_values(
         self,
-        incremental_gc_stats_item_factory: Callable[..., IncrementalGCStatsInfo],
+        incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
     ) -> None:
         metric = DeduceUnreachableMetric()
         item = incremental_gc_stats_item_factory(

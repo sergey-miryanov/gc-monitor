@@ -1,6 +1,6 @@
 import pytest
 
-from gc_monitor.data import GCStatsInfo, IncrementalGCStatsInfo, InstantMsg
+from gc_monitor.data import GCStatsInfo, InstantMsg
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def simple_item():
 
 @pytest.fixture
 def incremental_item():
-    return IncrementalGCStatsInfo(
+    return GCStatsInfo(
         gen=1,
         iid=2,
         ts_start=3_000_000,

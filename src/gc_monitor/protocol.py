@@ -49,16 +49,16 @@ class TInstantMsg(Protocol):
 
 
 def has_pause_ts(item: object) -> TypeGuard[TGCStatsInfo]:
-    return hasattr(item, "ts_start")
+    return getattr(item, "ts_start", None) is not None
 
 def has_incremental(item: object) -> TypeGuard[TIncrementalInfo]:
-    return hasattr(item, "increment_size")
+    return getattr(item, "increment_size", None) is not None
 
 def has_mark_alive(item: object) -> TypeGuard[TMarkAliveInfo]:
-    return hasattr(item, "alive_size")
+    return getattr(item, "alive_size", None) is not None
 
 def has_deduce_unreachable(item: object) -> TypeGuard[TExtraTimes]:
-    return hasattr(item, "ts_deduce_unreachable_start")
+    return getattr(item, "ts_deduce_unreachable_start", None) is not None
 
 def has_gen(item: object) -> TypeGuard[TGCStatsInfo]:
     return hasattr(item, "gen")
@@ -67,7 +67,7 @@ def is_gc_stats(item: TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg) -> T
     return hasattr(item, "gen")
 
 def is_incremental(item: TGCStatsInfo | TIncrementalGCStatsInfo) -> TypeGuard[TIncrementalGCStatsInfo]:
-    return hasattr(item, "increment_size")
+    return getattr(item, "increment_size", None) is not None
 
 
 def is_instant(item: TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg) -> TypeGuard[TInstantMsg]:
