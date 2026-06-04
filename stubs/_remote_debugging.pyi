@@ -17,16 +17,5 @@ class GCStatsInfo(Protocol):
     duration: float
 
 
-class IncrementalGCStatsInfo(GCStatsInfo, Protocol):
-    increment_size: int
-    alive_size: int
-    ts_mark_alive_start: int
-    ts_mark_alive_stop: int
-    ts_fill_increment_start: int
-    ts_fill_increment_stop: int
-    ts_deduce_unreachable_start: int
-    ts_deduce_unreachable_stop: int
-
-
 def get_child_pids(pid: int, *, recursive: bool) -> list[int]: ...
-def get_gc_stats(pid: int, *, all_interpreters: bool) -> list[GCStatsInfo|IncrementalGCStatsInfo]: ...
+def get_gc_stats(pid: int, *, all_interpreters: bool) -> list[GCStatsInfo]: ...
