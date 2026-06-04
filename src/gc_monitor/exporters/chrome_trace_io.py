@@ -8,10 +8,11 @@ import msgspec
 from ..data import from_mapping
 from ..protocol import (
     TGCStatsInfo,
-    TIncrementalGCStatsInfo,
     TInstantMsg,
+    has_deduce_unreachable,
+    has_incremental,
+    has_mark_alive,
     is_gc_stats,
-    is_incremental,
     is_instant,
     to_mapping,
 )
@@ -34,14 +35,14 @@ __all__ = [
 ]
 
 
-def json_to_item(data: Mapping[str, str | int | float]) -> tuple[int, TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]:
+def json_to_item(data: Mapping[str, str | int | float]) -> tuple[int, TGCStatsInfo | TInstantMsg]:
     pid = int(data["pid"])
     item = from_mapping(data)
     return pid, item
 
 
-def read_jsonl(filename: Path) -> dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]]:
-    items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]] = {}
+def read_jsonl(filename: Path) -> dict[int, list[TGCStatsInfo | TInstantMsg]]:
+    items: dict[int, list[TGCStatsInfo | TInstantMsg]] = {}
     with open(filename, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -73,7 +74,7 @@ def write_trace_events(filename: Path, events: list[TraceEvent]) -> None:
         f.flush()
 
 
-def write_jsonl(filename: Path, items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]]) -> None:
+def write_jsonl(filename: Path, items: dict[int, list[TGCStatsInfo | TInstantMsg]]) -> None:
     """Write GC stats items to a JSONL file."""
     with open(filename, "wb") as f:
         for pid, pid_items in items.items():
@@ -138,7 +139,7 @@ def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
         e["ts"] = e["ts"] - min_ts
 
 
-def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]]) -> None:
+def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TInstantMsg]]) -> None:
     timestamps: list[int] = []
     for pid_items in items.values():
         for item in pid_items:
@@ -158,11 +159,13 @@ def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TIncrementa
             elif is_gc_stats(item):
                 item.ts_start -= min_ts
                 item.ts_stop -= min_ts
-                if is_incremental(item):
+                if has_mark_alive(item):
                     item.ts_mark_alive_start -= min_ts
                     item.ts_mark_alive_stop -= min_ts
+                if has_incremental(item):
                     item.ts_fill_increment_start -= min_ts
                     item.ts_fill_increment_stop -= min_ts
+                if has_deduce_unreachable(item):
                     item.ts_deduce_unreachable_start -= min_ts
                     item.ts_deduce_unreachable_stop -= min_ts
 
@@ -204,7 +207,7 @@ def combine_files(input_paths: list[Path], output_path: Path, normalize: bool = 
         write_trace_events(output_path, trace_events)
 
     elif input_format == "jsonl" and output_format == "jsonl":
-        all_items: dict[int, list[TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg]] = {}
+        all_items: dict[int, list[TGCStatsInfo | TInstantMsg]] = {}
 
         for input_path in input_paths:
             items = read_jsonl(input_path)
