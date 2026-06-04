@@ -112,7 +112,8 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  stresss-test:
+  stress-test:
+    if: github.ref_name != 'main'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -127,6 +128,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache-prefix: main
       - name: Run stress-tests
-        if: github.head_ref != 'main'
         run: |
           poetry run pytest -k "control" -s --count 100
