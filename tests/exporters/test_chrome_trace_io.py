@@ -27,6 +27,7 @@ from gc_monitor.exporters.chrome_trace_format import (
 )
 from gc_monitor.protocol import has_incremental
 
+from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_stats_item, create_jsonl_record
 
 
@@ -242,6 +243,16 @@ class TestWriteJsonl:
         assert len(lines) == 2
         assert all(json.loads(l)["pid"] == 1 for l in lines)
 
+    def test_writes_instant_msg(self, tmp_path: Path) -> None:
+        path = tmp_path / "out.jsonl"
+        item = create_instant_msg(name="event", ts=1_000)
+        write_jsonl(path, {1: [item]})
+        lines = path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 1
+        record = json.loads(lines[0])
+        assert record["type"] == "i"
+        assert "tid" not in record
+
 
 # =============================================================================
 # _parse_events tests
@@ -318,6 +329,16 @@ class TestParseEvents:
         ])
         result = _parse_events(raw)
         assert len(result) == 0
+
+    def test_parses_instant_event(self) -> None:
+        raw = json.dumps([
+            {"ph": "I", "name": "marker", "ts": 5000, "pid": 1, "s": "p"},
+        ])
+        result = _parse_events(raw)
+        assert len(result) == 1
+        assert result[0]["ph"] == "I"
+        assert result[0]["name"] == "marker"
+        assert result[0]["ts"] == 5000
 
     def test_raises_on_non_dict_args(self) -> None:
         raw = json.dumps([
@@ -414,6 +435,12 @@ class TestNormalizeJsonlTimestamps:
         assert inc.ts_start == 2000
         assert inc.ts_mark_alive_start == 2000
         assert inc.ts_mark_alive_stop == 2100
+
+    def test_instant_only_normalize(self) -> None:
+        item = create_instant_msg(name="event", ts=5_000)
+        items = {1: [item]}
+        _normalize_jsonl_timestamps(items)
+        assert item.ts == 0
 
     def test_multiple_pids(self) -> None:
         item1 = _make_inc_item(ts_start=10000, ts_stop=11000)
@@ -571,6 +598,23 @@ class TestCombineFiles:
         records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
         assert len(records) == 2
         assert {r["pid"] for r in records} == {1, 2}
+
+    def test_jsonl_to_jsonl_append_same_pid(self, tmp_path: Path) -> None:
+        f1 = tmp_path / "a.jsonl"
+        f2 = tmp_path / "b.jsonl"
+        out = tmp_path / "out.jsonl"
+        r1 = create_jsonl_record(pid=1, ts_start=1000, ts_stop=2000)
+        r2 = create_jsonl_record(pid=1, ts_start=3000, ts_stop=4000)
+        for f, lines in [(f1, [r1]), (f2, [r2])]:
+            f.write_text(
+                "\n".join(msgspec.json.encode(r).decode() for r in lines) + "\n",
+                encoding="utf-8",
+            )
+        combine_files([f1, f2], out, input_format="jsonl", output_format="jsonl")
+        records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
+        assert len(records) == 2
+        assert records[0]["ts_start"] == 1000
+        assert records[1]["ts_start"] == 3000
 
     def test_jsonl_to_chrome_multiple_files(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.jsonl"

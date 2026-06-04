@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from types import SimpleNamespace
 
 import pytest
 
@@ -33,6 +34,13 @@ class TestPauseMetric:
         ts_start, ts_stop = metric.get_values(item)
         assert ts_start == 1000
         assert ts_stop == 5000
+
+    def test_get_values_without_pause_ts(self) -> None:
+        metric = PauseMetric()
+        item = SimpleNamespace(gen=0)
+        ts_start, ts_stop = metric.get_values(item)
+        assert ts_start == 0
+        assert ts_stop == 0
 
 
 class TestMarkAliveMetric:
