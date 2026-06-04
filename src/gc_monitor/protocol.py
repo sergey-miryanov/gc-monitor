@@ -15,17 +15,6 @@ class TGCStatsInfo(Protocol):
     duration: float
 
 
-class TIncrementalGCStatsInfo(TGCStatsInfo, Protocol):
-    increment_size: int
-    alive_size: int
-    ts_mark_alive_start: int
-    ts_mark_alive_stop: int
-    ts_fill_increment_start: int
-    ts_fill_increment_stop: int
-    ts_deduce_unreachable_start: int
-    ts_deduce_unreachable_stop: int
-
-
 class TIncrementalInfo(Protocol):
     increment_size: int
     ts_fill_increment_start: int
@@ -63,14 +52,10 @@ def has_deduce_unreachable(item: object) -> TypeGuard[TExtraTimes]:
 def has_gen(item: object) -> TypeGuard[TGCStatsInfo]:
     return hasattr(item, "gen")
 
-def is_gc_stats(item: TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg) -> TypeGuard[TGCStatsInfo | TIncrementalGCStatsInfo]:
+def is_gc_stats(item: object) -> TypeGuard[TGCStatsInfo]:
     return hasattr(item, "gen")
 
-def is_incremental(item: TGCStatsInfo | TIncrementalGCStatsInfo) -> TypeGuard[TIncrementalGCStatsInfo]:
-    return getattr(item, "increment_size", None) is not None
-
-
-def is_instant(item: TGCStatsInfo | TIncrementalGCStatsInfo | TInstantMsg) -> TypeGuard[TInstantMsg]:
+def is_instant(item: object) -> TypeGuard[TInstantMsg]:
     return hasattr(item, "type")
 
 

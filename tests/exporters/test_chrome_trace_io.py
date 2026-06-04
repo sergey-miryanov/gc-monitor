@@ -25,7 +25,7 @@ from gc_monitor.exporters.chrome_trace_format import (
     process_meta,
     thread_meta,
 )
-from gc_monitor.protocol import is_incremental
+from gc_monitor.protocol import has_incremental
 
 from tests.helpers import create_mock_stats_item, create_jsonl_record
 
@@ -82,7 +82,7 @@ class TestJsonToItem:
         data = _make_inc_jsonl_record(pid=456, gen=1, increment_size=500)
         pid, item = json_to_item(data)
         assert pid == 456
-        assert is_incremental(item)
+        assert has_incremental(item)
         assert item.increment_size == 500
 
     def test_pid_as_string(self) -> None:
@@ -140,7 +140,7 @@ class TestReadJsonl:
         record = _make_inc_jsonl_record(pid=1)
         path.write_text(msgspec.json.encode(record).decode() + "\n", encoding="utf-8")
         result = read_jsonl(path)
-        assert is_incremental(result[1][0])
+        assert has_incremental(result[1][0])
 
     def test_raises_on_malformed_json(self, tmp_path: Path) -> None:
         path = tmp_path / "bad.jsonl"

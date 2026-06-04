@@ -15,7 +15,6 @@ from gc_monitor.protocol import (
     has_mark_alive,
     has_pause_ts,
     is_gc_stats,
-    is_incremental,
     is_instant,
     to_mapping,
 )
@@ -30,23 +29,6 @@ class TestIsGC:
 
     def test_instant_returns_false(self, instant_item):
         assert is_gc_stats(instant_item) is False
-
-
-class TestIsIncremental:
-    def test_regular_returns_false(self, simple_item):
-        assert is_incremental(simple_item) is False
-
-    def test_incremental_returns_true(self, incremental_item):
-        assert is_incremental(incremental_item) is True
-
-    def test_instant_returns_false(self, instant_item):
-        assert is_incremental(instant_item) is False
-
-    def test_incremental_type_guard(self, incremental_item):
-        result = is_incremental(incremental_item)
-        if result:
-            assert incremental_item.increment_size == 500
-            assert incremental_item.alive_size == 300
 
 
 class TestIsInstant:

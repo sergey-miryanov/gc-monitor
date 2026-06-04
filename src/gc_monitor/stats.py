@@ -11,7 +11,6 @@ except ImportError:
 from .data import dur_to_us
 from .protocol import (
     TGCStatsInfo,
-    TIncrementalGCStatsInfo,
     has_deduce_unreachable,
     has_incremental,
     has_mark_alive,
@@ -183,7 +182,7 @@ class StreamingStats:
         self._materialized_metrics: dict[int, TStatsData] = {}
         self._heap_size: dict[int, int] = {}
 
-    def update(self, pid: int, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> None:
+    def update(self, pid: int, item: TGCStatsInfo) -> None:
         self._count += 1
 
         for metric in METRICS:

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import override
 
 from ..data import ts_to_us
-from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg
+from ..protocol import TGCStatsInfo, TInstantMsg
 from .chrome_trace_format import (
     TraceEvent,
     convert_item_to_trace_format,
@@ -61,7 +61,7 @@ class TraceExporter(EventsExporter):
                 self._flush(events_to_flush)
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> None:
+    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
         meta_events: list[TraceEvent] = []
         with self._lock:
             if pid not in self._pids:
