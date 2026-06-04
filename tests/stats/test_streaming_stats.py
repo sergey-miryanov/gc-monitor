@@ -89,6 +89,11 @@ class TestStreamingStatsUpdate:
         assert streaming_stats.metrics["mark_alive"][0].count() == 1
         assert streaming_stats.metrics["fill_increment"][0].count() == 1
         assert streaming_stats.metrics["deduce_unreachable"][0].count() == 1
+        assert streaming_stats.metrics["handle_weakrefs"][0].count() == 1
+        assert streaming_stats.metrics["finalize_garbage"][0].count() == 1
+        assert streaming_stats.metrics["handle_resurrected"][0].count() == 1
+        assert streaming_stats.metrics["clear_weakrefs"][0].count() == 1
+        assert streaming_stats.metrics["delete_garbage"][0].count() == 1
 
     def test_update_skips_zero_duration(
         self,

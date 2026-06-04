@@ -125,6 +125,13 @@ def create_mock_incremental_item(**kwargs: object) -> GCStatsInfo:
         ts_mark_alive_start=1_500_000_000, ts_mark_alive_stop=1_501_000_000,
         ts_fill_increment_start=1_501_000_000, ts_fill_increment_stop=1_502_000_000,
         ts_deduce_unreachable_start=1_502_000_000, ts_deduce_unreachable_stop=1_503_000_000,
+        ts_handle_weakref_callbacks_start=1_503_000_000,
+        ts_handle_weakref_callbacks_stop=1_504_000_000,
+        ts_finalize_garbage_stop=1_505_000_000,
+        ts_handle_resurected_stop=1_506_000_000,
+        ts_clear_weakrefs_stop=1_507_000_000,
+        ts_delete_garbage_start=1_508_000_000,
+        ts_delete_garbage_stop=1_509_000_000,
     )
     defaults.update(kwargs)
     return GCStatsInfo(**defaults)

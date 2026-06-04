@@ -46,6 +46,13 @@ def _make_inc_item(
         ts_fill_increment_stop=ts_start + 200,
         ts_deduce_unreachable_start=ts_start + 200,
         ts_deduce_unreachable_stop=ts_start + 300,
+        ts_handle_weakref_callbacks_start=ts_start + 300,
+        ts_handle_weakref_callbacks_stop=ts_start + 400,
+        ts_finalize_garbage_stop=ts_start + 500,
+        ts_handle_resurected_stop=ts_start + 600,
+        ts_clear_weakrefs_stop=ts_start + 700,
+        ts_delete_garbage_start=ts_start + 800,
+        ts_delete_garbage_stop=ts_start + 900,
     )
 
 
@@ -63,6 +70,13 @@ def _make_inc_jsonl_record(
         "ts_fill_increment_stop": ts_start + 200,
         "ts_deduce_unreachable_start": ts_start + 200,
         "ts_deduce_unreachable_stop": ts_start + 300,
+        "ts_handle_weakref_callbacks_start": ts_start + 300,
+        "ts_handle_weakref_callbacks_stop": ts_start + 400,
+        "ts_finalize_garbage_stop": ts_start + 500,
+        "ts_handle_resurected_stop": ts_start + 600,
+        "ts_clear_weakrefs_stop": ts_start + 700,
+        "ts_delete_garbage_start": ts_start + 800,
+        "ts_delete_garbage_stop": ts_start + 900,
     })
     return record
 
@@ -483,6 +497,11 @@ class TestConvertJsonlToTraceFormat:
         assert any("Mark Alive" in e["name"] for e in pause_events)
         assert any("Fill increment" in e["name"] for e in pause_events)
         assert any("Deduce Unreachable" in e["name"] for e in pause_events)
+        assert any("Handle Weakrefs" in e["name"] for e in pause_events)
+        assert any("Finalize Garbage" in e["name"] for e in pause_events)
+        assert any("Handle Resurrected" in e["name"] for e in pause_events)
+        assert any("Clear Weakrefs" in e["name"] for e in pause_events)
+        assert any("Delete Garbage" in e["name"] for e in pause_events)
 
     def test_multiple_pids_generates_metadata(self, tmp_path: Path) -> None:
         path = tmp_path / "multi.jsonl"

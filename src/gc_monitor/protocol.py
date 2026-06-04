@@ -1,6 +1,27 @@
 from collections.abc import Mapping
 from typing import Protocol, TypeGuard
 
+__all__ = [
+    "TExtraTimes",
+    "TGCStatsInfo",
+    "TIncrementalInfo",
+    "TInstantMsg",
+    "TMarkAliveInfo",
+    "has_clear_weakrefs",
+    "has_deduce_unreachable",
+    "has_delete_garbage",
+    "has_finalize_garbage",
+    "has_gen",
+    "has_handle_resurrected",
+    "has_handle_weakrefs",
+    "has_incremental",
+    "has_mark_alive",
+    "has_pause_ts",
+    "is_gc_stats",
+    "is_instant",
+    "to_mapping",
+]
+
 
 class TGCStatsInfo(Protocol):
     gen: int
@@ -30,6 +51,14 @@ class TMarkAliveInfo(Protocol):
 class TExtraTimes(Protocol):
     ts_deduce_unreachable_start: int
     ts_deduce_unreachable_stop: int
+    ts_handle_weakref_callbacks_start:int
+    ts_handle_weakref_callbacks_stop:int
+    ts_finalize_garbage_stop:int
+    ts_handle_resurected_stop:int
+    ts_clear_weakrefs_stop:int
+    ts_delete_garbage_start:int
+    ts_delete_garbage_stop:int
+
 
 class TInstantMsg(Protocol):
     type: str
@@ -48,6 +77,21 @@ def has_mark_alive(item: object) -> TypeGuard[TMarkAliveInfo]:
 
 def has_deduce_unreachable(item: object) -> TypeGuard[TExtraTimes]:
     return getattr(item, "ts_deduce_unreachable_start", None) is not None
+
+def has_handle_weakrefs(item: object) -> TypeGuard[TExtraTimes]:
+    return getattr(item, "ts_handle_weakref_callbacks_start", None) is not None
+
+def has_finalize_garbage(item: object) -> TypeGuard[TExtraTimes]:
+    return getattr(item, "ts_finalize_garbage_stop", None) is not None
+
+def has_handle_resurrected(item: object) -> TypeGuard[TExtraTimes]:
+    return getattr(item, "ts_handle_resurected_stop", None) is not None
+
+def has_clear_weakrefs(item: object) -> TypeGuard[TExtraTimes]:
+    return getattr(item, "ts_clear_weakrefs_stop", None) is not None
+
+def has_delete_garbage(item: object) -> TypeGuard[TExtraTimes]:
+    return getattr(item, "ts_delete_garbage_start", None) is not None
 
 def has_gen(item: object) -> TypeGuard[TGCStatsInfo]:
     return hasattr(item, "gen")
@@ -94,6 +138,23 @@ def to_mapping(item: TGCStatsInfo | TInstantMsg) -> Mapping[str, str | int | flo
         if has_deduce_unreachable(item):
             m["ts_deduce_unreachable_start"] = item.ts_deduce_unreachable_start
             m["ts_deduce_unreachable_stop"] = item.ts_deduce_unreachable_stop
+
+        if has_handle_weakrefs(item):
+            m["ts_handle_weakref_callbacks_start"] = item.ts_handle_weakref_callbacks_start
+            m["ts_handle_weakref_callbacks_stop"] = item.ts_handle_weakref_callbacks_stop
+
+        if has_finalize_garbage(item):
+            m["ts_finalize_garbage_stop"] = item.ts_finalize_garbage_stop
+
+        if has_handle_resurrected(item):
+            m["ts_handle_resurected_stop"] = item.ts_handle_resurected_stop
+
+        if has_clear_weakrefs(item):
+            m["ts_clear_weakrefs_stop"] = item.ts_clear_weakrefs_stop
+
+        if has_delete_garbage(item):
+            m["ts_delete_garbage_start"] = item.ts_delete_garbage_start
+            m["ts_delete_garbage_stop"] = item.ts_delete_garbage_stop
 
         return m
 

@@ -9,7 +9,12 @@ from ..data import from_mapping
 from ..protocol import (
     TGCStatsInfo,
     TInstantMsg,
+    has_clear_weakrefs,
     has_deduce_unreachable,
+    has_delete_garbage,
+    has_finalize_garbage,
+    has_handle_resurrected,
+    has_handle_weakrefs,
     has_incremental,
     has_mark_alive,
     is_gc_stats,
@@ -168,6 +173,18 @@ def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TInstantMsg
                 if has_deduce_unreachable(item):
                     item.ts_deduce_unreachable_start -= min_ts
                     item.ts_deduce_unreachable_stop -= min_ts
+                if has_handle_weakrefs(item):
+                    item.ts_handle_weakref_callbacks_start -= min_ts
+                    item.ts_handle_weakref_callbacks_stop -= min_ts
+                if has_finalize_garbage(item):
+                    item.ts_finalize_garbage_stop -= min_ts
+                if has_handle_resurrected(item):
+                    item.ts_handle_resurected_stop -= min_ts
+                if has_clear_weakrefs(item):
+                    item.ts_clear_weakrefs_stop -= min_ts
+                if has_delete_garbage(item):
+                    item.ts_delete_garbage_start -= min_ts
+                    item.ts_delete_garbage_stop -= min_ts
 
 
 def combine_files(input_paths: list[Path], output_path: Path, normalize: bool = False,

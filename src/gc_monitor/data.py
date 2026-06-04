@@ -22,6 +22,13 @@ class GCStatsInfo(msgspec.Struct):
     ts_fill_increment_stop: int | None = None
     ts_deduce_unreachable_start: int | None = None
     ts_deduce_unreachable_stop: int | None = None
+    ts_handle_weakref_callbacks_start: int | None = None
+    ts_handle_weakref_callbacks_stop: int | None = None
+    ts_finalize_garbage_stop: int | None = None
+    ts_handle_resurected_stop: int | None = None
+    ts_clear_weakrefs_stop: int | None = None
+    ts_delete_garbage_start: int | None = None
+    ts_delete_garbage_stop: int | None = None
 
 
 class InstantMsg(msgspec.Struct):

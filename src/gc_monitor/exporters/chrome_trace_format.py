@@ -6,7 +6,12 @@ from ..data import dur_to_us, ts_to_us
 from ..protocol import (
     TGCStatsInfo,
     TInstantMsg,
+    has_clear_weakrefs,
     has_deduce_unreachable,
+    has_delete_garbage,
+    has_finalize_garbage,
+    has_handle_resurrected,
+    has_handle_weakrefs,
     has_incremental,
     has_mark_alive,
     is_gc_stats,
@@ -272,6 +277,74 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 f"gc.deduce(gen={gen})",
                 ts_to_us(item.ts_deduce_unreachable_start),
                 dur_to_us(item.ts_deduce_unreachable_start, item.ts_deduce_unreachable_stop),
+                inc_data,
+            )
+        )
+
+    if has_handle_weakrefs(item) and item.ts_handle_weakref_callbacks_stop - item.ts_handle_weakref_callbacks_start > 0:
+        inc_data = {"generation": gen, "iid": iid}
+        events.append(
+            inc_event(
+                pid, tid,
+                f"Handle Weakrefs Callbacks (gen={gen})",
+                f"gc.weakrefs(gen={gen})",
+                ts_to_us(item.ts_handle_weakref_callbacks_start),
+                dur_to_us(item.ts_handle_weakref_callbacks_start, item.ts_handle_weakref_callbacks_stop),
+                inc_data,
+            )
+        )
+
+    if (has_finalize_garbage(item) and has_handle_weakrefs(item)
+            and item.ts_finalize_garbage_stop - item.ts_handle_weakref_callbacks_stop > 0):
+        inc_data = {"generation": gen, "iid": iid}
+        events.append(
+            inc_event(
+                pid, tid,
+                f"Finalize Garbage (gen={gen})",
+                f"gc.finalize(gen={gen})",
+                ts_to_us(item.ts_handle_weakref_callbacks_stop),
+                dur_to_us(item.ts_handle_weakref_callbacks_stop, item.ts_finalize_garbage_stop),
+                inc_data,
+            )
+        )
+
+    if (has_handle_resurrected(item) and has_finalize_garbage(item)
+            and item.ts_handle_resurected_stop - item.ts_finalize_garbage_stop > 0):
+        inc_data = {"generation": gen, "iid": iid}
+        events.append(
+            inc_event(
+                pid, tid,
+                f"Handle Resurrected (gen={gen})",
+                f"gc.resurrect(gen={gen})",
+                ts_to_us(item.ts_finalize_garbage_stop),
+                dur_to_us(item.ts_finalize_garbage_stop, item.ts_handle_resurected_stop),
+                inc_data,
+            )
+        )
+
+    if (has_clear_weakrefs(item) and has_handle_resurrected(item)
+            and item.ts_clear_weakrefs_stop - item.ts_handle_resurected_stop > 0):
+        inc_data = {"generation": gen, "iid": iid}
+        events.append(
+            inc_event(
+                pid, tid,
+                f"Clear Weakrefs (gen={gen})",
+                f"gc.clear_weakrefs(gen={gen})",
+                ts_to_us(item.ts_handle_resurected_stop),
+                dur_to_us(item.ts_handle_resurected_stop, item.ts_clear_weakrefs_stop),
+                inc_data,
+            )
+        )
+
+    if has_delete_garbage(item) and item.ts_delete_garbage_stop - item.ts_delete_garbage_start > 0:
+        inc_data = {"generation": gen, "iid": iid}
+        events.append(
+            inc_event(
+                pid, tid,
+                f"Delete Garbage (gen={gen})",
+                f"gc.delete(gen={gen})",
+                ts_to_us(item.ts_delete_garbage_start),
+                dur_to_us(item.ts_delete_garbage_start, item.ts_delete_garbage_stop),
                 inc_data,
             )
         )

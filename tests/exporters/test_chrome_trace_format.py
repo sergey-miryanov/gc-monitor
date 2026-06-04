@@ -142,6 +142,13 @@ def _make_incremental_item(
         ts_fill_increment_stop=ts_start + 2 * sub_step_dur,
         ts_deduce_unreachable_start=ts_start + 2 * sub_step_dur,
         ts_deduce_unreachable_stop=ts_start + 3 * sub_step_dur,
+        ts_handle_weakref_callbacks_start=ts_start + 3 * sub_step_dur,
+        ts_handle_weakref_callbacks_stop=ts_start + 4 * sub_step_dur,
+        ts_finalize_garbage_stop=ts_start + 5 * sub_step_dur,
+        ts_handle_resurected_stop=ts_start + 6 * sub_step_dur,
+        ts_clear_weakrefs_stop=ts_start + 7 * sub_step_dur,
+        ts_delete_garbage_start=ts_start + 8 * sub_step_dur,
+        ts_delete_garbage_stop=ts_start + 9 * sub_step_dur,
     )
 
 
@@ -171,6 +178,11 @@ class TestConvertItemToTraceFormat:
         assert "Mark Alive (gen=0)" in names
         assert "Fill increment (gen=0)" in names
         assert "Deduce Unreachable (gen=0)" in names
+        assert "Handle Weakrefs Callbacks (gen=0)" in names
+        assert "Finalize Garbage (gen=0)" in names
+        assert "Handle Resurrected (gen=0)" in names
+        assert "Clear Weakrefs (gen=0)" in names
+        assert "Delete Garbage (gen=0)" in names
 
     def test_incremental_gen0_pause_data_has_increment_size(self) -> None:
         item = _make_incremental_item(gen=0, increment_size=1000)
@@ -220,12 +232,24 @@ class TestConvertItemToTraceFormat:
             ts_fill_increment_stop=1_501_000_000,
             ts_deduce_unreachable_start=1_501_000_000,
             ts_deduce_unreachable_stop=1_501_000_000,
+            ts_handle_weakref_callbacks_start=1_501_000_000,
+            ts_handle_weakref_callbacks_stop=1_501_000_000,
+            ts_finalize_garbage_stop=1_501_000_000,
+            ts_handle_resurected_stop=1_501_000_000,
+            ts_clear_weakrefs_stop=1_501_000_000,
+            ts_delete_garbage_start=1_502_000_000,
+            ts_delete_garbage_stop=1_503_000_000,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
         names = {e["name"] for e in events if e["ph"] == "X"}
         assert "Mark Alive (gen=0)" not in names
         assert "Fill increment (gen=0)" in names
         assert "Deduce Unreachable (gen=0)" not in names
+        assert "Handle Weakrefs Callbacks (gen=0)" not in names
+        assert "Finalize Garbage (gen=0)" not in names
+        assert "Handle Resurrected (gen=0)" not in names
+        assert "Clear Weakrefs (gen=0)" not in names
+        assert "Delete Garbage (gen=0)" in names
 
     def test_pause_data_has_all_required_fields(self) -> None:
         item = create_mock_stats_item()

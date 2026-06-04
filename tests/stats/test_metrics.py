@@ -9,10 +9,14 @@ import pytest
 
 from gc_monitor.data import GCStatsInfo
 from gc_monitor.stats import (
-    INCREMENTAL_METRICS,
     METRICS,
+    ClearWeakrefsMetric,
     DeduceUnreachableMetric,
+    DeleteGarbageMetric,
     FillIncrementMetric,
+    FinalizeGarbageMetric,
+    HandleResurrectedMetric,
+    HandleWeakrefsMetric,
     MarkAliveMetric,
     PauseMetric,
 )
@@ -133,27 +137,182 @@ class TestDeduceUnreachableMetric:
         assert(ts2 == 0)
 
 
+class TestHandleWeakrefsMetric:
+    """Tests for HandleWeakrefsMetric class."""
+
+    def test_name(self) -> None:
+        metric = HandleWeakrefsMetric()
+        assert metric.name == "GC Handle Weakrefs Callbacks"
+
+    def test_get_values(
+        self,
+        incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = HandleWeakrefsMetric()
+        item = incremental_gc_stats_item_factory(
+            ts_handle_weakref_callbacks_start=7000,
+            ts_handle_weakref_callbacks_stop=9000,
+        )
+        ts_start, ts_stop = metric.get_values(item)
+        assert ts_start == 7000
+        assert ts_stop == 9000
+
+    def test_get_values_returns_zero_without_weakrefs(
+        self,
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = HandleWeakrefsMetric()
+        item = gc_stats_item_factory()
+        ts1, ts2 = metric.get_values(item)
+        assert ts1 == 0
+        assert ts2 == 0
+
+
+class TestFinalizeGarbageMetric:
+    """Tests for FinalizeGarbageMetric class."""
+
+    def test_name(self) -> None:
+        metric = FinalizeGarbageMetric()
+        assert metric.name == "GC Finalize Garbage"
+
+    def test_get_values(
+        self,
+        incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = FinalizeGarbageMetric()
+        item = incremental_gc_stats_item_factory(
+            ts_handle_weakref_callbacks_stop=8000,
+            ts_finalize_garbage_stop=9000,
+        )
+        ts_start, ts_stop = metric.get_values(item)
+        assert ts_start == 8000
+        assert ts_stop == 9000
+
+    def test_get_values_returns_zero_without_prerequisite(
+        self,
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = FinalizeGarbageMetric()
+        item = SimpleNamespace(ts_finalize_garbage_stop=5000)
+        ts1, ts2 = metric.get_values(item)
+        assert ts1 == 0
+        assert ts2 == 0
+
+
+class TestHandleResurrectedMetric:
+    """Tests for HandleResurrectedMetric class."""
+
+    def test_name(self) -> None:
+        metric = HandleResurrectedMetric()
+        assert metric.name == "GC Handle Resurrected"
+
+    def test_get_values(
+        self,
+        incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = HandleResurrectedMetric()
+        item = incremental_gc_stats_item_factory(
+            ts_finalize_garbage_stop=8000,
+            ts_handle_resurected_stop=9000,
+        )
+        ts_start, ts_stop = metric.get_values(item)
+        assert ts_start == 8000
+        assert ts_stop == 9000
+
+    def test_get_values_returns_zero_without_prerequisite(
+        self,
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = HandleResurrectedMetric()
+        item = SimpleNamespace(ts_handle_resurected_stop=5000)
+        ts1, ts2 = metric.get_values(item)
+        assert ts1 == 0
+        assert ts2 == 0
+
+
+class TestClearWeakrefsMetric:
+    """Tests for ClearWeakrefsMetric class."""
+
+    def test_name(self) -> None:
+        metric = ClearWeakrefsMetric()
+        assert metric.name == "GC Clear Weakrefs"
+
+    def test_get_values(
+        self,
+        incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = ClearWeakrefsMetric()
+        item = incremental_gc_stats_item_factory(
+            ts_handle_resurected_stop=8000,
+            ts_clear_weakrefs_stop=9000,
+        )
+        ts_start, ts_stop = metric.get_values(item)
+        assert ts_start == 8000
+        assert ts_stop == 9000
+
+    def test_get_values_returns_zero_without_prerequisite(
+        self,
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = ClearWeakrefsMetric()
+        item = SimpleNamespace(ts_clear_weakrefs_stop=5000)
+        ts1, ts2 = metric.get_values(item)
+        assert ts1 == 0
+        assert ts2 == 0
+
+
+class TestDeleteGarbageMetric:
+    """Tests for DeleteGarbageMetric class."""
+
+    def test_name(self) -> None:
+        metric = DeleteGarbageMetric()
+        assert metric.name == "GC Delete Garbage"
+
+    def test_get_values(
+        self,
+        incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = DeleteGarbageMetric()
+        item = incremental_gc_stats_item_factory(
+            ts_delete_garbage_start=7000,
+            ts_delete_garbage_stop=9000,
+        )
+        ts_start, ts_stop = metric.get_values(item)
+        assert ts_start == 7000
+        assert ts_stop == 9000
+
+    def test_get_values_returns_zero_without_delete_garbage(
+        self,
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        metric = DeleteGarbageMetric()
+        item = gc_stats_item_factory()
+        ts1, ts2 = metric.get_values(item)
+        assert ts1 == 0
+        assert ts2 == 0
+
+
 class TestMetricDictionaries:
-    """Tests for METRICS and INCREMENTAL_METRICS dictionaries."""
+    """Tests for METRICS dictionary."""
 
-    def test_metrics_contains_pause(self) -> None:
-        assert "pause" in METRICS
-        assert isinstance(METRICS["pause"], PauseMetric)
-
-    def test_metrics_contains_all_incremental(self) -> None:
-        for key in INCREMENTAL_METRICS:
-            assert key in METRICS
-
-    def test_incremental_metrics_keys(self) -> None:
-        assert "mark_alive" in INCREMENTAL_METRICS
-        assert "fill_increment" in INCREMENTAL_METRICS
-        assert "deduce_unreachable" in INCREMENTAL_METRICS
+    def test_metrics_keys(self) -> None:
+        expected_keys = {
+            "pause", "mark_alive", "fill_increment", "deduce_unreachable",
+            "handle_weakrefs", "finalize_garbage", "handle_resurrected",
+            "clear_weakrefs", "delete_garbage",
+        }
+        assert set(METRICS) == expected_keys
 
     def test_metrics_instances(self) -> None:
         assert isinstance(METRICS["pause"], PauseMetric)
         assert isinstance(METRICS["mark_alive"], MarkAliveMetric)
         assert isinstance(METRICS["fill_increment"], FillIncrementMetric)
         assert isinstance(METRICS["deduce_unreachable"], DeduceUnreachableMetric)
+        assert isinstance(METRICS["handle_weakrefs"], HandleWeakrefsMetric)
+        assert isinstance(METRICS["finalize_garbage"], FinalizeGarbageMetric)
+        assert isinstance(METRICS["handle_resurrected"], HandleResurrectedMetric)
+        assert isinstance(METRICS["clear_weakrefs"], ClearWeakrefsMetric)
+        assert isinstance(METRICS["delete_garbage"], DeleteGarbageMetric)
 
     def test_metrics_count(self) -> None:
-        assert len(METRICS) == 1 + len(INCREMENTAL_METRICS)
+        assert len(METRICS) == 9

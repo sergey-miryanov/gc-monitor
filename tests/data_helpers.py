@@ -40,6 +40,13 @@ def incremental_item():
         ts_fill_increment_stop=3_002_000,
         ts_deduce_unreachable_start=3_002_500,
         ts_deduce_unreachable_stop=3_003_000,
+        ts_handle_weakref_callbacks_start=3_003_000,
+        ts_handle_weakref_callbacks_stop=3_004_000,
+        ts_finalize_garbage_stop=3_005_000,
+        ts_handle_resurected_stop=3_006_000,
+        ts_clear_weakrefs_stop=3_007_000,
+        ts_delete_garbage_start=3_008_000,
+        ts_delete_garbage_stop=3_009_000,
     )
 
 
