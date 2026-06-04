@@ -9,7 +9,7 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TextIO, override
 
-from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg, to_mapping
+from ..protocol import TGCStatsInfo, TInstantMsg, to_mapping
 from .exporter import EventsExporter
 
 __all__ = ["JsonlExporter"]
@@ -38,7 +38,7 @@ class JsonlExporter(EventsExporter):
         self._output_path = output_path
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> None:
+    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
         event: dict[str, str | int | float] = {
             "pid": pid,
             "tid": item.iid,

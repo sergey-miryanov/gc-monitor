@@ -1,6 +1,6 @@
 """Base exporter interface for GC monitoring data."""
 
-from ..protocol import TGCStatsInfo, TIncrementalGCStatsInfo, TInstantMsg
+from ..protocol import TGCStatsInfo, TInstantMsg
 
 __all__ = ["EventsExporter"]
 
@@ -11,7 +11,7 @@ class EventsExporter:
     def __init__(self) -> None:
         pass
 
-    def add_event(self, pid: int, item: TGCStatsInfo | TIncrementalGCStatsInfo) -> None:
+    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
         """Add a GC monitoring event."""
         raise NotImplementedError
 
