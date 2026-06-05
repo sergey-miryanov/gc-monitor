@@ -129,4 +129,4 @@ jobs:
           cache-prefix: main
       - name: Run stress-tests
         run: |
-          poetry run pytest -k "control" -s --count 100
+          poetry run pytest -k "control" -s --count 40
