@@ -171,23 +171,19 @@ def to_mapping(item: TGCStatsInfo | TInstantMsg) -> Mapping[str, str | int | flo
 
         if has_finalize_garbage(item):
             m["ts_finalize_garbage_stop"] = item.ts_finalize_garbage_stop
+            m["finalized_garbage_count"] = item.finalized_garbage_count
 
         if has_handle_resurrected(item):
             m["ts_handle_resurected_stop"] = item.ts_handle_resurected_stop
 
         if has_clear_weakrefs(item):
             m["ts_clear_weakrefs_stop"] = item.ts_clear_weakrefs_stop
+            m["clear_weakrefs_count"] = item.clear_weakrefs_count
 
         if has_delete_garbage(item):
             m["ts_delete_garbage_start"] = item.ts_delete_garbage_start
             m["ts_delete_garbage_stop"] = item.ts_delete_garbage_stop
             m["deleted_garbage_count"] = item.deleted_garbage_count
-
-        if has_finalize_garbage(item):
-            m["finalized_garbage_count"] = item.finalized_garbage_count
-
-        if has_clear_weakrefs(item):
-            m["clear_weakrefs_count"] = item.clear_weakrefs_count
 
         return m
 
