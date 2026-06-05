@@ -93,6 +93,9 @@ class TestFromMapping:
         assert result.ts_fill_increment_stop == 3_002_000
         assert result.ts_deduce_unreachable_start == 3_002_500
         assert result.ts_deduce_unreachable_stop == 3_003_000
+        assert result.finalized_garbage_count == 42
+        assert result.clear_weakrefs_count == 7
+        assert result.deleted_garbage_count == 13
 
     def test_from_mapping_returns_instant_msg(self, instant_dict):
         result = from_mapping(instant_dict)

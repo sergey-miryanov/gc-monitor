@@ -162,7 +162,7 @@ class FinalizeGarbageMetric:
         self.name = "GC Finalize Garbage"
 
     def get_values(self, item: object) -> tuple[int, int]:
-        if has_finalize_garbage(item) and has_handle_weakrefs(item):
+        if has_finalize_garbage(item):
             return item.ts_handle_weakref_callbacks_stop, item.ts_finalize_garbage_stop
         return 0, 0
 
@@ -171,7 +171,7 @@ class HandleResurrectedMetric:
         self.name = "GC Handle Resurrected"
 
     def get_values(self, item: object) -> tuple[int, int]:
-        if has_handle_resurrected(item) and has_finalize_garbage(item):
+        if has_handle_resurrected(item):
             return item.ts_finalize_garbage_stop, item.ts_handle_resurected_stop
         return 0, 0
 
@@ -180,7 +180,7 @@ class ClearWeakrefsMetric:
         self.name = "GC Clear Weakrefs"
 
     def get_values(self, item: object) -> tuple[int, int]:
-        if has_clear_weakrefs(item) and has_handle_resurrected(item):
+        if has_clear_weakrefs(item):
             return item.ts_handle_resurected_stop, item.ts_clear_weakrefs_stop
         return 0, 0
 

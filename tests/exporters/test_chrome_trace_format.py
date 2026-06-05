@@ -126,6 +126,9 @@ def _make_incremental_item(
     increment_size: int = 1000,
     alive_size: int = 800,
     sub_step_dur: int = 1_000_000,
+    finalized_garbage_count: int = 42,
+    deleted_garbage_count: int = 13,
+    clear_weakrefs_count: int = 7,
 ) -> SimpleNamespace:
     base = create_mock_stats_item(gen=gen, ts_start=ts_start, ts_stop=ts_stop)
     return SimpleNamespace(
@@ -145,10 +148,13 @@ def _make_incremental_item(
         ts_handle_weakref_callbacks_start=ts_start + 3 * sub_step_dur,
         ts_handle_weakref_callbacks_stop=ts_start + 4 * sub_step_dur,
         ts_finalize_garbage_stop=ts_start + 5 * sub_step_dur,
+        finalized_garbage_count=finalized_garbage_count,
         ts_handle_resurected_stop=ts_start + 6 * sub_step_dur,
         ts_clear_weakrefs_stop=ts_start + 7 * sub_step_dur,
+        clear_weakrefs_count=clear_weakrefs_count,
         ts_delete_garbage_start=ts_start + 8 * sub_step_dur,
         ts_delete_garbage_stop=ts_start + 9 * sub_step_dur,
+        deleted_garbage_count=deleted_garbage_count,
     )
 
 
@@ -235,10 +241,13 @@ class TestConvertItemToTraceFormat:
             ts_handle_weakref_callbacks_start=1_501_000_000,
             ts_handle_weakref_callbacks_stop=1_501_000_000,
             ts_finalize_garbage_stop=1_501_000_000,
+            finalized_garbage_count=42,
             ts_handle_resurected_stop=1_501_000_000,
             ts_clear_weakrefs_stop=1_501_000_000,
+            clear_weakrefs_count=7,
             ts_delete_garbage_start=1_502_000_000,
             ts_delete_garbage_stop=1_503_000_000,
+            deleted_garbage_count=13,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
         names = {e["name"] for e in events if e["ph"] == "X"}
@@ -280,6 +289,44 @@ class TestConvertItemToTraceFormat:
         for event in events:
             if event["ph"] != "M":
                 assert event["tid"] == 42
+
+    def test_incremental_gen0_pause_data_has_count_fields(self) -> None:
+        item = _make_incremental_item(
+            gen=0, finalized_garbage_count=42,
+            deleted_garbage_count=13, clear_weakrefs_count=7,
+        )
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        pause = next(e for e in events if e["ph"] == "X" and "GC Pause" in e["name"])
+        assert pause["args"]["finalized_garbage_count"] == 42
+        assert pause["args"]["deleted_garbage_count"] == 13
+        assert pause["args"]["clear_weakrefs_count"] == 7
+
+    def test_counter_data_has_count_fields(self) -> None:
+        item = _make_incremental_item(
+            gen=0, finalized_garbage_count=42,
+            deleted_garbage_count=13, clear_weakrefs_count=7,
+        )
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        counter = next(e for e in events if e["ph"] == "C")
+        assert counter["args"]["finalized_garbage_count"] == 42
+        assert counter["args"]["deleted_garbage_count"] == 13
+        assert counter["args"]["clear_weakrefs_count"] == 7
+
+    def test_regular_item_has_no_count_fields_in_pause(self) -> None:
+        item = create_mock_stats_item()
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        pause = next(e for e in events if e["ph"] == "X")
+        assert "finalized_garbage_count" not in pause["args"]
+        assert "deleted_garbage_count" not in pause["args"]
+        assert "clear_weakrefs_count" not in pause["args"]
+
+    def test_regular_item_has_no_count_fields_in_counter(self) -> None:
+        item = create_mock_stats_item()
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        counter = next(e for e in events if e["ph"] == "C")
+        assert "finalized_garbage_count" not in counter["args"]
+        assert "deleted_garbage_count" not in counter["args"]
+        assert "clear_weakrefs_count" not in counter["args"]
 
 
 class TestConvertToTraceFormat:

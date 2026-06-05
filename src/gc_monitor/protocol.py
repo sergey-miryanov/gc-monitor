@@ -2,8 +2,13 @@ from collections.abc import Mapping
 from typing import Protocol, TypeGuard
 
 __all__ = [
-    "TExtraTimes",
+    "TClearWeakrefsInfo",
+    "TDeduceUnreachableInfo",
+    "TDeleteGarbageInfo",
+    "TFinalizeGarbageInfo",
     "TGCStatsInfo",
+    "THandleResurrectedInfo",
+    "THandleWeakrefsInfo",
     "TIncrementalInfo",
     "TInstantMsg",
     "TMarkAliveInfo",
@@ -48,16 +53,37 @@ class TMarkAliveInfo(Protocol):
     ts_mark_alive_stop: int
 
 
-class TExtraTimes(Protocol):
+class TDeduceUnreachableInfo(Protocol):
     ts_deduce_unreachable_start: int
     ts_deduce_unreachable_stop: int
-    ts_handle_weakref_callbacks_start:int
+
+
+class TFinalizeGarbageInfo(Protocol):
+    finalized_garbage_count: int
     ts_handle_weakref_callbacks_stop:int
     ts_finalize_garbage_stop:int
-    ts_handle_resurected_stop:int
-    ts_clear_weakrefs_stop:int
+
+
+class TDeleteGarbageInfo(Protocol):
+    deleted_garbage_count: int
     ts_delete_garbage_start:int
     ts_delete_garbage_stop:int
+
+
+class THandleWeakrefsInfo(Protocol):
+    ts_handle_weakref_callbacks_start:int
+    ts_handle_weakref_callbacks_stop:int
+
+
+class TClearWeakrefsInfo(Protocol):
+    clear_weakrefs_count: int
+    ts_handle_resurected_stop:int
+    ts_clear_weakrefs_stop:int
+
+
+class THandleResurrectedInfo(Protocol):
+    ts_finalize_garbage_stop:int
+    ts_handle_resurected_stop:int
 
 
 class TInstantMsg(Protocol):
@@ -75,22 +101,22 @@ def has_incremental(item: object) -> TypeGuard[TIncrementalInfo]:
 def has_mark_alive(item: object) -> TypeGuard[TMarkAliveInfo]:
     return getattr(item, "alive_size", None) is not None
 
-def has_deduce_unreachable(item: object) -> TypeGuard[TExtraTimes]:
+def has_deduce_unreachable(item: object) -> TypeGuard[TDeduceUnreachableInfo]:
     return getattr(item, "ts_deduce_unreachable_start", None) is not None
 
-def has_handle_weakrefs(item: object) -> TypeGuard[TExtraTimes]:
+def has_handle_weakrefs(item: object) -> TypeGuard[THandleWeakrefsInfo]:
     return getattr(item, "ts_handle_weakref_callbacks_start", None) is not None
 
-def has_finalize_garbage(item: object) -> TypeGuard[TExtraTimes]:
+def has_finalize_garbage(item: object) -> TypeGuard[TFinalizeGarbageInfo]:
     return getattr(item, "ts_finalize_garbage_stop", None) is not None
 
-def has_handle_resurrected(item: object) -> TypeGuard[TExtraTimes]:
+def has_handle_resurrected(item: object) -> TypeGuard[THandleResurrectedInfo]:
     return getattr(item, "ts_handle_resurected_stop", None) is not None
 
-def has_clear_weakrefs(item: object) -> TypeGuard[TExtraTimes]:
+def has_clear_weakrefs(item: object) -> TypeGuard[TClearWeakrefsInfo]:
     return getattr(item, "ts_clear_weakrefs_stop", None) is not None
 
-def has_delete_garbage(item: object) -> TypeGuard[TExtraTimes]:
+def has_delete_garbage(item: object) -> TypeGuard[TDeleteGarbageInfo]:
     return getattr(item, "ts_delete_garbage_start", None) is not None
 
 def has_gen(item: object) -> TypeGuard[TGCStatsInfo]:
@@ -155,6 +181,13 @@ def to_mapping(item: TGCStatsInfo | TInstantMsg) -> Mapping[str, str | int | flo
         if has_delete_garbage(item):
             m["ts_delete_garbage_start"] = item.ts_delete_garbage_start
             m["ts_delete_garbage_stop"] = item.ts_delete_garbage_stop
+            m["deleted_garbage_count"] = item.deleted_garbage_count
+
+        if has_finalize_garbage(item):
+            m["finalized_garbage_count"] = item.finalized_garbage_count
+
+        if has_clear_weakrefs(item):
+            m["clear_weakrefs_count"] = item.clear_weakrefs_count
 
         return m
 

@@ -157,6 +157,9 @@ class TestToMappingPartial:
         assert "ts_handle_resurected_stop" not in result
         assert "ts_clear_weakrefs_stop" not in result
         assert "ts_delete_garbage_start" not in result
+        assert "finalized_garbage_count" not in result
+        assert "deleted_garbage_count" not in result
+        assert "clear_weakrefs_count" not in result
 
     def test_mark_alive_only(self):
         item = self._make_item(
@@ -176,6 +179,9 @@ class TestToMappingPartial:
         assert "ts_handle_resurected_stop" not in result
         assert "ts_clear_weakrefs_stop" not in result
         assert "ts_delete_garbage_start" not in result
+        assert "finalized_garbage_count" not in result
+        assert "deleted_garbage_count" not in result
+        assert "clear_weakrefs_count" not in result
 
     def test_deduce_unreachable_only(self):
         item = self._make_item(
@@ -193,6 +199,44 @@ class TestToMappingPartial:
         assert "ts_handle_resurected_stop" not in result
         assert "ts_clear_weakrefs_stop" not in result
         assert "ts_delete_garbage_start" not in result
+        assert "finalized_garbage_count" not in result
+        assert "deleted_garbage_count" not in result
+        assert "clear_weakrefs_count" not in result
+
+    def test_finalize_garbage_only(self):
+        item = self._make_item(
+            ts_finalize_garbage_stop=1_005_000,
+            finalized_garbage_count=42,
+        )
+        result = to_mapping(item)
+        assert result["ts_finalize_garbage_stop"] == 1_005_000
+        assert result["finalized_garbage_count"] == 42
+        assert "deleted_garbage_count" not in result
+        assert "clear_weakrefs_count" not in result
+
+    def test_delete_garbage_only(self):
+        item = self._make_item(
+            ts_delete_garbage_start=1_008_000,
+            ts_delete_garbage_stop=1_009_000,
+            deleted_garbage_count=13,
+        )
+        result = to_mapping(item)
+        assert result["ts_delete_garbage_start"] == 1_008_000
+        assert result["ts_delete_garbage_stop"] == 1_009_000
+        assert result["deleted_garbage_count"] == 13
+        assert "finalized_garbage_count" not in result
+        assert "clear_weakrefs_count" not in result
+
+    def test_clear_weakrefs_only(self):
+        item = self._make_item(
+            ts_clear_weakrefs_stop=1_007_000,
+            clear_weakrefs_count=7,
+        )
+        result = to_mapping(item)
+        assert result["ts_clear_weakrefs_stop"] == 1_007_000
+        assert result["clear_weakrefs_count"] == 7
+        assert "finalized_garbage_count" not in result
+        assert "deleted_garbage_count" not in result
 
     def test_all_partial_phases(self):
         item = self._make_item(
@@ -203,10 +247,13 @@ class TestToMappingPartial:
             ts_handle_weakref_callbacks_start=1_003_000,
             ts_handle_weakref_callbacks_stop=1_004_000,
             ts_finalize_garbage_stop=1_005_000,
+            finalized_garbage_count=42,
             ts_handle_resurected_stop=1_006_000,
             ts_clear_weakrefs_stop=1_007_000,
+            clear_weakrefs_count=7,
             ts_delete_garbage_start=1_008_000,
             ts_delete_garbage_stop=1_009_000,
+            deleted_garbage_count=13,
         )
         result = to_mapping(item)
         assert result["increment_size"] == 500
@@ -220,10 +267,13 @@ class TestToMappingPartial:
         assert result["ts_handle_weakref_callbacks_start"] == 1_003_000
         assert result["ts_handle_weakref_callbacks_stop"] == 1_004_000
         assert result["ts_finalize_garbage_stop"] == 1_005_000
+        assert result["finalized_garbage_count"] == 42
         assert result["ts_handle_resurected_stop"] == 1_006_000
         assert result["ts_clear_weakrefs_stop"] == 1_007_000
+        assert result["clear_weakrefs_count"] == 7
         assert result["ts_delete_garbage_start"] == 1_008_000
         assert result["ts_delete_garbage_stop"] == 1_009_000
+        assert result["deleted_garbage_count"] == 13
 
 
 class TestToMapping:
@@ -268,10 +318,13 @@ class TestToMapping:
         assert result["ts_handle_weakref_callbacks_start"] == 3_003_000
         assert result["ts_handle_weakref_callbacks_stop"] == 3_004_000
         assert result["ts_finalize_garbage_stop"] == 3_005_000
+        assert result["finalized_garbage_count"] == 42
         assert result["ts_handle_resurected_stop"] == 3_006_000
         assert result["ts_clear_weakrefs_stop"] == 3_007_000
+        assert result["clear_weakrefs_count"] == 7
         assert result["ts_delete_garbage_start"] == 3_008_000
         assert result["ts_delete_garbage_stop"] == 3_009_000
+        assert result["deleted_garbage_count"] == 13
 
     def test_instant_item(self, instant_item):
         result = to_mapping(instant_item)

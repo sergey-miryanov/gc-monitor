@@ -43,10 +43,13 @@ def incremental_item():
         ts_handle_weakref_callbacks_start=3_003_000,
         ts_handle_weakref_callbacks_stop=3_004_000,
         ts_finalize_garbage_stop=3_005_000,
+        finalized_garbage_count=42,
         ts_handle_resurected_stop=3_006_000,
         ts_clear_weakrefs_stop=3_007_000,
+        clear_weakrefs_count=7,
         ts_delete_garbage_start=3_008_000,
         ts_delete_garbage_stop=3_009_000,
+        deleted_garbage_count=13,
     )
 
 

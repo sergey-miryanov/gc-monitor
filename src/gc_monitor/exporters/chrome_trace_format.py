@@ -50,6 +50,9 @@ class PauseData(TypedDict):
     candidates: int
     increment_size: NotRequired[int]
     alive_size: NotRequired[int]
+    finalized_garbage_count: NotRequired[int]
+    deleted_garbage_count: NotRequired[int]
+    clear_weakrefs_count: NotRequired[int]
 
 
 class CounterData(TypedDict):
@@ -59,6 +62,9 @@ class CounterData(TypedDict):
     increment_size: NotRequired[int]
     alive_size: NotRequired[int]
     heap_size: int
+    finalized_garbage_count: NotRequired[int]
+    deleted_garbage_count: NotRequired[int]
+    clear_weakrefs_count: NotRequired[int]
 
 
 class NameInfo(TypedDict):
@@ -226,6 +232,18 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         pause_data["alive_size"] = item.alive_size
         counter_data["alive_size"] = item.alive_size
 
+    if has_finalize_garbage(item):
+        pause_data["finalized_garbage_count"] = item.finalized_garbage_count
+        counter_data["finalized_garbage_count"] = item.finalized_garbage_count
+
+    if has_delete_garbage(item):
+        pause_data["deleted_garbage_count"] = item.deleted_garbage_count
+        counter_data["deleted_garbage_count"] = item.deleted_garbage_count
+
+    if has_clear_weakrefs(item):
+        pause_data["clear_weakrefs_count"] = item.clear_weakrefs_count
+        counter_data["clear_weakrefs_count"] = item.clear_weakrefs_count
+
     events: list[TraceEvent] = []
     events.append(
         pause_event(
@@ -294,8 +312,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             )
         )
 
-    if (has_finalize_garbage(item) and has_handle_weakrefs(item)
-            and item.ts_finalize_garbage_stop - item.ts_handle_weakref_callbacks_stop > 0):
+    if (has_finalize_garbage(item) and item.ts_finalize_garbage_stop - item.ts_handle_weakref_callbacks_stop > 0):
         inc_data = {"generation": gen, "iid": iid}
         events.append(
             inc_event(
@@ -308,7 +325,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             )
         )
 
-    if (has_handle_resurrected(item) and has_finalize_garbage(item)
+    if (has_handle_resurrected(item)
             and item.ts_handle_resurected_stop - item.ts_finalize_garbage_stop > 0):
         inc_data = {"generation": gen, "iid": iid}
         events.append(
@@ -322,7 +339,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             )
         )
 
-    if (has_clear_weakrefs(item) and has_handle_resurrected(item)
+    if (has_clear_weakrefs(item)
             and item.ts_clear_weakrefs_stop - item.ts_handle_resurected_stop > 0):
         inc_data = {"generation": gen, "iid": iid}
         events.append(

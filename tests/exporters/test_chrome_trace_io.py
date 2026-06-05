@@ -49,10 +49,13 @@ def _make_inc_item(
         ts_handle_weakref_callbacks_start=ts_start + 300,
         ts_handle_weakref_callbacks_stop=ts_start + 400,
         ts_finalize_garbage_stop=ts_start + 500,
+        finalized_garbage_count=42,
         ts_handle_resurected_stop=ts_start + 600,
         ts_clear_weakrefs_stop=ts_start + 700,
+        clear_weakrefs_count=7,
         ts_delete_garbage_start=ts_start + 800,
         ts_delete_garbage_stop=ts_start + 900,
+        deleted_garbage_count=13,
     )
 
 
@@ -73,10 +76,13 @@ def _make_inc_jsonl_record(
         "ts_handle_weakref_callbacks_start": ts_start + 300,
         "ts_handle_weakref_callbacks_stop": ts_start + 400,
         "ts_finalize_garbage_stop": ts_start + 500,
+        "finalized_garbage_count": 42,
         "ts_handle_resurected_stop": ts_start + 600,
         "ts_clear_weakrefs_stop": ts_start + 700,
+        "clear_weakrefs_count": 7,
         "ts_delete_garbage_start": ts_start + 800,
         "ts_delete_garbage_stop": ts_start + 900,
+        "deleted_garbage_count": 13,
     })
     return record
 
