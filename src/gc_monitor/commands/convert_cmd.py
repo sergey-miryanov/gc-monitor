@@ -51,7 +51,7 @@ def add_parser(parser_factory: ParserFactory) -> argparse.ArgumentParser:
         "-n",
         "--normalize",
         action="store_true",
-        help="Normalize timestamps so the minimum becomes 0 across all files",
+        help="Normalize timestamps per PID so each process timeline starts at 0",
     )
     parser.add_argument(
         "--input-format",

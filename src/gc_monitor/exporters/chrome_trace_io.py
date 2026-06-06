@@ -130,34 +130,30 @@ def _parse_events(content: str | bytes) -> list[TraceEvent]:
 
 
 def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
-    timed: list[PauseEvent | IncrementalEvent | CounterEvent | InstantEvent] = []
+    by_pid: dict[int, list[PauseEvent | IncrementalEvent | CounterEvent | InstantEvent]] = {}
     for event in events:
         if event["ph"] in ("X", "C", "I"):
-            timed.append(event)  # pyrefly: ignore[bad-argument-type]
+            by_pid.setdefault(event["pid"], []).append(event)  # pyrefly: ignore[bad-argument-type]
 
-    if not timed:
-        return
-
-    min_ts = min(e["ts"] for e in timed)
-
-    for e in timed:
-        e["ts"] = e["ts"] - min_ts
+    for timed in by_pid.values():
+        min_ts = min(e["ts"] for e in timed)
+        for e in timed:
+            e["ts"] = e["ts"] - min_ts
 
 
 def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TInstantMsg]]) -> None:
-    timestamps: list[int] = []
     for pid_items in items.values():
+        timestamps: list[int] = []
         for item in pid_items:
             if is_instant(item):
                 timestamps.append(item.ts)
             elif is_gc_stats(item):
                 timestamps.append(item.ts_start)
-    if not timestamps:
-        return
+        if not timestamps:
+            continue
 
-    min_ts = min(timestamps)
+        min_ts = min(timestamps)
 
-    for pid_items in items.values():
         for item in pid_items:
             if is_instant(item):
                 item.ts -= min_ts

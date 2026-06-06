@@ -409,6 +409,21 @@ class TestNormalizeTraceTimestamps:
         _normalize_trace_timestamps(events)  # type: ignore[arg-type]
         assert events == []
 
+    def test_per_pid_normalization(self) -> None:
+        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
+                "collected": 10, "uncollectable": 0, "candidates": 5}
+        events: list = [
+            pause_event(pid=1, tid=1, name="e1", cat="c", ts_us=10000, dur_us=100.0, args=args),
+            pause_event(pid=1, tid=1, name="e2", cat="c", ts_us=12000, dur_us=100.0, args=args),
+            pause_event(pid=2, tid=1, name="e3", cat="c", ts_us=5000, dur_us=100.0, args=args),
+            pause_event(pid=2, tid=1, name="e4", cat="c", ts_us=7000, dur_us=100.0, args=args),
+        ]
+        _normalize_trace_timestamps(events)  # type: ignore[arg-type]
+        assert events[0]["ts"] == 0      # pid=1: 10000 - 10000
+        assert events[1]["ts"] == 2000   # pid=1: 12000 - 10000
+        assert events[2]["ts"] == 0      # pid=2: 5000 - 5000
+        assert events[3]["ts"] == 2000   # pid=2: 7000 - 5000
+
     def test_negative_timestamps(self) -> None:
         args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
                 "collected": 10, "uncollectable": 0, "candidates": 5}
@@ -467,8 +482,8 @@ class TestNormalizeJsonlTimestamps:
         item2 = _make_inc_item(ts_start=5000, ts_stop=6000)
         items = {1: [item1], 2: [item2]}
         _normalize_jsonl_timestamps(items)
-        assert item1.ts_start == 5000  # 10000 - 5000
-        assert item2.ts_start == 0     # 5000 - 5000
+        assert item1.ts_start == 0     # per-PID min
+        assert item2.ts_start == 0     # per-PID min
 
 
 # =============================================================================
@@ -578,6 +593,19 @@ class TestCombineFiles:
         data = json.loads(out.read_text(encoding="utf-8"))
         assert data[0]["ts"] == 2000
         assert data[1]["ts"] == 0
+
+    def test_normalize_chrome_multiple_pids(self, tmp_path: Path) -> None:
+        f1 = tmp_path / "a.json"
+        out = tmp_path / "out.json"
+        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
+                "collected": 10, "uncollectable": 0, "candidates": 5}
+        e1 = pause_event(pid=1, tid=1, name="e1", cat="c", ts_us=10000, dur_us=100.0, args=args)
+        e2 = pause_event(pid=2, tid=1, name="e2", cat="c", ts_us=5000, dur_us=100.0, args=args)
+        f1.write_text(json.dumps([e1, e2]), encoding="utf-8")
+        combine_files([f1], out, normalize=True, input_format="chrome", output_format="chrome")
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert data[0]["ts"] == 0  # pid=1: 10000 - 10000
+        assert data[1]["ts"] == 0  # pid=2: 5000 - 5000
 
     def test_jsonl_to_chrome_normalize(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.jsonl"
