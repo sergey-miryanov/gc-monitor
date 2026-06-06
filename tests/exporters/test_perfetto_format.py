@@ -126,33 +126,36 @@ class TestBuildTrackDescriptor:
 
 class TestBuildTracePacket:
     def test_empty_packet(self) -> None:
-        data = build_trace_packet()
-        assert data == b""
+        data = build_trace_packet(1)
+        fields = decode_message(data)
+        assert get_varint(fields, 10) == 1
 
     def test_with_timestamp(self) -> None:
-        data = build_trace_packet(timestamp=1_500_000_000)
+        data = build_trace_packet(1, timestamp=1_500_000_000)
         fields = decode_message(data)
+        assert get_varint(fields, 10) == 1
         assert get_varint(fields, 8) == 1_500_000_000
 
     def test_with_track_event(self) -> None:
         event = b"\x08\x01"
-        data = build_trace_packet(track_event=event)
+        data = build_trace_packet(1, track_event=event)
         fields = decode_message(data)
+        assert get_varint(fields, 10) == 1
         assert get_bytes(fields, 11) == event
 
     def test_with_track_descriptor(self) -> None:
         desc = b"\x0a\x05hello"
-        data = build_trace_packet(track_descriptor=desc)
+        data = build_trace_packet(1, track_descriptor=desc)
         fields = decode_message(data)
+        assert get_varint(fields, 10) == 1
         assert get_bytes(fields, 60) == desc
 
     def test_with_all_fields(self) -> None:
         event = b"\x08\x01"
         desc = b"\x0a\x05hello"
-        data = build_trace_packet(
-            timestamp=1000, track_event=event, track_descriptor=desc
-        )
+        data = build_trace_packet(42, timestamp=1000, track_event=event, track_descriptor=desc)
         fields = decode_message(data)
+        assert get_varint(fields, 10) == 42
         assert get_varint(fields, 8) == 1000
         assert get_bytes(fields, 11) == event
         assert get_bytes(fields, 60) == desc
@@ -252,7 +255,7 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=1, collected=10,
             uncollectable=0, candidates=5, duration=0.001,
         )
-        descriptors, _ = convert_item_to_perfetto_packets(100, item, state)
+        descriptors, _ = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         assert len(descriptors) >= 2
         assert state.has_pid(100)
         assert state.has_tid(100, 0)
@@ -264,7 +267,7 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=1, collected=10,
             uncollectable=0, candidates=5, duration=0.001,
         )
-        _, packets = convert_item_to_perfetto_packets(100, item, state)
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         assert len(packets) >= 2
         first_packet_fields = decode_message(packets[0])
         assert get_varint(first_packet_fields, 8) == 1_000
@@ -281,7 +284,7 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=1, collected=10,
             uncollectable=2, candidates=5, duration=0.001,
         )
-        _, packets = convert_item_to_perfetto_packets(100, item, state)
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         counter_packets = []
         for p in packets:
             fields = decode_message(p)
@@ -304,8 +307,8 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=1, collected=10,
             uncollectable=0, candidates=5, duration=0.001,
         )
-        desc1, _ = convert_item_to_perfetto_packets(100, item, state)
-        desc2, _ = convert_item_to_perfetto_packets(100, item, state)
+        desc1, _ = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
+        desc2, _ = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         assert len(desc1) > 0
         assert len(desc2) == 0
 
@@ -316,7 +319,7 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=1, collected=10,
             uncollectable=0, candidates=5, duration=0.001,
         )
-        descriptors, packets = convert_item_to_perfetto_packets(100, item, state)
+        descriptors, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         assert len(packets) == 0
         assert len(descriptors) >= 2
 
@@ -327,7 +330,7 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=1, collected=10,
             uncollectable=0, candidates=5, duration=0.0,
         )
-        _, packets = convert_item_to_perfetto_packets(100, item, state)
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         assert len(packets) == 0
 
     def test_incremental_item_emits_subphases(self) -> None:
@@ -351,7 +354,7 @@ class TestConvertItemToPerfettoPackets:
             ts_delete_garbage_stop=3_900,
             deleted_garbage_count=13,
         )
-        _, packets = convert_item_to_perfetto_packets(100, item, state)
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         slice_begins = []
         for p in packets:
             fields = decode_message(p)
@@ -380,7 +383,7 @@ class TestConvertItemToPerfettoPackets:
             ts_mark_alive_start=3_000, ts_mark_alive_stop=3_000,
             ts_fill_increment_start=3_100, ts_fill_increment_stop=3_200,
         )
-        _, packets = convert_item_to_perfetto_packets(100, item, state)
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         slice_names = []
         for p in packets:
             fields = decode_message(p)
@@ -404,8 +407,8 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=1, collected=10,
             uncollectable=0, candidates=5, duration=0.001,
         )
-        desc0, _ = convert_item_to_perfetto_packets(100, item0, state)
-        desc1, _ = convert_item_to_perfetto_packets(100, item1, state)
+        desc0, _ = convert_item_to_perfetto_packets(100, item0, state, sequence_id=1)
+        desc1, _ = convert_item_to_perfetto_packets(100, item1, state, sequence_id=1)
         assert len(desc0) >= 2
         assert len(desc1) >= 1
         assert state.has_tid(100, 0)
@@ -418,7 +421,7 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=5, collected=10,
             uncollectable=2, candidates=3, duration=0.001,
         )
-        _, packets = convert_item_to_perfetto_packets(100, item, state)
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         first_packet_fields = decode_message(packets[0])
         te_bytes = get_bytes(first_packet_fields, 11)
         assert te_bytes is not None
@@ -444,14 +447,14 @@ class TestConvertInstantToPerfettoPacket:
     def test_emits_process_descriptor(self) -> None:
         state = PerfettoTrackState()
         item = InstantMsg(type="i", name="start", ts=5_000)
-        descriptors, _ = convert_instant_to_perfetto_packet(100, item, state)
+        descriptors, _ = convert_instant_to_perfetto_packet(100, item, state, sequence_id=1)
         assert len(descriptors) == 1
         assert state.has_pid(100)
 
     def test_emits_instant_event(self) -> None:
         state = PerfettoTrackState()
         item = InstantMsg(type="i", name="start GC monitor", ts=5_000)
-        _, packets = convert_instant_to_perfetto_packet(100, item, state)
+        _, packets = convert_instant_to_perfetto_packet(100, item, state, sequence_id=1)
         assert len(packets) == 1
         fields = decode_message(packets[0])
         assert get_varint(fields, 8) == 5_000
@@ -465,8 +468,8 @@ class TestConvertInstantToPerfettoPacket:
         state = PerfettoTrackState()
         item1 = InstantMsg(type="i", name="start", ts=5_000)
         item2 = InstantMsg(type="i", name="stop", ts=10_000)
-        desc1, _ = convert_instant_to_perfetto_packet(100, item1, state)
-        desc2, _ = convert_instant_to_perfetto_packet(100, item2, state)
+        desc1, _ = convert_instant_to_perfetto_packet(100, item1, state, sequence_id=1)
+        desc2, _ = convert_instant_to_perfetto_packet(100, item2, state, sequence_id=1)
         assert len(desc1) == 1
         assert len(desc2) == 0
 
@@ -478,7 +481,7 @@ class TestConvertInstantToPerfettoPacket:
             uncollectable=0, candidates=5, duration=0.001,
         )
         instant_item = InstantMsg(type="i", name="stop", ts=5_000)
-        gc_desc, _ = convert_item_to_perfetto_packets(100, gc_item, state)
-        inst_desc, _ = convert_instant_to_perfetto_packet(100, instant_item, state)
+        gc_desc, _ = convert_item_to_perfetto_packets(100, gc_item, state, sequence_id=1)
+        inst_desc, _ = convert_instant_to_perfetto_packet(100, instant_item, state, sequence_id=1)
         assert len(gc_desc) >= 2
         assert len(inst_desc) == 0

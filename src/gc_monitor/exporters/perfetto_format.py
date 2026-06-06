@@ -100,11 +100,13 @@ def build_track_descriptor(
 
 
 def build_trace_packet(
+    sequence_id: int,
     timestamp: int | None = None,
     track_event: bytes | None = None,
     track_descriptor: bytes | None = None,
 ) -> bytes:
     result = b""
+    result += encode_varint_field(10, sequence_id)
     if timestamp is not None:
         result += encode_varint_field(8, timestamp)
     if track_event is not None:
@@ -184,6 +186,7 @@ def convert_item_to_perfetto_packets(
     pid: int,
     item: TGCStatsInfo,
     state: PerfettoTrackState,
+    sequence_id: int,
 ) -> tuple[list[bytes], list[bytes]]:
     descriptors: list[bytes] = []
     packets: list[bytes] = []
@@ -192,7 +195,7 @@ def convert_item_to_perfetto_packets(
         state.mark_pid(pid)
         proc_uuid = state.get_process_track_uuid(pid)
         desc = build_track_descriptor(proc_uuid, f"Process {pid}")
-        descriptors.append(build_trace_packet(track_descriptor=desc))
+        descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
 
     thread_uuid = state.get_thread_track_uuid(pid, item.iid)
     if not state.has_tid(pid, item.iid):
@@ -205,7 +208,7 @@ def convert_item_to_perfetto_packets(
             tid=item.iid,
             parent_uuid=proc_uuid,
         )
-        descriptors.append(build_trace_packet(track_descriptor=desc))
+        descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
 
     ts_start_ns = item.ts_start
     ts_stop_ns = item.ts_stop
@@ -224,6 +227,7 @@ def convert_item_to_perfetto_packets(
     pause_ann.append(_build_debug_annotation_int("candidates", item.candidates))
 
     packets.append(build_trace_packet(
+        sequence_id,
         timestamp=ts_start_ns,
         track_event=_make_slice_begin(
             thread_uuid,
@@ -237,6 +241,7 @@ def convert_item_to_perfetto_packets(
         ann = list(base_ann)
         ann.append(_build_debug_annotation_int("alive_size", item.alive_size))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_mark_alive_start,
             track_event=_make_slice_begin(
                 thread_uuid,
@@ -246,6 +251,7 @@ def convert_item_to_perfetto_packets(
             ),
         ))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_mark_alive_stop,
             track_event=_make_slice_end(thread_uuid),
         ))
@@ -254,6 +260,7 @@ def convert_item_to_perfetto_packets(
         ann = list(base_ann)
         ann.append(_build_debug_annotation_int("increment_size", item.increment_size))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_fill_increment_start,
             track_event=_make_slice_begin(
                 thread_uuid,
@@ -263,12 +270,14 @@ def convert_item_to_perfetto_packets(
             ),
         ))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_fill_increment_stop,
             track_event=_make_slice_end(thread_uuid),
         ))
 
     if has_deduce_unreachable(item) and item.ts_deduce_unreachable_stop - item.ts_deduce_unreachable_start > 0:
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_deduce_unreachable_start,
             track_event=_make_slice_begin(
                 thread_uuid,
@@ -278,12 +287,14 @@ def convert_item_to_perfetto_packets(
             ),
         ))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_deduce_unreachable_stop,
             track_event=_make_slice_end(thread_uuid),
         ))
 
     if has_handle_weakrefs(item) and item.ts_handle_weakref_callbacks_stop - item.ts_handle_weakref_callbacks_start > 0:
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_handle_weakref_callbacks_start,
             track_event=_make_slice_begin(
                 thread_uuid,
@@ -293,6 +304,7 @@ def convert_item_to_perfetto_packets(
             ),
         ))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_handle_weakref_callbacks_stop,
             track_event=_make_slice_end(thread_uuid),
         ))
@@ -301,6 +313,7 @@ def convert_item_to_perfetto_packets(
         ann = list(base_ann)
         ann.append(_build_debug_annotation_int("finalized_garbage_count", item.finalized_garbage_count))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_handle_weakref_callbacks_stop,
             track_event=_make_slice_begin(
                 thread_uuid,
@@ -310,12 +323,14 @@ def convert_item_to_perfetto_packets(
             ),
         ))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_finalize_garbage_stop,
             track_event=_make_slice_end(thread_uuid),
         ))
 
     if has_handle_resurrected(item) and item.ts_handle_resurrected_stop - item.ts_finalize_garbage_stop > 0:
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_finalize_garbage_stop,
             track_event=_make_slice_begin(
                 thread_uuid,
@@ -325,6 +340,7 @@ def convert_item_to_perfetto_packets(
             ),
         ))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_handle_resurrected_stop,
             track_event=_make_slice_end(thread_uuid),
         ))
@@ -333,6 +349,7 @@ def convert_item_to_perfetto_packets(
         ann = list(base_ann)
         ann.append(_build_debug_annotation_int("clear_weakrefs_count", item.clear_weakrefs_count))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_handle_resurrected_stop,
             track_event=_make_slice_begin(
                 thread_uuid,
@@ -342,6 +359,7 @@ def convert_item_to_perfetto_packets(
             ),
         ))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_clear_weakrefs_stop,
             track_event=_make_slice_end(thread_uuid),
         ))
@@ -350,6 +368,7 @@ def convert_item_to_perfetto_packets(
         ann = list(base_ann)
         ann.append(_build_debug_annotation_int("deleted_garbage_count", item.deleted_garbage_count))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_delete_garbage_start,
             track_event=_make_slice_begin(
                 thread_uuid,
@@ -359,11 +378,13 @@ def convert_item_to_perfetto_packets(
             ),
         ))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=item.ts_delete_garbage_stop,
             track_event=_make_slice_end(thread_uuid),
         ))
 
     packets.append(build_trace_packet(
+        sequence_id,
         timestamp=ts_stop_ns,
         track_event=_make_slice_end(thread_uuid),
     ))
@@ -395,8 +416,9 @@ def convert_item_to_perfetto_packets(
                 parent_uuid=thread_uuid,
                 is_counter=True,
             )
-            descriptors.append(build_trace_packet(track_descriptor=desc))
+            descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
         packets.append(build_trace_packet(
+            sequence_id,
             timestamp=ts_start_ns,
             track_event=_make_counter_event(ctr_uuid, value),
         ))
@@ -408,6 +430,7 @@ def convert_instant_to_perfetto_packet(
     pid: int,
     item: TInstantMsg,
     state: PerfettoTrackState,
+    sequence_id: int,
 ) -> tuple[list[bytes], list[bytes]]:
     descriptors: list[bytes] = []
     packets: list[bytes] = []
@@ -416,10 +439,11 @@ def convert_instant_to_perfetto_packet(
         state.mark_pid(pid)
         proc_uuid = state.get_process_track_uuid(pid)
         desc = build_track_descriptor(proc_uuid, f"Process {pid}")
-        descriptors.append(build_trace_packet(track_descriptor=desc))
+        descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
 
     proc_uuid = state.get_process_track_uuid(pid)
     packets.append(build_trace_packet(
+        sequence_id,
         timestamp=item.ts,
         track_event=build_track_event(
             type=TYPE_INSTANT,

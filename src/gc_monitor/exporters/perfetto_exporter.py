@@ -44,11 +44,13 @@ class PerfettoExporter(EventsExporter):
         self._closed = False
         self._event_count = 0
         self._track_state = PerfettoTrackState()
+        self._sequence_id: int = id(self) & 0x7FFFFFFF
+        self._has_written = False
 
     @override
     def add_event(self, pid: int, item: TGCStatsInfo) -> None:
         descriptors, packets = convert_item_to_perfetto_packets(
-            pid, item, self._track_state
+            pid, item, self._track_state, self._sequence_id
         )
         to_flush: list[bytes] = []
         with self._lock:
@@ -66,7 +68,7 @@ class PerfettoExporter(EventsExporter):
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
         descriptors, packets = convert_instant_to_perfetto_packet(
-            pid, item, self._track_state
+            pid, item, self._track_state, self._sequence_id
         )
         to_flush: list[bytes] = []
         with self._lock:
@@ -83,7 +85,12 @@ class PerfettoExporter(EventsExporter):
     def _flush(self, entries: list[bytes]) -> None:
         if not entries:
             return
-        with open(self._output_path, "ab") as f:
+        if not self._has_written:
+            self._has_written = True
+            mode = "wb"
+        else:
+            mode = "ab"
+        with open(self._output_path, mode) as f:
             for entry in entries:
                 f.write(encode_bytes_field(1, entry))
             f.flush()
