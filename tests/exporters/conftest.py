@@ -58,6 +58,6 @@ def perfetto_exporter(tmp_path: Path) -> Callable[..., tuple[PerfettoExporter, P
 def read_jsonl() -> Callable[..., list[dict[str, Any]]]:
     """Read a JSONL file and return list of parsed events."""
     def _read(path: Path) -> list[dict[str, Any]]:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
     return _read

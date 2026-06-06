@@ -3,6 +3,7 @@ from pathlib import Path
 from .chrome_trace_exporter import TraceExporter
 from .exporter import EventsExporter
 from .jsonl_exporter import JsonlExporter
+from .perfetto_exporter import PerfettoExporter
 from .stdout_exporter import StdoutExporter
 
 
@@ -20,5 +21,7 @@ class EventsExporterFactory:
                 return JsonlExporter(output_path=self._output_path, flush_threshold=self._flush_threshold)
             case "chrome" | "trace":
                 return TraceExporter(output_path=self._output_path, flush_threshold=self._flush_threshold)
+            case "perfetto":
+                return PerfettoExporter(output_path=self._output_path, flush_threshold=self._flush_threshold)
             case _:
                 raise ValueError(f"Unknown output format: {self._output_format}")

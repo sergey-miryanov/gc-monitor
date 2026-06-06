@@ -1,6 +1,14 @@
 """Tests for Perfetto protobuf message builders and conversion."""
 
-import pytest
+
+from tests.proto_decoder import (
+    decode_message,
+    get_bytes,
+    get_field,
+    get_fields,
+    get_string,
+    get_varint,
+)
 
 from gc_monitor.data import GCStatsInfo, InstantMsg
 from gc_monitor.exporters.perfetto_format import (
@@ -16,15 +24,6 @@ from gc_monitor.exporters.perfetto_format import (
     convert_instant_to_perfetto_packet,
     convert_item_to_perfetto_packets,
 )
-from tests.proto_decoder import (
-    decode_message,
-    get_bytes,
-    get_field,
-    get_fields,
-    get_string,
-    get_varint,
-)
-
 
 _PROCESS_BASE = 1 << 60
 _THREAD_BASE = 2 << 60
@@ -253,7 +252,7 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=1, collected=10,
             uncollectable=0, candidates=5, duration=0.001,
         )
-        descriptors, packets = convert_item_to_perfetto_packets(100, item, state)
+        descriptors, _ = convert_item_to_perfetto_packets(100, item, state)
         assert len(descriptors) >= 2
         assert state.has_pid(100)
         assert state.has_tid(100, 0)
@@ -282,7 +281,7 @@ class TestConvertItemToPerfettoPackets:
             heap_size=1000, collections=1, collected=10,
             uncollectable=2, candidates=5, duration=0.001,
         )
-        descriptors, packets = convert_item_to_perfetto_packets(100, item, state)
+        _, packets = convert_item_to_perfetto_packets(100, item, state)
         counter_packets = []
         for p in packets:
             fields = decode_message(p)
@@ -445,7 +444,7 @@ class TestConvertInstantToPerfettoPacket:
     def test_emits_process_descriptor(self) -> None:
         state = PerfettoTrackState()
         item = InstantMsg(type="i", name="start", ts=5_000)
-        descriptors, packets = convert_instant_to_perfetto_packet(100, item, state)
+        descriptors, _ = convert_instant_to_perfetto_packet(100, item, state)
         assert len(descriptors) == 1
         assert state.has_pid(100)
 

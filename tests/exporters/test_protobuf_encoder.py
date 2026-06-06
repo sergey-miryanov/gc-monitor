@@ -103,7 +103,7 @@ class TestEncodeStringField:
     def test_unicode_string(self) -> None:
         result = encode_string_field(2, "café")
         assert result[0:2] == b"\x12\x05"
-        assert result[2:] == "café".encode("utf-8")
+        assert result[2:] == "café".encode()
 
 
 class TestEncodeBytesField:

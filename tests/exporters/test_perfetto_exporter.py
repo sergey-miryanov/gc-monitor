@@ -1,11 +1,5 @@
 """Tests for Perfetto binary protobuf exporter."""
 
-from gc_monitor.exporters.perfetto_format import (
-    TYPE_COUNTER,
-    TYPE_INSTANT,
-    TYPE_SLICE_BEGIN,
-    TYPE_SLICE_END,
-)
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
@@ -15,6 +9,13 @@ from tests.proto_decoder import (
     get_fields,
     get_string,
     get_varint,
+)
+
+from gc_monitor.exporters.perfetto_format import (
+    TYPE_COUNTER,
+    TYPE_INSTANT,
+    TYPE_SLICE_BEGIN,
+    TYPE_SLICE_END,
 )
 
 
@@ -73,11 +74,11 @@ def _count_descriptors(packet_fields: list[list[ProtoField]]) -> int:
 
 class TestPerfettoExporter:
     def test_init(self, perfetto_exporter) -> None:
-        exporter, path = perfetto_exporter()
+        exporter, _ = perfetto_exporter()
         assert exporter.get_event_count() == 0
 
     def test_init_with_flush_threshold(self, perfetto_exporter) -> None:
-        exporter, path = perfetto_exporter(threshold=500)
+        exporter, _ = perfetto_exporter(threshold=500)
         assert exporter.get_event_count() == 0
 
     def _verify_event_structure(self, path, num_items: int) -> None:
@@ -140,7 +141,7 @@ class TestPerfettoExporter:
         self._verify_event_structure(path, 15)
 
     def test_add_event_count(self, mock_stats_item, perfetto_exporter) -> None:
-        exporter, path = perfetto_exporter()
+        exporter, _ = perfetto_exporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         assert exporter.get_event_count() == 1
 
