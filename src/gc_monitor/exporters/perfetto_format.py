@@ -19,11 +19,11 @@ from .protobuf_encoder import (
 )
 
 __all__ = [
-    "PerfettoTrackState",
     "TYPE_COUNTER",
     "TYPE_INSTANT",
     "TYPE_SLICE_BEGIN",
     "TYPE_SLICE_END",
+    "PerfettoTrackState",
     "build_trace",
     "build_trace_packet",
     "build_track_descriptor",

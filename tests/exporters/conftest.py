@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from gc_monitor.exporters import JsonlExporter, TraceExporter
+from gc_monitor.exporters import JsonlExporter, PerfettoExporter, TraceExporter
 
 
 @pytest.fixture
@@ -36,6 +36,20 @@ def trace_exporter(tmp_path: Path) -> Callable[..., tuple[TraceExporter, Path]]:
     def _make(threshold: int = 100) -> tuple[TraceExporter, Path]:
         path = tmp_path / "trace.json"
         exporter = TraceExporter(output_path=path, flush_threshold=threshold)
+        return exporter, path
+    return _make
+
+
+@pytest.fixture
+def perfetto_exporter(tmp_path: Path) -> Callable[..., tuple[PerfettoExporter, Path]]:
+    """Factory fixture for PerfettoExporter instances.
+
+    Usage:
+        exporter, path = perfetto_exporter(threshold=50)
+    """
+    def _make(threshold: int = 100) -> tuple[PerfettoExporter, Path]:
+        path = tmp_path / "trace.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=threshold)
         return exporter, path
     return _make
 
