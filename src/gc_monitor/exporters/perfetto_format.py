@@ -1,5 +1,7 @@
 """Perfetto protobuf message builders and GC-to-Perfetto conversion."""
 
+from enum import IntEnum
+
 from ..data import ts_to_us
 from ..protocol import (
     TGCStatsInfo,
@@ -19,12 +21,61 @@ from .protobuf_encoder import (
     encode_varint_field,
 )
 
+
+class TraceField(IntEnum):
+    PACKET = 1
+
+
+class TracePacketField(IntEnum):
+    TIMESTAMP = 8
+    SEQUENCE_ID = 10
+    TRACK_EVENT = 11
+    TRACK_DESCRIPTOR = 60
+
+
+class TrackDescriptorField(IntEnum):
+    UUID = 1
+    NAME = 2
+    THREAD = 4
+    PARENT_UUID = 5
+    COUNTER = 8
+
+
+class ThreadDescriptorField(IntEnum):
+    PID = 1
+    TID = 2
+
+
+class TrackEventField(IntEnum):
+    TYPE = 9
+    TRACK_UUID = 11
+    DEBUG_ANNOTATIONS = 4
+    CATEGORIES = 22
+    NAME = 23
+    COUNTER_VALUE = 30
+    TIMESTAMP_DELTA_US = 1
+    TIMESTAMP_ABSOLUTE_US = 16
+
+
+class DebugAnnotationField(IntEnum):
+    NAME = 1
+    BOOL_VALUE = 2
+    INT_VALUE = 4
+    STRING_VALUE = 6
+
+
 __all__ = [
     "TYPE_COUNTER",
     "TYPE_INSTANT",
     "TYPE_SLICE_BEGIN",
     "TYPE_SLICE_END",
+    "DebugAnnotationField",
     "PerfettoTrackState",
+    "ThreadDescriptorField",
+    "TraceField",
+    "TracePacketField",
+    "TrackDescriptorField",
+    "TrackEventField",
     "build_trace",
     "build_trace_packet",
     "build_track_descriptor",
@@ -88,15 +139,15 @@ def build_track_descriptor(
     parent_uuid: int | None = None,
     is_counter: bool = False,
 ) -> bytes:
-    result = encode_varint_field(1, uuid)
-    result += encode_string_field(2, name)
+    result = encode_varint_field(TrackDescriptorField.UUID, uuid)
+    result += encode_string_field(TrackDescriptorField.NAME, name)
     if parent_uuid is not None:
-        result += encode_varint_field(5, parent_uuid)
+        result += encode_varint_field(TrackDescriptorField.PARENT_UUID, parent_uuid)
     if pid is not None and tid is not None:
-        thread_desc = encode_varint_field(1, pid) + encode_varint_field(2, tid)
-        result += encode_bytes_field(4, thread_desc)
+        thread_desc = encode_varint_field(ThreadDescriptorField.PID, pid) + encode_varint_field(ThreadDescriptorField.TID, tid)
+        result += encode_bytes_field(TrackDescriptorField.THREAD, thread_desc)
     if is_counter:
-        result += encode_bytes_field(8, b"")
+        result += encode_bytes_field(TrackDescriptorField.COUNTER, b"")
     return result
 
 
@@ -107,19 +158,19 @@ def build_trace_packet(
     track_descriptor: bytes | None = None,
 ) -> bytes:
     result = b""
-    result += encode_varint_field(10, sequence_id)
+    result += encode_varint_field(TracePacketField.SEQUENCE_ID, sequence_id)
     if timestamp is not None:
-        result += encode_varint_field(8, timestamp)
+        result += encode_varint_field(TracePacketField.TIMESTAMP, timestamp)
     if track_event is not None:
-        result += encode_bytes_field(11, track_event)
+        result += encode_bytes_field(TracePacketField.TRACK_EVENT, track_event)
     if track_descriptor is not None:
-        result += encode_bytes_field(60, track_descriptor)
+        result += encode_bytes_field(TracePacketField.TRACK_DESCRIPTOR, track_descriptor)
     return result
 
 
 def _build_debug_annotation_int(name: str, value: int) -> bytes:
-    result = encode_string_field(1, name)
-    result += encode_varint_field(4, value)
+    result = encode_string_field(DebugAnnotationField.NAME, name)
+    result += encode_varint_field(DebugAnnotationField.INT_VALUE, value)
     return result
 
 
@@ -131,25 +182,25 @@ def build_track_event(
     counter_value: int | None = None,
     debug_annotations: list[bytes] | None = None,
 ) -> bytes:
-    result = encode_varint_field(9, type)
-    result += encode_varint_field(11, track_uuid)
+    result = encode_varint_field(TrackEventField.TYPE, type)
+    result += encode_varint_field(TrackEventField.TRACK_UUID, track_uuid)
     if categories:
         for cat in categories:
-            result += encode_string_field(22, cat)
+            result += encode_string_field(TrackEventField.CATEGORIES, cat)
     if name is not None:
-        result += encode_string_field(23, name)
+        result += encode_string_field(TrackEventField.NAME, name)
     if counter_value is not None:
-        result += encode_varint_field(30, counter_value)
+        result += encode_varint_field(TrackEventField.COUNTER_VALUE, counter_value)
     if debug_annotations:
         for ann in debug_annotations:
-            result += encode_bytes_field(4, ann)
+            result += encode_bytes_field(TrackEventField.DEBUG_ANNOTATIONS, ann)
     return result
 
 
 def build_trace(packets: list[bytes]) -> bytes:
     result = b""
     for packet in packets:
-        result += encode_bytes_field(1, packet)
+        result += encode_bytes_field(TraceField.PACKET, packet)
     return result
 
 

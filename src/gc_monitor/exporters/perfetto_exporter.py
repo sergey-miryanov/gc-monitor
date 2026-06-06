@@ -8,6 +8,7 @@ from ..protocol import TGCStatsInfo, TInstantMsg
 from .exporter import EventsExporter
 from .perfetto_format import (
     PerfettoTrackState,
+    TraceField,
     convert_instant_to_perfetto_packet,
     convert_item_to_perfetto_packets,
 )
@@ -92,7 +93,7 @@ class PerfettoExporter(EventsExporter):
             mode = "ab"
         with open(self._output_path, mode) as f:
             for entry in entries:
-                f.write(encode_bytes_field(1, entry))
+                f.write(encode_bytes_field(TraceField.PACKET, entry))
             f.flush()
 
     @override

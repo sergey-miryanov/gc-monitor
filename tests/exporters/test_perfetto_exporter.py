@@ -16,6 +16,9 @@ from gc_monitor.exporters.perfetto_format import (
     TYPE_INSTANT,
     TYPE_SLICE_BEGIN,
     TYPE_SLICE_END,
+    TraceField,
+    TracePacketField,
+    TrackEventField,
 )
 
 
@@ -26,11 +29,11 @@ def _read_trace_packets(path) -> list[list[ProtoField]]:
     if not data:
         return []
     trace_fields = decode_message(data)
-    return [decode_message(f.value) for f in get_fields(trace_fields, 1)]
+    return [decode_message(f.value) for f in get_fields(trace_fields, TraceField.PACKET)]
 
 
 def _get_track_event(fields: list[ProtoField]) -> list[ProtoField] | None:
-    te_bytes = get_bytes_at(fields, 11)
+    te_bytes = get_bytes_at(fields, TracePacketField.TRACK_EVENT)
     if te_bytes:
         return decode_message(te_bytes)
     return None
@@ -39,7 +42,7 @@ def _get_track_event(fields: list[ProtoField]) -> list[ProtoField] | None:
 def _is_track_event(fields: list[ProtoField], event_type: int) -> bool:
     te = _get_track_event(fields)
     if te is not None:
-        return any(f.field_number == 9 and f.value == event_type for f in te)
+        return any(f.field_number == TrackEventField.TYPE and f.value == event_type for f in te)
     return False
 
 
@@ -63,13 +66,13 @@ def _count_event_type(packet_fields: list[list[ProtoField]], event_type: int) ->
         te = _get_track_event(pf)
         if te:
             for f in te:
-                if f.field_number == 9 and f.value == event_type:
+                if f.field_number == TrackEventField.TYPE and f.value == event_type:
                     count += 1
     return count
 
 
 def _count_descriptors(packet_fields: list[list[ProtoField]]) -> int:
-    return sum(1 for pf in packet_fields if get_bytes_at(pf, 60) is not None)
+    return sum(1 for pf in packet_fields if get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR) is not None)
 
 
 class TestPerfettoExporter:
@@ -123,8 +126,8 @@ class TestPerfettoExporter:
         hit = False
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 9) == TYPE_SLICE_BEGIN:
-                name = get_string(te, 23)
+            if te and get_varint(te, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
+                name = get_string(te, TrackEventField.NAME)
                 if name == "GC Pause (gen=0)":
                     hit = True
                     break
@@ -154,8 +157,8 @@ class TestPerfettoExporter:
         pause_ts = None
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 9) == TYPE_SLICE_BEGIN:
-                pause_ts = get_int_at(pf, 8)
+            if te and get_varint(te, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
+                pause_ts = get_int_at(pf, TracePacketField.TIMESTAMP)
                 break
         assert pause_ts == 1_500_000
 
@@ -179,8 +182,8 @@ class TestPerfettoExporter:
         names = set()
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 9) == TYPE_SLICE_BEGIN:
-                name = get_string(te, 23)
+            if te and get_varint(te, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
+                name = get_string(te, TrackEventField.NAME)
                 if name and "GC Pause" in name:
                     names.add(name)
         assert names == {"GC Pause (gen=0)", "GC Pause (gen=1)", "GC Pause (gen=2)"}
@@ -195,14 +198,14 @@ class TestPerfettoExporter:
         names = []
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 9) == TYPE_INSTANT:
-                name = get_string(te, 23)
+            if te and get_varint(te, TrackEventField.TYPE) == TYPE_INSTANT:
+                name = get_string(te, TrackEventField.NAME)
                 if name:
                     names.append(name)
         assert names == ["start GC monitor"]
 
     def test_add_instant_event_not_counted_in_get_event_count(self, perfetto_exporter) -> None:
-        exporter, path = perfetto_exporter()
+        exporter, _ = perfetto_exporter()
         instant = create_instant_msg(name="event", ts=1_000_000_000)
         exporter.add_instant_event(DEFAULT_PID, instant)
         assert exporter.get_event_count() == 0
@@ -217,8 +220,8 @@ class TestPerfettoExporter:
         names = []
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 9) == TYPE_INSTANT:
-                name = get_string(te, 23)
+            if te and get_varint(te, TrackEventField.TYPE) == TYPE_INSTANT:
+                name = get_string(te, TrackEventField.NAME)
                 if name:
                     names.append(name)
         assert names == ["start GC monitor", "stop GC monitor"]
@@ -230,7 +233,7 @@ class TestPerfettoExporter:
 
         packets = _read_trace_packets(path)
         for pf in packets:
-            ts = get_int_at(pf, 8)
+            ts = get_int_at(pf, TracePacketField.TIMESTAMP)
             if ts is not None:
                 assert ts >= 1_500_000
 
@@ -245,7 +248,7 @@ class TestPerfettoExporter:
         exporter.close()
 
         packets = _read_trace_packets(path)
-        assert get_bytes_at(packets[0], 60) is not None
+        assert get_bytes_at(packets[0], TracePacketField.TRACK_DESCRIPTOR) is not None
 
     def test_multiple_processes(self, perfetto_exporter) -> None:
         exporter, path = perfetto_exporter()
@@ -255,7 +258,7 @@ class TestPerfettoExporter:
         exporter.close()
 
         packets = _read_trace_packets(path)
-        descriptors = sum(1 for pf in packets if get_bytes_at(pf, 60) is not None)
+        descriptors = sum(1 for pf in packets if get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR) is not None)
         assert descriptors >= 4
 
     def test_incremental_item_emits_subphases(self, perfetto_exporter) -> None:
@@ -268,8 +271,8 @@ class TestPerfettoExporter:
         begin_names = set()
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 9) == TYPE_SLICE_BEGIN:
-                name = get_string(te, 23)
+            if te and get_varint(te, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
+                name = get_string(te, TrackEventField.NAME)
                 if name:
                     begin_names.add(name)
         expected = {
@@ -294,8 +297,8 @@ class TestPerfettoExporter:
         counter_tracks = set()
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 9) == TYPE_COUNTER:
-                uuid = get_varint(te, 11)
+            if te and get_varint(te, TrackEventField.TYPE) == TYPE_COUNTER:
+                uuid = get_varint(te, TrackEventField.TRACK_UUID)
                 if uuid is not None:
                     counter_tracks.add(uuid)
         assert len(counter_tracks) == 4
