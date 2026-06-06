@@ -167,34 +167,34 @@ class TestBuildTrackEvent:
             type=TYPE_SLICE_BEGIN, track_uuid=100, name="test"
         )
         fields = decode_message(data)
-        assert get_varint(fields, 1) == TYPE_SLICE_BEGIN
-        assert get_varint(fields, 2) == 100
-        assert get_string(fields, 4) == "test"
+        assert get_varint(fields, 9) == TYPE_SLICE_BEGIN
+        assert get_varint(fields, 11) == 100
+        assert get_string(fields, 23) == "test"
 
     def test_slice_end(self) -> None:
         data = build_track_event(type=TYPE_SLICE_END, track_uuid=100)
         fields = decode_message(data)
-        assert get_varint(fields, 1) == TYPE_SLICE_END
-        assert get_varint(fields, 2) == 100
-        assert get_field(fields, 4) is None
+        assert get_varint(fields, 9) == TYPE_SLICE_END
+        assert get_varint(fields, 11) == 100
+        assert get_field(fields, 23) is None
 
     def test_instant(self) -> None:
         data = build_track_event(
             type=TYPE_INSTANT, track_uuid=100, name="marker"
         )
         fields = decode_message(data)
-        assert get_varint(fields, 1) == TYPE_INSTANT
-        assert get_varint(fields, 2) == 100
-        assert get_string(fields, 4) == "marker"
+        assert get_varint(fields, 9) == TYPE_INSTANT
+        assert get_varint(fields, 11) == 100
+        assert get_string(fields, 23) == "marker"
 
     def test_counter(self) -> None:
         data = build_track_event(
             type=TYPE_COUNTER, track_uuid=100, counter_value=42
         )
         fields = decode_message(data)
-        assert get_varint(fields, 1) == TYPE_COUNTER
-        assert get_varint(fields, 2) == 100
-        assert get_varint(fields, 5) == 42
+        assert get_varint(fields, 9) == TYPE_COUNTER
+        assert get_varint(fields, 11) == 100
+        assert get_varint(fields, 30) == 42
 
     def test_with_categories(self) -> None:
         data = build_track_event(
@@ -204,7 +204,7 @@ class TestBuildTrackEvent:
             categories=["cat1", "cat2"],
         )
         fields = decode_message(data)
-        cats = get_fields(fields, 3)
+        cats = get_fields(fields, 22)
         assert len(cats) == 2
         assert cats[0].value == b"cat1"
         assert cats[1].value == b"cat2"
@@ -219,7 +219,7 @@ class TestBuildTrackEvent:
             debug_annotations=[ann1, ann2],
         )
         fields = decode_message(data)
-        anns = get_fields(fields, 6)
+        anns = get_fields(fields, 4)
         assert len(anns) == 2
         assert anns[0].value == ann1
         assert anns[1].value == ann2
@@ -270,12 +270,12 @@ class TestConvertItemToPerfettoPackets:
         _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
         assert len(packets) >= 2
         first_packet_fields = decode_message(packets[0])
-        assert get_varint(first_packet_fields, 8) == 1_000
+        assert get_varint(first_packet_fields, 8) == 1
         track_event_bytes = get_bytes(first_packet_fields, 11)
         assert track_event_bytes is not None
         te_fields = decode_message(track_event_bytes)
-        assert get_varint(te_fields, 1) == TYPE_SLICE_BEGIN
-        assert get_string(te_fields, 4) == "GC Pause (gen=0)"
+        assert get_varint(te_fields, 9) == TYPE_SLICE_BEGIN
+        assert get_string(te_fields, 23) == "GC Pause (gen=0)"
 
     def test_basic_item_emits_counter_events(self) -> None:
         state = PerfettoTrackState()
@@ -291,10 +291,10 @@ class TestConvertItemToPerfettoPackets:
             te_bytes = get_bytes(fields, 11)
             if te_bytes:
                 te_fields = decode_message(te_bytes)
-                if get_varint(te_fields, 1) == TYPE_COUNTER:
+                if get_varint(te_fields, 9) == TYPE_COUNTER:
                     counter_packets.append((fields, te_fields))
         assert len(counter_packets) == 4
-        values = [get_varint(te, 5) for _, te in counter_packets]
+        values = [get_varint(te, 30) for _, te in counter_packets]
         assert 10 in values
         assert 2 in values
         assert 5 in values
@@ -361,8 +361,8 @@ class TestConvertItemToPerfettoPackets:
             te_bytes = get_bytes(fields, 11)
             if te_bytes:
                 te_fields = decode_message(te_bytes)
-                if get_varint(te_fields, 1) == TYPE_SLICE_BEGIN:
-                    slice_begins.append(get_string(te_fields, 4))
+                if get_varint(te_fields, 9) == TYPE_SLICE_BEGIN:
+                    slice_begins.append(get_string(te_fields, 23))
         assert "GC Pause (gen=1)" in slice_begins
         assert "Mark Alive (gen=1)" in slice_begins
         assert "Fill increment (gen=1)" in slice_begins
@@ -390,8 +390,8 @@ class TestConvertItemToPerfettoPackets:
             te_bytes = get_bytes(fields, 11)
             if te_bytes:
                 te_fields = decode_message(te_bytes)
-                if get_varint(te_fields, 1) == TYPE_SLICE_BEGIN:
-                    slice_names.append(get_string(te_fields, 4))
+                if get_varint(te_fields, 9) == TYPE_SLICE_BEGIN:
+                    slice_names.append(get_string(te_fields, 23))
         assert "Mark Alive (gen=1)" not in slice_names
         assert "Fill increment (gen=1)" in slice_names
 
@@ -426,7 +426,7 @@ class TestConvertItemToPerfettoPackets:
         te_bytes = get_bytes(first_packet_fields, 11)
         assert te_bytes is not None
         te_fields = decode_message(te_bytes)
-        anns = get_fields(te_fields, 6)
+        anns = get_fields(te_fields, 4)
         assert len(anns) == 7
         ann_values = []
         for ann in anns:
@@ -457,12 +457,12 @@ class TestConvertInstantToPerfettoPacket:
         _, packets = convert_instant_to_perfetto_packet(100, item, state, sequence_id=1)
         assert len(packets) == 1
         fields = decode_message(packets[0])
-        assert get_varint(fields, 8) == 5_000
+        assert get_varint(fields, 8) == 5
         te_bytes = get_bytes(fields, 11)
         assert te_bytes is not None
         te_fields = decode_message(te_bytes)
-        assert get_varint(te_fields, 1) == TYPE_INSTANT
-        assert get_string(te_fields, 4) == "start GC monitor"
+        assert get_varint(te_fields, 9) == TYPE_INSTANT
+        assert get_string(te_fields, 23) == "start GC monitor"
 
     def test_reuses_process_descriptor(self) -> None:
         state = PerfettoTrackState()

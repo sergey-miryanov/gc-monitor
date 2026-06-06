@@ -38,8 +38,8 @@ def _get_track_event(fields: list[ProtoField]) -> list[ProtoField] | None:
 
 def _is_track_event(fields: list[ProtoField], event_type: int) -> bool:
     te = _get_track_event(fields)
-    if te:
-        return te[0].value == event_type if te else False
+    if te is not None:
+        return any(f.field_number == 9 and f.value == event_type for f in te)
     return False
 
 
@@ -63,7 +63,7 @@ def _count_event_type(packet_fields: list[list[ProtoField]], event_type: int) ->
         te = _get_track_event(pf)
         if te:
             for f in te:
-                if f.field_number == 1 and f.value == event_type:
+                if f.field_number == 9 and f.value == event_type:
                     count += 1
     return count
 
@@ -123,8 +123,8 @@ class TestPerfettoExporter:
         hit = False
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 1) == TYPE_SLICE_BEGIN:
-                name = get_string(te, 4)
+            if te and get_varint(te, 9) == TYPE_SLICE_BEGIN:
+                name = get_string(te, 23)
                 if name == "GC Pause (gen=0)":
                     hit = True
                     break
@@ -154,10 +154,10 @@ class TestPerfettoExporter:
         pause_ts = None
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 1) == TYPE_SLICE_BEGIN:
+            if te and get_varint(te, 9) == TYPE_SLICE_BEGIN:
                 pause_ts = get_int_at(pf, 8)
                 break
-        assert pause_ts == 1_500_000_000
+        assert pause_ts == 1_500_000
 
     def test_multiple_close_calls(self, mock_stats_item, perfetto_exporter) -> None:
         exporter, path = perfetto_exporter()
@@ -179,8 +179,8 @@ class TestPerfettoExporter:
         names = set()
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 1) == TYPE_SLICE_BEGIN:
-                name = get_string(te, 4)
+            if te and get_varint(te, 9) == TYPE_SLICE_BEGIN:
+                name = get_string(te, 23)
                 if name and "GC Pause" in name:
                     names.add(name)
         assert names == {"GC Pause (gen=0)", "GC Pause (gen=1)", "GC Pause (gen=2)"}
@@ -195,8 +195,8 @@ class TestPerfettoExporter:
         names = []
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 1) == TYPE_INSTANT:
-                name = get_string(te, 4)
+            if te and get_varint(te, 9) == TYPE_INSTANT:
+                name = get_string(te, 23)
                 if name:
                     names.append(name)
         assert names == ["start GC monitor"]
@@ -217,8 +217,8 @@ class TestPerfettoExporter:
         names = []
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 1) == TYPE_INSTANT:
-                name = get_string(te, 4)
+            if te and get_varint(te, 9) == TYPE_INSTANT:
+                name = get_string(te, 23)
                 if name:
                     names.append(name)
         assert names == ["start GC monitor", "stop GC monitor"]
@@ -232,7 +232,7 @@ class TestPerfettoExporter:
         for pf in packets:
             ts = get_int_at(pf, 8)
             if ts is not None:
-                assert ts >= 1_500_000_000
+                assert ts >= 1_500_000
 
     def test_close_with_no_events(self, perfetto_exporter) -> None:
         exporter, path = perfetto_exporter()
@@ -268,8 +268,8 @@ class TestPerfettoExporter:
         begin_names = set()
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 1) == TYPE_SLICE_BEGIN:
-                name = get_string(te, 4)
+            if te and get_varint(te, 9) == TYPE_SLICE_BEGIN:
+                name = get_string(te, 23)
                 if name:
                     begin_names.add(name)
         expected = {
@@ -294,8 +294,8 @@ class TestPerfettoExporter:
         counter_tracks = set()
         for pf in packets:
             te = _get_track_event(pf)
-            if te and get_varint(te, 1) == TYPE_COUNTER:
-                uuid = get_varint(te, 2)
+            if te and get_varint(te, 9) == TYPE_COUNTER:
+                uuid = get_varint(te, 11)
                 if uuid is not None:
                     counter_tracks.add(uuid)
         assert len(counter_tracks) == 4
