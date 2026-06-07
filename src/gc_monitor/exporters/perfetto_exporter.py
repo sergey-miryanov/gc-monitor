@@ -1,5 +1,6 @@
 """Perfetto binary protobuf exporter for GC monitoring data."""
 
+import logging
 import threading
 from pathlib import Path
 from typing import override
@@ -13,6 +14,8 @@ from .perfetto_format import (
     convert_item_to_perfetto_packets,
 )
 from .protobuf_encoder import encode_bytes_field
+
+logger = logging.getLogger("gc_monitor")
 
 TYPE_INSTANT = 3
 
@@ -48,8 +51,22 @@ class PerfettoExporter(EventsExporter):
         self._sequence_id: int = id(self) & 0x7FFFFFFF
         self._has_written = False
 
+    def _collect_cmdline(self, pid: int) -> list[str] | None:
+        try:
+            import psutil
+            result = psutil.Process(pid).cmdline()
+            logger.debug("Collected cmdline for PID %s: %s", pid, result)
+            return result
+        except Exception as exc:
+            logger.warning("Could not collect cmdline for PID %s: %s", pid, exc)
+            return None
+
     @override
     def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+        if not self._track_state.has_pid(pid):
+            cmdline = self._collect_cmdline(pid)
+            if cmdline:
+                self._track_state.set_cmdline(pid, cmdline)
         descriptors, packets = convert_item_to_perfetto_packets(
             pid, item, self._track_state, self._sequence_id
         )
@@ -68,6 +85,10 @@ class PerfettoExporter(EventsExporter):
 
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+        if not self._track_state.has_pid(pid):
+            cmdline = self._collect_cmdline(pid)
+            if cmdline:
+                self._track_state.set_cmdline(pid, cmdline)
         descriptors, packets = convert_instant_to_perfetto_packet(
             pid, item, self._track_state, self._sequence_id
         )

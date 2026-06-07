@@ -42,6 +42,7 @@ class TrackDescriptorField(IntEnum):
     COUNTER = 8
     CHILD_ORDERING = 11
     SIBLING_ORDER_RANK = 12
+    DESCRIPTION = 14
 
 
 class ChildTracksOrdering(IntEnum):
@@ -55,6 +56,12 @@ class ThreadDescriptorField(IntEnum):
     PID = 1
     TID = 2
     THREAD_NAME = 5
+
+
+class ProcessDescriptorField(IntEnum):
+    PID = 1
+    CMDLINE = 2
+    PROCESS_NAME = 6
 
 
 class TrackEventField(IntEnum):
@@ -83,6 +90,7 @@ __all__ = [
     "ChildTracksOrdering",
     "DebugAnnotationField",
     "PerfettoTrackState",
+    "ProcessDescriptorField",
     "ThreadDescriptorField",
     "TraceField",
     "TracePacketField",
@@ -123,6 +131,7 @@ class PerfettoTrackState:
     def __init__(self) -> None:
         self._pids: set[int] = set()
         self._tids: set[tuple[int, int]] = set()
+        self._cmdlines: dict[int, list[str]] = {}
         self._counter_tracks: dict[tuple[int, int, int, str], int] = {}
         self._counter_counter = 0
 
@@ -137,6 +146,12 @@ class PerfettoTrackState:
 
     def mark_tid(self, pid: int, iid: int) -> None:
         self._tids.add((pid, iid))
+
+    def set_cmdline(self, pid: int, cmdline: list[str]) -> None:
+        self._cmdlines[pid] = cmdline
+
+    def get_cmdline(self, pid: int) -> list[str] | None:
+        return self._cmdlines.get(pid)
 
     def get_process_track_uuid(self, pid: int) -> int:
         return pid | _PROCESS_BASE
@@ -165,6 +180,8 @@ def build_track_descriptor(
     child_ordering: ChildTracksOrdering | None = None,
     sibling_order_rank: int | None = None,
     thread_name: str | None = None,
+    cmdline: list[str] | None = None,
+    description: str | None = None,
 ) -> bytes:
     result = encode_varint_field(TrackDescriptorField.UUID, uuid)
     result += encode_string_field(TrackDescriptorField.NAME, name)
@@ -174,7 +191,11 @@ def build_track_descriptor(
             thread_desc += encode_string_field(ThreadDescriptorField.THREAD_NAME, thread_name)
         result += encode_bytes_field(TrackDescriptorField.THREAD, thread_desc)
     elif pid is not None:
-        process_desc = encode_varint_field(1, pid) + encode_string_field(6, name)
+        process_desc = encode_varint_field(ProcessDescriptorField.PID, pid)
+        if cmdline:
+            for arg in cmdline:
+                process_desc += encode_string_field(ProcessDescriptorField.CMDLINE, arg)
+        process_desc += encode_string_field(ProcessDescriptorField.PROCESS_NAME, name)
         result += encode_bytes_field(TrackDescriptorField.PROCESS, process_desc)
     if parent_uuid is not None:
         result += encode_varint_field(TrackDescriptorField.PARENT_UUID, parent_uuid)
@@ -184,6 +205,8 @@ def build_track_descriptor(
         result += encode_varint_field(TrackDescriptorField.CHILD_ORDERING, child_ordering)
     if sibling_order_rank is not None:
         result += encode_varint_field(TrackDescriptorField.SIBLING_ORDER_RANK, sibling_order_rank)
+    if description is not None:
+        result += encode_string_field(TrackDescriptorField.DESCRIPTION, description)
     return result
 
 
@@ -295,7 +318,15 @@ def convert_item_to_perfetto_packets(
 
     if not state.has_pid(pid):
         state.mark_pid(pid)
-        desc = build_track_descriptor(proc_uuid, f"Process {pid}", pid=pid, child_ordering=ChildTracksOrdering.EXPLICIT)
+        cmdline = state.get_cmdline(pid)
+        desc = build_track_descriptor(
+            proc_uuid,
+            f"Process {pid}",
+            pid=pid,
+            child_ordering=ChildTracksOrdering.EXPLICIT,
+            cmdline=cmdline,
+            description=" ".join(cmdline) if cmdline else None,
+        )
         if ts_start_ns < ts_stop_ns:
             descriptors.append(build_trace_packet(sequence_id, timestamp=ts_start_us, track_descriptor=desc))
         else:
@@ -529,7 +560,15 @@ def convert_instant_to_perfetto_packet(
     proc_uuid = state.get_process_track_uuid(pid)
     if not state.has_pid(pid):
         state.mark_pid(pid)
-        desc = build_track_descriptor(proc_uuid, f"Process {pid}", pid=pid, child_ordering=ChildTracksOrdering.EXPLICIT)
+        cmdline = state.get_cmdline(pid)
+        desc = build_track_descriptor(
+            proc_uuid,
+            f"Process {pid}",
+            pid=pid,
+            child_ordering=ChildTracksOrdering.EXPLICIT,
+            cmdline=cmdline,
+            description=" ".join(cmdline) if cmdline else None,
+        )
         descriptors.append(build_trace_packet(sequence_id, timestamp=ts_us, track_descriptor=desc))
     packets.append(build_trace_packet(
         sequence_id, timestamp=ts_us,

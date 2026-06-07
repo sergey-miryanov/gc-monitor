@@ -23,6 +23,7 @@ gc_monitor = "gc_monitor.pyperf.hook:gc_monitor_hook"
 python = ">=3.15"
 msgspec = "0.21.1"
 ddsketch = { version = "^3.0.1", optional = true }
+psutil = { version = ">=5.9", optional = true }
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
@@ -112,4 +113,5 @@ ignore = [
 quote-style = "double"
 
 [tool.poetry.extras]
+cmdline = ["psutil"]
 stats = ["ddsketch"]

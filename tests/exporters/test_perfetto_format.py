@@ -18,6 +18,7 @@ from gc_monitor.exporters.perfetto_format import (
     TYPE_SLICE_END,
     DebugAnnotationField,
     PerfettoTrackState,
+    ProcessDescriptorField,
     ThreadDescriptorField,
     TraceField,
     TracePacketField,
@@ -107,8 +108,48 @@ class TestBuildTrackDescriptor:
         proc_desc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
         assert proc_desc_bytes is not None
         proc_fields = decode_message(proc_desc_bytes)
-        assert get_varint(proc_fields, 1) == 100
-        assert get_string(proc_fields, 6) == "Process 100"
+        assert get_varint(proc_fields, ProcessDescriptorField.PID) == 100
+        assert get_string(proc_fields, ProcessDescriptorField.PROCESS_NAME) == "Process 100"
+
+    def test_process_descriptor_with_cmdline(self) -> None:
+        data = build_track_descriptor(
+            uuid=100,
+            name="Process 100",
+            pid=100,
+            cmdline=["python", "-u", "script.py", "--arg1"],
+            description="python -u script.py --arg1",
+        )
+        fields = decode_message(data)
+        assert get_string(fields, TrackDescriptorField.DESCRIPTION) == "python -u script.py --arg1"
+        proc_desc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
+        assert proc_desc_bytes is not None
+        proc_fields = decode_message(proc_desc_bytes)
+        assert get_varint(proc_fields, ProcessDescriptorField.PID) == 100
+        assert get_string(proc_fields, ProcessDescriptorField.PROCESS_NAME) == "Process 100"
+        cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
+        assert len(cmdline_entries) == 4
+        assert cmdline_entries[0].value == b"python"
+        assert cmdline_entries[1].value == b"-u"
+        assert cmdline_entries[2].value == b"script.py"
+        assert cmdline_entries[3].value == b"--arg1"
+
+    def test_process_descriptor_no_cmdline_when_none(self) -> None:
+        data = build_track_descriptor(uuid=100, name="Process 100", pid=100)
+        fields = decode_message(data)
+        assert get_field(fields, TrackDescriptorField.DESCRIPTION) is None
+        proc_desc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
+        assert proc_desc_bytes is not None
+        proc_fields = decode_message(proc_desc_bytes)
+        assert get_fields(proc_fields, ProcessDescriptorField.CMDLINE) == []
+
+    def test_process_descriptor_no_cmdline_when_empty(self) -> None:
+        data = build_track_descriptor(uuid=100, name="Process 100", pid=100, cmdline=[])
+        fields = decode_message(data)
+        assert get_field(fields, TrackDescriptorField.DESCRIPTION) is None
+        proc_desc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
+        assert proc_desc_bytes is not None
+        proc_fields = decode_message(proc_desc_bytes)
+        assert get_fields(proc_fields, ProcessDescriptorField.CMDLINE) == []
 
     def test_thread_descriptor(self) -> None:
         data = build_track_descriptor(
@@ -260,6 +301,51 @@ class TestBuildTrace:
 
 
 class TestConvertItemToPerfettoPackets:
+    def test_cmdline_emitted_once_per_pid(self) -> None:
+        state = PerfettoTrackState()
+        state.set_cmdline(100, ["python", "script.py"])
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        desc1, _ = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
+
+        found_cmdline = False
+        found_description = False
+        for desc_bytes in desc1:
+            fields = decode_message(desc_bytes)
+            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
+            if td_bytes:
+                td_fields = decode_message(td_bytes)
+                if get_string(td_fields, TrackDescriptorField.DESCRIPTION) == "python script.py":
+                    found_description = True
+                proc_bytes = get_bytes(td_fields, TrackDescriptorField.PROCESS)
+                if proc_bytes:
+                    proc_fields = decode_message(proc_bytes)
+                    cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
+                    if cmdline_entries:
+                        assert len(cmdline_entries) == 2
+                        assert cmdline_entries[0].value == b"python"
+                        assert cmdline_entries[1].value == b"script.py"
+                        found_cmdline = True
+        assert found_cmdline
+        assert found_description, "description should be set when cmdline is present"
+
+        desc2, _ = convert_item_to_perfetto_packets(100, GCStatsInfo(
+            gen=1, iid=0, ts_start=3_000, ts_stop=4_000,
+            heap_size=2000, collections=2, collected=20,
+            uncollectable=0, candidates=10, duration=0.002,
+        ), state, sequence_id=1)
+
+        for desc_bytes in desc2:
+            fields = decode_message(desc_bytes)
+            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
+            if td_bytes:
+                td_fields = decode_message(td_bytes)
+                proc_bytes = get_bytes(td_fields, TrackDescriptorField.PROCESS)
+                assert proc_bytes is None
+
     def test_basic_item_emits_descriptors(self) -> None:
         state = PerfettoTrackState()
         item = GCStatsInfo(

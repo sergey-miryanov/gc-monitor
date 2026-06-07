@@ -1,23 +1,31 @@
 """Tests for Perfetto binary protobuf exporter."""
 
+import sys
+from unittest.mock import MagicMock
+
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
 from tests.proto_decoder import (
     ProtoField,
     decode_message,
+    get_field,
     get_fields,
     get_string,
     get_varint,
 )
 
+from gc_monitor.data import GCStatsInfo
+from gc_monitor.exporters import PerfettoExporter
 from gc_monitor.exporters.perfetto_format import (
     TYPE_COUNTER,
     TYPE_INSTANT,
     TYPE_SLICE_BEGIN,
     TYPE_SLICE_END,
+    ProcessDescriptorField,
     TraceField,
     TracePacketField,
+    TrackDescriptorField,
     TrackEventField,
 )
 
@@ -302,6 +310,78 @@ class TestPerfettoExporter:
                 if uuid is not None:
                     counter_tracks.add(uuid)
         assert len(counter_tracks) == 4
+
+    def test_cmdline_collected_from_psutil(self, tmp_path, monkeypatch):
+        mock_process = MagicMock()
+        mock_process.cmdline.return_value = ["python", "-u", "my_script.py"]
+
+        mock_psutil = MagicMock()
+        mock_psutil.Process.return_value = mock_process
+        mock_psutil.Error = Exception
+
+        monkeypatch.setitem(sys.modules, "psutil", mock_psutil)
+
+        exporter = PerfettoExporter(output_path=tmp_path / "test.pb")
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        exporter.add_event(12345, item)
+        exporter.close()
+
+        mock_psutil.Process.assert_called_with(12345)
+        trace_data = (tmp_path / "test.pb").read_bytes()
+        assert len(trace_data) > 0
+
+        packets = _read_trace_packets(tmp_path / "test.pb")
+        found_cmdline = False
+        found_description = False
+        for pf in packets:
+            td_bytes = get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR)
+            if td_bytes:
+                td_fields = decode_message(td_bytes)
+                if get_string(td_fields, TrackDescriptorField.DESCRIPTION) == "python -u my_script.py":
+                    found_description = True
+                proc_bytes = get_bytes_at(td_fields, TrackDescriptorField.PROCESS)
+                if proc_bytes:
+                    proc_fields = decode_message(proc_bytes)
+                    cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
+                    if cmdline_entries:
+                        assert cmdline_entries[0].value == b"python"
+                        assert cmdline_entries[1].value == b"-u"
+                        assert cmdline_entries[2].value == b"my_script.py"
+                        found_cmdline = True
+        assert found_cmdline, "cmdline not found in trace"
+        assert found_description, "track description should be set when cmdline is present"
+
+    def test_no_psutil_graceful_degradation(self, tmp_path, monkeypatch):
+        monkeypatch.setitem(sys.modules, "psutil", None)
+
+        exporter = PerfettoExporter(output_path=tmp_path / "test.pb")
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        exporter.add_event(12345, item)
+        exporter.close()
+
+        trace_data = (tmp_path / "test.pb").read_bytes()
+        assert len(trace_data) > 0
+
+        packets = _read_trace_packets(tmp_path / "test.pb")
+        for pf in packets:
+            td_bytes = get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR)
+            if td_bytes:
+                td_fields = decode_message(td_bytes)
+                assert get_field(td_fields, TrackDescriptorField.DESCRIPTION) is None, \
+                    "description should be absent when cmdline is unavailable"
+                proc_bytes = get_bytes_at(td_fields, TrackDescriptorField.PROCESS)
+                if proc_bytes:
+                    proc_fields = decode_message(proc_bytes)
+                    cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
+                    assert cmdline_entries == [], "cmdline should be absent when psutil is unavailable"
 
     def test_slice_begin_end_matched(self, perfetto_exporter) -> None:
         exporter, path = perfetto_exporter()
