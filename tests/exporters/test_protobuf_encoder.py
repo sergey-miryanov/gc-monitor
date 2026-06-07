@@ -37,6 +37,11 @@ class TestEncodeVarint:
     def test_negative_value_wraps(self) -> None:
         result = encode_varint(-1)
         assert len(result) == 10
+        assert result == b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"
+
+    def test_negative_value_int32(self) -> None:
+        result = encode_varint(-42)
+        assert len(result) == 10
 
 
 class TestEncodeSignedVarint:

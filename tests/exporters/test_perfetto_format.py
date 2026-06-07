@@ -32,7 +32,7 @@ from gc_monitor.exporters.perfetto_format import (
 )
 
 _PROCESS_BASE = 1 << 60
-_THREAD_BASE = 2 << 60
+_THREAD_BASE = 1 << 60
 _COUNTER_BASE = 3 << 60
 
 
@@ -97,22 +97,28 @@ class TestPerfettoTrackState:
 
 class TestBuildTrackDescriptor:
     def test_process_descriptor(self) -> None:
-        data = build_track_descriptor(uuid=100, name="Process 100")
+        data = build_track_descriptor(uuid=100, name="Process 100", pid=100)
         fields = decode_message(data)
         assert get_varint(fields, TrackDescriptorField.UUID) == 100
         assert get_string(fields, TrackDescriptorField.NAME) == "Process 100"
         assert get_field(fields, TrackDescriptorField.THREAD) is None
         assert get_field(fields, TrackDescriptorField.PARENT_UUID) is None
         assert get_field(fields, TrackDescriptorField.COUNTER) is None
+        proc_desc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
+        assert proc_desc_bytes is not None
+        proc_fields = decode_message(proc_desc_bytes)
+        assert get_varint(proc_fields, 1) == 100
+        assert get_string(proc_fields, 6) == "Process 100"
 
     def test_thread_descriptor(self) -> None:
         data = build_track_descriptor(
-            uuid=200, name="Thread 0", pid=100, tid=0, parent_uuid=100
+            uuid=200, name="Thread 0", pid=100, tid=0, parent_uuid=100, sibling_order_rank=0,
         )
         fields = decode_message(data)
         assert get_varint(fields, TrackDescriptorField.UUID) == 200
         assert get_string(fields, TrackDescriptorField.NAME) == "Thread 0"
         assert get_varint(fields, TrackDescriptorField.PARENT_UUID) == 100
+        assert get_varint(fields, TrackDescriptorField.SIBLING_ORDER_RANK) == 0
         thread_desc_bytes = get_bytes(fields, TrackDescriptorField.THREAD)
         assert thread_desc_bytes is not None
         thread_fields = decode_message(thread_desc_bytes)
@@ -265,6 +271,52 @@ class TestConvertItemToPerfettoPackets:
         assert len(descriptors) >= 2
         assert state.has_pid(100)
         assert state.has_tid(100, 0)
+
+    def test_thread_track_has_sibling_order_rank_zero(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        descriptors, _ = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
+        proc_uuid = 100 | _PROCESS_BASE
+        thread_found = False
+        for desc_bytes in descriptors:
+            fields = decode_message(desc_bytes)
+            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
+            if td_bytes:
+                td_fields = decode_message(td_bytes)
+                uuid = get_varint(td_fields, TrackDescriptorField.UUID)
+                if uuid == ((100 << 20) | 0 | _THREAD_BASE):
+                    assert get_varint(td_fields, TrackDescriptorField.PARENT_UUID) == proc_uuid
+                    assert get_varint(td_fields, TrackDescriptorField.SIBLING_ORDER_RANK) == 0
+                    assert get_varint(td_fields, TrackDescriptorField.CHILD_ORDERING) is None
+                    thread_found = True
+        assert thread_found
+
+    def test_counter_tracks_parented_to_process(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        descriptors, _ = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
+        proc_uuid = 100 | _PROCESS_BASE
+        counter_parent_uuids: list[int] = []
+        for desc_bytes in descriptors:
+            fields = decode_message(desc_bytes)
+            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
+            if td_bytes:
+                td_fields = decode_message(td_bytes)
+                counter_bytes = get_bytes(td_fields, TrackDescriptorField.COUNTER)
+                if counter_bytes is not None:
+                    parent_uuid = get_varint(td_fields, TrackDescriptorField.PARENT_UUID)
+                    counter_parent_uuids.append(parent_uuid)
+        assert len(counter_parent_uuids) > 0
+        for parent_uuid in counter_parent_uuids:
+            assert parent_uuid == proc_uuid
 
     def test_basic_item_emits_pause_slice(self) -> None:
         state = PerfettoTrackState()

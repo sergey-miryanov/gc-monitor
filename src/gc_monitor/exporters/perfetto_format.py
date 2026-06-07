@@ -36,14 +36,25 @@ class TracePacketField(IntEnum):
 class TrackDescriptorField(IntEnum):
     UUID = 1
     NAME = 2
+    PROCESS = 3
     THREAD = 4
     PARENT_UUID = 5
     COUNTER = 8
+    CHILD_ORDERING = 11
+    SIBLING_ORDER_RANK = 12
+
+
+class ChildTracksOrdering(IntEnum):
+    UNKNOWN = 0
+    LEXICOGRAPHIC = 1
+    CHRONOLOGICAL = 2
+    EXPLICIT = 3
 
 
 class ThreadDescriptorField(IntEnum):
     PID = 1
     TID = 2
+    THREAD_NAME = 5
 
 
 class TrackEventField(IntEnum):
@@ -69,6 +80,7 @@ __all__ = [
     "TYPE_INSTANT",
     "TYPE_SLICE_BEGIN",
     "TYPE_SLICE_END",
+    "ChildTracksOrdering",
     "DebugAnnotationField",
     "PerfettoTrackState",
     "ThreadDescriptorField",
@@ -91,8 +103,20 @@ TYPE_COUNTER = 4
 _PROCESS_SHIFT = 60
 _THREAD_SHIFT = 60
 _PROCESS_BASE = 1 << _PROCESS_SHIFT
-_THREAD_BASE = 2 << _THREAD_SHIFT
+_THREAD_BASE = 1 << _THREAD_SHIFT
 _COUNTER_BASE = 3 << 60
+
+_COUNTER_RANKS: dict[str, int] = {
+    "collected": 1,
+    "uncollectable": 2,
+    "candidates": 3,
+    "heap_size": 4,
+    "increment_size": 5,
+    "alive_size": 6,
+    "finalized_garbage_count": 7,
+    "deleted_garbage_count": 8,
+    "clear_weakrefs_count": 9,
+}
 
 
 class PerfettoTrackState:
@@ -138,16 +162,28 @@ def build_track_descriptor(
     tid: int | None = None,
     parent_uuid: int | None = None,
     is_counter: bool = False,
+    child_ordering: ChildTracksOrdering | None = None,
+    sibling_order_rank: int | None = None,
+    thread_name: str | None = None,
 ) -> bytes:
     result = encode_varint_field(TrackDescriptorField.UUID, uuid)
     result += encode_string_field(TrackDescriptorField.NAME, name)
-    if parent_uuid is not None:
-        result += encode_varint_field(TrackDescriptorField.PARENT_UUID, parent_uuid)
     if pid is not None and tid is not None:
         thread_desc = encode_varint_field(ThreadDescriptorField.PID, pid) + encode_varint_field(ThreadDescriptorField.TID, tid)
+        if thread_name is not None:
+            thread_desc += encode_string_field(ThreadDescriptorField.THREAD_NAME, thread_name)
         result += encode_bytes_field(TrackDescriptorField.THREAD, thread_desc)
+    elif pid is not None:
+        process_desc = encode_varint_field(1, pid) + encode_string_field(6, name)
+        result += encode_bytes_field(TrackDescriptorField.PROCESS, process_desc)
+    if parent_uuid is not None:
+        result += encode_varint_field(TrackDescriptorField.PARENT_UUID, parent_uuid)
     if is_counter:
         result += encode_bytes_field(TrackDescriptorField.COUNTER, b"")
+    if child_ordering is not None:
+        result += encode_varint_field(TrackDescriptorField.CHILD_ORDERING, child_ordering)
+    if sibling_order_rank is not None:
+        result += encode_varint_field(TrackDescriptorField.SIBLING_ORDER_RANK, sibling_order_rank)
     return result
 
 
@@ -158,9 +194,9 @@ def build_trace_packet(
     track_descriptor: bytes | None = None,
 ) -> bytes:
     result = b""
-    result += encode_varint_field(TracePacketField.SEQUENCE_ID, sequence_id)
     if timestamp is not None:
         result += encode_varint_field(TracePacketField.TIMESTAMP, timestamp)
+    result += encode_varint_field(TracePacketField.SEQUENCE_ID, sequence_id)
     if track_event is not None:
         result += encode_bytes_field(TracePacketField.TRACK_EVENT, track_event)
     if track_descriptor is not None:
@@ -250,31 +286,41 @@ def convert_item_to_perfetto_packets(
     descriptors: list[bytes] = []
     packets: list[bytes] = []
 
+    ts_start_ns = item.ts_start
+    ts_stop_ns = item.ts_stop
+
+    ts_start_us = ts_to_us(ts_start_ns)
+
+    proc_uuid = state.get_process_track_uuid(pid)
+
     if not state.has_pid(pid):
         state.mark_pid(pid)
-        proc_uuid = state.get_process_track_uuid(pid)
-        desc = build_track_descriptor(proc_uuid, f"Process {pid}")
-        descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
+        desc = build_track_descriptor(proc_uuid, f"Process {pid}", pid=pid, child_ordering=ChildTracksOrdering.EXPLICIT)
+        if ts_start_ns < ts_stop_ns:
+            descriptors.append(build_trace_packet(sequence_id, timestamp=ts_start_us, track_descriptor=desc))
+        else:
+            descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
 
     thread_uuid = state.get_thread_track_uuid(pid, item.iid)
     if not state.has_tid(pid, item.iid):
         state.mark_tid(pid, item.iid)
-        proc_uuid = state.get_process_track_uuid(pid)
         desc = build_track_descriptor(
             thread_uuid,
             f"Thread {item.iid}",
             pid=pid,
-            tid=item.iid,
+            tid=pid if item.iid == 0 else item.iid,
             parent_uuid=proc_uuid,
+            sibling_order_rank=0,
+            thread_name=f"Thread {item.iid}",
         )
-        descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
+        if ts_start_ns < ts_stop_ns:
+            descriptors.append(build_trace_packet(sequence_id, timestamp=ts_start_us, track_descriptor=desc))
+        else:
+            descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
 
-    ts_start_ns = item.ts_start
-    ts_stop_ns = item.ts_stop
     if ts_start_ns >= ts_stop_ns:
         return descriptors, packets
 
-    ts_start_us = ts_to_us(ts_start_ns)
     ts_stop_us = ts_to_us(ts_stop_ns)
 
     gen = item.gen
@@ -456,8 +502,9 @@ def convert_item_to_perfetto_packets(
             desc = build_track_descriptor(
                 ctr_uuid,
                 f"{metric} (gen={gen})",
-                parent_uuid=thread_uuid,
+                parent_uuid=proc_uuid,
                 is_counter=True,
+                sibling_order_rank=_COUNTER_RANKS.get(metric, 0),
             )
             descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
         packets.append(build_trace_packet(
@@ -477,14 +524,13 @@ def convert_instant_to_perfetto_packet(
     descriptors: list[bytes] = []
     packets: list[bytes] = []
 
+    ts_us = ts_to_us(item.ts)
+
+    proc_uuid = state.get_process_track_uuid(pid)
     if not state.has_pid(pid):
         state.mark_pid(pid)
-        proc_uuid = state.get_process_track_uuid(pid)
-        desc = build_track_descriptor(proc_uuid, f"Process {pid}")
-        descriptors.append(build_trace_packet(sequence_id, track_descriptor=desc))
-
-    ts_us = ts_to_us(item.ts)
-    proc_uuid = state.get_process_track_uuid(pid)
+        desc = build_track_descriptor(proc_uuid, f"Process {pid}", pid=pid, child_ordering=ChildTracksOrdering.EXPLICIT)
+        descriptors.append(build_trace_packet(sequence_id, timestamp=ts_us, track_descriptor=desc))
     packets.append(build_trace_packet(
         sequence_id, timestamp=ts_us,
         track_event=build_track_event(
