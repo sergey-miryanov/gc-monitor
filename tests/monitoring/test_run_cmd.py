@@ -3,6 +3,8 @@
 import json
 import subprocess
 import sys
+import threading
+import time
 from argparse import Namespace
 from pathlib import Path
 from typing import Any
@@ -60,73 +62,105 @@ sys.stdout.flush()
 """
     return script + "\n".join([str(s) for s in args]) + "\nsys.stdout.flush()\nsys.exit(0)"
 
-def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
-    gc_opts = gc_args or []
+
+def _sample_process(pid: int) -> None:
+    if sys.platform != "darwin":
+        return
     try:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-X",
-                "faulthandler",
-                "-u",
-                "-m",
-                "gc_monitor",
-                "run",
-                *gc_opts,
-                "-s",
-                str(script_file.as_posix()),
-            ] + list(script_args),
+        result = subprocess.run(
+            ["sample", str(pid), "1"],
             capture_output=True,
             text=True,
             timeout=5,
         )
-        return proc
+        print(f"--- sample PID {pid} ---")
+        print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+        print("--- end sample ---")
+    except Exception as e:
+        print(f"Failed to sample PID {pid}: {e}")
+
+
+def _popen_with_timeout(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    buf: list[str] = []
+
+    def reader() -> None:
+        for line in iter(proc.stdout.readline, ""):
+            buf.append(line)
+
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
+
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _sample_process(proc.pid)
+            proc.kill()
+            proc.wait()
+            reader_thread.join(timeout=5)
+            raise subprocess.TimeoutExpired(cmd, timeout, output="".join(buf))
+        try:
+            ret = proc.wait(timeout=min(0.1, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+        reader_thread.join(timeout=5)
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=ret, stdout="".join(buf), stderr=""
+        )
+
+
+def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
+    gc_opts = gc_args or []
+    cmd = [
+        sys.executable,
+        "-X",
+        "faulthandler",
+        "-u",
+        "-m",
+        "gc_monitor",
+        "run",
+        *gc_opts,
+        "-s",
+        str(script_file.as_posix()),
+    ] + list(script_args)
+    try:
+        return _popen_with_timeout(cmd, timeout=5)
     except subprocess.TimeoutExpired as exc:
-        if exc.stdout:
-            for l in exc.stdout.split(b"\n"):
-                print(l)
-        else:
-            print("NO STDOUT")
-        if exc.stderr:
-            for l in exc.stderr.split(b"\n"):
-                print(l)
-        else:
-            print("NO STDERR")
+        stdout = exc.stdout or "NO STDOUT"
+        for l in stdout.split("\n"):
+            print(l)
         raise
 
 
 def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
     gc_opts = gc_args or []
+    cmd = [
+        sys.executable,
+        "-X",
+        "faulthandler",
+        "-u",
+        "-m",
+        "gc_monitor",
+        "run",
+        *gc_opts,
+        "-m",
+        str(module_name),
+    ] + list(script_args)
     try:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-X",
-                "faulthandler",
-                "-u",
-                "-m",
-                "gc_monitor",
-                "run",
-                *gc_opts,
-                "-m",
-                str(module_name),
-            ] + list(script_args),
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return proc
+        return _popen_with_timeout(cmd, timeout=5)
     except subprocess.TimeoutExpired as exc:
-        if exc.stdout:
-            for l in exc.stdout.split(b"\n"):
-                print(l)
-        else:
-            print("NO STDOUT")
-        if exc.stderr:
-            for l in exc.stderr.split(b"\n"):
-                print(l)
-        else:
-            print("NO STDERR")
+        stdout = exc.stdout or "NO STDOUT"
+        for l in stdout.split("\n"):
+            print(l)
         raise
 
 
