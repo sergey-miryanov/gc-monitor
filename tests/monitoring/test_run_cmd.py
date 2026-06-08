@@ -63,6 +63,41 @@ sys.stdout.flush()
     return script + "\n".join([str(s) for s in args]) + "\nsys.stdout.flush()\nsys.exit(0)"
 
 
+def _check_process_alive(pid: int) -> bool:
+    try:
+        result = subprocess.run(
+            ["kill", "-0", str(pid)],
+            capture_output=True,
+            timeout=3,
+        )
+        if result.returncode != 0:
+            print(f"PID {pid}: process not found (exit code {result.returncode})")
+            return False
+    except subprocess.TimeoutExpired as exc:
+        _print_output("kill", pid, exc)
+    except Exception as e:
+        print(f"PID {pid}: kill -0 failed ({e}), assuming alive")
+
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "state="],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        state = result.stdout.strip()
+        if state == "Z":
+            print(f"PID {pid}: zombie state, skipping diagnostic tools")
+            return False
+        print(f"PID {pid}: state={state}")
+    except subprocess.TimeoutExpired as exc:
+        _print_output("ps", pid, exc)
+    except Exception as e:
+        print(f"PID {pid}: ps failed ({e})")
+
+    return True
+
+
 def _print_output(tool: str, pid: int, result: subprocess.CompletedProcess[str] | subprocess.TimeoutExpired) -> None:
     print(f"--- {tool} PID {pid} ---")
     out = getattr(result, "stdout", None) or getattr(result, "output", "")
@@ -76,6 +111,9 @@ def _print_output(tool: str, pid: int, result: subprocess.CompletedProcess[str] 
 
 def _sample_process(pid: int) -> None:
     if sys.platform != "darwin":
+        return
+
+    if not _check_process_alive(pid):
         return
 
     try:
