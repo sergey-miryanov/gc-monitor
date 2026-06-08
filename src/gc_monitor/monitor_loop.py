@@ -33,6 +33,10 @@ class MonitorLoop:
         self._stop_event.set()
 
     def run(self) -> None:
+        import faulthandler
+        import sys
+        faulthandler.dump_traceback_later(1, True, sys.stderr)
+
         with set_on_exit(self._stop_event):
             logger.debug("Monitor loop enter")
             for _ in self._runner.run(self._stop_event.is_set):
