@@ -80,7 +80,7 @@ def _sample_process(pid: int) -> None:
 
     try:
         result = subprocess.run(
-            ["sample", str(pid), "1"],
+            ["sample", "-v", str(pid), "1"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -94,7 +94,7 @@ def _sample_process(pid: int) -> None:
 
     try:
         result = subprocess.run(
-            ["lldb", "-p", str(pid), "-b",
+            ["lldb", "-v", "-p", str(pid), "-b",
              "-o", "bt all",
              "-o", "detach",
              "-o", "quit"],
