@@ -76,12 +76,20 @@ def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None =
             ] + list(script_args),
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=5,
         )
         return proc
     except subprocess.TimeoutExpired as exc:
-        print(exc.stdout)
-        print(exc.stderr)
+        if exc.stdout:
+            for l in exc.stdout.split(b"\n"):
+                print(l)
+        else:
+            print("NO STDOUT")
+        if exc.stderr:
+            for l in exc.stderr.split(b"\n"):
+                print(l)
+        else:
+            print("NO STDERR")
         raise
 
 
@@ -101,12 +109,20 @@ def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = 
             ] + list(script_args),
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=5,
         )
         return proc
     except subprocess.TimeoutExpired as exc:
-        print(exc.stdout)
-        print(exc.stderr)
+        if exc.stdout:
+            for l in exc.stdout.split(b"\n"):
+                print(l)
+        else:
+            print("NO STDOUT")
+        if exc.stderr:
+            for l in exc.stderr.split(b"\n"):
+                print(l)
+        else:
+            print("NO STDERR")
         raise
 
 
