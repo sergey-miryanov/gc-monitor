@@ -63,12 +63,14 @@ sys.stdout.flush()
     return script + "\n".join([str(s) for s in args]) + "\nsys.stdout.flush()\nsys.exit(0)"
 
 
-def _print_output(tool: str, pid: int, result: subprocess.CompletedProcess[str]) -> None:
+def _print_output(tool: str, pid: int, result: subprocess.CompletedProcess[str] | subprocess.TimeoutExpired) -> None:
     print(f"--- {tool} PID {pid} ---")
-    if result.stdout:
-        print(result.stdout)
-    if result.stderr:
-        print(result.stderr)
+    out = getattr(result, "stdout", None) or getattr(result, "output", "")
+    err = getattr(result, "stderr", None) or ""
+    if out:
+        print(out)
+    if err:
+        print(err)
     print(f"--- end {tool} ---")
 
 
@@ -85,6 +87,8 @@ def _sample_process(pid: int) -> None:
         )
         _print_output("sample", pid, result)
         return
+    except subprocess.TimeoutExpired as exc:
+        _print_output("sample", pid, exc)
     except Exception as e:
         print(f"sample PID {pid} failed ({e})")
 
@@ -99,6 +103,8 @@ def _sample_process(pid: int) -> None:
             timeout=10,
         )
         _print_output("lldb", pid, result)
+    except subprocess.TimeoutExpired as exc:
+        _print_output("lldb", pid, exc)
     except Exception as e:
         print(f"lldb PID {pid} also failed: {e}")
 
