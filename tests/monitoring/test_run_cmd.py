@@ -66,6 +66,8 @@ def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None =
         proc = subprocess.run(
             [
                 sys.executable,
+                "-X",
+                "faulthandler",
                 "-u",
                 "-m",
                 "gc_monitor",
@@ -99,6 +101,8 @@ def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = 
         proc = subprocess.run(
             [
                 sys.executable,
+                "-X",
+                "faulthandler",
                 "-u",
                 "-m",
                 "gc_monitor",
