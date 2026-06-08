@@ -63,9 +63,19 @@ sys.stdout.flush()
     return script + "\n".join([str(s) for s in args]) + "\nsys.stdout.flush()\nsys.exit(0)"
 
 
+def _print_output(tool: str, pid: int, result: subprocess.CompletedProcess[str]) -> None:
+    print(f"--- {tool} PID {pid} ---")
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+    print(f"--- end {tool} ---")
+
+
 def _sample_process(pid: int) -> None:
     if sys.platform != "darwin":
         return
+
     try:
         result = subprocess.run(
             ["sample", str(pid), "1"],
@@ -73,13 +83,24 @@ def _sample_process(pid: int) -> None:
             text=True,
             timeout=5,
         )
-        print(f"--- sample PID {pid} ---")
-        print(result.stdout)
-        if result.stderr:
-            print(result.stderr)
-        print("--- end sample ---")
+        _print_output("sample", pid, result)
+        return
     except Exception as e:
-        print(f"Failed to sample PID {pid}: {e}")
+        print(f"sample PID {pid} failed ({e})")
+
+    try:
+        result = subprocess.run(
+            ["lldb", "-p", str(pid), "-b",
+             "-o", "bt all",
+             "-o", "detach",
+             "-o", "quit"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        _print_output("lldb", pid, result)
+    except Exception as e:
+        print(f"lldb PID {pid} also failed: {e}")
 
 
 def _popen_with_timeout(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
