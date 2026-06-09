@@ -60,7 +60,20 @@ class EventsMonitor:
             return PollStatus.OK
         except RuntimeError as exc:
             logger.debug("Error while polling PID %s (child PID=%s): %s", self._process.pid, pid, exc)
-            return PollStatus.INVALID_PROCESS
+            s = str(exc)
+            match s:
+                case "Failed to initialize process handle":
+                    return PollStatus.INVALID_PROCESS
+                case "Failed to get Python runtime address":
+                    return PollStatus.INVALID_PROCESS
+                case "Failed to read debug offsets":
+                    return PollStatus.INVALID_PROCESS
+                case "Invalid debug offsets found":
+                    return PollStatus.INVALID_PYTHON
+                case "No interpreter state found":
+                    return PollStatus.INVALID_PROCESS
+                case _:
+                    return PollStatus.FAIL
         except PermissionError as exc:
             logger.debug("Error while polling PID %s (child PID=%s): %s", self._process.pid, pid, exc)
             return PollStatus.INVALID_PROCESS
