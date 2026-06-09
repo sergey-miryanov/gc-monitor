@@ -79,7 +79,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           # Read the current rule
-          sudo security authorizationdb read system.privilege.taskport > taskport.plist
+          sudo security authorizationdb read system.privilege.taskport
 
           # Modify it to not require a GUI prompt (shared, allow)
           # This is a known workaround for CI environments
