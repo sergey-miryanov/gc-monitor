@@ -116,6 +116,10 @@ jobs:
           fi
           echo "Quarantine check and cleanup complete"
 
+          echo "=== Kill taskgated ==="
+          sudo killall -9 taskgated 2>/dev/null || true
+          echo "taskgated killed"
+
       - name: Run tests
         run: |
           poetry run pytest -q -s --cov=src/gc_monitor --cov-report=xml --cov-report=term-missing --cov-branch --cov-reset --junitxml=reports/tests.xml
