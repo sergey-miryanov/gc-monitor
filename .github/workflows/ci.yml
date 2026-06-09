@@ -103,25 +103,17 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           PYTHON_BIN=$(python -c "import sys; print(sys.executable)")
-          REMOTE_DBG=$(python -c "import _remote_debugging; print(_remote_debugging.__file__)")
 
           $PYTHON_BIN -VV
+          codesign -d --entitlements - "$PYTHON_BIN" || true
 
           ENTITLEMENTS_FILE=$(mktemp)
           python scripts/gen_entitlements.py "$ENTITLEMENTS_FILE"
 
-          echo "=== Signing Python ==="
           codesign --force --options runtime --sign - \
             --entitlements "$ENTITLEMENTS_FILE" "$PYTHON_BIN" || echo "WARNING: codesign failed for Python"
 
-          echo "=== Signing _remote_debugging ==="
-          codesign --force --options runtime --sign - \
-            --entitlements "$ENTITLEMENTS_FILE" "$REMOTE_DBG" || echo "WARNING: codesign failed for _remote_debugging"
-
-          echo "=== Verify Python ==="
           codesign -d --entitlements - "$PYTHON_BIN" || true
-          echo "=== Verify _remote_debugging ==="
-          codesign -d --entitlements - "$REMOTE_DBG" || true
 
           rm -f "$ENTITLEMENTS_FILE"
 
