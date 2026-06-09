@@ -65,6 +65,19 @@ sys.stdout.flush()
     return script + "\n".join([str(s) for s in args]) + "\nsys.stdout.flush()\nsys.exit(0)"
 
 
+def _print_output(tool: str, pid: int, result: subprocess.CompletedProcess[str] | subprocess.TimeoutExpired) -> None:
+    print(f"--- {tool} PID {pid} ---")
+    out = getattr(result, "stdout", None) or getattr(result, "output", "")
+    err = getattr(result, "stderr", None) or ""
+    if out:
+        print("STDOUT")
+        print(out)
+    if err:
+        print("STDERR")
+        print(err)
+    print(f"--- end {tool} ---")
+
+
 def _check_process_alive(pid: int) -> bool:
     try:
         result = subprocess.run(
@@ -99,16 +112,6 @@ def _check_process_alive(pid: int) -> bool:
 
     return True
 
-
-def _print_output(tool: str, pid: int, result: subprocess.CompletedProcess[str] | subprocess.TimeoutExpired) -> None:
-    print(f"--- {tool} PID {pid} ---")
-    out = getattr(result, "stdout", None) or getattr(result, "output", "")
-    err = getattr(result, "stderr", None) or ""
-    if out:
-        print(out)
-    if err:
-        print(err)
-    print(f"--- end {tool} ---")
 
 
 def _sample_process(pid: int) -> None:
@@ -176,8 +179,6 @@ def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None =
     gc_opts = gc_args or []
     cmd = [
         sys.executable,
-        "-X",
-        "faulthandler",
         "-u",
         "-m",
         "gc_monitor",
@@ -189,9 +190,7 @@ def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None =
     try:
         return _popen_with_timeout(cmd, timeout=5)
     except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout or "NO STDOUT"
-        for l in stdout.split("\n"):
-            print(l)
+        _print_output("run_script", -1, exc)
         raise
 
 
@@ -199,8 +198,6 @@ def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = 
     gc_opts = gc_args or []
     cmd = [
         sys.executable,
-        "-X",
-        "faulthandler",
         "-u",
         "-m",
         "gc_monitor",
@@ -212,9 +209,7 @@ def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = 
     try:
         return _popen_with_timeout(cmd, timeout=5)
     except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout or "NO STDOUT"
-        for l in stdout.split("\n"):
-            print(l)
+        _print_output("run_module", -1, exc)
         raise
 
 

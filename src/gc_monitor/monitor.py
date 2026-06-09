@@ -47,9 +47,7 @@ class EventsMonitor:
             return PollStatus.FAIL
 
         try:
-            logger.debug("Getting GC stats")
             events = get_gc_stats(pid, all_interpreters=False)
-            logger.debug("Got GC stats: %s", events)
             for event in events:
                 # Skip events with timestamps already processed
                 if event.ts_start > self._last_ts:
