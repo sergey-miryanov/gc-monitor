@@ -119,36 +119,6 @@ def _sample_process(pid: int) -> None:
         return
 
     try:
-        result = subprocess.run(
-            ["sample", "-v", str(pid), "1"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        _print_output("sample", pid, result)
-        return
-    except subprocess.TimeoutExpired as exc:
-        _print_output("sample", pid, exc)
-    except Exception as e:
-        print(f"sample PID {pid} failed ({e})")
-
-    try:
-        result = subprocess.run(
-            ["lldb", "-v", "-p", str(pid), "-b",
-             "-o", "bt all",
-             "-o", "detach",
-             "-o", "quit"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        _print_output("lldb", pid, result)
-    except subprocess.TimeoutExpired as exc:
-        _print_output("lldb", pid, exc)
-    except Exception as e:
-        print(f"lldb PID {pid} also failed: {e}")
-
-    try:
         with tempfile.TemporaryDirectory() as tmpdir:
             spindump_path = os.path.join(tmpdir, "spindump.txt")
             subprocess.run(
@@ -163,7 +133,7 @@ def _sample_process(pid: int) -> None:
     except subprocess.TimeoutExpired as exc:
         _print_output("spindump", pid, exc)
     except Exception as e:
-        print(f"spindump PID {pid} also failed: {e}")
+        print(f"spindump PID {pid} failed: {e}")
 
 
 def _popen_with_timeout(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str]:

@@ -95,27 +95,6 @@ jobs:
           echo "Checking entitlements for: $PYTHON_BIN"
           codesign -d --entitlements - "$PYTHON_BIN" || true
 
-          echo "=== Quarantine check ==="
-          echo "--- Python binary ---"
-          xattr -p com.apple.quarantine "$PYTHON_BIN" 2>&1 || echo "(none)"
-          echo "--- Python prefix tree ---"
-          xattr -r -p com.apple.quarantine "$(python -c "import sys; print(sys.base_exec_prefix)")" 2>&1 || echo "(none)"
-          echo "--- lldb ---"
-          LLDB_BIN=$(which lldb 2>/dev/null || echo "")
-          if [ -n "$LLDB_BIN" ]; then
-            xattr -p com.apple.quarantine "$LLDB_BIN" 2>&1 || echo "(none)"
-          else
-            echo "lldb not found"
-          fi
-
-          echo "=== Remove quarantine attributes ==="
-          xattr -d -r com.apple.quarantine "$(python -c "import sys; print(sys.base_exec_prefix)")" 2>/dev/null || true
-          xattr -d com.apple.quarantine "$PYTHON_BIN" 2>/dev/null || true
-          if [ -n "$LLDB_BIN" ]; then
-            xattr -d com.apple.quarantine "$LLDB_BIN" 2>/dev/null || true
-          fi
-          echo "Quarantine check and cleanup complete"
-
           echo "=== Kill taskgated ==="
           sudo killall -9 taskgated 2>/dev/null || true
           echo "taskgated killed"
