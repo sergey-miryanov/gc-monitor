@@ -4,10 +4,10 @@ from unittest.mock import patch
 
 import pytest
 
-from gc_monitor.data import ts_to_us
-from gc_monitor.monitor import EventsMonitor
-from gc_monitor.stats import StreamingStats
-from gc_monitor.target_process import ExternalProcess
+from gcmon.data import ts_to_us
+from gcmon.monitor import EventsMonitor
+from gcmon.stats import StreamingStats
+from gcmon.target_process import ExternalProcess
 
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
@@ -240,7 +240,7 @@ def monitor_with_exporter(trace_exporter):
 class TestGCMonitorStreaming:
     def test_streams_to_exporter(self, mock_read_events, monitor_with_exporter) -> None:
         monitor, exporter, path = monitor_with_exporter
-        with patch("gc_monitor.monitor.get_gc_stats", side_effect=mock_read_events):
+        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
             for _ in range(4):
                 monitor.poll(12345)
         monitor.stop()
@@ -254,7 +254,7 @@ class TestGCMonitorStreaming:
 
     def test_streams_events_individually(self, mock_read_events, monitor_with_exporter) -> None:
         monitor, exporter, path = monitor_with_exporter
-        with patch("gc_monitor.monitor.get_gc_stats", side_effect=mock_read_events):
+        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
             for _ in range(3):
                 monitor.poll(12345)
         monitor.stop()
@@ -262,7 +262,7 @@ class TestGCMonitorStreaming:
 
     def test_stop_closes_exporter(self, mock_read_events, monitor_with_exporter) -> None:
         monitor, exporter, path = monitor_with_exporter
-        with patch("gc_monitor.monitor.get_gc_stats", side_effect=mock_read_events):
+        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
             for _ in range(3):
                 monitor.poll(12345)
         monitor.stop()
@@ -287,8 +287,8 @@ class TestGCMonitorStreaming:
                 return [item]
             raise RuntimeError("Connection broken")
 
-        with patch("gc_monitor.monitor.get_gc_stats", side_effect=side_effect):
-            from gc_monitor.poll_status import PollStatus
+        with patch("gcmon.monitor.get_gc_stats", side_effect=side_effect):
+            from gcmon.poll_status import PollStatus
             assert monitor.poll(12345) == PollStatus.OK
             result = monitor.poll(12345)
             assert result in (PollStatus.INVALID_PROCESS, PollStatus.FAIL)

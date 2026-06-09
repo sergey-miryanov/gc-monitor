@@ -15,7 +15,7 @@ __all__ = ["log_process_output", "terminate_process"]
 DEFAULT_GRACEFUL_TIMEOUT = 5.0  # seconds: timeout for graceful shutdown
 DEFAULT_FORCE_TIMEOUT = 2.0  # seconds: timeout for forceful termination
 
-_logger = logging.getLogger("gc_monitor")
+_logger = logging.getLogger("gcmon")
 
 
 def _send_sigint(process: subprocess.Popen[bytes]) -> None:

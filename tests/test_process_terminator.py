@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from gc_monitor.utils.process_terminator import terminate_process
+from gcmon.utils.process_terminator import terminate_process
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def unix_terminator(mock_process, mock_logger):
     mock_process.poll.side_effect = lambda: mock_process.returncode
     with (
         patch.object(os, "name", "posix"),
-        patch("gc_monitor.utils.process_terminator._logger", mock_logger),
+        patch("gcmon.utils.process_terminator._logger", mock_logger),
     ):
         yield mock_process
 
@@ -27,7 +27,7 @@ def nt_terminator(mock_process, mock_logger):
     mock_process.poll.side_effect = lambda: mock_process.returncode
     with (
         patch.object(os, "name", "nt"),
-        patch("gc_monitor.utils.process_terminator._logger", mock_logger),
+        patch("gcmon.utils.process_terminator._logger", mock_logger),
     ):
         yield mock_process
 
@@ -190,7 +190,7 @@ class TestTerminateProcessCommon:
         mock_process.returncode = None
         mock_process.poll.side_effect = lambda: mock_process.returncode
 
-        with patch("gc_monitor.utils.process_terminator._logger", mock_logger):
+        with patch("gcmon.utils.process_terminator._logger", mock_logger):
             with patch.object(mock_process, "send_signal"):
                 terminate_process(
                     process=mock_process,
@@ -204,7 +204,7 @@ class TestTerminateProcessCommon:
         mock_process.returncode = None
         mock_process.poll.side_effect = lambda: mock_process.returncode
 
-        with patch("gc_monitor.utils.process_terminator._logger", mock_logger):
+        with patch("gcmon.utils.process_terminator._logger", mock_logger):
             with patch.object(
                 mock_process, "send_signal", side_effect=ProcessLookupError("Process not found")
             ):

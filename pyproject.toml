@@ -3,7 +3,7 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "gc-monitor"
+name = "gcmon"
 version = "0.1.0"
 description = "GC Monitor"
 readme = "README.md"
@@ -19,14 +19,14 @@ classifiers = [
 ]
 keywords = ["gc", "garbage-collection", "monitoring", "perfetto", "profiling"]
 packages = [
-  { include = "gc_monitor", from = "src" }
+  { include = "gcmon", from = "src" }
 ]
 
 [tool.poetry.scripts]
-gc-monitor = "gc_monitor.cli:main"
+gcmon = "gcmon.cli:main"
 
 [tool.poetry.plugins."pyperf.hook"]
-gc_monitor = "gc_monitor.pyperf.hook:gc_monitor_hook"
+gcmon = "gcmon.pyperf.hook:gcmon_hook"
 
 [tool.poetry.dependencies]
 python = ">=3.15"
@@ -46,10 +46,10 @@ numpy = "^2.0"
 types-psutil = "^7.2"
 
 [tool.poetry.urls]
-Homepage = "https://github.com/sergey-miryanov/gc-monitor"
-Repository = "https://github.com/sergey-miryanov/gc-monitor"
-Issues = "https://github.com/sergey-miryanov/gc-monitor/issues"
-Documentation = "https://github.com/sergey-miryanov/gc-monitor#readme"
+Homepage = "https://github.com/sergey-miryanov/gcmon"
+Repository = "https://github.com/sergey-miryanov/gcmon"
+Issues = "https://github.com/sergey-miryanov/gcmon/issues"
+Documentation = "https://github.com/sergey-miryanov/gcmon#readme"
 
 # =============================================================================
 # Type Checking Configuration
@@ -92,7 +92,7 @@ tmp_path_retention_policy = "failed"
 # =============================================================================
 
 [tool.coverage.run]
-source = ["src/gc_monitor"]
+source = ["src/gcmon"]
 branch = true
 omit = ["*/tests/*", "*/__pycache__/*", "*/.venv/*"]
 

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import msgspec
 import pytest
 
-from gc_monitor.exporters.chrome_trace_io import (
+from gcmon.exporters.chrome_trace_io import (
     _normalize_jsonl_timestamps,
     _normalize_trace_timestamps,
     _parse_events,
@@ -18,14 +18,14 @@ from gc_monitor.exporters.chrome_trace_io import (
     write_jsonl,
     write_trace_events,
 )
-from gc_monitor.exporters.chrome_trace_format import (
+from gcmon.exporters.chrome_trace_format import (
     counter_event,
     inc_event,
     pause_event,
     process_meta,
     thread_meta,
 )
-from gc_monitor.protocol import has_incremental
+from gcmon.protocol import has_incremental
 
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_stats_item, create_jsonl_record

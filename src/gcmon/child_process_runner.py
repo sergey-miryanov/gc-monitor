@@ -12,7 +12,7 @@ from .utils.process_terminator import log_process_output, terminate_process
 
 __all__ = ["ChildProcess", "ChildProcessRunner"]
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 
 class ChildProcess(TargetProcess):

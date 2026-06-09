@@ -4,9 +4,9 @@ from collections.abc import Callable
 
 import pytest
 
-from gc_monitor.data import GCStatsInfo
-from gc_monitor.stats import Stats, StreamingStats
-from gc_monitor.stats_output import TableFormat, _build_rows, _print_table, print_stats
+from gcmon.data import GCStatsInfo
+from gcmon.stats import Stats, StreamingStats
+from gcmon.stats_output import TableFormat, _build_rows, _print_table, print_stats
 
 
 class TestStatsOutput:
@@ -125,7 +125,7 @@ class TestPrintTable:
         assert "---" in captured.out
 
     def test_separator_phase_format(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from gc_monitor.stats_output import _SEP_PHASE
+        from gcmon.stats_output import _SEP_PHASE
 
         rows = [
             ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000"],
@@ -138,7 +138,7 @@ class TestPrintTable:
         assert len(lines) >= 4
 
     def test_separator_blank_markdown(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from gc_monitor.stats_output import _SEP_GROUP
+        from gcmon.stats_output import _SEP_GROUP
 
         rows = [
             ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000"],

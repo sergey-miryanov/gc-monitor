@@ -1,5 +1,3 @@
-"""Shared pytest fixtures for gc-monitor tests."""
-
 from __future__ import annotations
 
 import logging
@@ -8,10 +6,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from gc_monitor.monitor import EventsMonitor
-from gc_monitor.protocol import TGCStatsInfo
-from gc_monitor.stats import StreamingStats
-from gc_monitor.target_process import ExternalProcess
+from gcmon.monitor import EventsMonitor
+from gcmon.protocol import TGCStatsInfo
+from gcmon.stats import StreamingStats
+from gcmon.target_process import ExternalProcess
 from tests.helpers import MockExporter, create_mock_stats_item
 
 
@@ -27,9 +25,9 @@ def pytest_collection_modifyitems(session, config, items):
 
 
 @pytest.fixture(autouse=True)
-def _caplog_gc_monitor(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
-    """Auto-configure gc_monitor logger to INFO level for caplog."""
-    logger = logging.getLogger("gc_monitor")
+def _caplog_gcmon(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
+    """Auto-configure gcmon logger to INFO level for caplog."""
+    logger = logging.getLogger("gcmon")
     original_level = logger.level
     try:
         logger.setLevel(logging.INFO)
@@ -129,5 +127,5 @@ def make_monitor(exporter, stats):
 @pytest.fixture
 def env_module():
     """Provide the _env module for testing."""
-    from gc_monitor import _env
+    from gcmon import _env
     return _env

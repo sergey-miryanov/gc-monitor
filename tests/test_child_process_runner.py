@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
-from gc_monitor.child_process_runner import ChildProcess, ChildProcessRunner, ProcessStdoutReader
+from gcmon.child_process_runner import ChildProcess, ChildProcessRunner, ProcessStdoutReader
 
 
 @pytest.fixture
@@ -154,7 +154,7 @@ class TestProperties:
 class TestStart:
     def test_spawns_subprocess(self, runner, mock_popen):
         with patch("subprocess.Popen", return_value=mock_popen) as mock_popen_cls:
-            with patch("gc_monitor.child_process_runner.ProcessStdoutReader"):
+            with patch("gcmon.child_process_runner.ProcessStdoutReader"):
                 result = runner.start()
 
         assert isinstance(result, ChildProcess)
@@ -182,10 +182,10 @@ class TestTerminate:
         runner._stdout_thread = thread
 
         with patch(
-            "gc_monitor.child_process_runner.terminate_process",
+            "gcmon.child_process_runner.terminate_process",
             return_value=(b"stdout", b"stderr"),
         ):
-            with patch("gc_monitor.child_process_runner.log_process_output"):
+            with patch("gcmon.child_process_runner.log_process_output"):
                 runner.terminate()
 
         thread.stop.assert_called_once()
@@ -195,10 +195,10 @@ class TestTerminate:
         runner._process = Mock(spec=subprocess.Popen)
 
         with patch(
-            "gc_monitor.child_process_runner.terminate_process",
+            "gcmon.child_process_runner.terminate_process",
             return_value=(b"stdout", b"stderr"),
         ) as mock_term:
-            with patch("gc_monitor.child_process_runner.log_process_output"):
+            with patch("gcmon.child_process_runner.log_process_output"):
                 runner.terminate()
 
         mock_term.assert_called_once()

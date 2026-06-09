@@ -2,8 +2,8 @@ from unittest.mock import patch
 
 import pytest
 
-from gc_monitor.poll_status import PollStatus
-from gc_monitor.wait_policy import NoWaitPolicy, StartupTimeoutPolicy
+from gcmon.poll_status import PollStatus
+from gcmon.wait_policy import NoWaitPolicy, StartupTimeoutPolicy
 
 
 @pytest.fixture

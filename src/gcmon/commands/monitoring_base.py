@@ -4,19 +4,19 @@ import logging
 import os
 from contextlib import ExitStack
 
-from gc_monitor.commands.monitoring_options import MonitoringOptions
-from gc_monitor.control.control_server import ControlServer
-from gc_monitor.exporters import EventsExporterFactory
-from gc_monitor.monitor import create_monitor
-from gc_monitor.monitor_loop import MonitorLoop
-from gc_monitor.run_policy import RunnerFactory
-from gc_monitor.stats import StreamingStats
-from gc_monitor.stats_output import print_stats
-from gc_monitor.target_process import ProcessRunnerFactory
-from gc_monitor.utils import replace_signals
-from gc_monitor.wait_policy import WaitPolicy
+from gcmon.commands.monitoring_options import MonitoringOptions
+from gcmon.control.control_server import ControlServer
+from gcmon.exporters import EventsExporterFactory
+from gcmon.monitor import create_monitor
+from gcmon.monitor_loop import MonitorLoop
+from gcmon.run_policy import RunnerFactory
+from gcmon.stats import StreamingStats
+from gcmon.stats_output import print_stats
+from gcmon.target_process import ProcessRunnerFactory
+from gcmon.utils import replace_signals
+from gcmon.wait_policy import WaitPolicy
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 
 def run_monitoring_loop(

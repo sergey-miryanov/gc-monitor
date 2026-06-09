@@ -6,11 +6,11 @@ import logging
 from argparse import Namespace
 from pathlib import Path
 
-from gc_monitor.exporters.chrome_trace_io import combine_files
+from gcmon.exporters.chrome_trace_io import combine_files
 
 from .parser_factory import ParserFactory
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 
 def add_parser(parser_factory: ParserFactory) -> argparse.ArgumentParser:

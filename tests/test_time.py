@@ -1,4 +1,4 @@
-from gc_monitor.data import dur_to_us, ts_to_us
+from gcmon.data import dur_to_us, ts_to_us
 
 
 class TestTimeConversions:

@@ -1,5 +1,3 @@
-"""Shared helper classes and functions for gc-monitor tests."""
-
 from __future__ import annotations
 
 import json
@@ -7,9 +5,9 @@ import threading
 from pathlib import Path
 from typing import Any, Mapping
 
-from gc_monitor.data import GCStatsInfo
-from gc_monitor.exporters.exporter import EventsExporter
-from gc_monitor.protocol import TGCStatsInfo, TInstantMsg
+from gcmon.data import GCStatsInfo
+from gcmon.exporters.exporter import EventsExporter
+from gcmon.protocol import TGCStatsInfo, TInstantMsg
 
 # pyright: reportImplicitOverride=none
 

@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from gc_monitor.exporters.chrome_trace_format import (
+from gcmon.exporters.chrome_trace_format import (
     CounterEvent,
     IncrementalEvent,
     InstantEvent,

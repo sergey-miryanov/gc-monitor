@@ -4,7 +4,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
-from gc_monitor.stats_output import TableFormat
+from gcmon.stats_output import TableFormat
 
 
 class TestRunMonitoringLoop:
@@ -27,7 +27,7 @@ class TestRunMonitoringLoop:
         self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         result = run_monitoring_loop(mock_factory, mock_wait_policy, monitoring_options())
 
@@ -39,7 +39,7 @@ class TestRunMonitoringLoop:
         self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         mock_monitoring_base_deps["RunnerFactory"].side_effect = RuntimeError("test error")
 
@@ -51,7 +51,7 @@ class TestRunMonitoringLoop:
         self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         mock_monitoring_base_deps["MonitorLoop"].return_value.run.side_effect = RuntimeError("runtime error")
 
@@ -63,7 +63,7 @@ class TestRunMonitoringLoop:
         self, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         runner = mock_factory.return_value
         runner.returncode = 42
@@ -75,7 +75,7 @@ class TestRunMonitoringLoop:
         self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         mock_monitoring_base_deps["StreamingStats"].return_value.count.return_value = 0
 
@@ -87,7 +87,7 @@ class TestRunMonitoringLoop:
         self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         mock_monitoring_base_deps["StreamingStats"].return_value.count.return_value = 0
 
@@ -100,7 +100,7 @@ class TestRunMonitoringLoop:
         self, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         run_monitoring_loop(mock_factory, mock_wait_policy, monitoring_options())
 
@@ -110,7 +110,7 @@ class TestRunMonitoringLoop:
         self, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         runner = mock_factory.return_value
 
@@ -123,7 +123,7 @@ class TestRunMonitoringLoop:
         self, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         mock_control_instance = mock_monitoring_base_deps["ControlServer"].return_value
 
@@ -137,7 +137,7 @@ class TestRunMonitoringLoop:
         self, mock_factory: MagicMock, mock_wait_policy: MagicMock,
         monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
     ) -> None:
-        from gc_monitor.commands.monitoring_base import run_monitoring_loop
+        from gcmon.commands.monitoring_base import run_monitoring_loop
 
         mock_control_instance = mock_monitoring_base_deps["ControlServer"].return_value
 

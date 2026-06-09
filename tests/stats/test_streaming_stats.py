@@ -3,9 +3,9 @@ from collections.abc import Callable
 
 import numpy as np
 
-from gc_monitor.data import GCStatsInfo
-from gc_monitor.protocol import TGCStatsInfo
-from gc_monitor.stats import StreamingStats, get_quantile_value
+from gcmon.data import GCStatsInfo
+from gcmon.protocol import TGCStatsInfo
+from gcmon.stats import StreamingStats, get_quantile_value
 
 TOLERANCE = 1e-12
 

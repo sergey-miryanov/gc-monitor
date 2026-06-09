@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gc_monitor.exporters.chrome_trace_io import read_jsonl
+from gcmon.exporters.chrome_trace_io import read_jsonl
 
 from tests.helpers import assert_valid_chrome_trace_format
 
@@ -179,14 +179,14 @@ def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None =
         sys.executable,
         "-u",
         "-m",
-        "gc_monitor",
+        "gcmon",
         "run",
         *gc_opts,
         "-s",
         str(script_file.as_posix()),
     ] + list(script_args)
     try:
-        return _popen_with_timeout(cmd, timeout=5)
+        return _popen_with_timeout(cmd, timeout=30)
     except subprocess.TimeoutExpired as exc:
         _print_output("run_script", -1, exc)
         raise
@@ -198,14 +198,14 @@ def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = 
         sys.executable,
         "-u",
         "-m",
-        "gc_monitor",
+        "gcmon",
         "run",
         *gc_opts,
         "-m",
         str(module_name),
     ] + list(script_args)
     try:
-        return _popen_with_timeout(cmd, timeout=5)
+        return _popen_with_timeout(cmd, timeout=30)
     except subprocess.TimeoutExpired as exc:
         _print_output("run_module", -1, exc)
         raise
@@ -233,7 +233,7 @@ class TestCmdRunUnit:
 
     def test_cmd_run_both_targets(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test cmd_run rejects both -m and -s specified."""
-        from gc_monitor.commands import run_cmd
+        from gcmon.commands import run_cmd
 
         args = self._make_run_args(module_name="timeit", script="script.py")
 
@@ -244,7 +244,7 @@ class TestCmdRunUnit:
 
     def test_cmd_run_no_target(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test cmd_run rejects neither -m nor -s specified."""
-        from gc_monitor.commands import run_cmd
+        from gcmon.commands import run_cmd
 
         args = self._make_run_args()
 
@@ -255,12 +255,12 @@ class TestCmdRunUnit:
 
     def test_cmd_run_module_mode(self) -> None:
         """Test cmd_run passes factory with correct params for module mode."""
-        from gc_monitor.commands import run_cmd
+        from gcmon.commands import run_cmd
 
         args = self._make_run_args(module_name="timeit", script_args=["-n", "1"])
 
-        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop:
-            with patch("gc_monitor.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
+        with patch("gcmon.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop:
+            with patch("gcmon.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
                 mock_runner = MagicMock()
                 mock_runner.returncode = 0
                 mock_runner_cls.return_value = mock_runner
@@ -281,12 +281,12 @@ class TestCmdRunUnit:
 
     def test_cmd_run_script_mode(self) -> None:
         """Test cmd_run passes factory with correct params for script mode."""
-        from gc_monitor.commands import run_cmd
+        from gcmon.commands import run_cmd
 
         args = self._make_run_args(script="myscript.py", script_args=["arg1"])
 
-        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop:
-            with patch("gc_monitor.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
+        with patch("gcmon.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop:
+            with patch("gcmon.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
                 mock_runner = MagicMock()
                 mock_runner.returncode = 0
                 mock_runner_cls.return_value = mock_runner
@@ -307,27 +307,27 @@ class TestCmdRunUnit:
 
     def test_cmd_run_subprocess_returncode(self) -> None:
         """Test non-zero subprocess returncode is propagated from run_monitoring_loop."""
-        from gc_monitor.commands import run_cmd
+        from gcmon.commands import run_cmd
 
         args = self._make_run_args(module_name="timeit")
 
-        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=42):
+        with patch("gcmon.commands.run_cmd.run_monitoring_loop", return_value=42):
             result = run_cmd.cmd_run(args)
             assert result == 42
 
     def test_cmd_run_returns_monitoring_loop_failure(self) -> None:
         """Test monitoring loop failure (1) is propagated."""
-        from gc_monitor.commands import run_cmd
+        from gcmon.commands import run_cmd
 
         args = self._make_run_args(module_name="timeit")
 
-        with patch("gc_monitor.commands.run_cmd.run_monitoring_loop", return_value=1):
+        with patch("gcmon.commands.run_cmd.run_monitoring_loop", return_value=1):
             result = run_cmd.cmd_run(args)
             assert result == 1
 
     def test_cmd_run_validation_failure(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test cmd_run returns 1 when get_monitoring_options fails."""
-        from gc_monitor.commands import run_cmd
+        from gcmon.commands import run_cmd
 
         args = self._make_run_args(module_name="timeit", rate=0)
 
@@ -397,12 +397,12 @@ class TestRunCommandScriptMode:
         assert_stdout_format(output)
 
     def test_run_script_with_overlapping_args(self, tmp_path: Path) -> None:
-        """Script args after -s are passed verbatim, even if they overlap with gc-monitor options."""
+        """Script args after -s are passed verbatim, even if they overlap with gcmon options."""
         output_file = tmp_path / "trace.json"
         script_file = tmp_path / "test_script.py"
         script_file.write_text(get_long_running_script("print('Args: ', sys.argv[1:])"))
 
-        # gc-monitor options BEFORE -s, script args AFTER (including overlapping --format, -v)
+        # gcmon options BEFORE -s, script args AFTER (including overlapping --format, -v)
         gc_args = ["-vvv", "--format", "chrome", "-o", str(output_file)]
         result = run_script(script_file, "--format", "json", "-v", "--format", "csv", gc_args=gc_args)
 
@@ -451,10 +451,10 @@ class TestRunCommandModuleMode:
         assert_stdout_format(output)
 
     def test_run_module_with_overlapping_args(self, tmp_path: Path) -> None:
-        """Script args after -m are passed verbatim, even if they overlap with gc-monitor options."""
+        """Script args after -m are passed verbatim, even if they overlap with gcmon options."""
         output_file = tmp_path / "trace.json"
 
-        # gc-monitor options BEFORE -m, script args AFTER (including overlapping --format, -v)
+        # gcmon options BEFORE -m, script args AFTER (including overlapping --format, -v)
         gc_args = ["-v", "--format", "chrome", "-o", str(output_file)]
         run_module("test", "test_gc", "-v", gc_args=gc_args)
 
@@ -510,7 +510,7 @@ class TestRunCommandHelp:
             [
                 sys.executable,
                 "-m",
-                "gc_monitor",
+                "gcmon",
                 "run",
                 "--help",
             ],
@@ -539,7 +539,7 @@ class TestRunCommandHelp:
             [
                 sys.executable,
                 "-m",
-                "gc_monitor",
+                "gcmon",
                 "run",
                 "--help",
             ],

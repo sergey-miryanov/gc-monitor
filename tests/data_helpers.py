@@ -1,6 +1,6 @@
 import pytest
 
-from gc_monitor.data import GCStatsInfo, InstantMsg
+from gcmon.data import GCStatsInfo, InstantMsg
 
 
 @pytest.fixture

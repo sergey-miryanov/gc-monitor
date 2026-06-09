@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gc_monitor.commands.monitoring_options import MonitoringOptions
-from gc_monitor.stats_output import TableFormat
+from gcmon.commands.monitoring_options import MonitoringOptions
+from gcmon.stats_output import TableFormat
 
 
 class MonitorArgsFactory:
@@ -72,34 +72,33 @@ def mock_thread() -> MagicMock:
 
 
 @pytest.fixture
-def gc_monitor_cmd() -> list[str]:
-    """Base subprocess command for gc-monitor CLI."""
-    return [sys.executable, "-m", "gc_monitor.cli"]
+def gcmon_cmd() -> list[str]:
+    return [sys.executable, "-m", "gcmon.cli"]
 
 
 @pytest.fixture
-def run_monitor(gc_monitor_cmd: list[str]) -> Callable[..., subprocess.CompletedProcess[str]]:
-    """Run gc-monitor monitor subprocess with common defaults.
+def run_monitor(gcmon_cmd: list[str]) -> Callable[..., subprocess.CompletedProcess[str]]:
+    """Run gcmon monitor subprocess with common defaults.
 
     Usage:
         result = run_monitor(["-d", "0.1"], timeout=5)
     """
     def _run(extra_args: list[str] | None = None, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        cmd = gc_monitor_cmd + ["monitor", "12345"] + (extra_args or [])
+        cmd = gcmon_cmd + ["monitor", "12345"] + (extra_args or [])
         return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
 
     return _run
 
 
 @pytest.fixture
-def run_monitor_self(gc_monitor_cmd: list[str]) -> Callable[..., subprocess.CompletedProcess[str]]:
-    """Run gc-monitor monitor subprocess with common defaults.
+def run_monitor_self(gcmon_cmd: list[str]) -> Callable[..., subprocess.CompletedProcess[str]]:
+    """Run gcmon monitor subprocess with common defaults.
 
     Usage:
         result = run_monitor(["-d", "0.1"], timeout=5)
     """
     def _run(extra_args: list[str] | None = None, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        cmd = gc_monitor_cmd + ["monitor", "-1"] + (extra_args or [])
+        cmd = gcmon_cmd + ["monitor", "-1"] + (extra_args or [])
         return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
 
     return _run
@@ -146,7 +145,7 @@ def mock_monitoring_base_deps() -> dict[str, Any]:
     with ExitStack() as stack:
         deps: dict[str, Any] = {}
         for name in patch_targets:
-            deps[name] = stack.enter_context(patch(f"gc_monitor.commands.monitoring_base.{name}"))
+            deps[name] = stack.enter_context(patch(f"gcmon.commands.monitoring_base.{name}"))
         mock_control_instance = MagicMock()
         mock_control_instance.address = "/tmp/test-address"
         deps["ControlServer"].return_value = mock_control_instance

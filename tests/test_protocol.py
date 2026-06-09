@@ -8,7 +8,7 @@ from tests.data_helpers import (  # noqa: F401
     simple_item,
 )
 
-from gc_monitor.protocol import (
+from gcmon.protocol import (
     has_clear_weakrefs,
     has_deduce_unreachable,
     has_delete_garbage,

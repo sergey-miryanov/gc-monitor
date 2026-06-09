@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from gc_monitor.stats import HAS_DDSKETCH, Stats
+from gcmon.stats import HAS_DDSKETCH, Stats
 
 
 class TestStatsUpdate:

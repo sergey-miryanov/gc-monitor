@@ -15,7 +15,7 @@ from .perfetto_format import (
 )
 from .protobuf_encoder import encode_bytes_field
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 TYPE_INSTANT = 3
 

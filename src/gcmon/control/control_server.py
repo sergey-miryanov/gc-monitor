@@ -14,13 +14,13 @@ from typing import Self
 
 import msgspec
 
-from gc_monitor.data import instant_msg
-from gc_monitor.exporters.exporter import EventsExporter
+from gcmon.data import instant_msg
+from gcmon.exporters.exporter import EventsExporter
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
-CONTROL_ADDRESS_ENV = "GC_MONITOR_CONTROL_ADDRESS"
-_PREFIX = "gc-monitor-"
+CONTROL_ADDRESS_ENV = "GCMON_CONTROL_ADDRESS"
+_PREFIX = "gcmon-"
 
 READER_POLL_INTERVAL = 0.1
 
