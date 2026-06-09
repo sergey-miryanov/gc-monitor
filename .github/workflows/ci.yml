@@ -111,6 +111,8 @@ jobs:
           sudo dseditgroup -o edit -a "$(whoami)" -t user _developer 2>/dev/null || echo "WARNING: could not add to _developer group"
           sudo dscl . -append /Groups/_developer GroupMembership $(whoami)
 
+          sudo security authorize -u $(whoami)
+
           ENTITLEMENTS_FILE=$(mktemp)
           python scripts/gen_entitlements.py "$ENTITLEMENTS_FILE"
 
