@@ -7,11 +7,6 @@ on:
     branches: [main]
     paths: [pyproject.toml, .github/workflows/release.yml, CHANGELOG.md]
   workflow_dispatch:
-    inputs:
-      dry-run:
-        description: "Skip PyPI upload"
-        type: boolean
-        default: true
 
 permissions:
   id-token: write
@@ -34,9 +29,9 @@ jobs:
         run: poetry build
 
       - name: Publish to PyPI
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
-          dry-run: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry-run) || false }}
           verify-metadata: true
 
       - name: Extract changelog
