@@ -82,12 +82,15 @@ jobs:
           DevToolsSecurity -status
           sudo dscl . append /Groups/_developer GroupMembership $(whoami)
 
-      - name: Disable Crash Reporter completely
+      - name: Pre-authorize taskport to prevent GUI prompt hangs
         if: runner.os == 'macOS'
         run: |
-          sudo defaults write /Library/Preferences/com.apple.CrashReporter DialogType none
-          sudo launchctl bootout system/com.apple.ReportCrash 2>/dev/null || true
-          sudo launchctl bootout gui/$(id -u)/com.apple.ReportCrash 2>/dev/null || true
+          # Read the current rule
+          sudo security authorizationdb read system.privilege.taskport > taskport.plist
+
+          # Modify it to not require a GUI prompt (shared, allow)
+          # This is a known workaround for CI environments
+          sudo security authorizationdb write system.privilege.taskport allow
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: ./.github/actions/setup
