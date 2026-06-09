@@ -111,7 +111,7 @@ jobs:
           codesign -d --entitlements - "$PYTHON_BIN" || true
 
           echo "=== Kill taskgated ==="
-          sudo killall -9 taskgated 2>/dev/null || true
+          sudo killall -9 taskgated securityd 2>/dev/null || true
           echo "taskgated killed"
 
       - name: Run tests
