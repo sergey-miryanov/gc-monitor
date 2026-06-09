@@ -19,9 +19,6 @@ from gc_monitor.exporters.chrome_trace_io import read_jsonl
 from tests.monitoring.conftest import MonitorArgsFactory
 from tests.helpers import assert_valid_chrome_trace_format
 
-import multiprocessing as mp
-mp.set_start_method("spawn", force=True)
-
 
 # =============================================================================
 # Unit Tests for cmd_run

@@ -84,6 +84,7 @@ jobs:
           # Modify it to not require a GUI prompt (shared, allow)
           # This is a known workaround for CI environments
           # sudo security authorizationdb write system.privilege.taskport allow
+          sudo security authorizationdb write system.privilege.taskport is-developer
 
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -107,21 +108,21 @@ jobs:
 
           $PYTHON_BIN -VV
 
-          echo "=== Add user to _developer group ==="
-          sudo dseditgroup -o edit -a "$(whoami)" -t user _developer 2>/dev/null || echo "WARNING: could not add to _developer group"
-          sudo dscl . -append /Groups/_developer GroupMembership $(whoami)
+          # echo "=== Add user to _developer group ==="
+          # sudo dseditgroup -o edit -a "$(whoami)" -t user _developer 2>/dev/null || echo "WARNING: could not add to _developer group"
+          # sudo dscl . -append /Groups/_developer GroupMembership $(whoami)
 
-          sudo security authorize -u $(whoami)
+          # sudo security authorize -u $(whoami)
 
           ENTITLEMENTS_FILE=$(mktemp)
           python scripts/gen_entitlements.py "$ENTITLEMENTS_FILE"
 
-          echo "=== Signing Python ==="
-          codesign --force --options runtime --sign - \
-            --entitlements "$ENTITLEMENTS_FILE" "$PYTHON_BIN" || echo "WARNING: codesign failed for Python"
+          # echo "=== Signing Python ==="
+          # codesign --force --options runtime --sign - \
+          #   --entitlements "$ENTITLEMENTS_FILE" "$PYTHON_BIN" || echo "WARNING: codesign failed for Python"
 
-          echo "=== Verify Python ==="
-          codesign -d --entitlements - "$PYTHON_BIN" || true
+          # echo "=== Verify Python ==="
+          # codesign -d --entitlements - "$PYTHON_BIN" || true
 
           rm -f "$ENTITLEMENTS_FILE"
 
