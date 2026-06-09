@@ -1,8 +1,10 @@
 """Integration tests for the run command."""
 
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from argparse import Namespace
@@ -145,6 +147,23 @@ def _sample_process(pid: int) -> None:
         _print_output("lldb", pid, exc)
     except Exception as e:
         print(f"lldb PID {pid} also failed: {e}")
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spindump_path = os.path.join(tmpdir, "spindump.txt")
+            subprocess.run(
+                ["sudo", "spindump", str(pid), "1", "-file", spindump_path],
+                timeout=15,
+            )
+            if os.path.exists(spindump_path):
+                with open(spindump_path) as f:
+                    print(f"--- spindump PID {pid} ---")
+                    print(f.read())
+                    print("--- end spindump ---")
+    except subprocess.TimeoutExpired as exc:
+        _print_output("spindump", pid, exc)
+    except Exception as e:
+        print(f"spindump PID {pid} also failed: {e}")
 
 
 def _popen_with_timeout(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
