@@ -84,7 +84,7 @@ jobs:
           # Modify it to not require a GUI prompt (shared, allow)
           # This is a known workaround for CI environments
           # sudo security authorizationdb write system.privilege.taskport allow
-          systemsetup -setdevelopermode on
+          sudo systemsetup -setdevelopermode on
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: ./.github/actions/setup
