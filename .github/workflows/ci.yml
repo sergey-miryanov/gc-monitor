@@ -84,7 +84,7 @@ jobs:
           # Modify it to not require a GUI prompt (shared, allow)
           # This is a known workaround for CI environments
           # sudo security authorizationdb write system.privilege.taskport allow
-          sudo systemsetup -setdevelopermode on
+
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: ./.github/actions/setup
@@ -100,31 +100,27 @@ jobs:
         run: mkdir -p reports
         shell: bash
 
-      # - name: Grant debugger entitlement
-      #   if: runner.os == 'macOS'
-      #   run: |
-      #     PYTHON_BIN=$(python -c "import sys; print(sys.executable)")
+      - name: Grant debugger entitlement
+        if: runner.os == 'macOS'
+        run: |
+          PYTHON_BIN=$(python -c "import sys; print(sys.executable)")
 
-      #     $PYTHON_BIN -VV
-      #     codesign -d --entitlements - "$PYTHON_BIN" || true
+          $PYTHON_BIN -VV
 
-      #     ENTITLEMENTS_FILE=$(mktemp)
-      #     python scripts/gen_entitlements.py "$ENTITLEMENTS_FILE"
+          echo "=== Add user to _developer group ==="
+          sudo dseditgroup -o edit -a "$(whoami)" -t user _developer 2>/dev/null || echo "WARNING: could not add to _developer group"
 
-      #     codesign --force --options runtime --sign - \
-      #       --entitlements "$ENTITLEMENTS_FILE" "$PYTHON_BIN" || echo "WARNING: codesign failed for Python"
+          ENTITLEMENTS_FILE=$(mktemp)
+          python scripts/gen_entitlements.py "$ENTITLEMENTS_FILE"
 
-      #     codesign -d --entitlements - "$PYTHON_BIN" || true
+          echo "=== Signing Python ==="
+          codesign --force --options runtime --sign - \
+            --entitlements "$ENTITLEMENTS_FILE" "$PYTHON_BIN" || echo "WARNING: codesign failed for Python"
 
-      #     rm -f "$ENTITLEMENTS_FILE"
+          echo "=== Verify Python ==="
+          codesign -d --entitlements - "$PYTHON_BIN" || true
 
-      #     echo "=== Kill taskgated ==="
-      #     sudo killall -9 taskgated 2>/dev/null || true
-      #     echo "taskgated killed"
-
-      #     echo "=== Kill securityd ==="
-      #     sudo killall -9 securityd 2>/dev/null || true
-      #     echo "securityd killed"
+          rm -f "$ENTITLEMENTS_FILE"
 
       - name: Run tests
         run: |
