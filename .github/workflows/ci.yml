@@ -108,16 +108,7 @@ jobs:
           $PYTHON_BIN -VV
 
           ENTITLEMENTS_FILE=$(mktemp)
-          cat > "$ENTITLEMENTS_FILE" << 'XML'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>com.apple.security.cs.debugger</key>
-    <true/>
-</dict>
-</plist>
-XML
+          python scripts/gen_entitlements.py "$ENTITLEMENTS_FILE"
 
           echo "=== Signing Python ==="
           codesign --force --options runtime --sign - \
