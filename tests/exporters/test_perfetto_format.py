@@ -10,8 +10,8 @@ from tests.proto_decoder import (
     get_varint,
 )
 
-from gc_monitor.data import GCStatsInfo, InstantMsg
-from gc_monitor.exporters.perfetto_format import (
+from gcmon.data import GCStatsInfo, InstantMsg
+from gcmon.exporters.perfetto_format import (
     TYPE_COUNTER,
     TYPE_INSTANT,
     TYPE_SLICE_BEGIN,

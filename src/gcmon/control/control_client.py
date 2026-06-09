@@ -9,9 +9,9 @@ from contextlib import contextmanager, suppress
 from multiprocessing.connection import Client, Connection
 from typing import Any, Self
 
-from gc_monitor.control.control_server import CONTROL_ADDRESS_ENV
+from gcmon.control.control_server import CONTROL_ADDRESS_ENV
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 
 def connect_with_retry(

@@ -1,5 +1,3 @@
-"""Tests for the gc-monitor combine command."""
-
 import json
 import subprocess
 import sys
@@ -8,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gc_monitor.exporters.chrome_trace_format import pause_event, process_meta, thread_meta
+from gcmon.exporters.chrome_trace_format import pause_event, process_meta, thread_meta
 
 from tests.helpers import (
     assert_is_complete,
@@ -54,9 +52,8 @@ def make_trace_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def run_combine():
-    """Run gc-monitor combine subprocess."""
     def _run(inputs: list[Path], output: Path | None = None, extra_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
-        cmd = [sys.executable, "-m", "gc_monitor.cli", "combine"]
+        cmd = [sys.executable, "-m", "gcmon.cli", "combine"]
         cmd.extend(str(f) for f in inputs)
         if output:
             cmd += ["-o", str(output)]
@@ -78,7 +75,7 @@ def combine_output(tmp_path: Path) -> Path:
 
 
 def test_cmd_combine_basic(tmp_path: Path) -> None:
-    from gc_monitor.commands import convert_cmd
+    from gcmon.commands import convert_cmd
 
     input_file = tmp_path / "input.json"
     input_file.write_text(json.dumps([make_complete("test", ts=100)]))
@@ -89,7 +86,7 @@ def test_cmd_combine_basic(tmp_path: Path) -> None:
 
 
 def test_cmd_combine_file_not_found(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
-    from gc_monitor.commands import convert_cmd
+    from gcmon.commands import convert_cmd
 
     args = Namespace(inputs=[tmp_path / "nonexistent.json"], output=tmp_path / "output.json", verbose=1, normalize=False, input_format="chrome", output_format="chrome")
     assert convert_cmd.cmd_combine(args) == 1
@@ -97,7 +94,7 @@ def test_cmd_combine_file_not_found(caplog: pytest.LogCaptureFixture, tmp_path: 
 
 
 def test_cmd_combine_invalid_json(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
-    from gc_monitor.commands import convert_cmd
+    from gcmon.commands import convert_cmd
 
     input_file = tmp_path / "invalid.json"
     input_file.write_text("not valid json")
@@ -385,7 +382,7 @@ class TestCliCombineJsonlToJsonl:
         f1 = make_jsonl_file("data1.jsonl", [create_jsonl_record()])
         output = tmp_path / "combined.jsonl"
 
-        cmd = [sys.executable, "-m", "gc_monitor.cli", "combine", str(f1), "-o", str(output),
+        cmd = [sys.executable, "-m", "gcmon.cli", "combine", str(f1), "-o", str(output),
                "--input-format", "jsonl", "--output-format", "jsonl"]
         result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -399,7 +396,7 @@ class TestCliCombineJsonlToJsonl:
         f2 = make_jsonl_file("data2.jsonl", [create_jsonl_record(pid=456, tid=2, gen=1)])
         output = tmp_path / "combined.jsonl"
 
-        cmd = [sys.executable, "-m", "gc_monitor.cli", "combine", str(f1), str(f2), "-o", str(output),
+        cmd = [sys.executable, "-m", "gcmon.cli", "combine", str(f1), str(f2), "-o", str(output),
                "--input-format", "jsonl", "--output-format", "jsonl"]
         result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -416,7 +413,7 @@ class TestCliCombineJsonlToJsonl:
         ])
         output = tmp_path / "combined.jsonl"
 
-        cmd = [sys.executable, "-m", "gc_monitor.cli", "combine", str(f1), "-o", str(output),
+        cmd = [sys.executable, "-m", "gcmon.cli", "combine", str(f1), "-o", str(output),
                "--input-format", "jsonl", "--output-format", "jsonl", "--normalize"]
         result = subprocess.run(cmd, capture_output=True, text=True)
 

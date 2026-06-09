@@ -1,7 +1,3 @@
-"""Tests for pyperf hook integration."""
-
-# pyright: reportPrivateUsage=none, reportUnknownMemberType=none, reportUnknownVariableType=none, reportUnknownArgumentType=none, reportUnusedFunction=none
-
 import json
 import os
 import sys
@@ -12,13 +8,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from gc_monitor.data import GCStatsInfo
-from gc_monitor.pyperf.hook import (
-    GCMonitorHook,
+from gcmon.data import GCStatsInfo
+from gcmon.pyperf.hook import (
     _get_env_pyperf_hook_control_timeout,
-    gc_monitor_hook,
+    gcmon_hook,
 )
-from gc_monitor.stats import StreamingStats
+from gcmon.stats import StreamingStats
 
 from tests.helpers import assert_valid_jsonl_format
 
@@ -26,7 +21,7 @@ from tests.helpers import assert_valid_jsonl_format
 @pytest.fixture(autouse=True)
 def _mock_control_connect():
     """Prevent real control plane connection attempts in hook tests."""
-    with patch("gc_monitor.pyperf.hook.connect_with_retry", return_value=None):
+    with patch("gcmon.pyperf.hook.connect_with_retry", return_value=None):
         yield
 
 
@@ -34,8 +29,8 @@ def _mock_control_connect():
 def mock_popen_process():
     """Patches Popen and getpid with defaults. Yields (mock_popen, mock_process)."""
     with (
-        patch("gc_monitor.pyperf.hook.subprocess.Popen") as mock_popen,
-        patch("gc_monitor.pyperf.hook.os.getpid", return_value=12345),
+        patch("gcmon.pyperf.hook.subprocess.Popen") as mock_popen,
+        patch("gcmon.pyperf.hook.os.getpid", return_value=12345),
     ):
         mock_process = Mock()
         mock_process.pid = 54321
@@ -76,7 +71,7 @@ class TestGCMonitorHookInit:
 
     def test_hook_init_default_values(self) -> None:
         """Hook initializes with default values."""
-        hook = gc_monitor_hook()
+        hook = gcmon_hook()
         assert len(hook._temp_files) > 0
         assert hook._process is not None
         assert hook._pid == os.getpid()
@@ -92,7 +87,7 @@ class TestGCMonitorHookEnter:
         """__enter__ spawns subprocess with correct command."""
         mock_popen, _mock_process = mock_popen_process
 
-        hook = gc_monitor_hook()
+        hook = gcmon_hook()
 
         assert hook._pid == 12345  # type: ignore[reportPrivateUsage]
         assert hook._process is not None  # type: ignore[reportPrivateUsage]
@@ -100,10 +95,10 @@ class TestGCMonitorHookEnter:
         # Verify subprocess.Popen was called with correct args
         mock_popen.assert_called_once()
         call_args = mock_popen.call_args[0][0]
-        # Command structure: [sys.executable, "-m", "gc_monitor", "monitor", pid, ...]
+        # Command structure: [sys.executable, "-m", "gcmon", "monitor", pid, ...]
         assert call_args[0] == sys.executable
         assert call_args[1] == "-m"
-        assert call_args[2] == "gc_monitor"
+        assert call_args[2] == "gcmon"
         assert call_args[3] == "monitor"
         assert call_args[4] == "12345"
         assert "-o" in call_args
@@ -114,18 +109,18 @@ class TestGCMonitorHookEnter:
         self,
         mock_popen_process: tuple[Mock, Mock],
     ) -> None:
-        """__enter__ raises RuntimeError if gc-monitor module not found."""
+        """__enter__ raises RuntimeError if gcmon module not found."""
         mock_popen, _mock_process = mock_popen_process
         mock_popen.side_effect = FileNotFoundError("module not found")
 
         mock_temp_dir = Mock(spec=tempfile.TemporaryDirectory)
         mock_temp_dir.name = tempfile.mkdtemp()
-        with patch("gc_monitor.pyperf.hook.tempfile.TemporaryDirectory", return_value=mock_temp_dir):
+        with patch("gcmon.pyperf.hook.tempfile.TemporaryDirectory", return_value=mock_temp_dir):
             with pytest.raises(RuntimeError) as exc_info:
-                gc_monitor_hook()
+                gcmon_hook()
 
-        assert "Failed to run gc-monitor module" in str(exc_info.value)
-        assert "Ensure gc-monitor is installed" in str(exc_info.value)
+        assert "Failed to run gcmon module" in str(exc_info.value)
+        assert "Ensure gcmon is installed" in str(exc_info.value)
         mock_temp_dir.cleanup.assert_called_once()
 
     def test_enter_creates_temp_file_path(
@@ -135,10 +130,10 @@ class TestGCMonitorHookEnter:
         """__enter__ creates temp file path with PID."""
         mock_popen, _mock_process = mock_popen_process
 
-        hook = gc_monitor_hook()
+        hook = gcmon_hook()
         with hook:
             assert len(hook._temp_files) == 1  # type: ignore[reportPrivateUsage]
-            assert "gc_monitor_12345_" in str(hook._temp_files[0])  # type: ignore[reportPrivateUsage]
+            assert "gcmon_12345_" in str(hook._temp_files[0])  # type: ignore[reportPrivateUsage]
 
     def test_enter_accumulates_temp_files(
         self,
@@ -147,16 +142,16 @@ class TestGCMonitorHookEnter:
         """__enter__ accumulates temp files for multiple calls."""
         mock_popen, _mock_process = mock_popen_process
 
-        hook = gc_monitor_hook()
+        hook = gcmon_hook()
 
         # First enter
         with hook:
-            assert "gc_monitor_12345_" in str(hook._temp_files[0])  # type: ignore[reportPrivateUsage]
+            assert "gcmon_12345_" in str(hook._temp_files[0])  # type: ignore[reportPrivateUsage]
 
         # Second enter (simulating multiple benchmark runs)
         with hook:
             assert len(hook._temp_files) == 1
-            assert "gc_monitor_12345_" in str(hook._temp_files[0])
+            assert "gcmon_12345_" in str(hook._temp_files[0])
 
 
 class TestGCMonitorHookExit:
@@ -172,15 +167,15 @@ class TestGCMonitorHookExit:
 
         with (
             patch(
-                "gc_monitor.pyperf.hook.terminate_process",
+                "gcmon.pyperf.hook.terminate_process",
                 return_value=(b"", b""),
             ) as mock_terminate,
             patch(
-                "gc_monitor.pyperf.hook._get_env_pyperf_hook_output",
+                "gcmon.pyperf.hook._get_env_pyperf_hook_output",
                 return_value=tmp_path / "out.jsonl",
             ),
         ):
-            hook = gc_monitor_hook()
+            hook = gcmon_hook()
             hook.teardown({})
 
         mock_terminate.assert_called_once_with(
@@ -198,14 +193,14 @@ class TestGCMonitorHookTeardown:
         tmp_path: Path,
     ) -> None:
         """teardown reads JSONL files and adds metrics to metadata."""
-        hook = gc_monitor_hook()
-        temp_file = tmp_path / "gc_monitor_12345_0.jsonl"
+        hook = gcmon_hook()
+        temp_file = tmp_path / "gcmon_12345_0.jsonl"
         hook._temp_files = [temp_file]
         _write_jsonl(temp_file, _make_jsonl_event())
 
         metadata: dict[str, object] = {}
         temp_output = tmp_path / "combined.jsonl"
-        with patch("gc_monitor.pyperf.hook._get_env_pyperf_hook_output", return_value=temp_output):
+        with patch("gcmon.pyperf.hook._get_env_pyperf_hook_output", return_value=temp_output):
             hook.teardown(metadata)
 
         # Verify metadata was added
@@ -216,9 +211,9 @@ class TestGCMonitorHookTeardown:
 
     def test_teardown_handles_missing_file(self, tmp_path: Path) -> None:
         """teardown handles missing temp file gracefully."""
-        hook = gc_monitor_hook()
+        hook = gcmon_hook()
         metadata: dict[str, object] = {}
-        with patch("gc_monitor.pyperf.hook._get_env_pyperf_hook_output", return_value=tmp_path / "out.jsonl"):
+        with patch("gcmon.pyperf.hook._get_env_pyperf_hook_output", return_value=tmp_path / "out.jsonl"):
             hook.teardown(metadata)
 
         # Should not add any keys if file doesn't exist
@@ -232,7 +227,7 @@ class TestGCMonitorHookTeardown:
         """teardown removes temp files after reading."""
         _mock_popen, _mock_process = mock_popen_process
 
-        hook = gc_monitor_hook()
+        hook = gcmon_hook()
         with hook:
             temp_file = hook._temp_files[0]  # type: ignore[reportPrivateUsage]
             assert temp_file is not None
@@ -242,7 +237,7 @@ class TestGCMonitorHookTeardown:
             assert temp_file.exists()
 
         metadata: dict[str, Any] = {}
-        with patch("gc_monitor.pyperf.hook._get_env_pyperf_hook_output", return_value=tmp_path / "out.jsonl"):
+        with patch("gcmon.pyperf.hook._get_env_pyperf_hook_output", return_value=tmp_path / "out.jsonl"):
             hook.teardown(metadata)
 
         # Temp file should be removed
@@ -256,11 +251,11 @@ class TestGCMonitorHookTeardown:
         """teardown closes the control plane connection."""
         _mock_popen, _mock_process = mock_popen_process
 
-        hook = gc_monitor_hook()
+        hook = gcmon_hook()
         with hook:
             pass
 
-        with patch("gc_monitor.pyperf.hook._get_env_pyperf_hook_output", return_value=tmp_path / "out.jsonl"):
+        with patch("gcmon.pyperf.hook._get_env_pyperf_hook_output", return_value=tmp_path / "out.jsonl"):
             with patch.object(hook._control_client, "close") as mock_close:
                 hook.teardown({})
 
@@ -274,7 +269,7 @@ class TestGCMonitorHookTeardown:
         """teardown combines events from multiple temp files."""
         _mock_popen, _mock_process = mock_popen_process
 
-        hook = gc_monitor_hook()
+        hook = gcmon_hook()
 
         # Simulate multiple benchmark runs
         with hook:
@@ -294,9 +289,9 @@ class TestGCMonitorHookTeardown:
         metadata: dict[str, Any] = {"name": "test_benchmark"}
 
         # Use tmp_path for combined file by patching _get_env_pyperf_hook_output
-        combined_file = tmp_path / "gc_monitor_test_benchmark_combined_12345.json"
+        combined_file = tmp_path / "gcmon_test_benchmark_combined_12345.json"
         with patch(
-            "gc_monitor.pyperf.hook._get_env_pyperf_hook_output",
+            "gcmon.pyperf.hook._get_env_pyperf_hook_output",
             return_value=combined_file,
         ):
             hook.teardown(metadata)
@@ -361,17 +356,17 @@ class TestAggregateGcStats:
 
 
 class TestGcMonitorHookFactory:
-    """Test gc_monitor_hook factory function."""
+    """Test gcmon_hook factory function."""
 
     def test_factory_returns_new_hook_each_time(self) -> None:
         """Factory returns a new hook instance each time."""
-        hook1 = gc_monitor_hook()
-        hook2 = gc_monitor_hook()
+        hook1 = gcmon_hook()
+        hook2 = gcmon_hook()
         assert hook1 is not hook2
 
 
 class TestGCMonitorHookSharedOutput:
-    """Test GCMonitorHook with shared output file (GC_MONITOR_PYPERF_HOOK_OUTPUT)."""
+    """Test GCMonitorHook with shared output file (GCMON_PYPERF_HOOK_OUTPUT)."""
 
     def test_multiple_runs_write_to_shared_output_file(
         self,
@@ -379,7 +374,7 @@ class TestGCMonitorHookSharedOutput:
     ) -> None:
         """Test multiple pyperf runs writing to same output file via env var.
 
-        When GC_MONITOR_PYPERF_HOOK_OUTPUT is set, multiple GCMonitorHook
+        When GCMON_PYPERF_HOOK_OUTPUT is set, multiple GCMonitorHook
         instances will write to the same output file. This tests that the
         combine logic correctly handles this case.
         """
@@ -388,10 +383,10 @@ class TestGCMonitorHookSharedOutput:
         shared_output = tmp_path / "shared_gc_output.json"
 
         # Create first hook instance (first pyperf run)
-        hook1 = gc_monitor_hook()
+        hook1 = gcmon_hook()
 
         # Mock the temp file for first run
-        temp_file_1 = tmp_path / "gc_monitor_run_0_12345.jsonl"
+        temp_file_1 = tmp_path / "gcmon_run_0_12345.jsonl"
         hook1._temp_files = [temp_file_1]
 
         # Write test events from first run
@@ -399,17 +394,17 @@ class TestGCMonitorHookSharedOutput:
 
         # Mock _get_env_pyperf_hook_output to return shared output
         with patch(
-            "gc_monitor.pyperf.hook._get_env_pyperf_hook_output",
+            "gcmon.pyperf.hook._get_env_pyperf_hook_output",
             return_value=shared_output,
         ):
             metadata1: dict[str, Any] = {"name": "benchmark_run1"}
             hook1.teardown(metadata1)
 
         # Create second hook instance (second pyperf run)
-        hook2 = gc_monitor_hook()
+        hook2 = gcmon_hook()
 
         # Mock the temp file for second run
-        temp_file_2 = tmp_path / "gc_monitor_run_1_12345.jsonl"
+        temp_file_2 = tmp_path / "gcmon_run_1_12345.jsonl"
         hook2._temp_files = [temp_file_2]
 
         # Write test events from second run
@@ -421,7 +416,7 @@ class TestGCMonitorHookSharedOutput:
 
         # Second run also writes to shared output (overwrites)
         with patch(
-            "gc_monitor.pyperf.hook._get_env_pyperf_hook_output",
+            "gcmon.pyperf.hook._get_env_pyperf_hook_output",
             return_value=shared_output,
         ):
             metadata2: dict[str, Any] = {"name": "benchmark_run2"}
@@ -447,7 +442,7 @@ class TestGCMonitorHookBenchNameSubstitution:
     """Test GCMonitorHook with {bench_name} substitution in output path."""
 
     @pytest.mark.parametrize("bench_name, pattern, expected", [
-        ("my_benchmark", "gc_trace_{bench_name}.json", "gc_trace_my_benchmark.json"),
+        ("my_benchmark", "gcmon_{bench_name}.json", "gcmon_my_benchmark.json"),
         ("my-benchmark.with/special:chars", "gc_{bench_name}.json", "gc_my-benchmark_with_special_chars.json"),
     ])
     def test_bench_name_substitution(
@@ -457,11 +452,11 @@ class TestGCMonitorHookBenchNameSubstitution:
         expected: str,
         tmp_path: Path,
     ) -> None:
-        """Test {bench_name} substitution in GC_MONITOR_PYPERF_HOOK_OUTPUT."""
+        """Test {bench_name} substitution in GCMON_PYPERF_HOOK_OUTPUT."""
         output_pattern = str(tmp_path / pattern)
-        with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
-            hook = gc_monitor_hook()
-            temp_file = tmp_path / "gc_monitor_12345_0_50.jsonl"
+        with patch.dict("os.environ", {"GCMON_PYPERF_HOOK_OUTPUT": output_pattern}):
+            hook = gcmon_hook()
+            temp_file = tmp_path / "gcmon_12345_0_50.jsonl"
             hook._temp_files = [temp_file]
             _write_jsonl(temp_file, _make_jsonl_event(tid=1))
             metadata: dict[str, Any] = {"name": bench_name}
@@ -489,12 +484,12 @@ class TestGCMonitorHookBenchNameSubstitution:
             {"name": "benchmark_gamma", "collections": 15, "collected": 150},
         ]
 
-        with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
+        with patch.dict("os.environ", {"GCMON_PYPERF_HOOK_OUTPUT": output_pattern}):
             for idx, config in enumerate(benchmark_configs):
-                hook = gc_monitor_hook()
+                hook = gcmon_hook()
 
                 # Mock temp file
-                temp_file = tmp_path / f"gc_monitor_12345_{idx}_50.jsonl"
+                temp_file = tmp_path / f"gcmon_12345_{idx}_50.jsonl"
                 hook._temp_files = [temp_file]
 
                 # Write test events with unique data per benchmark
@@ -539,10 +534,10 @@ class TestGCMonitorHookBenchNameSubstitution:
         # Set up environment variable with {bench_name} placeholder
         output_pattern = str(tmp_path / "gc_{bench_name}.json")
 
-        with patch.dict("os.environ", {"GC_MONITOR_PYPERF_HOOK_OUTPUT": output_pattern}):
+        with patch.dict("os.environ", {"GCMON_PYPERF_HOOK_OUTPUT": output_pattern}):
             # First run
-            hook1 = gc_monitor_hook()
-            temp_file_1 = tmp_path / "gc_monitor_12345_0_50.jsonl"
+            hook1 = gcmon_hook()
+            temp_file_1 = tmp_path / "gcmon_12345_0_50.jsonl"
             hook1._temp_files = [temp_file_1]
 
             _write_jsonl(temp_file_1, _make_jsonl_event(tid=1))
@@ -551,8 +546,8 @@ class TestGCMonitorHookBenchNameSubstitution:
             hook1.teardown(metadata1)
 
             # Second run with same benchmark name
-            hook2 = gc_monitor_hook()
-            temp_file_2 = tmp_path / "gc_monitor_12345_1_50.jsonl"
+            hook2 = gcmon_hook()
+            temp_file_2 = tmp_path / "gcmon_12345_1_50.jsonl"
             hook2._temp_files = [temp_file_2]
 
             _write_jsonl(temp_file_2, _make_jsonl_event(
@@ -587,9 +582,9 @@ class TestGetEnvControlTimeout:
             assert _get_env_pyperf_hook_control_timeout() == 10.0
 
     def test_custom_value(self):
-        with patch.dict(os.environ, {"GC_MONITOR_PYPERF_HOOK_CONTROL_TIMEOUT": "30"}):
+        with patch.dict(os.environ, {"GCMON_PYPERF_HOOK_CONTROL_TIMEOUT": "30"}):
             assert _get_env_pyperf_hook_control_timeout() == 30.0
 
     def test_invalid_value_returns_default(self):
-        with patch.dict(os.environ, {"GC_MONITOR_PYPERF_HOOK_CONTROL_TIMEOUT": "not-a-number"}):
+        with patch.dict(os.environ, {"GCMON_PYPERF_HOOK_CONTROL_TIMEOUT": "not-a-number"}):
             assert _get_env_pyperf_hook_control_timeout() == 10.0

@@ -1,6 +1,6 @@
 import pytest
 
-from gc_monitor.target_process import ExternalProcess, TargetProcess
+from gcmon.target_process import ExternalProcess, TargetProcess
 
 
 @pytest.fixture

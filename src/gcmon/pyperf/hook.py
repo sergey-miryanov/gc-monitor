@@ -1,6 +1,6 @@
 """Pyperf hook for GC monitoring via external process.
 
-This module provides a pyperf hook that spawns an external gc-monitor process
+This module provides a pyperf hook that spawns an external gcmon process
 to collect garbage collection statistics. Temporary files are written in JSONL
 format (one JSON object per line) during monitoring, and the final combined
 output is written in Chrome Trace format (JSON array) for visualization.
@@ -28,12 +28,12 @@ GRACEFUL_TIMEOUT = 5.0
 FORCE_TIMEOUT = 2.0
 
 # Environment variable constants
-ENV_PYPERF_HOOK_OUTPUT = "GC_MONITOR_PYPERF_HOOK_OUTPUT"
-ENV_PYPERF_HOOK_TEMP_DIR = "GC_MONITOR_PYPERF_HOOK_TEMP_DIR"
-ENV_PYPERF_HOOK_VERBOSE = "GC_MONITOR_PYPERF_HOOK_VERBOSE"
-ENV_PYPERF_HOOK_CONTROL_TIMEOUT = "GC_MONITOR_PYPERF_HOOK_CONTROL_TIMEOUT"
+ENV_PYPERF_HOOK_OUTPUT = "GCMON_PYPERF_HOOK_OUTPUT"
+ENV_PYPERF_HOOK_TEMP_DIR = "GCMON_PYPERF_HOOK_TEMP_DIR"
+ENV_PYPERF_HOOK_VERBOSE = "GCMON_PYPERF_HOOK_VERBOSE"
+ENV_PYPERF_HOOK_CONTROL_TIMEOUT = "GCMON_PYPERF_HOOK_CONTROL_TIMEOUT"
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 
 def _get_env_pyperf_hook_verbose() -> bool:
@@ -41,7 +41,7 @@ def _get_env_pyperf_hook_verbose() -> bool:
     Check if verbose mode is enabled via environment variable.
 
     Returns:
-        True if GC_MONITOR_PYPERF_HOOK_VERBOSE is set to '1', 'yes', 'on', or 'true'
+        True if GCMON_PYPERF_HOOK_VERBOSE is set to '1', 'yes', 'on', or 'true'
         (case-insensitive), False otherwise.
     """
     value = os.environ.get(ENV_PYPERF_HOOK_VERBOSE, "").lower()
@@ -62,7 +62,7 @@ def _get_env_pyperf_hook_temp_dir() -> str | None:
     """
     Get the directory for temporary files.
 
-    Returns the value of GC_MONITOR_PYPERF_HOOK_TEMP_DIR if set,
+    Returns the value of GCMON_PYPERF_HOOK_TEMP_DIR if set,
     or None to use the system default temp directory.
     """
     return os.environ.get(ENV_PYPERF_HOOK_TEMP_DIR) or None
@@ -72,7 +72,7 @@ def _get_env_pyperf_hook_output(bench_name: str, pid: int) -> Path:
     """
     Get the output path for the combined GC trace file.
 
-    Uses the environment variable GC_MONITOR_PYPERF_HOOK_OUTPUT if set,
+    Uses the environment variable GCMON_PYPERF_HOOK_OUTPUT if set,
     otherwise returns the default path.
 
     Args:
@@ -86,14 +86,14 @@ def _get_env_pyperf_hook_output(bench_name: str, pid: int) -> Path:
     if env_path:
         env_path = env_path.format(bench_name=bench_name, pid=pid)
         return Path(env_path)
-    return Path(f"gc_monitor_{bench_name}_combined_{pid}.jsonl")
+    return Path(f"gcmon_{bench_name}_combined_{pid}.jsonl")
 
 
 class GCMonitorHook:
     """
-    Pyperf hook for GC monitoring via external gc-monitor process.
+    Pyperf hook for GC monitoring via external gcmon process.
 
-    The hook spawns an external `gc-monitor` CLI process that reads the
+    The hook spawns an external `gcmon` CLI process that reads the
     benchmark process memory directly. Results are written to temp JSONL
     files (one JSON object per line) in the current directory with masked
     filenames, which the hook combines into a single JSONL file
@@ -102,10 +102,10 @@ class GCMonitorHook:
     Usage:
         # Entry point registration in pyproject.toml
         [project.entry-points."pyperf.hook"]
-        gc_monitor = "gc_monitor.pyperf.hook:gc_monitor_hook"
+        gcmon = "gcmon.pyperf.hook:gcmon_hook"
 
         # Then use in CLI
-        pyperf run --hook=gc_monitor ...
+        pyperf run --hook=gcmon ...
     """
 
     def __init__(self, temp_dir: tempfile.TemporaryDirectory[str]) -> None:
@@ -160,9 +160,9 @@ class GCMonitorHook:
 
         except Exception as e:
             raise RuntimeError(
-                "Failed to run gc-monitor module: "
+                "Failed to run gcmon module: "
                 + str(e)
-                + ". Ensure gc-monitor is installed: pip install gc-monitor"
+                + ". Ensure gcmon is installed: pip install gcmon"
             ) from e
 
         verbose = _get_env_pyperf_hook_verbose()
@@ -188,17 +188,17 @@ class GCMonitorHook:
                 )
         except Exception as e:
             if verbose:
-                logger.warning("Failed to exit from gc_monitor hook: %s", e)
+                logger.warning("Failed to exit from gcmon hook: %s", e)
         finally:
             if verbose and self._process:
-                logger.debug("Stopped gc-monitor process: %s", self._process)
+                logger.debug("Stopped gcmon process: %s", self._process)
             self._process = None
 
     def __enter__(self) -> GCMonitorHook:
         """
         Called immediately before running benchmark code.
 
-        Spawns the external gc-monitor process as a background subprocess.
+        Spawns the external gcmon process as a background subprocess.
         """
         self._control_client.start_monitoring()
         return self
@@ -261,7 +261,7 @@ class GCMonitorHook:
     def _build_command(self) -> list[str]:
         fd, filename = tempfile.mkstemp(
             dir=self._temp_dir.name,
-            prefix=f"gc_monitor_{self._pid}_",
+            prefix=f"gcmon_{self._pid}_",
             suffix=".jsonl",
         )
         os.close(fd)
@@ -271,7 +271,7 @@ class GCMonitorHook:
         return [
             sys.executable,
             "-m",
-            "gc_monitor",
+            "gcmon",
             "monitor",
             str(self._pid),
             "-vvv",
@@ -286,7 +286,7 @@ class GCMonitorHook:
         ]
 
 # Entry point factory function
-def gc_monitor_hook() -> GCMonitorHook:
+def gcmon_hook() -> GCMonitorHook:
     temp_dir = tempfile.TemporaryDirectory(dir=_get_env_pyperf_hook_temp_dir())
     try:
         return GCMonitorHook(temp_dir=temp_dir)

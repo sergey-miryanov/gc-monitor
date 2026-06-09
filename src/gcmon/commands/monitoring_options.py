@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from gc_monitor._env import (
+from gcmon._env import (
     ENV_CONTROL_NAME,
     ENV_DURATION,
     ENV_FLUSH_THRESHOLD,
@@ -24,9 +24,9 @@ from gc_monitor._env import (
     get_env_table_format,
     get_env_verbose,
 )
-from gc_monitor.stats_output import TableFormat
+from gcmon.stats_output import TableFormat
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 
 def _normalize_table_format(val: str) -> TableFormat:
@@ -45,7 +45,7 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         "--output",
         type=Path,
         default=get_env_output(),
-        help=f"Output file path (default: gc_trace.json, gc_monitor.jsonl for jsonl format, or {ENV_OUTPUT} env var). Ignored for --format stdout",
+        help=f"Output file path (default: gcmon.json, gcmon.jsonl for jsonl format, or {ENV_OUTPUT} env var). Ignored for --format stdout",
     )
     parser.add_argument(
         "-r",
@@ -84,7 +84,7 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         "--stats",
         action="store_true",
         default=get_env_stats(),
-        help=f"Show statistics table at end of monitoring (requires stats extra: pip install gc-monitor[stats] or {ENV_STATS}=1 env var)",
+        help=f"Show statistics table at end of monitoring (requires stats extra: pip install gcmon[stats] or {ENV_STATS}=1 env var)",
     )
     parser.add_argument(
         "--table-format",
@@ -95,7 +95,7 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--control-name",
         default=get_env_control_name(),
-        help=f"Control plane name. Full address: gc-monitor-<name> (default: auto, or {ENV_CONTROL_NAME} env var)",
+        help=f"Control plane name. Full address: gcmon-<name> (default: auto, or {ENV_CONTROL_NAME} env var)",
     )
 
 

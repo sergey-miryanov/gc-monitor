@@ -9,7 +9,7 @@ from .poll_status import PollStatus
 from .stats import StreamingStats
 from .target_process import TargetProcess
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 __all__ = ["EventsMonitor", "create_monitor"]
 

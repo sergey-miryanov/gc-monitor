@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gc_monitor.control.control_server import (
+from gcmon.control.control_server import (
     CONTROL_ADDRESS_ENV,
     ControlMsg,
     ControlServer,
@@ -80,7 +80,7 @@ class TestControlServerInit:
     def test_init_with_custom_name(self) -> None:
         server = ControlServer(MagicMock(), address="my-name")
         try:
-            assert "gc-monitor-my-name" in server.address
+            assert "gcmon-my-name" in server.address
         finally:
             server.close()
 
@@ -333,7 +333,7 @@ class TestControlServerInternal:
         assert mock_conn in to_remove
 
     def test_safe_wait_returns_ready(self, server_not_started, mock_conn) -> None:
-        with patch("gc_monitor.control.control_server._wait", return_value=[mock_conn]):
+        with patch("gcmon.control.control_server._wait", return_value=[mock_conn]):
             result = server_not_started._safe_wait([mock_conn])
         assert result == [mock_conn]
 
@@ -341,7 +341,7 @@ class TestControlServerInternal:
         c1, c2 = MagicMock(), MagicMock()
         c1.poll.return_value = True
         c2.poll.return_value = True
-        with patch("gc_monitor.control.control_server._wait", side_effect=Exception("wait failed")):
+        with patch("gcmon.control.control_server._wait", side_effect=Exception("wait failed")):
             result = server_not_started._safe_wait([c1, c2])
         assert result == []
         c1.poll.assert_called_once_with(timeout=0)
@@ -353,7 +353,7 @@ class TestControlServerInternal:
         c2.poll.return_value = True
         server_not_started._connections.update([c1, c2])
 
-        with patch("gc_monitor.control.control_server._wait", side_effect=Exception("wait failed")):
+        with patch("gcmon.control.control_server._wait", side_effect=Exception("wait failed")):
             result = server_not_started._safe_wait([c1, c2])
 
         assert result == []
@@ -367,7 +367,7 @@ class TestControlServerInternal:
         c2.poll.side_effect = ConnectionError("reset")
         server_not_started._connections.update([c1, c2])
 
-        with patch("gc_monitor.control.control_server._wait", side_effect=Exception("wait failed")):
+        with patch("gcmon.control.control_server._wait", side_effect=Exception("wait failed")):
             result = server_not_started._safe_wait([c1, c2])
 
         assert result == []
@@ -391,13 +391,13 @@ class TestControlServerAcceptLoop:
         server_not_started._accept_loop()
 
     def test_accept_loop_accept_exception_breaks(self, server_not_started) -> None:
-        with patch("gc_monitor.control.control_server._accept", side_effect=OSError("accept failed")):
+        with patch("gcmon.control.control_server._accept", side_effect=OSError("accept failed")):
             server_not_started._accept_loop()
         assert len(server_not_started._connections) == 0
 
     def test_accept_loop_adds_connection(self, server_not_started, mock_conn) -> None:
         server_not_started._listener = MagicMock()
-        with patch("gc_monitor.control.control_server._accept", return_value=mock_conn):
+        with patch("gcmon.control.control_server._accept", return_value=mock_conn):
             t = threading.Thread(target=server_not_started._accept_loop, daemon=True)
             t.start()
             time.sleep(0.05)
@@ -408,7 +408,7 @@ class TestControlServerAcceptLoop:
 
     def test_accept_loop_closes_orphaned_conn_on_exception(self, server_not_started, mock_conn) -> None:
         mock_listener = MagicMock()
-        mock_listener.address = "/tmp/gc-monitor-test"
+        mock_listener.address = "/tmp/gcmon-test"
         server_not_started._listener = mock_listener
 
         call_count = [0]
@@ -420,7 +420,7 @@ class TestControlServerAcceptLoop:
                 return mock_conn
             raise OSError("second accept fails")
 
-        with patch("gc_monitor.control.control_server._accept", side_effect=_accept_side):
+        with patch("gcmon.control.control_server._accept", side_effect=_accept_side):
             server_not_started._accept_loop()
 
         assert not mock_conn.close.called
@@ -443,7 +443,7 @@ class TestControlServerReaderLoop:
         server_not_started._enabled[42] = False
 
         with (
-            patch("gc_monitor.control.control_server._wait", return_value=[mock_conn]),
+            patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
             patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
         ):
             server_not_started._reader_loop()
@@ -455,7 +455,7 @@ class TestControlServerReaderLoop:
         server_not_started._connections.add(mock_conn)
 
         with (
-            patch("gc_monitor.control.control_server._wait", return_value=[mock_conn]),
+            patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
             patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
         ):
             server_not_started._reader_loop()
@@ -467,7 +467,7 @@ class TestControlServerReaderLoop:
         server_not_started._connections.add(mock_conn)
 
         with (
-            patch("gc_monitor.control.control_server._wait", return_value=[mock_conn]),
+            patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
             patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
         ):
             server_not_started._reader_loop()
@@ -480,7 +480,7 @@ class TestControlServerReaderLoop:
         server_not_started._connections.add(mock_conn)
 
         with (
-            patch("gc_monitor.control.control_server._wait", return_value=[mock_conn]),
+            patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
             patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
         ):
             server_not_started._reader_loop()
@@ -490,7 +490,7 @@ class TestControlServerReaderLoop:
 
     def test_reader_loop_no_connections(self, server_not_started) -> None:
         with (
-            patch("gc_monitor.control.control_server._wait", return_value=[]),
+            patch("gcmon.control.control_server._wait", return_value=[]),
             patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
         ):
             server_not_started._reader_loop()
@@ -502,7 +502,7 @@ class TestControlServerReaderLoop:
         server_not_started._connections.add(mock_conn)
 
         with (
-            patch("gc_monitor.control.control_server._wait", return_value=[]),
+            patch("gcmon.control.control_server._wait", return_value=[]),
             patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
         ):
             server_not_started._reader_loop()
@@ -648,8 +648,8 @@ class TestControlServerClose:
 class TestSetControlEnv:
     def test_sets_address(self) -> None:
         env: dict[str, str] = {}
-        set_control_env(env, "/tmp/gc-monitor-test")
-        assert env[CONTROL_ADDRESS_ENV] == "/tmp/gc-monitor-test"
+        set_control_env(env, "/tmp/gcmon-test")
+        assert env[CONTROL_ADDRESS_ENV] == "/tmp/gcmon-test"
 
 
 # =============================================================================
@@ -660,13 +660,13 @@ class TestSetControlEnv:
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
 class TestPlatformWindows:
     def test_make_address_windows(self) -> None:
-        from gc_monitor.control.control_server import _make_address
+        from gcmon.control.control_server import _make_address
 
         result = _make_address("test-name")
-        assert result == r"\\.\pipe\gc-monitor-test-name"
+        assert result == r"\\.\pipe\gcmon-test-name"
 
     def test_tconnection_is_pipe_connection(self) -> None:
-        from gc_monitor.control.control_server import TConnection
+        from gcmon.control.control_server import TConnection
         from multiprocessing.connection import PipeConnection
 
         assert TConnection is PipeConnection
@@ -675,13 +675,13 @@ class TestPlatformWindows:
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
 class TestPlatformUnix:
     def test_make_address_unix(self) -> None:
-        from gc_monitor.control.control_server import _make_address
+        from gcmon.control.control_server import _make_address
 
         result = _make_address("test-name")
-        assert result == "/tmp/gc-monitor-test-name"
+        assert result == "/tmp/gcmon-test-name"
 
     def test_tconnection_is_connection(self) -> None:
-        from gc_monitor.control.control_server import TConnection
+        from gcmon.control.control_server import TConnection
         from multiprocessing.connection import Connection
 
         assert TConnection is Connection

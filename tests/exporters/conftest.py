@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from gc_monitor.exporters import JsonlExporter, PerfettoExporter, TraceExporter
+from gcmon.exporters import JsonlExporter, PerfettoExporter, TraceExporter
 
 
 @pytest.fixture

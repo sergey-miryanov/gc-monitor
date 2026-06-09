@@ -2,14 +2,14 @@ from unittest.mock import patch
 
 import pytest
 
-from gc_monitor.monitor import EventsMonitor, create_monitor
-from gc_monitor.poll_status import PollStatus
+from gcmon.monitor import EventsMonitor, create_monitor
+from gcmon.poll_status import PollStatus
 from tests.helpers import MockExporter, create_mock_stats_item
 
 
 class TestEventsMonitorExtra:
     def test_get_child_pids(self, monitor: EventsMonitor) -> None:
-        with patch("gc_monitor.monitor.get_child_pids", return_value=[999, 888]) as mock_get:
+        with patch("gcmon.monitor.get_child_pids", return_value=[999, 888]) as mock_get:
             children = monitor.get_child_pids()
 
         mock_get.assert_called_once_with(12345, recursive=True)
@@ -19,7 +19,7 @@ class TestEventsMonitorExtra:
         self, monitor: EventsMonitor
     ) -> None:
         with patch(
-            "gc_monitor.monitor.get_child_pids", side_effect=Exception("boom")
+            "gcmon.monitor.get_child_pids", side_effect=Exception("boom")
         ) as mock_get:
             children = monitor.get_child_pids()
 
@@ -44,7 +44,7 @@ class TestEventsMonitorExtra:
     def test_poll_updates_stats(self, monitor: EventsMonitor) -> None:
         item = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
 
-        with patch("gc_monitor.monitor.get_gc_stats", return_value=[item]):
+        with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
             with patch.object(monitor._stats, "update") as mock_stats_update:
                 monitor.poll(12345)
 

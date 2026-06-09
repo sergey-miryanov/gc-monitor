@@ -1,5 +1,3 @@
-"""Tests for the gc-monitor CLI core (parser, logging, main routing)."""
-
 import json
 import subprocess
 import sys
@@ -9,13 +7,13 @@ import pytest
 
 
 @pytest.fixture
-def gc_monitor_cli() -> list[str]:
-    return [sys.executable, "-m", "gc_monitor.cli"]
+def gcmon_cli() -> list[str]:
+    return [sys.executable, "-m", "gcmon.cli"]
 
 
 @pytest.fixture
 def cli_module():
-    from gc_monitor import cli
+    from gcmon import cli
     return cli
 
 
@@ -30,7 +28,7 @@ class TestSetupLogging:
         import logging
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
-        logging.getLogger("gc_monitor").handlers.clear()
+        logging.getLogger("gcmon").handlers.clear()
 
     @pytest.mark.parametrize("verbose_count, expected_level", [
         (1, "INFO"),
@@ -40,7 +38,7 @@ class TestSetupLogging:
     def test_setup_logging(self, cli_module, verbose_count: int, expected_level: str) -> None:
         import logging
         cli_module._setup_logging(verbose_count=verbose_count)
-        logger = logging.getLogger("gc_monitor")
+        logger = logging.getLogger("gcmon")
         assert logger.level == getattr(logging, expected_level)
 
 
@@ -50,8 +48,8 @@ class TestSetupLogging:
 
 
 def test_main_combine_command(tmp_path: Path) -> None:
-    from gc_monitor import cli
-    from gc_monitor.exporters.chrome_trace_format import process_meta
+    from gcmon import cli
+    from gcmon.exporters.chrome_trace_format import process_meta
 
     input_file = tmp_path / "input.json"
     input_file.write_text(json.dumps([process_meta(pid=1, name="test")]))
@@ -74,26 +72,26 @@ class TestCliHelp:
         ("combine", ["Combine multiple Chrome Trace Format or JSONL files", "inputs", "--output"]),
         ("run", ["Run a Python script or module", "--module", "--script", "--stats", "--control-name"]),
     ])
-    def test_help_subcommand(self, gc_monitor_cli, subcommand: str, expected_texts: list[str]) -> None:
-        cmd = gc_monitor_cli + ([subcommand] if subcommand else []) + ["--help"]
+    def test_help_subcommand(self, gcmon_cli, subcommand: str, expected_texts: list[str]) -> None:
+        cmd = gcmon_cli + ([subcommand] if subcommand else []) + ["--help"]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         for text in expected_texts:
             assert text in result.stdout
 
-    def test_top_level_no_output_flag(self, gc_monitor_cli) -> None:
-        result = subprocess.run(gc_monitor_cli + ["--help"], capture_output=True, text=True, check=True)
+    def test_top_level_no_output_flag(self, gcmon_cli) -> None:
+        result = subprocess.run(gcmon_cli + ["--help"], capture_output=True, text=True, check=True)
         assert "--output" not in result.stdout
 
 
 class TestCliMonitor:
-    def test_missing_pid(self, gc_monitor_cli) -> None:
-        result = subprocess.run(gc_monitor_cli + ["monitor"], capture_output=True, text=True)
+    def test_missing_pid(self, gcmon_cli) -> None:
+        result = subprocess.run(gcmon_cli + ["monitor"], capture_output=True, text=True)
         assert result.returncode != 0
         assert "the following arguments are required: pid" in result.stderr
 
-    def test_explicit_command(self, gc_monitor_cli) -> None:
+    def test_explicit_command(self, gcmon_cli) -> None:
         result = subprocess.run(
-            gc_monitor_cli + ["monitor", "12345", "-d", "0.1"],
+            gcmon_cli + ["monitor", "12345", "-d", "0.1"],
             capture_output=True, text=True, timeout=5,
         )
         assert result.returncode == 0

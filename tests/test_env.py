@@ -1,5 +1,3 @@
-"""Tests for the gc-monitor environment variable helpers."""
-
 from pathlib import Path
 
 import pytest
@@ -11,7 +9,7 @@ class TestEnvVarDefaults:
     @pytest.mark.parametrize(
         "env_var, getter_suffix, default",
         [
-            ("ENV_OUTPUT", "output", Path("gc_trace.json")),
+            ("ENV_OUTPUT", "output", Path("gcmon.json")),
             ("ENV_RATE", "rate", 0.1),
             ("ENV_DURATION", "duration", None),
             ("ENV_THREAD_ID", "thread_id", 0),
@@ -76,7 +74,7 @@ class TestEnvVarInvalidValues:
 
 
 class TestEnvVerbose:
-    """Tests for GC_MONITOR_VERBOSE parsing."""
+    """Tests for GCMON_VERBOSE parsing."""
 
     def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
         monkeypatch.delenv(env_module.ENV_VERBOSE, raising=False)
@@ -93,7 +91,7 @@ class TestEnvVerbose:
 
 
 class TestEnvFormat:
-    """Tests for GC_MONITOR_FORMAT parsing."""
+    """Tests for GCMON_FORMAT parsing."""
 
     def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
         monkeypatch.delenv(env_module.ENV_FORMAT, raising=False)
@@ -110,16 +108,16 @@ class TestEnvFormat:
 
 
 class TestEnvOutputSpecialCases:
-    """Tests for GC_MONITOR_OUTPUT special behavior."""
+    """Tests for GCMON_OUTPUT special behavior."""
 
     def test_default_format_jsonl(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
         monkeypatch.setenv(env_module.ENV_FORMAT, "jsonl")
         monkeypatch.delenv(env_module.ENV_OUTPUT, raising=False)
-        assert env_module.get_env_output() == Path("gc_monitor.jsonl")
+        assert env_module.get_env_output() == Path("gcmon.jsonl")
 
 
 class TestEnvStats:
-    """Tests for GC_MONITOR_STATS parsing."""
+    """Tests for GCMON_STATS parsing."""
 
     def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
         monkeypatch.delenv(env_module.ENV_STATS, raising=False)
@@ -140,7 +138,7 @@ class TestEnvStats:
 
 
 class TestEnvTableFormat:
-    """Tests for GC_MONITOR_TABLE_FORMAT parsing."""
+    """Tests for GCMON_TABLE_FORMAT parsing."""
 
     def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
         monkeypatch.delenv(env_module.ENV_TABLE_FORMAT, raising=False)

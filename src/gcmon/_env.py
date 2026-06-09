@@ -6,7 +6,7 @@ from pathlib import Path
 from .stats_output import TableFormat
 
 # Environment variable names for CLI options
-ENV_PREFIX = "GC_MONITOR"
+ENV_PREFIX = "GCMON"
 ENV_OUTPUT = f"{ENV_PREFIX}_OUTPUT"
 ENV_RATE = f"{ENV_PREFIX}_RATE"
 ENV_DURATION = f"{ENV_PREFIX}_DURATION"
@@ -53,7 +53,7 @@ def get_env_output() -> Path:
     """Get output path from environment variable.
 
     Returns:
-        Path from GC_MONITOR_OUTPUT env var, or default Path("gc_trace.json").
+        Path from GCMON_OUTPUT env var, or default Path("gcmon.json").
     """
     output_str = os.environ.get(ENV_OUTPUT)
     if output_str:
@@ -61,15 +61,15 @@ def get_env_output() -> Path:
     # Check format for default filename
     format_str = os.environ.get(ENV_FORMAT)
     if format_str and format_str.lower() == "jsonl":
-        return Path("gc_monitor.jsonl")
-    return Path("gc_trace.json")
+        return Path("gcmon.jsonl")
+    return Path("gcmon.json")
 
 
 def get_env_rate() -> float:
     """Get polling rate from environment variable.
 
     Returns:
-        Rate from GC_MONITOR_RATE env var, or default 0.1.
+        Rate from GCMON_RATE env var, or default 0.1.
     """
     rate_str = os.environ.get(ENV_RATE)
     if rate_str:
@@ -84,7 +84,7 @@ def get_env_duration() -> float | None:
     """Get monitoring duration from environment variable.
 
     Returns:
-        Duration from GC_MONITOR_DURATION env var, or None (run until interrupted).
+        Duration from GCMON_DURATION env var, or None (run until interrupted).
     """
     duration_str = os.environ.get(ENV_DURATION)
     if duration_str:
@@ -100,7 +100,7 @@ def get_env_verbose() -> int:
 
     Returns:
         Verbose count: 0 for no verbose, 1 for INFO, 2+ for DEBUG.
-        GC_MONITOR_VERBOSE can be set to a number (e.g., "2") or
+        GCMON_VERBOSE can be set to a number (e.g., "2") or
         truthy value ("1", "true", "yes", "on" -> 1).
     """
     verbose_str = os.environ.get(ENV_VERBOSE, "").lower()
@@ -121,7 +121,7 @@ def get_env_format() -> str:
     """Get output format from environment variable.
 
     Returns:
-        Format from GC_MONITOR_FORMAT env var, or default "chrome".
+        Format from GCMON_FORMAT env var, or default "chrome".
     """
     format_str = os.environ.get(ENV_FORMAT)
     if format_str:
@@ -135,7 +135,7 @@ def get_env_thread_id() -> int:
     """Get thread ID from environment variable.
 
     Returns:
-        Thread ID from GC_MONITOR_THREAD_ID env var, or default 0.
+        Thread ID from GCMON_THREAD_ID env var, or default 0.
     """
     thread_id_str = os.environ.get(ENV_THREAD_ID)
     if thread_id_str:
@@ -150,7 +150,7 @@ def get_env_flush_threshold() -> int:
     """Get flush threshold from environment variable.
 
     Returns:
-        Flush threshold from GC_MONITOR_FLUSH_THRESHOLD env var, or default 100.
+        Flush threshold from GCMON_FLUSH_THRESHOLD env var, or default 100.
     """
     threshold_str = os.environ.get(ENV_FLUSH_THRESHOLD)
     if threshold_str:
@@ -165,7 +165,7 @@ def get_env_server_host() -> str:
     """Get server host from environment variable.
 
     Returns:
-        Host from GC_MONITOR_SERVER_HOST env var, or default "localhost".
+        Host from GCMON_SERVER_HOST env var, or default "localhost".
     """
     host_str = os.environ.get(ENV_SERVER_HOST)
     if host_str:
@@ -177,7 +177,7 @@ def get_env_server_port() -> int:
     """Get server port from environment variable.
 
     Returns:
-        Port from GC_MONITOR_SERVER_PORT env var, or default 9999.
+        Port from GCMON_SERVER_PORT env var, or default 9999.
     """
     port_str = os.environ.get(ENV_SERVER_PORT)
     if port_str:
@@ -192,7 +192,7 @@ def get_env_stats() -> bool:
     """Get stats flag from environment variable.
 
     Returns:
-        True if GC_MONITOR_STATS is set to a truthy value ("1", "true", "yes", "on").
+        True if GCMON_STATS is set to a truthy value ("1", "true", "yes", "on").
     """
     stats_str = os.environ.get(ENV_STATS, "").lower()
     if not stats_str:
@@ -204,7 +204,7 @@ def get_env_control_name() -> str | None:
     """Get control plane name from environment variable.
 
     Returns:
-        Name from GC_MONITOR_CONTROL_NAME env var, or None.
+        Name from GCMON_CONTROL_NAME env var, or None.
     """
     return os.environ.get(ENV_CONTROL_NAME) or None
 
@@ -213,7 +213,7 @@ def get_env_table_format() -> TableFormat:
     """Get table format from environment variable.
 
     Returns:
-        TableFormat from GC_MONITOR_TABLE_FORMAT env var, or TableFormat.PLAIN.
+        TableFormat from GCMON_TABLE_FORMAT env var, or TableFormat.PLAIN.
     """
     val = os.environ.get(ENV_TABLE_FORMAT)
     if val:

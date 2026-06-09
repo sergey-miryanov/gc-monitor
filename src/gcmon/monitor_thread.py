@@ -4,7 +4,7 @@ import threading
 from .monitor import EventsMonitor
 from .wait_policy import WaitPolicy, WaitPolicyFactory
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 __all__ = ["MonitorThread"]
 

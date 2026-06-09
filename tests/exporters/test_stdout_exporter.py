@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from gc_monitor.protocol import TGCStatsInfo
-from gc_monitor.exporters import StdoutExporter
+from gcmon.protocol import TGCStatsInfo
+from gcmon.exporters import StdoutExporter
 
 from tests.conftest import DEFAULT_PID
 from tests.helpers import create_mock_stats_item

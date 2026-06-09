@@ -15,9 +15,9 @@ from tests.proto_decoder import (
     get_varint,
 )
 
-from gc_monitor.data import GCStatsInfo
-from gc_monitor.exporters import PerfettoExporter
-from gc_monitor.exporters.perfetto_format import (
+from gcmon.data import GCStatsInfo
+from gcmon.exporters import PerfettoExporter
+from gcmon.exporters.perfetto_format import (
     TYPE_COUNTER,
     TYPE_INSTANT,
     TYPE_SLICE_BEGIN,

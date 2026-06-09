@@ -1,4 +1,4 @@
-"""Command-line interface for gc-monitor."""
+"""Command-line interface for gcmon."""
 
 import argparse
 import logging
@@ -10,13 +10,13 @@ from .commands import (
     add_run_parser,
 )
 
-logger = logging.getLogger("gc_monitor")
+logger = logging.getLogger("gcmon")
 
 
 def _create_parser() -> argparse.ArgumentParser:
     """Create the argument parser with subcommands."""
     parser = argparse.ArgumentParser(
-        prog="gc-monitor",
+        prog="gcmon",
         description="Monitor Python's garbage collector and export statistics.",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -43,7 +43,7 @@ def _setup_logging(verbose_count: int) -> None:
         level = logging.INFO
     else:
         level = logging.WARNING
-    logger = logging.getLogger("gc_monitor")
+    logger = logging.getLogger("gcmon")
     logger.setLevel(level)
 
     # Only add handler if none exists
@@ -62,14 +62,14 @@ def _setup_logging(verbose_count: int) -> None:
 def _split_run_args(argv: list[str]) -> tuple[list[str], list[str]]:
     """Split run command args at the first target option (-m/-s/--module/--script).
 
-    Everything up to and including the target option + value goes to gc-monitor.
+    Everything up to and including the target option + value goes to gcmon.
     Everything after is passed verbatim to the script.
 
     Args:
         argv: Command-line arguments starting with "run"
 
     Returns:
-        Tuple of (gc-monitor args, script args)
+        Tuple of (gcmon args, script args)
     """
     target_options = {"-m", "--module", "-s", "--script"}
     for i, arg in enumerate(argv):
@@ -79,7 +79,7 @@ def _split_run_args(argv: list[str]) -> tuple[list[str], list[str]]:
         if arg.startswith("--module=") or arg.startswith("--script="):
             # --module=value or --script=value → split after this arg
             return argv[: i + 1], argv[i + 1 :]
-    # No target option found — all args go to gc-monitor
+    # No target option found — all args go to gcmon
     return argv, []
 
 
@@ -99,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
         argv = sys.argv[1:]
 
     # For run command, split args at the first target option (-m/-s/--module/--script)
-    # Everything before goes to gc-monitor, everything after goes to the script
+    # Everything before goes to gcmon, everything after goes to the script
     if argv and argv[0] == "run":
         gc_args, script_args = _split_run_args(argv)
         args = parser.parse_args(gc_args)

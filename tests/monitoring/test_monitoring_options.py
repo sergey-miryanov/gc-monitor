@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from gc_monitor.commands.monitoring_options import get_monitoring_options
-from gc_monitor.stats_output import TableFormat
+from gcmon.commands.monitoring_options import get_monitoring_options
+from gcmon.stats_output import TableFormat
 
 
 def _make_args(**overrides: object) -> Namespace:

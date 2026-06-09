@@ -2,7 +2,7 @@
 
 import struct
 
-from gc_monitor.exporters.protobuf_encoder import (
+from gcmon.exporters.protobuf_encoder import (
     encode_bytes_field,
     encode_double_field,
     encode_field_key,

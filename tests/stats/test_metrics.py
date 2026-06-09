@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from gc_monitor.data import GCStatsInfo
-from gc_monitor.stats import (
+from gcmon.data import GCStatsInfo
+from gcmon.stats import (
     METRICS,
     ClearWeakrefsMetric,
     DeduceUnreachableMetric,

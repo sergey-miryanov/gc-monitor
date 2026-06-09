@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gc_monitor.control.control_client import ControlClient, _default_connect, connect_with_retry
+from gcmon.control.control_client import ControlClient, _default_connect, connect_with_retry
 
 
 def assert_payload(mock_conn, expected_msg, *, call_index=0):
@@ -39,8 +39,8 @@ def disconnected_client():
 @pytest.fixture
 def patched_client_factory():
     with (
-        patch("gc_monitor.control.control_client.Client") as mock_client,
-        patch("gc_monitor.control.control_client.time.sleep"),
+        patch("gcmon.control.control_client.Client") as mock_client,
+        patch("gcmon.control.control_client.time.sleep"),
     ):
         yield mock_client
 
@@ -72,7 +72,7 @@ class TestPublicAPI:
 
 class TestSend:
     def test_uses_monotonic_ns(self, client, mock_conn):
-        with patch("gc_monitor.control.control_client.time.monotonic_ns", return_value=98765):
+        with patch("gcmon.control.control_client.time.monotonic_ns", return_value=98765):
             client._send("test")
         mock_conn.send.assert_called_once()
         assert mock_conn.send.call_args[0][0]["ts"] == 98765
@@ -106,12 +106,12 @@ class TestConnectionLifecycle:
         mock_connection_factory.assert_called_once_with("test-address")
 
     def test_ensure_connected_returns_none_without_address(self, monkeypatch):
-        monkeypatch.delenv("GC_MONITOR_CONTROL_ADDRESS", raising=False)
+        monkeypatch.delenv("GCMON_CONTROL_ADDRESS", raising=False)
         client = ControlClient(connection_factory=MagicMock())
         assert client._ensure_connected() is None
 
     def test_ensure_connected_falls_back_to_env_var(self, monkeypatch, mock_connection_factory, mock_conn):
-        monkeypatch.setenv("GC_MONITOR_CONTROL_ADDRESS", "env-address")
+        monkeypatch.setenv("GCMON_CONTROL_ADDRESS", "env-address")
         client = ControlClient(connection_factory=mock_connection_factory)
         assert client._ensure_connected() is mock_conn
         mock_connection_factory.assert_called_once_with("env-address")
@@ -162,5 +162,5 @@ class TestConnectWithRetry:
 
 class TestDefaultConnect:
     def test_returns_none_on_connection_failure(self):
-        with patch("gc_monitor.control.control_client.time.sleep"):
+        with patch("gcmon.control.control_client.time.sleep"):
             assert _default_connect("/nonexistent/control/socket") is None

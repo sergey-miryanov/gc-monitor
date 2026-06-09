@@ -4,10 +4,10 @@ from unittest.mock import MagicMock, Mock, call
 
 import pytest
 
-from gc_monitor.monitor_loop import MonitorLoop
-from gc_monitor.poll_status import PollStatus
-from gc_monitor.run_policy import InfinityRunner, Runner
-from gc_monitor.wait_policy import WaitPolicy
+from gcmon.monitor_loop import MonitorLoop
+from gcmon.poll_status import PollStatus
+from gcmon.run_policy import InfinityRunner, Runner
+from gcmon.wait_policy import WaitPolicy
 
 
 @pytest.fixture
