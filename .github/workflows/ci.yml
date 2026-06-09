@@ -102,17 +102,14 @@ jobs:
       - name: Check Python Entitlements
         if: runner.os == 'macOS'
         run: |
+          python -VV
           PYTHON_BIN=$(python -c "import sys; print(sys.executable)")
           echo "=== Python binary ==="
           codesign -d --entitlements - "$PYTHON_BIN" || true
 
-          REMOTE_DBG=$(python -c "import _remote_debugging; print(_remote_debugging.__file__)" 2>/dev/null || echo "")
-          if [ -n "$REMOTE_DBG" ]; then
-            echo "=== _remote_debugging ==="
-            codesign -d --entitlements - "$REMOTE_DBG" || true
-          else
-            echo "_remote_debugging not found"
-          fi
+          REMOTE_DBG=$(python -c "import _remote_debugging; print(_remote_debugging.__file__)")
+          echo "=== _remote_debugging ==="
+          codesign -d --entitlements - "$REMOTE_DBG" || true
 
           # echo "=== Kill taskgated ==="
           # sudo killall -9 taskgated 2>/dev/null || true
