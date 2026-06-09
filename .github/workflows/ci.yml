@@ -99,25 +99,40 @@ jobs:
         run: mkdir -p reports
         shell: bash
 
-      - name: Check Python Entitlements
+      - name: Grant debugger entitlement
         if: runner.os == 'macOS'
         run: |
-          python -VV
           PYTHON_BIN=$(python -c "import sys; print(sys.executable)")
-          echo "=== Python binary ==="
-          codesign -d --entitlements - "$PYTHON_BIN" || true
-
           REMOTE_DBG=$(python -c "import _remote_debugging; print(_remote_debugging.__file__)")
-          echo "=== _remote_debugging ==="
+
+          $PYTHON_BIN -VV
+
+          ENTITLEMENTS_FILE=$(mktemp)
+          cat > "$ENTITLEMENTS_FILE" << 'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.debugger</key>
+    <true/>
+</dict>
+</plist>
+XML
+
+          echo "=== Signing Python ==="
+          codesign --force --options runtime --sign - \
+            --entitlements "$ENTITLEMENTS_FILE" "$PYTHON_BIN" || echo "WARNING: codesign failed for Python"
+
+          echo "=== Signing _remote_debugging ==="
+          codesign --force --options runtime --sign - \
+            --entitlements "$ENTITLEMENTS_FILE" "$REMOTE_DBG" || echo "WARNING: codesign failed for _remote_debugging"
+
+          echo "=== Verify Python ==="
+          codesign -d --entitlements - "$PYTHON_BIN" || true
+          echo "=== Verify _remote_debugging ==="
           codesign -d --entitlements - "$REMOTE_DBG" || true
 
-          # echo "=== Kill taskgated ==="
-          # sudo killall -9 taskgated 2>/dev/null || true
-          # echo "taskgated killed"
-
-          # echo "=== Kill securityd ==="
-          # sudo killall -9 securityd 2>/dev/null || true
-          # echo "securityd killed"
+          rm -f "$ENTITLEMENTS_FILE"
 
       - name: Run tests
         run: |
