@@ -47,7 +47,7 @@ class EventsMonitor:
             return PollStatus.FAIL
 
         try:
-            events = get_gc_stats(pid, all_interpreters=False)
+            events = get_gc_stats(pid, all_interpreters=True)
             for event in events:
                 # Skip events with timestamps already processed
                 if event.ts_start > self._last_ts:

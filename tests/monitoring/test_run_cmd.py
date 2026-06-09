@@ -1,6 +1,5 @@
 """Integration tests for the run command."""
 
-import json
 import os
 import subprocess
 import sys
@@ -16,7 +15,6 @@ import pytest
 
 from gc_monitor.exporters.chrome_trace_io import read_jsonl
 
-from tests.monitoring.conftest import MonitorArgsFactory
 from tests.helpers import assert_valid_chrome_trace_format
 
 
