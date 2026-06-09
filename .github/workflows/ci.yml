@@ -117,6 +117,14 @@ jobs:
 
           rm -f "$ENTITLEMENTS_FILE"
 
+          echo "=== Kill taskgated ==="
+          sudo killall -9 taskgated 2>/dev/null || true
+          echo "taskgated killed"
+
+          echo "=== Kill securityd ==="
+          sudo killall -9 securityd 2>/dev/null || true
+          echo "securityd killed"
+
       - name: Run tests
         run: |
           poetry run pytest -q -s --cov=src/gc_monitor --cov-report=xml --cov-report=term-missing --cov-branch --cov-reset --junitxml=reports/tests.xml
