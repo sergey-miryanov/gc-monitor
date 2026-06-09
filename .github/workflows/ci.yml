@@ -82,20 +82,12 @@ jobs:
           DevToolsSecurity -status
           sudo dscl . append /Groups/_developer GroupMembership $(whoami)
 
-      - name: Bypass taskgated Authorization Prompt
+      - name: Disable Crash Reporter completely
         if: runner.os == 'macOS'
         run: |
-          # Read the current rule for debugging rights
-          security authorizationdb read system.privilege.taskport > /tmp/taskport.plist
-
-          # Modify the rule to automatically allow without authentication
-          /usr/libexec/PlistBuddy -c 'Set :shared true' /tmp/taskport.plist
-          /usr/libexec/PlistBuddy -c 'Delete :mechanisms' /tmp/taskport.plist 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c 'Add :mechanisms array' /tmp/taskport.plist
-          /usr/libexec/PlistBuddy -c 'Add :mechanisms:0 string builtin:allow' /tmp/taskport.plist
-
-          # Write the rule back to the OS
-          security authorizationdb write system.privilege.taskport < /tmp/taskport.plist
+          sudo defaults write /Library/Preferences/com.apple.CrashReporter DialogType none
+          sudo launchctl bootout system/com.apple.ReportCrash 2>/dev/null || true
+          sudo launchctl bootout gui/$(id -u)/com.apple.ReportCrash 2>/dev/null || true
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: ./.github/actions/setup
