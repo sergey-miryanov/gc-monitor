@@ -87,6 +87,10 @@ check_untyped_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 tmp_path_retention_policy = "failed"
+markers = [
+    "stress: thread-safety stress tests for exporter and control-client pipelines (deselected by default; run with -m stress)",
+]
+addopts = "-m 'not stress'"
 
 # =============================================================================
 # Coverage Configuration
