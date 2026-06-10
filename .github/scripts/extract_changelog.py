@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import tomllib
@@ -35,14 +36,27 @@ def extract(version: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Extract a version's section from CHANGELOG.md")
-    parser.add_argument("tag", nargs="?", help="Release tag (e.g. v0.1.0); default = pyproject version")
+    parser = argparse.ArgumentParser(
+        description="Extract a version's section from CHANGELOG.md"
+    )
+    parser.add_argument(
+        "tag",
+        nargs="?",
+        help="Release tag (e.g. v0.1.0); default = pyproject version",
+    )
     args = parser.parse_args()
     version = resolve_version(args.tag)
     body = extract(version)
+    if not body:
+        return 1
     print(body)
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as f:
+            f.write(f"body<<EOF\n{body}\nEOF\n")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
