@@ -136,6 +136,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache-prefix: main
+      - name: Create directories
+        run: |
+          mkdir -p .temp
+        shell: bash
       - name: Run stress-tests
         run: |
-          poetry run pytest -k "control" -s --count 40
+          poetry run pytest --basetemp=.temp -k "control" -s --count 40
+          poetry run putest --basetemp=.temp -m stress --count 20
