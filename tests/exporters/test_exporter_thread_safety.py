@@ -56,7 +56,9 @@ from gcmon.exporters import (
 from gcmon.exporters.perfetto_format import (
     TYPE_INSTANT,
     TYPE_SLICE_BEGIN,
+    ProcessDescriptorField,
     TracePacketField,
+    TrackDescriptorField,
     TrackEventField,
 )
 from gcmon.protocol import TGCStatsInfo, TInstantMsg
@@ -254,6 +256,21 @@ class PerfettoFileCapture(OutputCapture):
 
     def count_instants(self) -> int:
         return self._count_event_type(TYPE_INSTANT)
+
+    def count_process_descriptors(self) -> int:
+        """Count TRACK_DESCRIPTOR packets whose body contains a
+        ``PROCESS`` sub-field (i.e., process-level track descriptors,
+        not thread or counter). Useful for asserting no duplicates
+        when two threads race on the same new PID."""
+        n = 0
+        for pf in self._packets():
+            td_bytes = self._get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR)
+            if not td_bytes:
+                continue
+            td_fields = decode_message(td_bytes)
+            if self._get_bytes_at(td_fields, TrackDescriptorField.PROCESS) is not None:
+                n += 1
+        return n
 
 
 # ---------------------------------------------------------------------------
@@ -523,3 +540,232 @@ class TestExporterThreadSafety:
             )
         finally:
             bundle.teardown()
+
+    def test_concurrent_add_event_same_pid(
+        self, exporter_factory: ExporterFactory, tmp_path: Path
+    ) -> None:
+        """Both threads write to the same new PID concurrently.
+
+        The Perfetto exporter must not emit duplicate track descriptors
+        for the same PID, even when two threads race the first event.
+        Double-checked locking in ``_ensure_cmdline`` guarantees this:
+        only the first thread to acquire ``_lock`` after the psutil
+        fetch marks the PID and registers the cmdline; the second
+        observes ``has_pid(pid) == True`` and skips registration.
+        Other exporters (JSONL/Chrome/Stdout) don't have per-PID
+        descriptors, so we only assert event count for them.
+        """
+        bundle = exporter_factory.build(tmp_path, threshold=10)
+        try:
+            exporter, capture = bundle.exporter, bundle.capture
+            events_a = _make_gc_events(N_GC, MAIN_PID, 1_500_000_000)
+            events_b = _make_gc_events(N_GC, MAIN_PID, 1_600_000_000)  # same pid, distinct ts
+
+            def writer_a() -> None:
+                for ev in events_a:
+                    exporter.add_event(MAIN_PID, ev)
+
+            def writer_b() -> None:
+                for ev in events_b:
+                    exporter.add_event(MAIN_PID, ev)
+
+            captured = _run_two_threads([writer_a, writer_b])
+            exporter.close()
+            for exc in captured:
+                raise exc
+
+            assert capture.count_completes() == 2 * N_GC, (
+                f"[{exporter_factory.id}] expected {2 * N_GC} complete events, "
+                f"got {capture.count_completes()}"
+            )
+            if isinstance(capture, PerfettoFileCapture):
+                # The Perfetto exporter must emit exactly ONE process
+                # track descriptor even when two threads race on the
+                # same new PID. Double-checked locking in
+                # ``_ensure_cmdline`` is what makes this race-safe:
+                # only the first thread to acquire ``_lock`` after the
+                # psutil fetch marks the PID; the second observes
+                # ``has_pid(pid) == True`` and skips registration.
+                # Without the DCL, both threads would call
+                # ``convert_item_to_perfetto_packets`` and both would
+                # build a process descriptor (one with empty cmdline).
+                proc_descs = capture.count_process_descriptors()
+                assert proc_descs == 1, (
+                    f"[perfetto] expected exactly 1 process descriptor, "
+                    f"got {proc_descs}"
+                )
+        finally:
+            bundle.teardown()
+
+    def test_concurrent_add_event_and_add_instant_event_same_new_pid(
+        self, exporter_factory: ExporterFactory, tmp_path: Path
+    ) -> None:
+        """One thread calls add_event, the other calls
+        add_instant_event, both for the same brand-new PID. The
+        Perfetto exporter must not emit duplicate process
+        descriptors.
+
+        This complements ``test_concurrent_add_event_same_pid`` by
+        exercising the cross-method DCL contract: the first thread
+        to call ``_ensure_cmdline`` registers the cmdline; the
+        second observes it on the re-check under the lock and skips.
+        The convert then runs once per call, but the process
+        descriptor is built only by the first convert that sees
+        ``has_pid(pid) == False``.
+        """
+        bundle = exporter_factory.build(tmp_path, threshold=10)
+        try:
+            exporter, capture = bundle.exporter, bundle.capture
+            gc_events = _make_gc_events(N_GC, MAIN_PID, 1_500_000_000)
+            inst_events = _make_instant_events(N_INSTANT, MAIN_PID, 2_000_000_000)
+
+            def writer_gc() -> None:
+                for ev in gc_events:
+                    exporter.add_event(MAIN_PID, ev)
+
+            def writer_inst() -> None:
+                for ev in inst_events:
+                    exporter.add_instant_event(MAIN_PID, ev)
+
+            captured = _run_two_threads([writer_gc, writer_inst])
+            exporter.close()
+            for exc in captured:
+                raise exc
+
+            assert capture.count_completes() == N_GC, (
+                f"[{exporter_factory.id}] expected {N_GC} complete events, "
+                f"got {capture.count_completes()}"
+            )
+            assert capture.count_instants() == N_INSTANT, (
+                f"[{exporter_factory.id}] expected {N_INSTANT} instant events, "
+                f"got {capture.count_instants()}"
+            )
+            if isinstance(capture, PerfettoFileCapture):
+                # Exactly 1 process descriptor: the convert that runs
+                # first (whichever thread wins the lock) sees
+                # ``has_pid(pid) == False`` and builds it. The other
+                # thread's convert sees ``has_pid(pid) == True`` and
+                # skips the descriptor build.
+                proc_descs = capture.count_process_descriptors()
+                assert proc_descs == 1, (
+                    f"[perfetto] expected exactly 1 process descriptor, "
+                    f"got {proc_descs}"
+                )
+        finally:
+            bundle.teardown()
+
+    def test_post_close_add_event_does_not_crash(
+        self, exporter_factory: ExporterFactory, tmp_path: Path
+    ) -> None:
+        """Calling ``add_event`` after ``close()`` must not raise.
+
+        The Perfetto exporter's ``_ensure_cmdline`` does not check
+        ``_closed``; the psutil call still runs even after close.
+        That call is wasteful but not crashy. This test pins the
+        behavior so a future refactor that adds a ``_closed`` check
+        to ``_ensure_cmdline`` does not regress.
+        """
+        bundle = exporter_factory.build(tmp_path, threshold=10)
+        try:
+            exporter, _capture = bundle.exporter, bundle.capture
+            exporter.close()
+            # add_event after close. Must not raise.
+            exporter.add_event(MAIN_PID, create_mock_stats_item(iid=1000))
+            exporter.add_instant_event(
+                MAIN_PID, create_instant_msg(name="post-close", ts=999_999)
+            )
+        finally:
+            bundle.teardown()
+
+
+# ---------------------------------------------------------------------------
+# Perfetto-specific cmdline / DCL path tests.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.stress
+class TestPerfettoExporterCmdlinePath:
+    """Tests that target the cmdline fetch + DCL path in
+    ``PerfettoExporter._ensure_cmdline``. These are single-file,
+    single-class tests (not parametrized across exporters) because
+    they exercise Perfetto-specific protobuf structure."""
+
+    def test_ensure_cmdline_psutil_none_event_still_emitted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When psutil returns ``None`` (process gone), the convert
+        still builds a process descriptor (just without a cmdline).
+        The DCL pattern with ``set_cmdline(pid, None)`` must be a
+        no-op from the descriptor's perspective.
+        """
+        _patch_psutil(monkeypatch)
+        # Override: make ``_collect_cmdline`` return ``None`` directly
+        # to exercise the "psutil failed" path without dealing with
+        # the catch-block internals.
+        monkeypatch.setattr(
+            "gcmon.exporters.perfetto_exporter.PerfettoExporter._collect_cmdline",
+            lambda self, pid: None,
+        )
+        path = tmp_path / "trace.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=1)
+        exporter.add_event(MAIN_PID, create_mock_stats_item())
+        exporter.close()
+
+        capture = PerfettoFileCapture(path)
+        assert capture.count_completes() == 1
+        assert capture.count_process_descriptors() == 1
+
+        # The process descriptor must have NO cmdline entries and NO
+        # description field. This is the "graceful degradation" path.
+        for pf in capture._packets():
+            td = capture._get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR)
+            if not td:
+                continue
+            td_fields = decode_message(td)
+            proc = capture._get_bytes_at(td_fields, TrackDescriptorField.PROCESS)
+            if proc is None:
+                continue
+            proc_fields = decode_message(proc)
+            cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
+            assert cmdline_entries == [], (
+                f"expected no cmdline entries, got {len(cmdline_entries)}"
+            )
+
+    def test_concurrent_same_pid_psutil_returns_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two threads race on the same new PID when psutil raises
+        ``NoSuchProcess``. DCL must still produce exactly one
+        process descriptor (no cmdline), all events must arrive,
+        and no exception must leak to the caller.
+        """
+        _patch_psutil(monkeypatch)
+        # Make cmdline() raise psutil.NoSuchProcess so
+        # ``_collect_cmdline`` returns ``None`` via its except clause.
+        import psutil
+
+        mock_psutil = sys.modules["psutil"]
+        mock_psutil.NoSuchProcess = psutil.NoSuchProcess
+        mock_psutil.Process.return_value.cmdline.side_effect = psutil.NoSuchProcess(12345)
+
+        path = tmp_path / "trace.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=10)
+        events_a = _make_gc_events(N_GC, MAIN_PID, 1_500_000_000)
+        events_b = _make_gc_events(N_GC, MAIN_PID, 1_600_000_000)
+
+        def writer_a() -> None:
+            for ev in events_a:
+                exporter.add_event(MAIN_PID, ev)
+
+        def writer_b() -> None:
+            for ev in events_b:
+                exporter.add_event(MAIN_PID, ev)
+
+        captured = _run_two_threads([writer_a, writer_b])
+        exporter.close()
+        for exc in captured:
+            raise exc
+
+        capture = PerfettoFileCapture(path)
+        assert capture.count_completes() == 2 * N_GC
+        assert capture.count_process_descriptors() == 1
