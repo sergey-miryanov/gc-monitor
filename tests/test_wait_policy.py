@@ -23,7 +23,7 @@ class TestNoWaitPolicy:
     def test_ok_returns_true(self, no_wait_policy):
         assert no_wait_policy.wait(PollStatus.OK) is True
 
-    @pytest.mark.parametrize("status", [PollStatus.FAIL, PollStatus.INVALID_PROCESS, PollStatus.INVALID_PYTHON])
+    @pytest.mark.parametrize("status", [PollStatus.FAIL, PollStatus.INVALID_PROCESS])
     def test_others_return_false(self, no_wait_policy, status):
         assert no_wait_policy.wait(status) is False
 
@@ -36,9 +36,6 @@ class TestStartupTimeoutPolicy:
 
     def test_fail_returns_false(self, make_policy):
         assert make_policy().wait(PollStatus.FAIL) is False
-
-    def test_invalid_python_returns_false(self, make_policy):
-        assert make_policy().wait(PollStatus.INVALID_PYTHON) is False
 
     def test_invalid_process_before_timeout(self, make_policy):
         with patch("time.monotonic", side_effect=[100.0, 103.0]):

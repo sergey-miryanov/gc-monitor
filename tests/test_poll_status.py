@@ -14,7 +14,6 @@ class TestPollStatusMembers:
             PollStatus.OK,
             PollStatus.FAIL,
             PollStatus.INVALID_PROCESS,
-            PollStatus.INVALID_PYTHON,
         ]
 
     def test_repr(self):

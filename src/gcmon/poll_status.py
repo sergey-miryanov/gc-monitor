@@ -6,4 +6,3 @@ class PollStatus(IntEnum):
     OK = auto()
     FAIL = auto()
     INVALID_PROCESS = auto()
-    INVALID_PYTHON = auto()

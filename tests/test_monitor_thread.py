@@ -65,8 +65,8 @@ class TestGCMonitor:
         (PollStatus.INVALID_PROCESS, "Failed to initialize process handle"),
         (PollStatus.INVALID_PROCESS, "Failed to get Python runtime address"),
         (PollStatus.INVALID_PROCESS, "Failed to read debug offsets"),
-        (PollStatus.INVALID_PYTHON, "Invalid debug offsets found"),
-        (PollStatus.FAIL, "Some other error"),
+        (PollStatus.INVALID_PROCESS, "Invalid debug offsets found"),
+        (PollStatus.INVALID_PROCESS, "Some other error"),
     ])
     def test_poll_runtime_error(self, monitor: EventsMonitor, expected_status: PollStatus, error_msg: str) -> None:
         with patch("gcmon.monitor.get_gc_stats", side_effect=RuntimeError(error_msg)):

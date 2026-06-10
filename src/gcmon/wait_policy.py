@@ -43,8 +43,6 @@ class StartupTimeoutPolicy(WaitPolicy):
                 return True
             case PollStatus.FAIL:
                 return False
-            case PollStatus.INVALID_PYTHON:
-                return False
             case PollStatus.INVALID_PROCESS:
                 if not self._has_seen_alive:
                     # Process hasn't started yet — wait with timeout
