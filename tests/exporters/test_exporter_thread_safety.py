@@ -40,6 +40,32 @@ MAIN_PID = 12345
 CTRL_PID = 67890
 
 
+class OutputCapture(Protocol):
+    """Per-exporter output reader.
+
+    Subclasses implement ``count_completes()`` and ``count_instants()``,
+    counting "complete" (= one GC event) and "instant" (= one instant
+    event) records in the exporter's output. The counting strategy is
+    exporter-specific because the formats differ:
+
+    * JSONL/Stdout  -- one record per line
+    * Chrome trace  -- "ph": "X" / "ph": "I" markers; we count by raw
+                       text scan to stay correct when the writer
+                       appends after ``close()`` (which leaves data
+                       outside the JSON array)
+    * Perfetto      -- protobuf packets with TYPE_SLICE_BEGIN /
+                       TYPE_INSTANT track events
+    """
+
+    def count_completes(self) -> int:...
+    def count_instants(self) -> int:...
+
+
+class ExporterFactory(Protocol):
+    name: str
+    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:...
+
+
 def _run_two_threads(workers: list[Callable[[], None]]) -> list[BaseException]:
     """Run all workers behind a Barrier, return any captured exceptions.
 
@@ -91,32 +117,6 @@ def _make_gc_events(n: int, ts_base: int) -> list[TGCStatsInfo]:
 def _make_instant_events(n: int, ts_base: int) -> list[TInstantMsg]:
     """N instant events with unique ts / name."""
     return [create_instant_msg(name=f"inst-{i}", ts=ts_base + i) for i in range(n)]
-
-
-class ExporterFactory(Protocol):
-    name: str
-    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:...
-
-
-class OutputCapture(Protocol):
-    """Per-exporter output reader.
-
-    Subclasses implement ``count_completes()`` and ``count_instants()``,
-    counting "complete" (= one GC event) and "instant" (= one instant
-    event) records in the exporter's output. The counting strategy is
-    exporter-specific because the formats differ:
-
-    * JSONL/Stdout  -- one record per line
-    * Chrome trace  -- "ph": "X" / "ph": "I" markers; we count by raw
-                       text scan to stay correct when the writer
-                       appends after ``close()`` (which leaves data
-                       outside the JSON array)
-    * Perfetto      -- protobuf packets with TYPE_SLICE_BEGIN /
-                       TYPE_INSTANT track events
-    """
-
-    def count_completes(self) -> int:...
-    def count_instants(self) -> int:...
 
 
 class JsonlFileCapture(OutputCapture):
@@ -248,28 +248,28 @@ class StdoutCapture(OutputCapture):
         return sum(1 for e in self._lines() if e.get("type") == "i")
 
 
-class _ChromeTraceExporterFactory(ExporterFactory):
+class _ChromeTraceExporterFactory:
     name = "chrome"
 
     def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:
-        path = tmp_path / f"out_{type(self).__qualname__}.dat"
+        path = tmp_path / f"out_{self.name}.dat"
         exporter = TraceExporter(output_path=path, flush_threshold=threshold)
         return exporter, ChromeTraceFileCapture(path)
 
-class _JsonlExporterFactory(ExporterFactory):
+class _JsonlExporterFactory:
     name = "jsonl"
 
     def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:
-        path = tmp_path / f"out_{type(self).__qualname__}.dat"
+        path = tmp_path / f"out_{self.name}.dat"
         exporter = JsonlExporter(output_path=path, flush_threshold=threshold)
         return exporter, JsonlFileCapture(path)
 
 
-class _PerfettoFactory(ExporterFactory):
+class _PerfettoFactory:
     name = "perfetto"
 
     def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:
-        path = tmp_path / f"out_{type(self).__qualname__}.pb"
+        path = tmp_path / f"out_{self.name}.pb"
         exporter = PerfettoExporter(
             output_path=path,
             flush_threshold=threshold,
@@ -278,7 +278,7 @@ class _PerfettoFactory(ExporterFactory):
         return exporter, PerfettoFileCapture(path)
 
 
-class _StdoutFactory(ExporterFactory):
+class _StdoutFactory:
     name = "stdout"
 
     def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:  # tmp_path unused but kept for symmetry
@@ -287,13 +287,13 @@ class _StdoutFactory(ExporterFactory):
         return exporter, StdoutCapture(buffer)
 
 
-def _all_factories() -> dict[str, ExporterFactory]:
-    return {
+def _all_factories() -> list[ExporterFactory]:
+    return [
         _JsonlExporterFactory(),
         _ChromeTraceExporterFactory(),
         _PerfettoFactory(),
         _StdoutFactory(),
-    }
+    ]
 
 
 @pytest.fixture(params=_all_factories(), ids=lambda f: f.name)
@@ -324,11 +324,11 @@ class TestExporterThreadSafety:
             raise exc
 
         assert capture.count_completes() == N_GC, (
-            f"[{exporter_factory.id}] expected {N_GC} complete events, "
+            f"[{exporter_factory.name}] expected {N_GC} complete events, "
             f"got {capture.count_completes()}"
         )
         assert capture.count_instants() == N_INSTANT, (
-            f"[{exporter_factory.id}] expected {N_INSTANT} instant events, "
+            f"[{exporter_factory.name}] expected {N_INSTANT} instant events, "
             f"got {capture.count_instants()}"
         )
 
@@ -356,7 +356,7 @@ class TestExporterThreadSafety:
         # not depending on whether the close beat the writer or vice
         # versa, but the total must be in [PRE_FILL, PRE_FILL + N_GC].
         assert PRE_FILL <= completes <= PRE_FILL + N_GC, (
-            f"[{exporter_factory.id}] expected between {PRE_FILL} and "
+            f"[{exporter_factory.name}] expected between {PRE_FILL} and "
             f"{PRE_FILL + N_GC} complete events, got {completes}"
         )
 
@@ -378,7 +378,7 @@ class TestExporterThreadSafety:
             raise exc
 
         assert capture.count_completes() == 5, (
-            f"[{exporter_factory.id}] expected exactly 5 complete events, "
+            f"[{exporter_factory.name}] expected exactly 5 complete events, "
             f"got {capture.count_completes()}"
         )
 
@@ -390,7 +390,7 @@ class TestExporterThreadSafety:
         The Perfetto exporter must not emit duplicate track descriptors
         for the same PID, even when two threads race the first event.
         Double-checked locking in ``_ensure_cmdline`` guarantees this:
-        only the first thread to acquire ``_lock`` after the psutil
+        only the first thread to acquire ``_lock`` after the cmdline
         fetch marks the PID and registers the cmdline; the second
         observes ``has_pid(pid) == True`` and skips registration.
         Other exporters (JSONL/Chrome/Stdout) don't have per-PID
@@ -414,7 +414,7 @@ class TestExporterThreadSafety:
             raise exc
 
         assert capture.count_completes() == 2 * N_GC, (
-            f"[{exporter_factory.id}] expected {2 * N_GC} complete events, "
+            f"[{exporter_factory.name}] expected {2 * N_GC} complete events, "
             f"got {capture.count_completes()}"
         )
         if isinstance(capture, PerfettoFileCapture):
@@ -458,11 +458,11 @@ class TestExporterThreadSafety:
             raise exc
 
         assert capture.count_completes() == N_GC, (
-            f"[{exporter_factory.id}] expected {N_GC} complete events, "
+            f"[{exporter_factory.name}] expected {N_GC} complete events, "
             f"got {capture.count_completes()}"
         )
         assert capture.count_instants() == N_INSTANT, (
-            f"[{exporter_factory.id}] expected {N_INSTANT} instant events, "
+            f"[{exporter_factory.name}] expected {N_INSTANT} instant events, "
             f"got {capture.count_instants()}"
         )
         if isinstance(capture, PerfettoFileCapture):
@@ -498,7 +498,7 @@ class TestPerfettoExporterCmdlinePath:
     """Tests that target the cmdline fetch + DCL path in
     ``PerfettoExporter._ensure_cmdline``."""
 
-    def test_ensure_cmdline_psutil_none_event_still_emitted(
+    def test_ensure_cmdline_none_event_still_emitted(
         self, tmp_path: Path
     ) -> None:
         """When the cmdline provider returns ``None`` (process gone),
@@ -535,7 +535,7 @@ class TestPerfettoExporterCmdlinePath:
                 f"expected no cmdline entries, got {len(cmdline_entries)}"
             )
 
-    def test_concurrent_same_pid_psutil_returns_none(
+    def test_concurrent_same_pid_cmdline_provider_raises(
         self, tmp_path: Path
     ) -> None:
         """Two threads race on the same new PID when the cmdline
