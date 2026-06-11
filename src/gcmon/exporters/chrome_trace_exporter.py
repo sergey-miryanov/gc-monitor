@@ -48,7 +48,7 @@ class TraceExporter(EventsExporter):
         self._has_written = False
 
     def _add_events(self, events: list[TraceEvent]) -> None:
-        events_to_flush = []
+        events_to_flush:list[TraceEvent] = []
         with self._lock:
             self._events.extend(events)
             if len(self._events) >= self._flush_threshold:

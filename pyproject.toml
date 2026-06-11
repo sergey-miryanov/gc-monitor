@@ -59,6 +59,7 @@ Documentation = "https://github.com/sergey-miryanov/gcmon#readme"
 [tool.pyrefly]
 python = "3.15"
 strict = true
+preset = "strict"
 exclude = [
     "**/__pycache__",
     ".venv",

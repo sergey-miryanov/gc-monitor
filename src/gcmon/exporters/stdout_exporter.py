@@ -30,6 +30,7 @@ class StdoutExporter(JsonlExporter):
     ) -> None:
         super().__init__(flush_threshold=flush_threshold)
 
+    @override
     def _open_writer(self) -> AbstractContextManager[TextIO]:
         return contextlib.nullcontext(sys.stdout)
 
