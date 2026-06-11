@@ -16,16 +16,6 @@ from gcmon.control.control_server import (
 
 
 @pytest.fixture
-def control_server(mock_exporter) -> ControlServer:
-    server = ControlServer(mock_exporter)
-    try:
-        server.start()
-        yield server
-    finally:
-        server.close()
-
-
-@pytest.fixture
 def server_not_started(mock_exporter) -> ControlServer:
     return ControlServer(mock_exporter)
 
@@ -34,12 +24,6 @@ def server_not_started(mock_exporter) -> ControlServer:
 def mock_conn():
     m = MagicMock()
     m.poll.return_value = False
-    return m
-
-
-@pytest.fixture
-def mock_exporter():
-    m = MagicMock()
     return m
 
 
