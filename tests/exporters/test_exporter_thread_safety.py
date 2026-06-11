@@ -1,48 +1,13 @@
-"""Thread-safety stress tests for exporters.
-
-Topology: two threads access a single exporter concurrently.
-
-  * Main thread          - writes GC events via add_event()
-  * Control-server thread - writes instant events via add_instant_event()
-
-This mirrors the real production access pattern in
-``src/gcmon/monitor.py:54`` and ``src/gcmon/control/control_server.py:209``.
-``close()`` may come from either thread (or a watchdog).
-
-A single parametrized test class exercises all four exporter types via
-an ``ExporterFactory`` abstraction. The factories live in this file and
-expose:
-
-  * ``build(tmp_path, threshold)`` -> ``(exporter, capture, teardown)``
-  * ``id`` -- human-readable name shown by pytest
-
-``capture`` is an exporter-specific output reader implementing
-``count_completes()`` and ``count_instants()``.
-
-All tests are decorated with ``@pytest.mark.stress`` and skipped by
-default via ``addopts = "-m 'not stress'"`` in pyproject.toml. Run them
-locally with:
-
-    pytest -m stress tests/exporters/test_exporter_thread_safety.py
-
-Optionally combine with the project's existing ``--count`` option
-(see ``tests/conftest.py``):
-
-    pytest -m stress --count=10 tests/exporters/test_exporter_thread_safety.py
-"""
+"""Thread-safety stress tests for exporters."""
 
 from __future__ import annotations
 
 import io
 import json
-import sys
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
-from types import TracebackType
-from typing import NamedTuple
-from unittest.mock import MagicMock
+from typing import Protocol
 
 import pytest
 
@@ -66,10 +31,6 @@ from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_stats_item
 from tests.proto_decoder import ProtoField, decode_message, get_fields, get_varint
 
-# ---------------------------------------------------------------------------
-# Tunables
-# ---------------------------------------------------------------------------
-
 N_GC = 100
 N_INSTANT = 100
 PRE_FILL = 50
@@ -79,18 +40,12 @@ MAIN_PID = 12345
 CTRL_PID = 67890
 
 
-# ---------------------------------------------------------------------------
-# Generic helpers
-# ---------------------------------------------------------------------------
-
-
 def _run_two_threads(workers: list[Callable[[], None]]) -> list[BaseException]:
     """Run all workers behind a Barrier, return any captured exceptions.
 
     Each worker is launched on its own thread. They block on a Barrier
     sized to the number of workers; once the last thread arrives all
-    workers proceed simultaneously. No ``time.sleep`` is used for
-    synchronization.
+    workers proceed simultaneously.
     """
     barrier = threading.Barrier(len(workers))
     captured: list[BaseException] = []
@@ -100,7 +55,7 @@ def _run_two_threads(workers: list[Callable[[], None]]) -> list[BaseException]:
         try:
             barrier.wait(timeout=THREAD_JOIN_TIMEOUT)
             fn()
-        except BaseException as exc:  # surface everything
+        except BaseException as exc:
             with captured_lock:
                 captured.append(exc)
 
@@ -114,7 +69,7 @@ def _run_two_threads(workers: list[Callable[[], None]]) -> list[BaseException]:
     return captured
 
 
-def _make_gc_events(n: int, pid: int, ts_base: int) -> list[TGCStatsInfo]:
+def _make_gc_events(n: int, ts_base: int) -> list[TGCStatsInfo]:
     """N GC events with unique ts_start / iid so we can later assert no overwrites."""
     return [
         create_mock_stats_item(
@@ -133,27 +88,17 @@ def _make_gc_events(n: int, pid: int, ts_base: int) -> list[TGCStatsInfo]:
     ]
 
 
-def _make_instant_events(n: int, pid: int, ts_base: int) -> list[TInstantMsg]:
+def _make_instant_events(n: int, ts_base: int) -> list[TInstantMsg]:
     """N instant events with unique ts / name."""
     return [create_instant_msg(name=f"inst-{i}", ts=ts_base + i) for i in range(n)]
 
 
-def _patch_psutil(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace psutil so PerfettoExporter doesn't touch real processes."""
-    mock_process = MagicMock()
-    mock_process.cmdline.return_value = ["python", "-u", "script.py"]
-    mock_psutil = MagicMock()
-    mock_psutil.Process.return_value = mock_process
-    mock_psutil.Error = Exception
-    monkeypatch.setitem(sys.modules, "psutil", mock_psutil)
+class ExporterFactory(Protocol):
+    name: str
+    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:...
 
 
-# ---------------------------------------------------------------------------
-# OutputCapture: per-exporter output reader
-# ---------------------------------------------------------------------------
-
-
-class OutputCapture:
+class OutputCapture(Protocol):
     """Per-exporter output reader.
 
     Subclasses implement ``count_completes()`` and ``count_instants()``,
@@ -170,11 +115,8 @@ class OutputCapture:
                        TYPE_INSTANT track events
     """
 
-    def count_completes(self) -> int:
-        return 0
-
-    def count_instants(self) -> int:
-        return 0
+    def count_completes(self) -> int:...
+    def count_instants(self) -> int:...
 
 
 class JsonlFileCapture(OutputCapture):
@@ -273,11 +215,6 @@ class PerfettoFileCapture(OutputCapture):
         return n
 
 
-# ---------------------------------------------------------------------------
-# Stdout capture: StdoutExporter extends JsonlExporter; same line format.
-# ---------------------------------------------------------------------------
-
-
 class _LockingStringIO(io.StringIO):
     """StringIO subclass that locks every write() so we can detect mid-line interleaving."""
 
@@ -311,141 +248,57 @@ class StdoutCapture(OutputCapture):
         return sum(1 for e in self._lines() if e.get("type") == "i")
 
 
-class _StdoutRedirector:
-    """Context manager that swaps ``sys.stdout`` for a locked StringIO buffer."""
+class _ChromeTraceExporterFactory(ExporterFactory):
+    name = "chrome"
 
-    def __init__(self) -> None:
-        self._buffer = _LockingStringIO()
-        self._original: object = None
+    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:
+        path = tmp_path / f"out_{type(self).__qualname__}.dat"
+        exporter = TraceExporter(output_path=path, flush_threshold=threshold)
+        return exporter, ChromeTraceFileCapture(path)
 
-    def __enter__(self) -> _LockingStringIO:
-        self._original = sys.stdout
-        sys.stdout = self._buffer
-        return self._buffer
+class _JsonlExporterFactory(ExporterFactory):
+    name = "jsonl"
 
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        sys.stdout = self._original  # type: ignore[assignment]
+    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:
+        path = tmp_path / f"out_{type(self).__qualname__}.dat"
+        exporter = JsonlExporter(output_path=path, flush_threshold=threshold)
+        return exporter, JsonlFileCapture(path)
 
 
-# ---------------------------------------------------------------------------
-# ExporterFactory
-# ---------------------------------------------------------------------------
-
-
-class Bundle(NamedTuple):
-    """Return value of ``ExporterFactory.build``."""
-
-    exporter: EventsExporter
-    capture: OutputCapture
-    teardown: Callable[[], None]
-
-
-class ExporterFactory:
-    """Build an exporter, capture its output, and clean up after the test.
-
-    Each subclass is responsible for exporter-specific concerns:
-    ``PerfettoExporter`` needs psutil mocked; ``StdoutExporter`` needs
-    ``sys.stdout`` redirected to a buffer. The ``build`` method returns
-    a :class:`Bundle` whose ``teardown`` callable releases whatever
-    resources ``build`` acquired.
-    """
-
-    id: str
-
-    def build(self, tmp_path: Path, threshold: int) -> Bundle:  # pragma: no cover - abstract
-        raise NotImplementedError
-
-
-@dataclass
-class _FileExporterFactory(ExporterFactory):
-    """Base for file-based exporters."""
-
-    _id: str
-    _builder: Callable[[Path, int], EventsExporter]
-    _capture_cls: type[OutputCapture]
-
-    @property
-    def id(self) -> str:  # type: ignore[override]
-        return self._id
-
-    def build(self, tmp_path: Path, threshold: int) -> Bundle:
-        path = tmp_path / f"out_{self._id}.dat"
-        exporter = self._builder(path, threshold)
-        return Bundle(exporter=exporter, capture=self._capture_cls(path), teardown=lambda: None)
-
-
-def _build_jsonl(path: Path, threshold: int) -> JsonlExporter:
-    return JsonlExporter(output_path=path, flush_threshold=threshold)
-
-
-def _build_trace(path: Path, threshold: int) -> TraceExporter:
-    return TraceExporter(output_path=path, flush_threshold=threshold)
-
-
-def _build_perfetto(path: Path, threshold: int) -> PerfettoExporter:
-    exporter = PerfettoExporter(output_path=path, flush_threshold=threshold)
-    return exporter
-
-
-# Per-test psutil patch state: the factory stores a monkeypatch handle
-# and the teardown stops it.
 class _PerfettoFactory(ExporterFactory):
-    id = "perfetto"
+    name = "perfetto"
 
-    def __init__(self) -> None:
-        self._mp: pytest.MonkeyPatch | None = None
-
-    def build(self, tmp_path: Path, threshold: int) -> Bundle:
-        mp = pytest.MonkeyPatch()
-        _patch_psutil(mp)
-        self._mp = mp
-        path = tmp_path / "out_perfetto.pb"
-        exporter = PerfettoExporter(output_path=path, flush_threshold=threshold)
-
-        def teardown() -> None:
-            mp.undo()
-            self._mp = None
-
-        return Bundle(exporter=exporter, capture=PerfettoFileCapture(path), teardown=teardown)
+    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:
+        path = tmp_path / f"out_{type(self).__qualname__}.pb"
+        exporter = PerfettoExporter(
+            output_path=path,
+            flush_threshold=threshold,
+            cmdline_provider=lambda pid: ["python", "-u", "script.py"],
+        )
+        return exporter, PerfettoFileCapture(path)
 
 
 class _StdoutFactory(ExporterFactory):
-    id = "stdout"
+    name = "stdout"
 
-    def build(self, tmp_path: Path, threshold: int) -> Bundle:  # tmp_path unused but kept for symmetry
-        redirector = _StdoutRedirector()
-        buffer = redirector.__enter__()
-        exporter = StdoutExporter(flush_threshold=threshold)
-
-        def teardown() -> None:
-            redirector.__exit__(None, None, None)
-
-        return Bundle(exporter=exporter, capture=StdoutCapture(buffer), teardown=teardown)
+    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:  # tmp_path unused but kept for symmetry
+        buffer = _LockingStringIO()
+        exporter = StdoutExporter(flush_threshold=threshold, output=buffer)
+        return exporter, StdoutCapture(buffer)
 
 
-def _all_factories() -> list[ExporterFactory]:
-    return [
-        _FileExporterFactory("jsonl", _build_jsonl, JsonlFileCapture),
-        _FileExporterFactory("trace", _build_trace, ChromeTraceFileCapture),
+def _all_factories() -> dict[str, ExporterFactory]:
+    return {
+        _JsonlExporterFactory(),
+        _ChromeTraceExporterFactory(),
         _PerfettoFactory(),
         _StdoutFactory(),
-    ]
+    }
 
 
-@pytest.fixture(params=_all_factories(), ids=lambda f: f.id)
+@pytest.fixture(params=_all_factories(), ids=lambda f: f.name)
 def exporter_factory(request: pytest.FixtureRequest) -> ExporterFactory:
-    """Parametrized fixture: one ExporterFactory per supported exporter type."""
     return request.param  # type: ignore[return-value]
-
-
-# ---------------------------------------------------------------------------
-# Unified test class
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.stress
@@ -453,93 +306,81 @@ class TestExporterThreadSafety:
     def test_concurrent_add_event_and_add_instant_event_arrive(
         self, exporter_factory: ExporterFactory, tmp_path: Path
     ) -> None:
-        bundle = exporter_factory.build(tmp_path, threshold=10)
-        try:
-            exporter, capture = bundle.exporter, bundle.capture
-            gc_events = _make_gc_events(N_GC, MAIN_PID, 1_500_000_000)
-            inst_events = _make_instant_events(N_INSTANT, CTRL_PID, 2_000_000_000)
+        exporter, capture = exporter_factory.build(tmp_path, threshold=10)
+        gc_events = _make_gc_events(N_GC, 1_500_000_000)
+        inst_events = _make_instant_events(N_INSTANT, 2_000_000_000)
 
-            def writer_gc() -> None:
-                for ev in gc_events:
-                    exporter.add_event(MAIN_PID, ev)
+        def writer_gc() -> None:
+            for ev in gc_events:
+                exporter.add_event(MAIN_PID, ev)
 
-            def writer_inst() -> None:
-                for ev in inst_events:
-                    exporter.add_instant_event(CTRL_PID, ev)
+        def writer_inst() -> None:
+            for ev in inst_events:
+                exporter.add_instant_event(CTRL_PID, ev)
 
-            captured = _run_two_threads([writer_gc, writer_inst])
-            exporter.close()
-            for exc in captured:
-                raise exc
+        captured = _run_two_threads([writer_gc, writer_inst])
+        exporter.close()
+        for exc in captured:
+            raise exc
 
-            assert capture.count_completes() == N_GC, (
-                f"[{exporter_factory.id}] expected {N_GC} complete events, "
-                f"got {capture.count_completes()}"
-            )
-            assert capture.count_instants() == N_INSTANT, (
-                f"[{exporter_factory.id}] expected {N_INSTANT} instant events, "
-                f"got {capture.count_instants()}"
-            )
-        finally:
-            bundle.teardown()
+        assert capture.count_completes() == N_GC, (
+            f"[{exporter_factory.id}] expected {N_GC} complete events, "
+            f"got {capture.count_completes()}"
+        )
+        assert capture.count_instants() == N_INSTANT, (
+            f"[{exporter_factory.id}] expected {N_INSTANT} instant events, "
+            f"got {capture.count_instants()}"
+        )
 
     def test_concurrent_add_event_and_close_no_data_loss(
         self, exporter_factory: ExporterFactory, tmp_path: Path
     ) -> None:
-        bundle = exporter_factory.build(tmp_path, threshold=5)
-        try:
-            exporter, capture = bundle.exporter, bundle.capture
-            for ev in _make_gc_events(PRE_FILL, MAIN_PID, 1_500_000_000):
+        exporter, capture = exporter_factory.build(tmp_path, threshold=5)
+        for ev in _make_gc_events(PRE_FILL, 1_500_000_000):
+            exporter.add_event(MAIN_PID, ev)
+        more = _make_gc_events(N_GC, 1_500_000_000 + 100_000_000)
+
+        def writer() -> None:
+            for ev in more:
                 exporter.add_event(MAIN_PID, ev)
-            more = _make_gc_events(N_GC, MAIN_PID, 1_500_000_000 + 100_000_000)
 
-            def writer() -> None:
-                for ev in more:
-                    exporter.add_event(MAIN_PID, ev)
+        def closer() -> None:
+            exporter.close()
 
-            def closer() -> None:
-                exporter.close()
+        captured = _run_two_threads([writer, closer])
+        for exc in captured:
+            raise exc
 
-            captured = _run_two_threads([writer, closer])
-            for exc in captured:
-                raise exc
-
-            completes = capture.count_completes()
-            # Pre-fill must always arrive. The remaining events may or may
-            # not depending on whether the close beat the writer or vice
-            # versa, but the total must be in [PRE_FILL, PRE_FILL + N_GC].
-            assert PRE_FILL <= completes <= PRE_FILL + N_GC, (
-                f"[{exporter_factory.id}] expected between {PRE_FILL} and "
-                f"{PRE_FILL + N_GC} complete events, got {completes}"
-            )
-        finally:
-            bundle.teardown()
+        completes = capture.count_completes()
+        # Pre-fill must always arrive. The remaining events may or may
+        # not depending on whether the close beat the writer or vice
+        # versa, but the total must be in [PRE_FILL, PRE_FILL + N_GC].
+        assert PRE_FILL <= completes <= PRE_FILL + N_GC, (
+            f"[{exporter_factory.id}] expected between {PRE_FILL} and "
+            f"{PRE_FILL + N_GC} complete events, got {completes}"
+        )
 
     def test_double_close_safe(
         self, exporter_factory: ExporterFactory, tmp_path: Path
     ) -> None:
-        bundle = exporter_factory.build(tmp_path, threshold=1)
-        try:
-            exporter, capture = bundle.exporter, bundle.capture
-            for ev in _make_gc_events(5, MAIN_PID, 1_500_000_000):
-                exporter.add_event(MAIN_PID, ev)
+        exporter, capture = exporter_factory.build(tmp_path, threshold=1)
+        for ev in _make_gc_events(5, 1_500_000_000):
+            exporter.add_event(MAIN_PID, ev)
 
-            def closer_a() -> None:
-                exporter.close()
+        def closer_a() -> None:
+            exporter.close()
 
-            def closer_b() -> None:
-                exporter.close()
+        def closer_b() -> None:
+            exporter.close()
 
-            captured = _run_two_threads([closer_a, closer_b])
-            for exc in captured:
-                raise exc
+        captured = _run_two_threads([closer_a, closer_b])
+        for exc in captured:
+            raise exc
 
-            assert capture.count_completes() == 5, (
-                f"[{exporter_factory.id}] expected exactly 5 complete events, "
-                f"got {capture.count_completes()}"
-            )
-        finally:
-            bundle.teardown()
+        assert capture.count_completes() == 5, (
+            f"[{exporter_factory.id}] expected exactly 5 complete events, "
+            f"got {capture.count_completes()}"
+        )
 
     def test_concurrent_add_event_same_pid(
         self, exporter_factory: ExporterFactory, tmp_path: Path
@@ -555,47 +396,33 @@ class TestExporterThreadSafety:
         Other exporters (JSONL/Chrome/Stdout) don't have per-PID
         descriptors, so we only assert event count for them.
         """
-        bundle = exporter_factory.build(tmp_path, threshold=10)
-        try:
-            exporter, capture = bundle.exporter, bundle.capture
-            events_a = _make_gc_events(N_GC, MAIN_PID, 1_500_000_000)
-            events_b = _make_gc_events(N_GC, MAIN_PID, 1_600_000_000)  # same pid, distinct ts
+        exporter, capture = exporter_factory.build(tmp_path, threshold=10)
+        events_a = _make_gc_events(N_GC, 1_500_000_000)
+        events_b = _make_gc_events(N_GC, 1_600_000_000)  # same pid, distinct ts
 
-            def writer_a() -> None:
-                for ev in events_a:
-                    exporter.add_event(MAIN_PID, ev)
+        def writer_a() -> None:
+            for ev in events_a:
+                exporter.add_event(MAIN_PID, ev)
 
-            def writer_b() -> None:
-                for ev in events_b:
-                    exporter.add_event(MAIN_PID, ev)
+        def writer_b() -> None:
+            for ev in events_b:
+                exporter.add_event(MAIN_PID, ev)
 
-            captured = _run_two_threads([writer_a, writer_b])
-            exporter.close()
-            for exc in captured:
-                raise exc
+        captured = _run_two_threads([writer_a, writer_b])
+        exporter.close()
+        for exc in captured:
+            raise exc
 
-            assert capture.count_completes() == 2 * N_GC, (
-                f"[{exporter_factory.id}] expected {2 * N_GC} complete events, "
-                f"got {capture.count_completes()}"
+        assert capture.count_completes() == 2 * N_GC, (
+            f"[{exporter_factory.id}] expected {2 * N_GC} complete events, "
+            f"got {capture.count_completes()}"
+        )
+        if isinstance(capture, PerfettoFileCapture):
+            proc_descs = capture.count_process_descriptors()
+            assert proc_descs == 1, (
+                f"[perfetto] expected exactly 1 process descriptor, "
+                f"got {proc_descs}"
             )
-            if isinstance(capture, PerfettoFileCapture):
-                # The Perfetto exporter must emit exactly ONE process
-                # track descriptor even when two threads race on the
-                # same new PID. Double-checked locking in
-                # ``_ensure_cmdline`` is what makes this race-safe:
-                # only the first thread to acquire ``_lock`` after the
-                # psutil fetch marks the PID; the second observes
-                # ``has_pid(pid) == True`` and skips registration.
-                # Without the DCL, both threads would call
-                # ``convert_item_to_perfetto_packets`` and both would
-                # build a process descriptor (one with empty cmdline).
-                proc_descs = capture.count_process_descriptors()
-                assert proc_descs == 1, (
-                    f"[perfetto] expected exactly 1 process descriptor, "
-                    f"got {proc_descs}"
-                )
-        finally:
-            bundle.teardown()
 
     def test_concurrent_add_event_and_add_instant_event_same_new_pid(
         self, exporter_factory: ExporterFactory, tmp_path: Path
@@ -613,46 +440,37 @@ class TestExporterThreadSafety:
         descriptor is built only by the first convert that sees
         ``has_pid(pid) == False``.
         """
-        bundle = exporter_factory.build(tmp_path, threshold=10)
-        try:
-            exporter, capture = bundle.exporter, bundle.capture
-            gc_events = _make_gc_events(N_GC, MAIN_PID, 1_500_000_000)
-            inst_events = _make_instant_events(N_INSTANT, MAIN_PID, 2_000_000_000)
+        exporter, capture = exporter_factory.build(tmp_path, threshold=10)
+        gc_events = _make_gc_events(N_GC, 1_500_000_000)
+        inst_events = _make_instant_events(N_INSTANT, 2_000_000_000)
 
-            def writer_gc() -> None:
-                for ev in gc_events:
-                    exporter.add_event(MAIN_PID, ev)
+        def writer_gc() -> None:
+            for ev in gc_events:
+                exporter.add_event(MAIN_PID, ev)
 
-            def writer_inst() -> None:
-                for ev in inst_events:
-                    exporter.add_instant_event(MAIN_PID, ev)
+        def writer_inst() -> None:
+            for ev in inst_events:
+                exporter.add_instant_event(MAIN_PID, ev)
 
-            captured = _run_two_threads([writer_gc, writer_inst])
-            exporter.close()
-            for exc in captured:
-                raise exc
+        captured = _run_two_threads([writer_gc, writer_inst])
+        exporter.close()
+        for exc in captured:
+            raise exc
 
-            assert capture.count_completes() == N_GC, (
-                f"[{exporter_factory.id}] expected {N_GC} complete events, "
-                f"got {capture.count_completes()}"
+        assert capture.count_completes() == N_GC, (
+            f"[{exporter_factory.id}] expected {N_GC} complete events, "
+            f"got {capture.count_completes()}"
+        )
+        assert capture.count_instants() == N_INSTANT, (
+            f"[{exporter_factory.id}] expected {N_INSTANT} instant events, "
+            f"got {capture.count_instants()}"
+        )
+        if isinstance(capture, PerfettoFileCapture):
+            proc_descs = capture.count_process_descriptors()
+            assert proc_descs == 1, (
+                f"[perfetto] expected exactly 1 process descriptor, "
+                f"got {proc_descs}"
             )
-            assert capture.count_instants() == N_INSTANT, (
-                f"[{exporter_factory.id}] expected {N_INSTANT} instant events, "
-                f"got {capture.count_instants()}"
-            )
-            if isinstance(capture, PerfettoFileCapture):
-                # Exactly 1 process descriptor: the convert that runs
-                # first (whichever thread wins the lock) sees
-                # ``has_pid(pid) == False`` and builds it. The other
-                # thread's convert sees ``has_pid(pid) == True`` and
-                # skips the descriptor build.
-                proc_descs = capture.count_process_descriptors()
-                assert proc_descs == 1, (
-                    f"[perfetto] expected exactly 1 process descriptor, "
-                    f"got {proc_descs}"
-                )
-        finally:
-            bundle.teardown()
 
     def test_post_close_add_event_does_not_crash(
         self, exporter_factory: ExporterFactory, tmp_path: Path
@@ -660,54 +478,40 @@ class TestExporterThreadSafety:
         """Calling ``add_event`` after ``close()`` must not raise.
 
         The Perfetto exporter's ``_ensure_cmdline`` does not check
-        ``_closed``; the psutil call still runs even after close.
-        That call is wasteful but not crashy. This test pins the
-        behavior so a future refactor that adds a ``_closed`` check
-        to ``_ensure_cmdline`` does not regress.
+        ``_closed``; the cmdline-provider call still runs even after
+        close. That call is wasteful but not crashy. This test pins
+        the behavior so a future refactor that adds a ``_closed``
+        check to ``_ensure_cmdline`` does not regress.
         """
-        bundle = exporter_factory.build(tmp_path, threshold=10)
-        try:
-            exporter, _capture = bundle.exporter, bundle.capture
-            exporter.close()
-            # add_event after close. Must not raise.
-            exporter.add_event(MAIN_PID, create_mock_stats_item(iid=1000))
-            exporter.add_instant_event(
-                MAIN_PID, create_instant_msg(name="post-close", ts=999_999)
-            )
-        finally:
-            bundle.teardown()
+        exporter, _capture = exporter_factory.build(tmp_path, threshold=10)
+        exporter.close()
 
+        exporter.add_event(MAIN_PID, create_mock_stats_item(iid=1000))
+        exporter.add_instant_event(
+            MAIN_PID, create_instant_msg(name="post-close", ts=999_999)
+        )
 
-# ---------------------------------------------------------------------------
-# Perfetto-specific cmdline / DCL path tests.
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.stress
 class TestPerfettoExporterCmdlinePath:
     """Tests that target the cmdline fetch + DCL path in
-    ``PerfettoExporter._ensure_cmdline``. These are single-file,
-    single-class tests (not parametrized across exporters) because
-    they exercise Perfetto-specific protobuf structure."""
+    ``PerfettoExporter._ensure_cmdline``."""
 
     def test_ensure_cmdline_psutil_none_event_still_emitted(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path
     ) -> None:
-        """When psutil returns ``None`` (process gone), the convert
-        still builds a process descriptor (just without a cmdline).
-        The DCL pattern with ``set_cmdline(pid, None)`` must be a
-        no-op from the descriptor's perspective.
+        """When the cmdline provider returns ``None`` (process gone),
+        the convert still builds a process descriptor (just without
+        a cmdline). The DCL pattern with ``set_cmdline(pid, None)``
+        must be a no-op from the descriptor's perspective.
         """
-        _patch_psutil(monkeypatch)
-        # Override: make ``_collect_cmdline`` return ``None`` directly
-        # to exercise the "psutil failed" path without dealing with
-        # the catch-block internals.
-        monkeypatch.setattr(
-            "gcmon.exporters.perfetto_exporter.PerfettoExporter._collect_cmdline",
-            lambda self, pid: None,
-        )
         path = tmp_path / "trace.pb"
-        exporter = PerfettoExporter(output_path=path, flush_threshold=1)
+        exporter = PerfettoExporter(
+            output_path=path,
+            flush_threshold=1,
+            cmdline_provider=lambda pid: None,
+        )
         exporter.add_event(MAIN_PID, create_mock_stats_item())
         exporter.close()
 
@@ -732,26 +536,27 @@ class TestPerfettoExporterCmdlinePath:
             )
 
     def test_concurrent_same_pid_psutil_returns_none(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path
     ) -> None:
-        """Two threads race on the same new PID when psutil raises
-        ``NoSuchProcess``. DCL must still produce exactly one
+        """Two threads race on the same new PID when the cmdline
+        provider raises. DCL must still produce exactly one
         process descriptor (no cmdline), all events must arrive,
         and no exception must leak to the caller.
         """
-        _patch_psutil(monkeypatch)
-        # Make cmdline() raise psutil.NoSuchProcess so
-        # ``_collect_cmdline`` returns ``None`` via its except clause.
-        import psutil
+        class _CmdlineError(Exception):
+            pass
 
-        mock_psutil = sys.modules["psutil"]
-        mock_psutil.NoSuchProcess = psutil.NoSuchProcess
-        mock_psutil.Process.return_value.cmdline.side_effect = psutil.NoSuchProcess(12345)
+        def _failing_provider(pid: int) -> list[str] | None:
+            raise _CmdlineError(pid)
 
         path = tmp_path / "trace.pb"
-        exporter = PerfettoExporter(output_path=path, flush_threshold=10)
-        events_a = _make_gc_events(N_GC, MAIN_PID, 1_500_000_000)
-        events_b = _make_gc_events(N_GC, MAIN_PID, 1_600_000_000)
+        exporter = PerfettoExporter(
+            output_path=path,
+            flush_threshold=10,
+            cmdline_provider=_failing_provider,
+        )
+        events_a = _make_gc_events(N_GC, 1_500_000_000)
+        events_b = _make_gc_events(N_GC, 1_600_000_000)
 
         def writer_a() -> None:
             for ev in events_a:
