@@ -44,6 +44,7 @@ class PerfettoExporter(EventsExporter):
         self,
         output_path: Path,
         flush_threshold: int = 1000,
+        cmdline_provider: Callable[[int], list[str] | None] | None = None,
     ) -> None:
         super().__init__()
         self._lock = threading.Lock()
@@ -56,13 +57,18 @@ class PerfettoExporter(EventsExporter):
         self._track_state = PerfettoTrackState()
         self._sequence_id: int = id(self) & 0x7FFFFFFF
         self._has_written = False
+        self._cmdline_provider = cmdline_provider or self._default_cmdline_provider
+
+    @staticmethod
+    def _default_cmdline_provider(pid: int) -> list[str]:
+        import psutil
+        result = psutil.Process(pid).cmdline()
+        logger.debug("Collected cmdline for PID %s: %s", pid, result)
+        return result
 
     def _collect_cmdline(self, pid: int) -> list[str] | None:
         try:
-            import psutil
-            result = psutil.Process(pid).cmdline()
-            logger.debug("Collected cmdline for PID %s: %s", pid, result)
-            return result
+            return self._cmdline_provider(pid)
         except Exception as exc:
             logger.warning("Could not collect cmdline for PID %s: %s", pid, exc)
             return None
