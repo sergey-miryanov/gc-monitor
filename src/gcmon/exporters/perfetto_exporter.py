@@ -81,7 +81,7 @@ class PerfettoExporter(EventsExporter):
         self,
         pid: int,
         item: TItem,
-        convert: TConvert,
+        convert: TConvert[TItem],
     ) -> None:
         to_flush: list[bytes] = []
         with self._lock:
