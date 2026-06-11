@@ -27,14 +27,16 @@ class StdoutExporter(JsonlExporter):
     def __init__(
         self,
         flush_threshold: int = 100,
+        output: TextIO | None = None,
     ) -> None:
         super().__init__(flush_threshold=flush_threshold)
+        self._output = output or sys.stdout
 
     @override
     def _open_writer(self) -> AbstractContextManager[TextIO]:
-        return contextlib.nullcontext(sys.stdout)
+        return contextlib.nullcontext(self._output)
 
     @override
     def close(self) -> None:
         super().close()
-        sys.stdout.flush()
+        self._output.flush()
