@@ -17,7 +17,11 @@ from gcmon.control.control_server import (
 
 @pytest.fixture
 def server_not_started(mock_exporter) -> ControlServer:
-    return ControlServer(mock_exporter)
+    server = ControlServer(mock_exporter)
+    try:
+        yield server
+    finally:
+        server.close()
 
 
 @pytest.fixture

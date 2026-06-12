@@ -277,11 +277,10 @@ class ControlServer:
         with self._lock:
             self._enabled.clear()
 
-        if self._running:
-            with self._lock:
-                if self._listener is not None:
-                    self._listener.close()
-                    self._listener = None
+        with self._lock:
+            if self._listener is not None:
+                self._listener.close()
+                self._listener = None
 
         self._running = False
 
