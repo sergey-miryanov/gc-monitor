@@ -115,23 +115,6 @@ class GCMonitorHook:
         self._pid: int = os.getpid()
         self._control_name = f"pyperf-hook-{self._pid}"
         self._control_address = _make_address(self._control_name)
-        verbose = _get_env_pyperf_hook_verbose()
-        level = logging.WARNING
-        if verbose:
-            level = logging.DEBUG
-            logger.setLevel(level)
-
-        # Only add handler if none exists
-        if not logger.handlers:
-            handler = logging.StreamHandler()
-            handler.setLevel(level)
-            formatter = logging.Formatter("[%(name)s] %(levelname)s: %(message)s")
-            handler.setFormatter(formatter)
-            logger.addHandler(handler)
-        else:
-            # Update existing handlers
-            for handler in logger.handlers:  # type: ignore[assignment]
-                handler.setLevel(level)
 
         self._run_monitor()
         self._control_client = ControlClient(
@@ -287,9 +270,33 @@ class GCMonitorHook:
 
 # Entry point factory function
 def gcmon_hook() -> GCMonitorHook:
+    _setup_logging()
     temp_dir = tempfile.TemporaryDirectory(dir=_get_env_pyperf_hook_temp_dir())
     try:
         return GCMonitorHook(temp_dir=temp_dir)
     except Exception:
         temp_dir.cleanup()
         raise
+
+
+def _setup_logging() -> None:
+    """Configure the `gcmon` logger for the pyperf hook entry point.
+
+    Attaches a stderr StreamHandler if none is present and sets the level
+    based on ``GCMON_PYPERF_HOOK_VERBOSE``. Intended to be called only when
+    used as an actual pyperf hook (not on every ``GCMonitorHook`` instantiation),
+    so importing/instantiating the hook in tests does not mutate global
+    logging state.
+    """
+    level = logging.DEBUG if _get_env_pyperf_hook_verbose() else logging.WARNING
+    logger.setLevel(level)
+
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setLevel(level)
+        formatter = logging.Formatter("[%(name)s] %(levelname)s: %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    else:
+        for handler in logger.handlers:  # type: ignore[assignment]
+            handler.setLevel(level)

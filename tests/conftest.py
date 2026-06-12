@@ -26,13 +26,26 @@ def pytest_collection_modifyitems(session, config, items):
 
 @pytest.fixture(autouse=True)
 def _caplog_gcmon(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
-    """Auto-configure gcmon logger to INFO level for caplog."""
+    """Auto-configure gcmon logger to INFO level for caplog.
+
+    Also snapshots and restores ``logging.getLogger("gcmon")``'s handlers and
+    level so production code that attaches handlers to the shared "gcmon"
+    logger (e.g. the pyperf hook entry point) does not leak across tests and
+    duplicate log records to stderr in subsequent tests.
+    """
     logger = logging.getLogger("gcmon")
     original_level = logger.level
+    original_handlers = list(logger.handlers)
     try:
         logger.setLevel(logging.INFO)
         yield caplog
     finally:
+        for handler in list(logger.handlers):
+            if handler not in original_handlers:
+                logger.removeHandler(handler)
+        for handler in original_handlers:
+            if handler not in logger.handlers:
+                logger.addHandler(handler)
         logger.setLevel(original_level)
 
 
