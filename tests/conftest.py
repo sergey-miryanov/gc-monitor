@@ -16,14 +16,6 @@ from tests.helpers import MockExporter, create_mock_stats_item
 DEFAULT_PID: int = 12345
 
 
-def pytest_addoption(parser):
-    parser.addoption('--count', default=1, type=int, metavar='count', help='Run each test the specified number of times')
-
-def pytest_collection_modifyitems(session, config, items):
-    count = config.option.count
-    items[:] = items * count  # add each test multiple times
-
-
 @pytest.fixture(autouse=True)
 def _caplog_gcmon(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     """Auto-configure gcmon logger to INFO level for caplog.

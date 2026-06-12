@@ -45,6 +45,7 @@ ruff = "^0.15.0"
 numpy = "^2.0"
 types-psutil = "^7.2"
 twine = "^6.0"
+pytest-repeat = "^0.9.4"
 
 [tool.poetry.urls]
 Homepage = "https://github.com/sergey-miryanov/gcmon"
