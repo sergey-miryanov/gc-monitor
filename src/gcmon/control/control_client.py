@@ -27,7 +27,11 @@ def connect_with_retry(
         except Exception as e:
             last_error = e
             time.sleep(retry_interval)
-    logger.warning("Failed to connect to control plane: %s", last_error)
+    logger.warning(
+        "Failed to connect to control plane: address=%r, error=%s",
+        address,
+        last_error,
+    )
     return None
 
 

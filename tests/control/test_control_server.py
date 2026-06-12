@@ -443,10 +443,14 @@ class TestControlServerAcceptLoop:
         server_not_started._listener = None
         server_not_started._accept_loop()
 
-    def test_accept_loop_accept_exception_breaks(self, server_not_started) -> None:
+    def test_accept_loop_accept_exception_breaks(self, server_not_started, caplog) -> None:
+        listener_address = server_not_started._listener.address
         with patch("gcmon.control.control_server._accept", side_effect=OSError("accept failed")):
             server_not_started._accept_loop()
         assert len(server_not_started._connections) == 0
+        assert "Error accepting connection on control server" in caplog.text
+        assert f"address={listener_address!r}" in caplog.text
+        assert "accept failed" in caplog.text
 
     def test_accept_loop_adds_connection(self, server_not_started, mock_conn) -> None:
         server_not_started._listener = MagicMock()
@@ -459,7 +463,7 @@ class TestControlServerAcceptLoop:
 
         assert mock_conn in server_not_started._connections
 
-    def test_accept_loop_closes_orphaned_conn_on_exception(self, server_not_started, mock_conn) -> None:
+    def test_accept_loop_closes_orphaned_conn_on_exception(self, server_not_started, mock_conn, caplog) -> None:
         mock_listener = MagicMock()
         mock_listener.address = "/tmp/gcmon-test"
         server_not_started._listener = mock_listener
@@ -478,6 +482,9 @@ class TestControlServerAcceptLoop:
 
         assert not mock_conn.close.called
         assert mock_conn in server_not_started._connections
+        assert "Error accepting connection on control server" in caplog.text
+        assert "address='/tmp/gcmon-test'" in caplog.text
+        assert "second accept fails" in caplog.text
 
 
 # =============================================================================

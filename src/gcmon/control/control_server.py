@@ -103,7 +103,11 @@ class ControlServer:
         try:
             return _accept(listener)
         except Exception as e:
-            logger.error("Error accepting connection on control server: %s", e)
+            logger.error(
+                "Error accepting connection on control server: address=%r, error=%s",
+                listener.address,
+                e,
+            )
             return None
 
     def _accept_loop(self) -> None:

@@ -147,20 +147,26 @@ class TestConnectWithRetry:
         assert result is mock_conn
         patched_client_factory.assert_called_once_with("test-address")
 
-    def test_retries_on_failure_and_succeeds(self, patched_client_factory):
+    def test_retries_on_failure_and_succeeds(self, patched_client_factory, caplog):
         mock_conn = MagicMock()
         patched_client_factory.side_effect = [OSError("conn refused"), mock_conn]
         result = connect_with_retry("test-address")
         assert result is mock_conn
         assert patched_client_factory.call_count == 2
+        assert "Failed to connect to control plane" not in caplog.text
 
-    def test_returns_none_after_timeout(self, patched_client_factory):
+    def test_returns_none_after_timeout(self, patched_client_factory, caplog):
         patched_client_factory.side_effect = OSError("conn refused")
         result = connect_with_retry("test-address", timeout=0.1)
         assert result is None
+        assert "Failed to connect to control plane" in caplog.text
+        assert "address='test-address'" in caplog.text
+        assert "conn refused" in caplog.text
 
 
 class TestDefaultConnect:
-    def test_returns_none_on_connection_failure(self):
+    def test_returns_none_on_connection_failure(self, caplog):
         with patch("gcmon.control.control_client.time.sleep"):
             assert _default_connect("/nonexistent/control/socket") is None
+        assert "Failed to connect to control plane" in caplog.text
+        assert "address='/nonexistent/control/socket'" in caplog.text
