@@ -358,12 +358,25 @@ def convert_item_to_perfetto_packets(
     iid = item.iid
     base_ann = _base_annotations(gen, iid)
 
+    extra_ann: list[bytes] = []
+    if has_incremental(item) and gen < 2:
+        extra_ann.append(_build_debug_annotation_int("increment_size", item.increment_size))
+    if has_mark_alive(item) and gen > 0:
+        extra_ann.append(_build_debug_annotation_int("alive_size", item.alive_size))
+    if has_finalize_garbage(item):
+        extra_ann.append(_build_debug_annotation_int("finalized_garbage_count", item.finalized_garbage_count))
+    if has_delete_garbage(item):
+        extra_ann.append(_build_debug_annotation_int("deleted_garbage_count", item.deleted_garbage_count))
+    if has_clear_weakrefs(item):
+        extra_ann.append(_build_debug_annotation_int("clear_weakrefs_count", item.clear_weakrefs_count))
+
     pause_ann = list(base_ann)
     pause_ann.append(_build_debug_annotation_int("collections", item.collections))
     pause_ann.append(_build_debug_annotation_int("heap_size", item.heap_size))
     pause_ann.append(_build_debug_annotation_int("collected", item.collected))
     pause_ann.append(_build_debug_annotation_int("uncollectable", item.uncollectable))
     pause_ann.append(_build_debug_annotation_int("candidates", item.candidates))
+    pause_ann.extend(extra_ann)
 
     packets.append(build_trace_packet(
         sequence_id, timestamp=ts_start_us,
@@ -374,8 +387,7 @@ def convert_item_to_perfetto_packets(
     ))
 
     if has_mark_alive(item) and item.ts_mark_alive_stop - item.ts_mark_alive_start > 0:
-        ann = list(base_ann)
-        ann.append(_build_debug_annotation_int("alive_size", item.alive_size))
+        ann = list(base_ann) + list(extra_ann)
         mark_alive_start_us = ts_to_us(item.ts_mark_alive_start)
         mark_alive_stop_us = ts_to_us(item.ts_mark_alive_stop)
         packets.append(build_trace_packet(
@@ -391,8 +403,7 @@ def convert_item_to_perfetto_packets(
         ))
 
     if has_incremental(item) and item.ts_fill_increment_stop - item.ts_fill_increment_start > 0:
-        ann = list(base_ann)
-        ann.append(_build_debug_annotation_int("increment_size", item.increment_size))
+        ann = list(base_ann) + list(extra_ann)
         fill_inc_start_us = ts_to_us(item.ts_fill_increment_start)
         fill_inc_stop_us = ts_to_us(item.ts_fill_increment_stop)
         packets.append(build_trace_packet(
@@ -414,7 +425,7 @@ def convert_item_to_perfetto_packets(
             sequence_id, timestamp=deduce_start_us,
             track_event=_make_slice_begin(
                 thread_uuid, f"Deduce Unreachable (gen={gen})", [f"gc.deduce(gen={gen})"],
-                list(base_ann),
+                list(base_ann) + list(extra_ann),
             ),
         ))
         packets.append(build_trace_packet(
@@ -430,7 +441,7 @@ def convert_item_to_perfetto_packets(
             track_event=_make_slice_begin(
                 thread_uuid, f"Handle Weakrefs Callbacks (gen={gen})",
                 [f"gc.weakrefs(gen={gen})"],
-                list(base_ann),
+                list(base_ann) + list(extra_ann),
             ),
         ))
         packets.append(build_trace_packet(
@@ -439,8 +450,7 @@ def convert_item_to_perfetto_packets(
         ))
 
     if has_finalize_garbage(item) and item.ts_finalize_garbage_stop - item.ts_handle_weakref_callbacks_stop > 0:
-        ann = list(base_ann)
-        ann.append(_build_debug_annotation_int("finalized_garbage_count", item.finalized_garbage_count))
+        ann = list(base_ann) + list(extra_ann)
         fin_start_us = ts_to_us(item.ts_handle_weakref_callbacks_stop)
         fin_stop_us = ts_to_us(item.ts_finalize_garbage_stop)
         packets.append(build_trace_packet(
@@ -462,7 +472,7 @@ def convert_item_to_perfetto_packets(
             sequence_id, timestamp=res_start_us,
             track_event=_make_slice_begin(
                 thread_uuid, f"Handle Resurrected (gen={gen})", [f"gc.resurrect(gen={gen})"],
-                list(base_ann),
+                list(base_ann) + list(extra_ann),
             ),
         ))
         packets.append(build_trace_packet(
@@ -471,8 +481,7 @@ def convert_item_to_perfetto_packets(
         ))
 
     if has_clear_weakrefs(item) and item.ts_clear_weakrefs_stop - item.ts_handle_resurrected_stop > 0:
-        ann = list(base_ann)
-        ann.append(_build_debug_annotation_int("clear_weakrefs_count", item.clear_weakrefs_count))
+        ann = list(base_ann) + list(extra_ann)
         cw_start_us = ts_to_us(item.ts_handle_resurrected_stop)
         cw_stop_us = ts_to_us(item.ts_clear_weakrefs_stop)
         packets.append(build_trace_packet(
@@ -488,8 +497,7 @@ def convert_item_to_perfetto_packets(
         ))
 
     if has_delete_garbage(item) and item.ts_delete_garbage_stop - item.ts_delete_garbage_start > 0:
-        ann = list(base_ann)
-        ann.append(_build_debug_annotation_int("deleted_garbage_count", item.deleted_garbage_count))
+        ann = list(base_ann) + list(extra_ann)
         del_start_us = ts_to_us(item.ts_delete_garbage_start)
         del_stop_us = ts_to_us(item.ts_delete_garbage_stop)
         packets.append(build_trace_packet(

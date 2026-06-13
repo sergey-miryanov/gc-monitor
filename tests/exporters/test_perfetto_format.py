@@ -586,6 +586,172 @@ class TestConvertItemToPerfettoPackets:
         assert ("uncollectable", 2) in ann_values
         assert ("candidates", 3) in ann_values
 
+    def test_pause_slice_includes_optional_fields_gen1(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=1, iid=0, ts_start=3_000, ts_stop=4_000,
+            heap_size=2048, collections=10, collected=100,
+            uncollectable=1, candidates=20, duration=0.01,
+            increment_size=500, alive_size=300,
+            ts_mark_alive_start=3_000, ts_mark_alive_stop=3_100,
+            ts_fill_increment_start=3_100, ts_fill_increment_stop=3_200,
+            ts_deduce_unreachable_start=3_200, ts_deduce_unreachable_stop=3_300,
+            ts_handle_weakref_callbacks_start=3_300,
+            ts_handle_weakref_callbacks_stop=3_400,
+            ts_finalize_garbage_stop=3_500,
+            finalized_garbage_count=42,
+            ts_handle_resurrected_stop=3_600,
+            ts_clear_weakrefs_stop=3_700,
+            clear_weakrefs_count=7,
+            ts_delete_garbage_start=3_800,
+            ts_delete_garbage_stop=3_900,
+            deleted_garbage_count=13,
+        )
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
+        ann_values = _collect_annotation_values(packets, "GC Pause (gen=1)")
+        assert ("increment_size", 500) in ann_values
+        assert ("alive_size", 300) in ann_values
+        assert ("finalized_garbage_count", 42) in ann_values
+        assert ("deleted_garbage_count", 13) in ann_values
+        assert ("clear_weakrefs_count", 7) in ann_values
+        assert ("generation", 1) in ann_values
+        assert ("iid", 0) in ann_values
+        assert ("collections", 10) in ann_values
+        assert ("heap_size", 2048) in ann_values
+        assert ("collected", 100) in ann_values
+        assert ("uncollectable", 1) in ann_values
+        assert ("candidates", 20) in ann_values
+
+    def test_pause_slice_omits_alive_size_gen0(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+            increment_size=200, alive_size=100,
+            ts_mark_alive_start=1_000, ts_mark_alive_stop=1_100,
+            ts_fill_increment_start=1_100, ts_fill_increment_stop=1_200,
+        )
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
+        ann_values = _collect_annotation_values(packets, "GC Pause (gen=0)")
+        assert ("increment_size", 200) in ann_values
+        assert ("alive_size", 100) not in ann_values
+
+    def test_pause_slice_omits_increment_size_gen2(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=2, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+            increment_size=500, alive_size=300,
+            ts_mark_alive_start=1_000, ts_mark_alive_stop=1_100,
+            ts_fill_increment_start=1_100, ts_fill_increment_stop=1_200,
+        )
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
+        ann_values = _collect_annotation_values(packets, "GC Pause (gen=2)")
+        assert ("alive_size", 300) in ann_values
+        assert ("increment_size", 500) not in ann_values
+
+    def test_subphase_slices_include_optional_fields(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=1, iid=0, ts_start=3_000, ts_stop=4_000,
+            heap_size=2048, collections=10, collected=100,
+            uncollectable=1, candidates=20, duration=0.01,
+            increment_size=500, alive_size=300,
+            ts_mark_alive_start=3_000, ts_mark_alive_stop=3_100,
+            ts_fill_increment_start=3_100, ts_fill_increment_stop=3_200,
+            ts_deduce_unreachable_start=3_200, ts_deduce_unreachable_stop=3_300,
+            ts_handle_weakref_callbacks_start=3_300,
+            ts_handle_weakref_callbacks_stop=3_400,
+            ts_finalize_garbage_stop=3_500,
+            finalized_garbage_count=42,
+            ts_handle_resurrected_stop=3_600,
+            ts_clear_weakrefs_stop=3_700,
+            clear_weakrefs_count=7,
+            ts_delete_garbage_start=3_800,
+            ts_delete_garbage_stop=3_900,
+            deleted_garbage_count=13,
+        )
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
+        for slice_name in [
+            "Mark Alive (gen=1)",
+            "Fill increment (gen=1)",
+            "Deduce Unreachable (gen=1)",
+            "Handle Weakrefs Callbacks (gen=1)",
+            "Finalize Garbage (gen=1)",
+            "Handle Resurrected (gen=1)",
+            "Clear Weakrefs (gen=1)",
+            "Delete Garbage (gen=1)",
+        ]:
+            ann_values = _collect_annotation_values(packets, slice_name)
+            assert ("increment_size", 500) in ann_values, slice_name
+            assert ("alive_size", 300) in ann_values, slice_name
+            assert ("finalized_garbage_count", 42) in ann_values, slice_name
+            assert ("deleted_garbage_count", 13) in ann_values, slice_name
+            assert ("clear_weakrefs_count", 7) in ann_values, slice_name
+
+    def test_subphase_slice_no_duplicate_annotations(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=1, iid=0, ts_start=3_000, ts_stop=4_000,
+            heap_size=2048, collections=10, collected=100,
+            uncollectable=1, candidates=20, duration=0.01,
+            increment_size=500, alive_size=300,
+            ts_mark_alive_start=3_000, ts_mark_alive_stop=3_100,
+            ts_fill_increment_start=3_100, ts_fill_increment_stop=3_200,
+            ts_deduce_unreachable_start=3_200, ts_deduce_unreachable_stop=3_300,
+            ts_handle_weakref_callbacks_start=3_300,
+            ts_handle_weakref_callbacks_stop=3_400,
+            ts_finalize_garbage_stop=3_500,
+            finalized_garbage_count=42,
+            ts_handle_resurrected_stop=3_600,
+            ts_clear_weakrefs_stop=3_700,
+            clear_weakrefs_count=7,
+            ts_delete_garbage_start=3_800,
+            ts_delete_garbage_stop=3_900,
+            deleted_garbage_count=13,
+        )
+        _, packets = convert_item_to_perfetto_packets(100, item, state, sequence_id=1)
+        for p in packets:
+            fields = decode_message(p)
+            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
+            if not te_bytes:
+                continue
+            te_fields = decode_message(te_bytes)
+            if get_varint(te_fields, TrackEventField.TYPE) != TYPE_SLICE_BEGIN:
+                continue
+            anns = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
+            names = [
+                get_string(decode_message(ann.value), DebugAnnotationField.NAME)  # type: ignore[arg-type]
+                for ann in anns
+            ]
+            assert len(names) == len(set(names)), (
+                f"Duplicate annotation names on slice {get_string(te_fields, TrackEventField.NAME)}: {names}"
+            )
+
+
+def _collect_annotation_values(packets: list[bytes], slice_name: str) -> list[tuple[str, int]]:
+    for p in packets:
+        fields = decode_message(p)
+        te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
+        if not te_bytes:
+            continue
+        te_fields = decode_message(te_bytes)
+        if get_varint(te_fields, TrackEventField.TYPE) != TYPE_SLICE_BEGIN:
+            continue
+        if get_string(te_fields, TrackEventField.NAME) != slice_name:
+            continue
+        anns = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
+        result: list[tuple[str, int]] = []
+        for ann in anns:
+            ann_fields = decode_message(ann.value)  # type: ignore[arg-type]
+            name = get_string(ann_fields, DebugAnnotationField.NAME)
+            val = get_varint(ann_fields, DebugAnnotationField.INT_VALUE)
+            result.append((name, val))
+        return result
+    return []
+
 
 class TestConvertInstantToPerfettoPacket:
     def test_emits_process_descriptor(self) -> None:
