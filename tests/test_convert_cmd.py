@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.exporters.chrome_trace_format import pause_event, process_meta, thread_meta
+from gcmon.exporters.chrome_trace_format import begin_event, end_event, process_meta, thread_meta
 from tests.helpers import (
-    assert_is_complete,
+    assert_is_begin,
     assert_is_counter,
     assert_is_process_meta,
     assert_is_thread_meta,
@@ -21,16 +21,12 @@ from tests.helpers import (
 # =============================================================================
 
 
-def make_complete(name: str, ts: int = 0, dur: float = 10, pid: int = 1, tid: int = 1, cat: str = "test") -> dict:
-    return pause_event(
-        pid=pid,
-        tid=tid,
-        name=name,
-        cat=cat,
-        ts_us=ts,
-        dur_us=dur,
-        args={"generation": 0, "iid": tid, "collections": 1, "heap_size": 1000, "collected": 0, "uncollectable": 0, "candidates": 0},
-    )
+def make_event_pair(name: str, ts: int = 0, dur: float = 10, pid: int = 1, tid: int = 1, cat: str = "test") -> list[dict]:
+    args = {"generation": 0, "iid": tid, "collections": 1, "heap_size": 1000, "collected": 0, "uncollectable": 0, "candidates": 0}
+    return [
+        begin_event(pid=pid, tid=tid, name=name, cat=cat, ts_us=ts, args=args),
+        end_event(pid=pid, tid=tid, name=name, cat=cat, ts_us=ts + int(dur)),
+    ]
 
 
 # =============================================================================
@@ -86,7 +82,7 @@ def test_cmd_combine_basic(tmp_path: Path) -> None:
     from gcmon.commands import convert_cmd
 
     input_file = tmp_path / "input.json"
-    input_file.write_text(json.dumps([make_complete("test", ts=100)]))
+    input_file.write_text(json.dumps(make_event_pair("test", ts=100)))
 
     args = Namespace(inputs=[input_file], output=tmp_path / "output.json", verbose=1, normalize=False, input_format="chrome", output_format="chrome")
     assert convert_cmd.cmd_combine(args) == 0
@@ -119,18 +115,19 @@ def test_cmd_combine_invalid_json(caplog: pytest.LogCaptureFixture, tmp_path: Pa
 
 class TestCliCombine:
     def test_basic(self, make_trace_file, run_combine, combine_output) -> None:
-        f1 = make_trace_file("trace1.json", [make_complete("event1", ts=100)])
-        f2 = make_trace_file("trace2.json", [make_complete("event2", ts=200)])
+        f1 = make_trace_file("trace1.json", make_event_pair("event1", ts=100))
+        f2 = make_trace_file("trace2.json", make_event_pair("event2", ts=200))
 
         result = run_combine([f1, f2], output=combine_output, extra_args=["-v"])
 
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
-        assert_is_complete(data[0], name="event1", ts=100)
-        assert_is_complete(data[1], name="event2", ts=200)
+        begins = [e for e in data if e["ph"] == "B"]
+        assert_is_begin(begins[0], name="event1", ts=100)
+        assert_is_begin(begins[1], name="event2", ts=200)
 
     def test_verbose_output(self, make_trace_file, run_combine, combine_output) -> None:
-        f1 = make_trace_file("trace1.json", [make_complete("event1", ts=100)])
+        f1 = make_trace_file("trace1.json", make_event_pair("event1", ts=100))
 
         result = run_combine([f1], output=combine_output, extra_args=["-v"])
 
@@ -154,110 +151,100 @@ class TestCliCombine:
 
     def test_multiple_files(self, make_trace_file, run_combine, combine_output) -> None:
         files = [
-            make_trace_file(f"trace{i}.json", [make_complete(f"event{i}", ts=i * 100)])
+            make_trace_file(f"trace{i}.json", make_event_pair(f"event{i}", ts=i * 100))
             for i in range(1, 4)
         ]
         result = run_combine(files, output=combine_output)
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
-        assert_is_complete(data[0], name="event1", ts=100)
-        assert_is_complete(data[1], name="event2", ts=200)
-        assert_is_complete(data[2], name="event3", ts=300)
+        begins = [e for e in data if e["ph"] == "B"]
+        assert_is_begin(begins[0], name="event1", ts=100)
+        assert_is_begin(begins[1], name="event2", ts=200)
+        assert_is_begin(begins[2], name="event3", ts=300)
 
 
 class TestCliCombineNormalize:
     """Tests for combine --normalize behavior."""
 
     def test_basic(self, make_trace_file, run_combine, combine_output) -> None:
-        f1 = make_trace_file("trace1.json", [
-            make_complete("event1", ts=1000),
-            make_complete("event2", ts=1100),
-        ])
-        f2 = make_trace_file("trace2.json", [
-            make_complete("event3", ts=5000),
-            make_complete("event4", ts=5200),
-        ])
+        f1 = make_trace_file("trace1.json",
+            make_event_pair("event1", ts=1000) + make_event_pair("event2", ts=1100))
+        f2 = make_trace_file("trace2.json",
+            make_event_pair("event3", ts=5000) + make_event_pair("event4", ts=5200))
 
         result = run_combine([f1, f2], output=combine_output, extra_args=["--normalize", "-v"])
 
         assert result.returncode == 0
         assert "Normalizing timestamps: yes" in result.stderr
         data = assert_valid_chrome_trace_format(combine_output)
-        assert_is_complete(data[0], name="event1", ts=0)
-        assert_is_complete(data[1], name="event2", ts=100)
-        assert_is_complete(data[2], name="event3", ts=0)
-        assert_is_complete(data[3], name="event4", ts=200)
+        begins = [e for e in data if e["ph"] == "B"]
+        assert_is_begin(begins[0], name="event1", ts=0)
+        assert_is_begin(begins[1], name="event2", ts=100)
+        assert_is_begin(begins[2], name="event3", ts=0)
+        assert_is_begin(begins[3], name="event4", ts=200)
 
     def test_preserves_relative_timing(self, make_trace_file, run_combine, combine_output) -> None:
-        f1 = make_trace_file("trace1.json", [
-            make_complete("event1", ts=1000),
-            make_complete("event2", ts=1050),
-            make_complete("event3", ts=1200),
-            make_complete("event4", ts=1700),
-        ])
+        f1 = make_trace_file("trace1.json",
+            make_event_pair("event1", ts=1000) + make_event_pair("event2", ts=1050)
+            + make_event_pair("event3", ts=1200) + make_event_pair("event4", ts=1700))
         result = run_combine([f1], output=combine_output, extra_args=["--normalize"])
 
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
-        assert [e["ts"] for e in data] == [0, 50, 200, 700]
+        begins = [e for e in data if e["ph"] == "B"]
+        assert [e["ts"] for e in begins] == [0, 50, 200, 700]
 
     def test_multiple_files_independent(self, make_trace_file, run_combine, combine_output) -> None:
         files = [
-            make_trace_file("trace1.json", [
-                make_complete("f1_e1", ts=100),
-                make_complete("f1_e2", ts=200),
-            ]),
-            make_trace_file("trace2.json", [
-                make_complete("f2_e1", ts=10000),
-                make_complete("f2_e2", ts=10100),
-            ]),
-            make_trace_file("trace3.json", [
-                make_complete("f3_e1", ts=50000),
-                make_complete("f3_e2", ts=50050),
-            ]),
+            make_trace_file("trace1.json",
+                make_event_pair("f1_e1", ts=100) + make_event_pair("f1_e2", ts=200)),
+            make_trace_file("trace2.json",
+                make_event_pair("f2_e1", ts=10000) + make_event_pair("f2_e2", ts=10100)),
+            make_trace_file("trace3.json",
+                make_event_pair("f3_e1", ts=50000) + make_event_pair("f3_e2", ts=50050)),
         ]
         result = run_combine(files, output=combine_output, extra_args=["--normalize"])
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
-        assert [e["ts"] for e in data] == [0, 100, 0, 100, 0, 50]
+        begins = [e for e in data if e["ph"] == "B"]
+        assert [e["ts"] for e in begins] == [0, 100, 0, 100, 0, 50]
 
     def test_without_normalize(self, make_trace_file, run_combine, combine_output) -> None:
-        f1 = make_trace_file("trace1.json", [
-            make_complete("event1", ts=1000),
-            make_complete("event2", ts=1100),
-        ])
-        f2 = make_trace_file("trace2.json", [
-            make_complete("event3", ts=5000),
-            make_complete("event4", ts=5200),
-        ])
+        f1 = make_trace_file("trace1.json",
+            make_event_pair("event1", ts=1000) + make_event_pair("event2", ts=1100))
+        f2 = make_trace_file("trace2.json",
+            make_event_pair("event3", ts=5000) + make_event_pair("event4", ts=5200))
         result = run_combine([f1, f2], output=combine_output)
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
-        assert [e["ts"] for e in data] == [1000, 1100, 5000, 5200]
+        begins = [e for e in data if e["ph"] == "B"]
+        assert [e["ts"] for e in begins] == [1000, 1100, 5000, 5200]
 
     def test_with_metadata(self, make_trace_file, run_combine, combine_output) -> None:
         f1 = make_trace_file("trace1.json", [
             process_meta(pid=123, name="process_name"),
-            make_complete("event1", ts=1000, pid=123),
+            *make_event_pair("event1", ts=1000, pid=123),
             thread_meta(pid=123, tid=1, name="thread_name"),
-            make_complete("event2", ts=1500, pid=123),
+            *make_event_pair("event2", ts=1500, pid=123),
         ])
         result = run_combine([f1], output=combine_output, extra_args=["--normalize"])
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
+        begins = [e for e in data if e["ph"] == "B"]
         assert_is_process_meta(data[0], pid=123)
-        assert_is_complete(data[1], name="event1", ts=0, pid=123)
-        assert_is_thread_meta(data[2], pid=123, tid=1)
-        assert_is_complete(data[3], name="event2", ts=500, pid=123)
+        assert_is_begin(begins[0], name="event1", ts=0, pid=123)
+        assert_is_thread_meta(data[3], pid=123, tid=1)
+        assert_is_begin(begins[1], name="event2", ts=500, pid=123)
 
     def test_empty_file(self, make_trace_file, run_combine, combine_output) -> None:
         f1 = make_trace_file("trace1.json", [])
-        f2 = make_trace_file("trace2.json", [make_complete("event1", ts=1000)])
+        f2 = make_trace_file("trace2.json", make_event_pair("event1", ts=1000))
         result = run_combine([f1, f2], output=combine_output, extra_args=["--normalize"])
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
-        assert_is_complete(data[0], name="event1", ts=0)
-        assert len(data) == 1
+        begins = [e for e in data if e["ph"] == "B"]
+        assert_is_begin(begins[0], name="event1", ts=0)
+        assert len(data) == 2  # begin + end
 
     def test_metadata_only(self, make_trace_file, run_combine, combine_output) -> None:
         f1 = make_trace_file("trace1.json", [
@@ -271,31 +258,34 @@ class TestCliCombineNormalize:
         assert_is_thread_meta(data[1], pid=123, tid=1)
 
     def test_short_option(self, make_trace_file, run_combine, combine_output) -> None:
-        f1 = make_trace_file("trace1.json", [make_complete("event1", ts=5000)])
+        f1 = make_trace_file("trace1.json", make_event_pair("event1", ts=5000))
         result = run_combine([f1], output=combine_output, extra_args=["-n"])
         assert result.returncode == 0
-        assert_is_complete(assert_valid_chrome_trace_format(combine_output)[0], name="event1", ts=0)
+        data = assert_valid_chrome_trace_format(combine_output)
+        begins = [e for e in data if e["ph"] == "B"]
+        assert_is_begin(begins[0], name="event1", ts=0)
 
     def test_mixed_metadata_and_events(self, make_trace_file, run_combine, combine_output) -> None:
         f1 = make_trace_file("trace1.json", [
             process_meta(pid=123, name="process_name"),
-            make_complete("event1", ts=100, pid=123),
-            make_complete("event2", ts=150, pid=123),
+            *make_event_pair("event1", ts=100, pid=123),
+            *make_event_pair("event2", ts=150, pid=123),
         ])
         f2 = make_trace_file("trace2.json", [
             process_meta(pid=456, name="process_name"),
-            make_complete("event3", ts=1000, pid=456),
-            make_complete("event4", ts=1200, pid=456),
+            *make_event_pair("event3", ts=1000, pid=456),
+            *make_event_pair("event4", ts=1200, pid=456),
         ])
         result = run_combine([f1, f2], output=combine_output, extra_args=["--normalize"])
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
+        begins = [e for e in data if e["ph"] == "B"]
         assert_is_process_meta(data[0], pid=123)
-        assert_is_complete(data[1], name="event1", ts=0, pid=123)
-        assert_is_complete(data[2], name="event2", ts=50, pid=123)
-        assert_is_process_meta(data[3], pid=456)
-        assert_is_complete(data[4], name="event3", ts=0, pid=456)
-        assert_is_complete(data[5], name="event4", ts=200, pid=456)
+        assert_is_begin(begins[0], name="event1", ts=0, pid=123)
+        assert_is_begin(begins[1], name="event2", ts=50, pid=123)
+        assert_is_process_meta(data[5], pid=456)
+        assert_is_begin(begins[2], name="event3", ts=0, pid=456)
+        assert_is_begin(begins[3], name="event4", ts=200, pid=456)
 
 
 # =============================================================================
@@ -345,10 +335,10 @@ class TestCliCombineJsonlToChrome:
         assert "Input format: jsonl" in result.stderr
         assert "Output format: chrome" in result.stderr
         data = assert_valid_chrome_trace_format(combine_output)
-        # 1 JSONL record → 1 GC Pause (X) + 1 G0 counter (C) + process_name + thread_name
+        # 1 JSONL record → 1 GC Pause (B) + 1 G0 counter (C) + process_name + thread_name
         assert_is_process_meta(next(e for e in data if e["name"] == "process_name"), pid=123)
         assert_is_thread_meta(next(e for e in data if e["name"] == "thread_name"), pid=123, tid=1)
-        assert_is_complete(next(e for e in data if e["ph"] == "X"), name="GC Pause (gen=0)")
+        assert_is_begin(next(e for e in data if e["ph"] == "B"), name="GC Pause (gen=0)")
         assert_is_counter(next(e for e in data if e["ph"] == "C"), name="G0")
 
     def test_multiple_files(self, make_jsonl_file, run_combine, combine_output) -> None:
@@ -359,8 +349,8 @@ class TestCliCombineJsonlToChrome:
 
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
-        # 2 files → 2 process_meta + 2 thread_meta + 2 X + 2 C
-        assert len([e for e in data if e["ph"] == "X"]) == 2
+        # 2 files → 2 process_meta + 2 thread_meta + 2 B + 2 C
+        assert len([e for e in data if e["ph"] == "B"]) == 2
         assert len([e for e in data if e["ph"] == "C"]) == 2
         assert len([e for e in data if e["name"] == "process_name"]) == 2
         assert len([e for e in data if e["name"] == "thread_name"]) == 2
@@ -376,7 +366,7 @@ class TestCliCombineJsonlToChrome:
         assert result.returncode == 0
         assert "Normalizing timestamps: yes" in result.stderr
         data = assert_valid_chrome_trace_format(combine_output)
-        pause_events = [e for e in data if e["ph"] == "X"]
+        pause_events = [e for e in data if e["ph"] == "B"]
         assert len(pause_events) == 2
         assert pause_events[0]["ts"] == 0
 
@@ -443,17 +433,17 @@ class TestCliCombineFormatValidation:
     """Tests for format validation (chrome→jsonl should error)."""
 
     def test_chrome_to_jsonl_error(self, make_trace_file, combine_output, run_combine) -> None:
-        f1 = make_trace_file("trace.json", [make_complete("event1", ts=100)])
+        f1 = make_trace_file("trace.json", [make_event_pair("event1", ts=100)])
         result = run_combine([f1], output=combine_output, extra_args=["--output-format", "jsonl"])
         assert result.returncode == 1
         assert "not supported" in result.stderr.lower()
 
     def test_explicit_chrome_to_chrome(self, make_trace_file, run_combine, combine_output) -> None:
-        f1 = make_trace_file("trace.json", [make_complete("event1", ts=100)])
+        f1 = make_trace_file("trace.json", make_event_pair("event1", ts=100))
         result = run_combine([f1], output=combine_output, extra_args=["--input-format", "chrome", "--output-format", "chrome"])
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
-        assert_is_complete(data[0], name="event1", ts=100)
+        assert_is_begin(data[0], name="event1", ts=100)
 
 
 class TestCliCombineHelp:

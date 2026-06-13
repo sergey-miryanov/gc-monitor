@@ -12,7 +12,7 @@ from gcmon.target_process import ExternalProcess
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.helpers import (
-    assert_is_complete,
+    assert_is_begin,
     assert_is_counter,
     assert_is_process_meta,
     assert_is_thread_meta,
@@ -30,12 +30,12 @@ class TestTraceExporter:
         exporter, path = trace_exporter(threshold=500)
 
     def _verify_events(self, data: list[dict], num_items: int) -> None:
-        completes = [e for e in data if e["ph"] == "X"]
+        begins = [e for e in data if e["ph"] == "B"]
         counters = [e for e in data if e["ph"] == "C"]
         metas = [e for e in data if e["ph"] == "M"]
-        assert len(completes) == num_items
+        assert len(begins) == num_items
         assert len(counters) == num_items
-        assert all(e["name"] == "GC Pause (gen=0)" for e in completes)
+        assert all(e["name"] == "GC Pause (gen=0)" for e in begins)
         assert all(e["name"] == "G0" for e in counters)
         assert_is_process_meta(next(e for e in metas if e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
         assert_is_thread_meta(next(e for e in metas if e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
@@ -65,8 +65,8 @@ class TestTraceExporter:
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
         for event in data:
-            if event["ph"] == "X":
-                assert_is_complete(event, name="GC Pause (gen=0)", cat="gc.pause(gen=0)", ts=1_500_000, dur=5_000.0, pid=12345, tid=0, args={"generation": 0, "iid": 0, "collections": 50, "heap_size": 52428800, "collected": 200, "uncollectable": 10, "candidates": 40})
+            if event["ph"] == "B":
+                assert_is_begin(event, name="GC Pause (gen=0)", cat="gc.pause(gen=0)", ts=1_500_000, pid=12345, tid=0, args={"generation": 0, "iid": 0, "collections": 50, "heap_size": 52428800, "collected": 200, "uncollectable": 10, "candidates": 40})
             elif event["ph"] == "C":
                 assert_is_counter(event, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40, "heap_size": 52428800})
             elif event["ph"] == "M" and event["name"] == "process_name":
@@ -89,9 +89,8 @@ class TestTraceExporter:
 
         data = assert_valid_chrome_trace_format(path)
         events = [e for e in data if e.get("ph") != "M"]
-        assert events[0]["ts"] == 1_500_000
-        assert events[1]["ts"] == 1_500_000
-        assert events[0]["dur"] == 5000
+        assert events[0]["ts"] == 1_500_000  # begin
+        assert events[1]["ts"] == 1_505_000  # end
 
     def test_complete_event_structure(self, mock_stats_item, trace_exporter) -> None:
         exporter, path = trace_exporter()
@@ -99,8 +98,8 @@ class TestTraceExporter:
         exporter.close()
 
         data = assert_valid_chrome_trace_format(path)
-        event = next(e for e in data if e["ph"] == "X")
-        assert_is_complete(event, name="GC Pause (gen=0)", cat="gc.pause(gen=0)", ts=1_500_000, dur=5_000.0, pid=12345, tid=0, args={"generation": 0, "iid": 0, "collections": 50, "heap_size": 52428800, "collected": 200, "uncollectable": 10, "candidates": 40})
+        event = next(e for e in data if e["ph"] == "B")
+        assert_is_begin(event, name="GC Pause (gen=0)", cat="gc.pause(gen=0)", ts=1_500_000, pid=12345, tid=0, args={"generation": 0, "iid": 0, "collections": 50, "heap_size": 52428800, "collected": 200, "uncollectable": 10, "candidates": 40})
 
     def test_counter_event_structure(self, mock_stats_item, trace_exporter) -> None:
         exporter, path = trace_exporter()
@@ -138,9 +137,9 @@ class TestTraceExporter:
         exporter.close()
 
         data = assert_valid_chrome_trace_format(path)
-        complete_events = [e for e in data if e["ph"] == "X"]
-        assert len(complete_events) == 3
-        assert {e["args"]["generation"] for e in complete_events} == {0, 1, 2}
+        begin_events = [e for e in data if e["ph"] == "B"]
+        assert len(begin_events) == 3
+        assert {e["args"]["generation"] for e in begin_events} == {0, 1, 2}
 
     def test_add_instant_event_writes_instant_event(self, trace_exporter) -> None:
         exporter, path = trace_exporter()
@@ -167,7 +166,7 @@ class TestTraceExporter:
 
         data = assert_valid_chrome_trace_format(path)
         assert any(e["ph"] == "I" for e in data)
-        assert any(e["ph"] == "X" for e in data)
+        assert any(e["ph"] == "B" for e in data)
         assert any(e["ph"] == "C" for e in data)
         assert any(e["ph"] == "M" for e in data)
 
@@ -241,8 +240,8 @@ class TestGCMonitorStreaming:
         data = assert_valid_chrome_trace_format(path)
         assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
         assert any(e["name"] == "GC Pause (gen=1)" for e in data)
-        # At least one complete event per poll
-        assert len([e for e in data if e["ph"] == "X"]) >= 4
+        # At least one begin event per poll
+        assert len([e for e in data if e["ph"] == "B"]) >= 4
         assert len([e for e in data if e["ph"] == "C"]) >= 4
 
     def test_streams_events_individually(self, mock_read_events, monitor_with_exporter) -> None:
@@ -252,7 +251,7 @@ class TestGCMonitorStreaming:
                 monitor.poll(12345)
         monitor.stop()
         data = assert_valid_chrome_trace_format(path)
-        assert len([e for e in data if e["ph"] == "X"]) >= 4
+        assert len([e for e in data if e["ph"] == "B"]) >= 4
 
     def test_stop_closes_exporter(self, mock_read_events, monitor_with_exporter) -> None:
         monitor, exporter, path = monitor_with_exporter
@@ -264,7 +263,7 @@ class TestGCMonitorStreaming:
         data = assert_valid_chrome_trace_format(path)
         assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
         assert next((e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), None) is not None
-        assert len([e for e in data if e["ph"] == "X"]) >= 3
+        assert len([e for e in data if e["ph"] == "B"]) >= 3
         assert len([e for e in data if e["ph"] == "C"]) >= 3
 
     def test_handles_read_error_gracefully(self, monitor_with_exporter) -> None:
@@ -290,8 +289,8 @@ class TestGCMonitorStreaming:
         monitor.stop()
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
-        # 1 successful poll = 1 GC event (X + C) + metadata
+        # 1 successful poll = 1 GC event (B/E + C) + metadata
         assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
         assert_is_thread_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
-        assert len([e for e in data if e["ph"] == "X"]) == 1
+        assert len([e for e in data if e["ph"] == "B"]) == 1
         assert len([e for e in data if e["ph"] == "C"]) == 1

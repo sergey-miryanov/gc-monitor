@@ -22,10 +22,10 @@ from ..protocol import (
     to_mapping,
 )
 from .chrome_trace_format import (
+    BeginEvent,
     CounterEvent,
-    IncrementalEvent,
+    EndEvent,
     InstantEvent,
-    PauseEvent,
     ProcessMeta,
     ThreadMeta,
     TraceEvent,
@@ -115,24 +115,19 @@ def _parse_events(content: str | bytes) -> list[TraceEvent]:
                 result.append(msgspec.convert(obj, ThreadMeta))
         elif ph == "C":
             result.append(msgspec.convert(obj, CounterEvent))
-        elif ph == "X":
-            args = obj.get("args")
-            if isinstance(args, dict):
-                if "collected" in args:
-                    result.append(msgspec.convert(obj, PauseEvent))
-                else:
-                    result.append(msgspec.convert(obj, IncrementalEvent))
-            else:
-                raise ValueError(f"Expected args should be a dict, not: {type(args)}")
+        elif ph == "B":
+            result.append(msgspec.convert(obj, BeginEvent))
+        elif ph == "E":
+            result.append(msgspec.convert(obj, EndEvent))
         elif ph == "I":
             result.append(msgspec.convert(obj, InstantEvent))
     return result
 
 
 def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
-    by_pid: dict[int, list[PauseEvent | IncrementalEvent | CounterEvent | InstantEvent]] = {}
+    by_pid: dict[int, list[BeginEvent | EndEvent | CounterEvent | InstantEvent]] = {}
     for event in events:
-        if event["ph"] in ("X", "C", "I"):
+        if event["ph"] in ("B", "E", "C", "I"):
             by_pid.setdefault(event["pid"], []).append(event)  # pyrefly: ignore[bad-argument-type]
 
     for timed in by_pid.values():

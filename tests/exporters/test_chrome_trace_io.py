@@ -7,6 +7,13 @@ from types import SimpleNamespace
 import msgspec
 import pytest
 
+from gcmon.exporters.chrome_trace_format import (
+    begin_event,
+    counter_event,
+    end_event,
+    process_meta,
+    thread_meta,
+)
 from gcmon.exporters.chrome_trace_io import (
     _normalize_jsonl_timestamps,
     _normalize_trace_timestamps,
@@ -18,17 +25,9 @@ from gcmon.exporters.chrome_trace_io import (
     write_jsonl,
     write_trace_events,
 )
-from gcmon.exporters.chrome_trace_format import (
-    counter_event,
-    inc_event,
-    pause_event,
-    process_meta,
-    thread_meta,
-)
 from gcmon.protocol import has_incremental
-
 from tests.data_helpers import create_instant_msg
-from tests.helpers import create_mock_stats_item, create_jsonl_record
+from tests.helpers import create_jsonl_record, create_mock_stats_item
 
 
 def _make_inc_item(
@@ -299,14 +298,17 @@ class TestParseEvents:
         result = _parse_events(json.dumps([event]))
         assert result[0]["ph"] == "C"
 
-    def test_parses_pause_event(self) -> None:
-        event = pause_event(
-            pid=1, tid=1, name="GC Pause", cat="gc", ts_us=1000, dur_us=500.0,
-            args={"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
-                  "collected": 10, "uncollectable": 0, "candidates": 5},
-        )
-        result = _parse_events(json.dumps([event]))
-        assert result[0]["ph"] == "X"
+    def test_parses_begin_and_end_events(self) -> None:
+        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
+                "collected": 10, "uncollectable": 0, "candidates": 5}
+        events = [
+            begin_event(pid=1, tid=1, name="GC Pause", cat="gc", ts_us=1000, args=args),
+            end_event(pid=1, tid=1, name="GC Pause", cat="gc", ts_us=1500),
+        ]
+        result = _parse_events(json.dumps(events))
+        assert result[0]["ph"] == "B"
+        assert result[0]["args"]["generation"] == 0
+        assert result[1]["ph"] == "E"
 
     def test_raises_on_invalid_json(self) -> None:
         with pytest.raises(ValueError):
@@ -316,13 +318,13 @@ class TestParseEvents:
         with pytest.raises(ValueError, match="Expected JSON array"):
             _parse_events('{"ph": "M"}')
 
-    def test_parses_incremental_event(self) -> None:
-        event = inc_event(
-            pid=1, tid=1, name="Mark Alive", cat="gc", ts_us=1000, dur_us=200.0,
+    def test_parses_begin_event_with_args(self) -> None:
+        event = begin_event(
+            pid=1, tid=1, name="Mark Alive", cat="gc", ts_us=1000,
             args={"generation": 0, "iid": 1, "increment_size": 500, "alive_size": 300},
         )
         result = _parse_events(json.dumps([event]))
-        assert result[0]["ph"] == "X"
+        assert result[0]["ph"] == "B"
         assert result[0]["args"]["increment_size"] == 500
 
     def test_parses_bytes_input(self) -> None:
@@ -360,15 +362,6 @@ class TestParseEvents:
         assert result[0]["name"] == "marker"
         assert result[0]["ts"] == 5000
 
-    def test_raises_on_non_dict_args(self) -> None:
-        raw = json.dumps([
-            {"name": "e1", "cat": "c", "ph": "X", "ts": 1000, "dur": 100,
-             "pid": 1, "tid": 1, "args": "not_a_dict"},
-        ])
-        with pytest.raises(ValueError, match="Expected args should be a dict"):
-            _parse_events(raw)
-
-
 # =============================================================================
 # _normalize_trace_timestamps tests
 # =============================================================================
@@ -379,7 +372,7 @@ class TestNormalizeTraceTimestamps:
         args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
                 "collected": 10, "uncollectable": 0, "candidates": 5}
         events: list = [
-            pause_event(pid=1, tid=1, name="e1", cat="c", ts_us=5000, dur_us=100.0, args=args),
+            begin_event(pid=1, tid=1, name="e1", cat="c", ts_us=5000, args=args),
             counter_event(pid=1, tid=1, name="c1", ts_us=3000,
                           args={"collected": 10, "uncollectable": 0, "candidates": 5, "heap_size": 100}),
             process_meta(pid=1, name="p"),
@@ -399,7 +392,7 @@ class TestNormalizeTraceTimestamps:
         args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
                 "collected": 10, "uncollectable": 0, "candidates": 5}
         events: list = [
-            pause_event(pid=1, tid=1, name="e1", cat="c", ts_us=1000, dur_us=100.0, args=args),
+            begin_event(pid=1, tid=1, name="e1", cat="c", ts_us=1000, args=args),
         ]
         _normalize_trace_timestamps(events)  # type: ignore[arg-type]
         assert events[0]["ts"] == 0
@@ -413,10 +406,10 @@ class TestNormalizeTraceTimestamps:
         args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
                 "collected": 10, "uncollectable": 0, "candidates": 5}
         events: list = [
-            pause_event(pid=1, tid=1, name="e1", cat="c", ts_us=10000, dur_us=100.0, args=args),
-            pause_event(pid=1, tid=1, name="e2", cat="c", ts_us=12000, dur_us=100.0, args=args),
-            pause_event(pid=2, tid=1, name="e3", cat="c", ts_us=5000, dur_us=100.0, args=args),
-            pause_event(pid=2, tid=1, name="e4", cat="c", ts_us=7000, dur_us=100.0, args=args),
+            begin_event(pid=1, tid=1, name="e1", cat="c", ts_us=10000, args=args),
+            begin_event(pid=1, tid=1, name="e2", cat="c", ts_us=12000, args=args),
+            begin_event(pid=2, tid=1, name="e3", cat="c", ts_us=5000, args=args),
+            begin_event(pid=2, tid=1, name="e4", cat="c", ts_us=7000, args=args),
         ]
         _normalize_trace_timestamps(events)  # type: ignore[arg-type]
         assert events[0]["ts"] == 0      # pid=1: 10000 - 10000
@@ -428,8 +421,8 @@ class TestNormalizeTraceTimestamps:
         args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
                 "collected": 10, "uncollectable": 0, "candidates": 5}
         events: list = [
-            pause_event(pid=1, tid=1, name="e1", cat="c", ts_us=-100, dur_us=100.0, args=args),
-            pause_event(pid=1, tid=1, name="e2", cat="c", ts_us=-500, dur_us=100.0, args=args),
+            begin_event(pid=1, tid=1, name="e1", cat="c", ts_us=-100, args=args),
+            begin_event(pid=1, tid=1, name="e2", cat="c", ts_us=-500, args=args),
         ]
         _normalize_trace_timestamps(events)  # type: ignore[arg-type]
         assert events[0]["ts"] == 400  # -100 - (-500)
@@ -500,7 +493,7 @@ class TestConvertJsonlToTraceFormat:
         events = convert_jsonl_to_trace_format(path)
         assert len(events) > 0
         assert any(e["ph"] == "M" for e in events)  # metadata
-        assert any(e["ph"] == "X" for e in events)  # pause
+        assert any(e["ph"] == "B" for e in events)  # pause begin
         assert any(e["ph"] == "C" for e in events)  # counter
 
     def test_empty_file_returns_empty_list(self, tmp_path: Path) -> None:
@@ -514,7 +507,7 @@ class TestConvertJsonlToTraceFormat:
         record = _make_inc_jsonl_record(pid=1, ts_start=1000, ts_stop=5000)
         path.write_text(msgspec.json.encode(record).decode() + "\n", encoding="utf-8")
         events = convert_jsonl_to_trace_format(path)
-        pause_events = [e for e in events if e["ph"] == "X"]
+        pause_events = [e for e in events if e["ph"] == "B"]
         assert any("Mark Alive" in e["name"] for e in pause_events)
         assert any("Fill increment" in e["name"] for e in pause_events)
         assert any("Deduce Unreachable" in e["name"] for e in pause_events)
@@ -565,7 +558,7 @@ class TestCombineFiles:
         )
         combine_files([f1], out, input_format="jsonl", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
-        assert any(e["ph"] == "X" for e in data)
+        assert any(e["ph"] == "B" for e in data)
 
     def test_jsonl_to_jsonl(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.jsonl"
@@ -586,8 +579,8 @@ class TestCombineFiles:
         out = tmp_path / "out.json"
         args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
                 "collected": 10, "uncollectable": 0, "candidates": 5}
-        e1 = pause_event(pid=1, tid=1, name="e1", cat="c", ts_us=5000, dur_us=100.0, args=args)
-        e2 = pause_event(pid=1, tid=1, name="e2", cat="c", ts_us=3000, dur_us=100.0, args=args)
+        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_us=5000, args=args)
+        e2 = begin_event(pid=1, tid=1, name="e2", cat="c", ts_us=3000, args=args)
         f1.write_text(json.dumps([e1, e2]), encoding="utf-8")
         combine_files([f1], out, normalize=True, input_format="chrome", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
@@ -599,8 +592,8 @@ class TestCombineFiles:
         out = tmp_path / "out.json"
         args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
                 "collected": 10, "uncollectable": 0, "candidates": 5}
-        e1 = pause_event(pid=1, tid=1, name="e1", cat="c", ts_us=10000, dur_us=100.0, args=args)
-        e2 = pause_event(pid=2, tid=1, name="e2", cat="c", ts_us=5000, dur_us=100.0, args=args)
+        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_us=10000, args=args)
+        e2 = begin_event(pid=2, tid=1, name="e2", cat="c", ts_us=5000, args=args)
         f1.write_text(json.dumps([e1, e2]), encoding="utf-8")
         combine_files([f1], out, normalize=True, input_format="chrome", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
@@ -619,7 +612,7 @@ class TestCombineFiles:
         f1.write_text("\n".join(lines) + "\n", encoding="utf-8")
         combine_files([f1], out, normalize=True, input_format="jsonl", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
-        pause_events = [e for e in data if e["ph"] == "X"]
+        pause_events = [e for e in data if e["ph"] == "B"]
         assert pause_events[0]["ts"] > 0
         assert pause_events[1]["ts"] == 0
 

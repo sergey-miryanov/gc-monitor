@@ -9,6 +9,7 @@
 - Increase `ControlServer` listener backlog to 128
 - Move pyperf hook logging setup to entry point factory
 - Add per PID wait policy
+- Chrome trace exporter now emits duration events ("B"/"E") instead of complete events ("X")
 
 ## Version 0.2.0 (2026-06-10)
 

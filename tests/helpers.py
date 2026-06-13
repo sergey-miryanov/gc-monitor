@@ -2,26 +2,27 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from gcmon.data import GCStatsInfo
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.protocol import TGCStatsInfo, TInstantMsg
 
-
 __all__ = [
     "MockExporter",
-    "create_mock_stats_item",
-    "create_mock_incremental_item",
-    "create_jsonl_record",
-    "assert_valid_chrome_trace_format",
-    "assert_is_complete",
+    "assert_is_begin",
     "assert_is_counter",
-    "assert_is_process_meta",
-    "assert_is_thread_meta",
+    "assert_is_end",
     "assert_is_instant_event",
     "assert_is_instant_msg",
+    "assert_is_process_meta",
+    "assert_is_thread_meta",
+    "assert_valid_chrome_trace_format",
+    "create_jsonl_record",
+    "create_mock_incremental_item",
+    "create_mock_stats_item",
 ]
 
 
@@ -173,7 +174,7 @@ def assert_valid_jsonl_format(file_path: Path) -> list[dict[str, Any]]:
     assert file_path.exists(), f"File {file_path} does not exist"
 
     data: list[dict[str, Any]] = []
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         for line_no, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -202,7 +203,7 @@ def assert_valid_chrome_trace_format(file_path: Path) -> list[dict[str, Any]]:
     """
     assert file_path.exists(), f"File {file_path} does not exist"
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         content = f.read()
 
     # Check basic JSON array structure
@@ -230,8 +231,18 @@ def assert_valid_chrome_trace_format(file_path: Path) -> list[dict[str, Any]]:
     return data  # type: ignore[return-value]
 
 
-def assert_is_complete(event: dict, **expected: Any) -> None:
-    assert event["ph"] == "X"
+def assert_is_begin(event: dict, **expected: Any) -> None:
+    assert event["ph"] == "B"
+    for key, value in expected.items():
+        if key == "args":
+            for arg_key, arg_value in value.items():
+                assert event["args"][arg_key] == arg_value
+        else:
+            assert event[key] == value
+
+
+def assert_is_end(event: dict, **expected: Any) -> None:
+    assert event["ph"] == "E"
     for key, value in expected.items():
         if key == "args":
             for arg_key, arg_value in value.items():
