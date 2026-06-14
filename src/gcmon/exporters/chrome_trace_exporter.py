@@ -1,10 +1,11 @@
 """Chrome Trace Event format exporter for GC monitoring data."""
 
-import json
 import threading
 from collections.abc import Sequence
 from pathlib import Path
 from typing import override
+
+import msgspec
 
 from ..data import ts_to_us
 from ..protocol import TGCStatsInfo, TInstantMsg
@@ -89,10 +90,10 @@ class TraceExporter(EventsExporter):
             linesep = "\n"
             if not self._has_written:
                 self._has_written = True
-                f.write(f"[{linesep}{json.dumps(events[0])}")
+                f.write(f"[{linesep}{msgspec.json.encode(events[0]).decode()}")
                 events = events[1:]
             for e in events:
-                f.write(f",{linesep}{json.dumps(e)}")
+                f.write(f",{linesep}{msgspec.json.encode(e).decode()}")
             f.flush()
 
     def _write_finish_marker(self) -> None:

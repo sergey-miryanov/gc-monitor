@@ -2,6 +2,9 @@
 
 from types import SimpleNamespace
 
+import msgspec
+from msgspec import structs
+
 from gcmon.exporters.chrome_trace_format import (
     begin_event,
     convert_item_to_trace_format,
@@ -23,24 +26,24 @@ from tests.helpers import create_mock_stats_item
 class TestProcessMeta:
     def test_returns_process_name_event(self) -> None:
         event = process_meta(pid=123, name="MyProcess")
-        assert event["name"] == "process_name"
-        assert event["ph"] == "M"
-        assert event["pid"] == 123
-        assert event["args"] == {"name": "MyProcess"}
+        assert event.name == "process_name"
+        assert event.ph == "M"
+        assert event.pid == 123
+        assert event.args.name == "MyProcess"
 
     def test_metadata_schema(self) -> None:
         event = process_meta(pid=999, name="test")
-        assert set(event.keys()) == {"name", "ph", "pid", "args"}
+        assert {f.name for f in structs.fields(event)} == {"name", "ph", "pid", "args"}
 
 
 class TestThreadMeta:
     def test_returns_thread_name_event(self) -> None:
         event = thread_meta(pid=123, tid=1, name="Thread 1")
-        assert event["name"] == "thread_name"
-        assert event["ph"] == "M"
-        assert event["pid"] == 123
-        assert event["tid"] == 1
-        assert event["args"] == {"name": "Thread 1"}
+        assert event.name == "thread_name"
+        assert event.ph == "M"
+        assert event.pid == 123
+        assert event.tid == 1
+        assert event.args.name == "Thread 1"
 
 
 class TestBeginEvent:
@@ -58,15 +61,13 @@ class TestBeginEvent:
             pid=123, tid=1, name="GC Pause (gen=0)",
             cat="gc.pause(gen=0)", ts_us=1000, args=args,
         )
-        assert event == {
-            "name": "GC Pause (gen=0)",
-            "cat": "gc.pause(gen=0)",
-            "ph": "B",
-            "ts": 1000,
-            "pid": 123,
-            "tid": 1,
-            "args": args,
-        }
+        assert event.name == "GC Pause (gen=0)"
+        assert event.cat == "gc.pause(gen=0)"
+        assert event.ph == "B"
+        assert event.ts == 1000
+        assert event.pid == 123
+        assert event.tid == 1
+        assert event.args == args
 
 
 class TestEndEvent:
@@ -75,14 +76,12 @@ class TestEndEvent:
             pid=123, tid=1, name="GC Pause (gen=0)",
             cat="gc.pause(gen=0)", ts_us=2000,
         )
-        assert event == {
-            "name": "GC Pause (gen=0)",
-            "cat": "gc.pause(gen=0)",
-            "ph": "E",
-            "ts": 2000,
-            "pid": 123,
-            "tid": 1,
-        }
+        assert event.name == "GC Pause (gen=0)"
+        assert event.cat == "gc.pause(gen=0)"
+        assert event.ph == "E"
+        assert event.ts == 2000
+        assert event.pid == 123
+        assert event.tid == 1
 
 
 class TestCounterEvent:
@@ -92,22 +91,20 @@ class TestCounterEvent:
             "candidates": 20, "heap_size": 1024,
         }
         event = counter_event(pid=123, tid=1, name="G0", ts_us=1000, args=args)
-        assert event["ph"] == "C"
-        assert event["name"] == "G0"
-        assert event["ts"] == 1000
-        assert event["args"]["heap_size"] == 1024
+        assert event.ph == "C"
+        assert event.name == "G0"
+        assert event.ts == 1000
+        assert event.args["heap_size"] == 1024
 
 
 class TestInstantEvent:
     def test_returns_instant_event(self) -> None:
         event = instant_event(pid=123, name="start GC monitor", ts_us=5_000)
-        assert event == {
-            "name": "start GC monitor",
-            "ph": "I",
-            "s": "p",
-            "pid": 123,
-            "ts": 5_000,
-        }
+        assert event.name == "start GC monitor"
+        assert event.ph == "I"
+        assert event.s == "p"
+        assert event.pid == 123
+        assert event.ts == 5_000
 
 
 # =============================================================================
@@ -158,25 +155,25 @@ class TestConvertItemToTraceFormat:
     def test_regular_item_returns_pause_and_counter(self) -> None:
         item = create_mock_stats_item(gen=0)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        begins = [e for e in events if e["ph"] == "B"]
-        counters = [e for e in events if e["ph"] == "C"]
+        begins = [e for e in events if e.ph == "B"]
+        counters = [e for e in events if e.ph == "C"]
         assert len(begins) == 1
         assert len(counters) == 1
-        assert begins[0]["name"] == "GC Pause (gen=0)"
-        assert counters[0]["name"] == "G0"
+        assert begins[0].name == "GC Pause (gen=0)"
+        assert counters[0].name == "G0"
 
     def test_converts_timestamps_to_microseconds(self) -> None:
         item = create_mock_stats_item(ts_start=1_500_000_000, ts_stop=1_505_000_000)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        begin = next(e for e in events if e["ph"] == "B")
-        end = next(e for e in events if e["ph"] == "E")
-        assert begin["ts"] == 1_500_000  # ns → us
-        assert end["ts"] == 1_505_000  # ns → us
+        begin = next(e for e in events if e.ph == "B")
+        end = next(e for e in events if e.ph == "E")
+        assert begin.ts == 1_500_000  # ns → us
+        assert end.ts == 1_505_000  # ns → us
 
     def test_incremental_gen0_includes_mark_alive(self) -> None:
         item = _make_incremental_item(gen=0)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        names = {e["name"] for e in events if e["ph"] == "B"}
+        names = {e.name for e in events if e.ph == "B"}
         assert "GC Pause (gen=0)" in names
         assert "Mark Alive (gen=0)" in names
         assert "Fill increment (gen=0)" in names
@@ -190,35 +187,35 @@ class TestConvertItemToTraceFormat:
     def test_incremental_gen0_pause_data_has_increment_size(self) -> None:
         item = _make_incremental_item(gen=0, increment_size=1000)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        pause = next(e for e in events if e["ph"] == "B" and "GC Pause" in e["name"])
-        assert pause["args"]["increment_size"] == 1000
+        pause = next(e for e in events if e.ph == "B" and "GC Pause" in e.name)
+        assert pause.args["increment_size"] == 1000
 
     def test_incremental_gen0_pause_data_no_alive_size(self) -> None:
         item = _make_incremental_item(gen=0)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        pause = next(e for e in events if e["ph"] == "B" and "GC Pause" in e["name"])
-        assert "alive_size" not in pause["args"]
+        pause = next(e for e in events if e.ph == "B" and "GC Pause" in e.name)
+        assert "alive_size" not in pause.args
 
     def test_incremental_gen1_pause_data_has_both(self) -> None:
         item = _make_incremental_item(gen=1, increment_size=1000, alive_size=800)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        pause = next(e for e in events if e["ph"] == "B" and "GC Pause" in e["name"])
-        assert pause["args"]["increment_size"] == 1000
-        assert pause["args"]["alive_size"] == 800
+        pause = next(e for e in events if e.ph == "B" and "GC Pause" in e.name)
+        assert pause.args["increment_size"] == 1000
+        assert pause.args["alive_size"] == 800
 
     def test_incremental_gen2_skips_inc_data_in_pause(self) -> None:
         item = _make_incremental_item(gen=2, increment_size=1000, alive_size=800)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        pause = next(e for e in events if e["ph"] == "B" and "GC Pause" in e["name"])
-        assert "increment_size" not in pause["args"]
-        assert pause["args"]["alive_size"] == 800
+        pause = next(e for e in events if e.ph == "B" and "GC Pause" in e.name)
+        assert "increment_size" not in pause.args
+        assert pause.args["alive_size"] == 800
 
     def test_counter_data_includes_inc_fields_for_gen0(self) -> None:
         item = _make_incremental_item(gen=0, increment_size=1000)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        counter = next(e for e in events if e["ph"] == "C")
-        assert counter["args"]["increment_size"] == 1000
-        assert "alive_size" not in counter["args"]
+        counter = next(e for e in events if e.ph == "C")
+        assert counter.args["increment_size"] == 1000
+        assert "alive_size" not in counter.args
 
     def test_zero_duration_sub_steps_are_skipped(self) -> None:
         base = _make_incremental_item(gen=0)
@@ -247,7 +244,7 @@ class TestConvertItemToTraceFormat:
             deleted_garbage_count=13,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
-        names = {e["name"] for e in events if e["ph"] == "B"}
+        names = {e.name for e in events if e.ph == "B"}
         assert "Mark Alive (gen=0)" not in names
         assert "Fill increment (gen=0)" in names
         assert "Deduce Unreachable (gen=0)" not in names
@@ -260,8 +257,8 @@ class TestConvertItemToTraceFormat:
     def test_pause_data_has_all_required_fields(self) -> None:
         item = create_mock_stats_item()
         events = convert_item_to_trace_format(pid=12345, item=item)
-        pause = next(e for e in events if e["ph"] == "B")
-        assert set(pause["args"].keys()) == {
+        pause = next(e for e in events if e.ph == "B")
+        assert set(pause.args.keys()) == {
             "generation", "iid", "collections", "heap_size",
             "collected", "uncollectable", "candidates",
         }
@@ -269,8 +266,8 @@ class TestConvertItemToTraceFormat:
     def test_counter_data_has_all_required_fields(self) -> None:
         item = create_mock_stats_item()
         events = convert_item_to_trace_format(pid=12345, item=item)
-        counter = next(e for e in events if e["ph"] == "C")
-        assert set(counter["args"].keys()) == {
+        counter = next(e for e in events if e.ph == "C")
+        assert set(counter.args.keys()) == {
             "collected", "uncollectable", "candidates", "heap_size",
         }
 
@@ -278,14 +275,14 @@ class TestConvertItemToTraceFormat:
         item = create_mock_stats_item()
         events = convert_item_to_trace_format(pid=99999, item=item)
         for event in events:
-            assert event["pid"] == 99999
+            assert event.pid == 99999
 
     def test_tid_equals_item_iid(self) -> None:
         item = create_mock_stats_item(iid=42)
         events = convert_item_to_trace_format(pid=12345, item=item)
         for event in events:
-            if event["ph"] not in ("M",):
-                assert event["tid"] == 42
+            if event.ph not in ("M",):
+                assert event.tid == 42
 
     def test_incremental_gen0_pause_data_has_count_fields(self) -> None:
         item = _make_incremental_item(
@@ -293,10 +290,10 @@ class TestConvertItemToTraceFormat:
             deleted_garbage_count=13, clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
-        pause = next(e for e in events if e["ph"] == "B" and "GC Pause" in e["name"])
-        assert pause["args"]["finalized_garbage_count"] == 42
-        assert pause["args"]["deleted_garbage_count"] == 13
-        assert pause["args"]["clear_weakrefs_count"] == 7
+        pause = next(e for e in events if e.ph == "B" and "GC Pause" in e.name)
+        assert pause.args["finalized_garbage_count"] == 42
+        assert pause.args["deleted_garbage_count"] == 13
+        assert pause.args["clear_weakrefs_count"] == 7
 
     def test_counter_data_has_count_fields(self) -> None:
         item = _make_incremental_item(
@@ -304,26 +301,26 @@ class TestConvertItemToTraceFormat:
             deleted_garbage_count=13, clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
-        counter = next(e for e in events if e["ph"] == "C")
-        assert counter["args"]["finalized_garbage_count"] == 42
-        assert counter["args"]["deleted_garbage_count"] == 13
-        assert counter["args"]["clear_weakrefs_count"] == 7
+        counter = next(e for e in events if e.ph == "C")
+        assert counter.args["finalized_garbage_count"] == 42
+        assert counter.args["deleted_garbage_count"] == 13
+        assert counter.args["clear_weakrefs_count"] == 7
 
     def test_regular_item_has_no_count_fields_in_pause(self) -> None:
         item = create_mock_stats_item()
         events = convert_item_to_trace_format(pid=12345, item=item)
-        pause = next(e for e in events if e["ph"] == "B")
-        assert "finalized_garbage_count" not in pause["args"]
-        assert "deleted_garbage_count" not in pause["args"]
-        assert "clear_weakrefs_count" not in pause["args"]
+        pause = next(e for e in events if e.ph == "B")
+        assert "finalized_garbage_count" not in pause.args
+        assert "deleted_garbage_count" not in pause.args
+        assert "clear_weakrefs_count" not in pause.args
 
     def test_regular_item_has_no_count_fields_in_counter(self) -> None:
         item = create_mock_stats_item()
         events = convert_item_to_trace_format(pid=12345, item=item)
-        counter = next(e for e in events if e["ph"] == "C")
-        assert "finalized_garbage_count" not in counter["args"]
-        assert "deleted_garbage_count" not in counter["args"]
-        assert "clear_weakrefs_count" not in counter["args"]
+        counter = next(e for e in events if e.ph == "C")
+        assert "finalized_garbage_count" not in counter.args
+        assert "deleted_garbage_count" not in counter.args
+        assert "clear_weakrefs_count" not in counter.args
 
 
 class TestConvertToTraceFormat:
@@ -334,54 +331,54 @@ class TestConvertToTraceFormat:
     def test_single_pid_adds_process_meta(self) -> None:
         item = create_mock_stats_item()
         events = convert_to_trace_format({12345: [item]})
-        metas = [e for e in events if e["ph"] == "M"]
+        metas = [e for e in events if e.ph == "M"]
         assert len(metas) == 2  # process_name + thread_name
-        assert metas[0]["name"] == "process_name"
-        assert metas[0]["pid"] == 12345
+        assert metas[0].name == "process_name"
+        assert metas[0].pid == 12345
 
     def test_multiple_pids(self) -> None:
         item1 = create_mock_stats_item(iid=0)
         item2 = create_mock_stats_item(iid=1)
         items = {1: [item1], 2: [item2]}
         events = convert_to_trace_format(items)
-        pids = {e["pid"] for e in events}
+        pids = {e.pid for e in events}
         assert pids == {1, 2}
-        process_metas = [e for e in events if e["name"] == "process_name"]
+        process_metas = [e for e in events if e.name == "process_name"]
         assert len(process_metas) == 2
 
     def test_threads_are_unique_per_pid(self) -> None:
         item1 = create_mock_stats_item(iid=1)
         item2 = create_mock_stats_item(iid=1)  # same tid
         events = convert_to_trace_format({12345: [item1, item2]})
-        thread_metas = [e for e in events if e["name"] == "thread_name"]
+        thread_metas = [e for e in events if e.name == "thread_name"]
         assert len(thread_metas) == 1
 
     def test_all_returned_events_are_trace_events(self) -> None:
         item = create_mock_stats_item()
         events = convert_to_trace_format({12345: [item]})
         for event in events:
-            assert isinstance(event, dict)
-            assert "ph" in event
+            assert isinstance(event, msgspec.Struct)
+            assert hasattr(event, "ph")
 
 
 class TestConvertToTraceFormatWithInstant:
     def test_instant_msg_only(self) -> None:
         items = [create_instant_msg(name="start GC monitor", ts=1_500_000_000)]
         events = convert_to_trace_format({1: items})
-        instants = [e for e in events if e["ph"] == "I"]
+        instants = [e for e in events if e.ph == "I"]
         assert len(instants) == 1
-        assert instants[0]["name"] == "start GC monitor"
-        assert instants[0]["pid"] == 1
-        assert instants[0]["ts"] == 1_500_000  # ns -> us
+        assert instants[0].name == "start GC monitor"
+        assert instants[0].pid == 1
+        assert instants[0].ts == 1_500_000  # ns -> us
 
     def test_mixed_gc_stats_and_instant_msg(self) -> None:
         item = create_mock_stats_item()
         instant = create_instant_msg(name="stop GC monitor", ts=2_000_000_000)
         items = {12345: [item, instant]}
         events = convert_to_trace_format(items)
-        assert any(e["ph"] == "I" for e in events)
-        assert any(e["ph"] == "B" for e in events)
-        assert any(e["ph"] == "C" for e in events)
+        assert any(e.ph == "I" for e in events)
+        assert any(e.ph == "B" for e in events)
+        assert any(e.ph == "C" for e in events)
 
     def test_multiple_instant_messages(self) -> None:
         items = [
@@ -389,10 +386,9 @@ class TestConvertToTraceFormatWithInstant:
             create_instant_msg(name="stop GC monitor", ts=2_000_000_000),
         ]
         events = convert_to_trace_format({1: items})
-        instants = [e for e in events if e["ph"] == "I"]
+        instants = [e for e in events if e.ph == "I"]
         assert len(instants) == 2
-        assert instants[0]["name"] == "start GC monitor"
-        assert instants[0]["ts"] == 1_000_000
-        assert instants[1]["name"] == "stop GC monitor"
-        assert instants[1]["ts"] == 2_000_000
-
+        assert instants[0].name == "start GC monitor"
+        assert instants[0].ts == 1_000_000
+        assert instants[1].name == "stop GC monitor"
+        assert instants[1].ts == 2_000_000

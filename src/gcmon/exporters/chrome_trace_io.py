@@ -127,13 +127,13 @@ def _parse_events(content: str | bytes) -> list[TraceEvent]:
 def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
     by_pid: dict[int, list[BeginEvent | EndEvent | CounterEvent | InstantEvent]] = {}
     for event in events:
-        if event["ph"] in ("B", "E", "C", "I"):
-            by_pid.setdefault(event["pid"], []).append(event)  # pyrefly: ignore[bad-argument-type]
+        if event.ph in ("B", "E", "C", "I"):
+            by_pid.setdefault(event.pid, []).append(event)  # pyrefly: ignore[bad-argument-type]
 
     for timed in by_pid.values():
-        min_ts = min(e["ts"] for e in timed)
+        min_ts = min(e.ts for e in timed)
         for e in timed:
-            e["ts"] = e["ts"] - min_ts
+            e.ts = e.ts - min_ts
 
 
 def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TInstantMsg]]) -> None:

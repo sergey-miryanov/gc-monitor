@@ -155,10 +155,10 @@ class ChromeTraceFileCapture(OutputCapture):
         return self._path.read_text(encoding="utf-8")
 
     def count_completes(self) -> int:
-        return self._text().count('"ph": "B"')
+        return self._text().count('"ph":"B"')
 
     def count_instants(self) -> int:
-        return self._text().count('"ph": "I"')
+        return self._text().count('"ph":"I"')
 
 
 class PerfettoFileCapture(OutputCapture):

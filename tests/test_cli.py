@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import msgspec
 import pytest
 
 
@@ -52,7 +53,7 @@ def test_main_combine_command(tmp_path: Path) -> None:
     from gcmon.exporters.chrome_trace_format import process_meta
 
     input_file = tmp_path / "input.json"
-    input_file.write_text(json.dumps([process_meta(pid=1, name="test")]))
+    input_file.write_text(msgspec.json.encode([process_meta(pid=1, name="test")]).decode())
 
     assert cli.main(["combine", str(input_file), "-o", str(tmp_path / "output.json")]) == 0
 

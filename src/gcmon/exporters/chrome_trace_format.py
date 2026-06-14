@@ -1,6 +1,8 @@
 """Chrome Trace Event format types and conversion utilities."""
 
-from typing import Literal, TypedDict
+from typing import Literal
+
+import msgspec
 
 from ..data import ts_to_us
 from ..protocol import (
@@ -38,11 +40,11 @@ __all__ = [
 ]
 
 
-class NameInfo(TypedDict):
+class NameInfo(msgspec.Struct):
     name: str
 
 
-class BeginEvent(TypedDict):
+class BeginEvent(msgspec.Struct):
     name: str
     cat: str
     ph: Literal["B"]
@@ -52,7 +54,7 @@ class BeginEvent(TypedDict):
     args: dict[str, int]
 
 
-class EndEvent(TypedDict):
+class EndEvent(msgspec.Struct):
     name: str
     cat: str
     ph: Literal["E"]
@@ -61,7 +63,7 @@ class EndEvent(TypedDict):
     tid: int
 
 
-class InstantEvent(TypedDict):
+class InstantEvent(msgspec.Struct):
     name: str
     ph: Literal["I"]
     s: Literal["p"]
@@ -69,7 +71,7 @@ class InstantEvent(TypedDict):
     pid: int
 
 
-class CounterEvent(TypedDict):
+class CounterEvent(msgspec.Struct):
     name: str
     ph: Literal["C"]
     ts: int
@@ -78,14 +80,14 @@ class CounterEvent(TypedDict):
     args: dict[str, int]
 
 
-class ProcessMeta(TypedDict):
+class ProcessMeta(msgspec.Struct):
     name: Literal["process_name"]
     ph: Literal["M"]
     pid: int
     args: NameInfo
 
 
-class ThreadMeta(TypedDict):
+class ThreadMeta(msgspec.Struct):
     name: Literal["thread_name"]
     ph: Literal["M"]
     pid: int
@@ -97,72 +99,72 @@ TraceEvent = BeginEvent | EndEvent | CounterEvent | ProcessMeta | ThreadMeta | I
 
 
 def process_meta(pid: int, name: str) -> ProcessMeta:
-    return {
-        "name": "process_name",
-        "ph": "M",
-        "pid": pid,
-        "args": {"name": name},
-    }
+    return ProcessMeta(
+        name="process_name",
+        ph="M",
+        pid=pid,
+        args=NameInfo(name=name),
+    )
 
 
 def thread_meta(pid: int, tid: int, name: str) -> ThreadMeta:
-    return {
-        "name": "thread_name",
-        "ph": "M",
-        "pid": pid,
-        "tid": tid,
-        "args": {"name": name},
-    }
+    return ThreadMeta(
+        name="thread_name",
+        ph="M",
+        pid=pid,
+        tid=tid,
+        args=NameInfo(name=name),
+    )
 
 
 def begin_event(
     pid: int, tid: int, name: str, cat: str, ts_us: int, args: dict[str, int]
 ) -> BeginEvent:
-    return {
-        "name": name,
-        "cat": cat,
-        "ph": "B",
-        "ts": ts_us,
-        "pid": pid,
-        "tid": tid,
-        "args": args,
-    }
+    return BeginEvent(
+        name=name,
+        cat=cat,
+        ph="B",
+        ts=ts_us,
+        pid=pid,
+        tid=tid,
+        args=args,
+    )
 
 
 def end_event(
     pid: int, tid: int, name: str, cat: str, ts_us: int,
 ) -> EndEvent:
-    return {
-        "name": name,
-        "cat": cat,
-        "ph": "E",
-        "ts": ts_us,
-        "pid": pid,
-        "tid": tid,
-    }
+    return EndEvent(
+        name=name,
+        cat=cat,
+        ph="E",
+        ts=ts_us,
+        pid=pid,
+        tid=tid,
+    )
 
 
 def instant_event(
     pid: int, name: str, ts_us: int,
 ) -> InstantEvent:
-    return {
-        "name": name,
-        "ph": "I",
-        "s": "p",
-        "pid": pid,
-        "ts": ts_us,
-    }
+    return InstantEvent(
+        name=name,
+        ph="I",
+        s="p",
+        pid=pid,
+        ts=ts_us,
+    )
 
 
 def counter_event(pid: int, tid: int, name: str, ts_us: int, args: dict[str, int]) -> CounterEvent:
-    return {
-        "name": name,
-        "ph": "C",
-        "ts": ts_us,
-        "pid": pid,
-        "tid": tid,
-        "args": args,
-    }
+    return CounterEvent(
+        name=name,
+        ph="C",
+        ts=ts_us,
+        pid=pid,
+        tid=tid,
+        args=args,
+    )
 
 
 def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEvent]:
