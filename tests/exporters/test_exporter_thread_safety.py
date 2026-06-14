@@ -574,3 +574,105 @@ class TestPerfettoExporterCmdlinePath:
         capture = PerfettoFileCapture(path)
         assert capture.count_completes() == 2 * N_GC
         assert capture.count_process_descriptors() == 1
+
+
+@pytest.mark.stress
+class TestMetaDedupRaceClosed:
+    """The shared ``BufferedTraceExporter._build_meta`` is atomic under
+    ``_lock`` -- the check-and-add of pid / tid happens inside the same
+    critical section. These tests fire two threads at a brand-new pid
+    and assert that the on-disk output contains exactly one
+    ``process_meta`` entry per exporter, proving the race window is
+    closed for both formats.
+
+    The pre-refactor ``TraceExporter.add_event`` and
+    ``PerfettoExporter.add_event`` had a TOCTOU between
+    ``pid not in self._pids`` and ``self._pids.add(pid)`` that could
+    produce two ``process_name`` events / two process descriptors under
+    load.
+    """
+
+    def test_chrome_two_threads_same_new_pid_produces_single_process_meta(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "out_chrome.dat"
+        exporter = TraceExporter(output_path=path, flush_threshold=10)
+        events_a = _make_gc_events(N_GC, 1_500_000_000)
+        events_b = _make_gc_events(N_GC, 1_600_000_000)
+
+        def writer_a() -> None:
+            for ev in events_a:
+                exporter.add_event(MAIN_PID, ev)
+
+        def writer_b() -> None:
+            for ev in events_b:
+                exporter.add_event(MAIN_PID, ev)
+
+        captured = _run_two_threads([writer_a, writer_b])
+        exporter.close()
+        for exc in captured:
+            raise exc
+
+        text = path.read_text(encoding="utf-8")
+        proc_metas = text.count('"name":"process_name"')
+        assert proc_metas == 1, (
+            f"expected exactly 1 process_name event, got {proc_metas}"
+        )
+
+    def test_perfetto_two_threads_same_new_pid_produces_single_descriptor(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "out_perfetto.pb"
+        exporter = PerfettoExporter(
+            output_path=path,
+            flush_threshold=10,
+            cmdline_provider=lambda pid: ["python", "-u", "race_script.py"],
+        )
+        events_a = _make_gc_events(N_GC, 1_500_000_000)
+        events_b = _make_gc_events(N_GC, 1_600_000_000)
+
+        def writer_a() -> None:
+            for ev in events_a:
+                exporter.add_event(MAIN_PID, ev)
+
+        def writer_b() -> None:
+            for ev in events_b:
+                exporter.add_event(MAIN_PID, ev)
+
+        captured = _run_two_threads([writer_a, writer_b])
+        exporter.close()
+        for exc in captured:
+            raise exc
+
+        capture = PerfettoFileCapture(path)
+        proc_descs = capture.count_process_descriptors()
+        assert proc_descs == 1, (
+            f"expected exactly 1 process descriptor, got {proc_descs}"
+        )
+
+    def test_chrome_one_thread_add_event_one_thread_add_instant_same_new_pid(
+        self, tmp_path: Path
+    ) -> None:
+        path = tmp_path / "out_mixed.dat"
+        exporter = TraceExporter(output_path=path, flush_threshold=10)
+        gc_events = _make_gc_events(N_GC, 1_500_000_000)
+        inst_events = _make_instant_events(N_INSTANT, 2_000_000_000)
+
+        def writer_gc() -> None:
+            for ev in gc_events:
+                exporter.add_event(MAIN_PID, ev)
+
+        def writer_inst() -> None:
+            for ev in inst_events:
+                exporter.add_instant_event(MAIN_PID, ev)
+
+        captured = _run_two_threads([writer_gc, writer_inst])
+        exporter.close()
+        for exc in captured:
+            raise exc
+
+        text = path.read_text(encoding="utf-8")
+        proc_metas = text.count('"name":"process_name"')
+        assert proc_metas == 1, (
+            f"expected exactly 1 process_name event, got {proc_metas}"
+        )
