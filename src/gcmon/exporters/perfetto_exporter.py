@@ -4,30 +4,24 @@ import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar, override
+from typing import override
 
+from ..data import ts_to_us
 from ..protocol import TGCStatsInfo, TInstantMsg
+from ..trace_event import TraceEvent, instant_event, process_meta, thread_meta
 from .exporter import EventsExporter
 from .perfetto_format import (
     PerfettoTrackState,
     TraceField,
-    convert_instant_to_perfetto_packet,
-    convert_item_to_perfetto_packets,
+    convert_trace_events_to_perfetto,
 )
 from .protobuf_encoder import encode_bytes_field
+from .trace_converter import convert_item_to_trace_format
 
 logger = logging.getLogger("gcmon")
 
-TYPE_INSTANT = 3
-
 __all__ = [
     "PerfettoExporter",
-]
-
-TItem = TypeVar("TItem", TGCStatsInfo, TInstantMsg)
-TConvert = Callable[
-    [int, TItem, PerfettoTrackState, int],
-    tuple[list[bytes], list[bytes]],
 ]
 
 
@@ -83,15 +77,12 @@ class PerfettoExporter(EventsExporter):
             if cmdline is not None:
                 self._track_state.set_cmdline(pid, cmdline)
 
-    def _enqueue(
-        self,
-        pid: int,
-        item: TItem,
-        convert: TConvert[TItem],
-    ) -> None:
+    def _enqueue(self, events: list[TraceEvent]) -> None:
         to_flush: list[bytes] = []
         with self._lock:
-            descriptors, packets = convert(pid, item, self._track_state, self._sequence_id)
+            descriptors, packets = convert_trace_events_to_perfetto(
+                events, self._track_state, self._sequence_id,
+            )
             self._descriptors.extend(descriptors)
             self._packets.extend(packets)
             if len(self._packets) >= self._flush_threshold:
@@ -102,15 +93,30 @@ class PerfettoExporter(EventsExporter):
             with self._io_lock:
                 self._flush(to_flush)
 
+    def _build_meta(self, pid: int, iid: int | None) -> list[TraceEvent]:
+        """Build ProcessMeta / ThreadMeta events that have not been seen yet."""
+        meta: list[TraceEvent] = []
+        if not self._track_state.has_pid(pid):
+            meta.append(process_meta(pid, f"Process {pid}"))
+        if iid is not None and not self._track_state.has_tid(pid, iid):
+            meta.append(thread_meta(pid, iid, f"Thread {iid}"))
+        return meta
+
     @override
     def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+        if item.ts_start >= item.ts_stop:
+            return
         self._ensure_cmdline(pid)
-        self._enqueue(pid, item, convert_item_to_perfetto_packets)
+        meta = self._build_meta(pid, item.iid)
+        events = meta + convert_item_to_trace_format(pid, item)
+        self._enqueue(events)
 
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
         self._ensure_cmdline(pid)
-        self._enqueue(pid, item, convert_instant_to_perfetto_packet)
+        meta = self._build_meta(pid, None)
+        meta.append(instant_event(pid, item.name, ts_to_us(item.ts)))
+        self._enqueue(meta)
 
     def _flush(self, entries: list[bytes]) -> None:
         if not entries:
@@ -138,5 +144,3 @@ class PerfettoExporter(EventsExporter):
         if entries:
             with self._io_lock:
                 self._flush(entries)
-
-
