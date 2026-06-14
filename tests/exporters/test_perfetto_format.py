@@ -1,7 +1,7 @@
 """Tests for Perfetto protobuf message builders and conversion."""
 
 
-from gcmon.data import GCStatsInfo, InstantMsg
+from gcmon.data import GCStatsInfo
 from gcmon.exporters.perfetto_format import (
     TYPE_COUNTER,
     TYPE_INSTANT,
@@ -19,11 +19,10 @@ from gcmon.exporters.perfetto_format import (
     build_trace_packet,
     build_track_descriptor,
     build_track_event,
-    convert_instant_to_perfetto_packet,
     convert_trace_events_to_perfetto,
 )
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
-from gcmon.trace_event import process_meta, thread_meta
+from gcmon.trace_event import instant_event, process_meta, thread_meta
 from tests.proto_decoder import (
     decode_message,
     get_bytes,
@@ -606,15 +605,21 @@ class TestConvertItemToPerfettoPackets:
 class TestConvertInstantToPerfettoPacket:
     def test_emits_process_descriptor(self) -> None:
         state = PerfettoTrackState()
-        item = InstantMsg(type="i", name="start", ts=5_000)
-        descriptors, _ = convert_instant_to_perfetto_packet(100, item, state, sequence_id=1)
+        events = [
+            process_meta(100, "Process 100"),
+            instant_event(100, "start", ts_us=5),
+        ]
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         assert len(descriptors) == 1
         assert state.has_pid(100)
 
     def test_emits_instant_event(self) -> None:
         state = PerfettoTrackState()
-        item = InstantMsg(type="i", name="start GC monitor", ts=5_000)
-        _, packets = convert_instant_to_perfetto_packet(100, item, state, sequence_id=1)
+        events = [
+            process_meta(100, "Process 100"),
+            instant_event(100, "start GC monitor", ts_us=5),
+        ]
+        _, packets = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         assert len(packets) == 1
         fields = decode_message(packets[0])
         assert get_varint(fields, TracePacketField.TIMESTAMP) == 5
@@ -626,10 +631,14 @@ class TestConvertInstantToPerfettoPacket:
 
     def test_reuses_process_descriptor(self) -> None:
         state = PerfettoTrackState()
-        item1 = InstantMsg(type="i", name="start", ts=5_000)
-        item2 = InstantMsg(type="i", name="stop", ts=10_000)
-        desc1, _ = convert_instant_to_perfetto_packet(100, item1, state, sequence_id=1)
-        desc2, _ = convert_instant_to_perfetto_packet(100, item2, state, sequence_id=1)
+        desc1, _ = convert_trace_events_to_perfetto(
+            [process_meta(100, "Process 100"), instant_event(100, "start", ts_us=5)],
+            state, sequence_id=1,
+        )
+        desc2, _ = convert_trace_events_to_perfetto(
+            [process_meta(100, "Process 100"), instant_event(100, "stop", ts_us=10)],
+            state, sequence_id=1,
+        )
         assert len(desc1) == 1
         assert len(desc2) == 0
 
@@ -640,8 +649,10 @@ class TestConvertInstantToPerfettoPacket:
             heap_size=1000, collections=1, collected=10,
             uncollectable=0, candidates=5, duration=0.001,
         )
-        instant_item = InstantMsg(type="i", name="stop", ts=5_000)
         gc_desc, _ = _convert_item(100, gc_item, state, sequence_id=1)
-        inst_desc, _ = convert_instant_to_perfetto_packet(100, instant_item, state, sequence_id=1)
+        inst_desc, _ = convert_trace_events_to_perfetto(
+            [process_meta(100, "Process 100"), instant_event(100, "stop", ts_us=5)],
+            state, sequence_id=1,
+        )
         assert len(gc_desc) >= 2
         assert len(inst_desc) == 0

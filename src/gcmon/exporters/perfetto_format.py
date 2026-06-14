@@ -10,8 +10,6 @@ the corresponding Perfetto protobuf representation.
 
 from enum import IntEnum
 
-from ..data import ts_to_us
-from ..protocol import TInstantMsg
 from ..trace_event import (
     BeginEvent,
     CounterEvent,
@@ -106,7 +104,6 @@ __all__ = [
     "build_trace_packet",
     "build_track_descriptor",
     "build_track_event",
-    "convert_instant_to_perfetto_packet",
     "convert_trace_events_to_perfetto",
 ]
 
@@ -391,16 +388,15 @@ def convert_trace_events_to_perfetto(
     for event in events:
         pid = event.pid
 
-        # ---- ProcessMeta → process track descriptor ----
         if isinstance(event, ProcessMeta):
             descriptors.extend(_emit_process_descriptor(pid, state, sequence_id))
 
-        # ---- ThreadMeta → thread track descriptor ----
+        # The exporter is expected to emit ProcessMeta before any
+        # ThreadMeta for a given pid.
         elif isinstance(event, ThreadMeta):
             descriptors.extend(_emit_process_descriptor(pid, state, sequence_id))
             descriptors.extend(_emit_thread_descriptor(pid, event.tid, state, sequence_id))
 
-        # ---- BeginEvent → TYPE_SLICE_BEGIN ----
         elif isinstance(event, BeginEvent):
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
             annotations = _args_to_debug_annotations(event.args)
@@ -412,7 +408,6 @@ def convert_trace_events_to_perfetto(
                 ),
             ))
 
-        # ---- EndEvent → TYPE_SLICE_END ----
         elif isinstance(event, EndEvent):
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
             packets.append(build_trace_packet(
@@ -420,7 +415,6 @@ def convert_trace_events_to_perfetto(
                 track_event=_make_slice_end(thread_uuid),
             ))
 
-        # ---- InstantEvent → TYPE_INSTANT on the process track ----
         elif isinstance(event, InstantEvent):
             proc_uuid = state.get_process_track_uuid(pid)
             packets.append(build_trace_packet(
@@ -432,7 +426,6 @@ def convert_trace_events_to_perfetto(
                 ),
             ))
 
-        # ---- CounterEvent → per-metric TYPE_COUNTER ----
         elif isinstance(event, CounterEvent):
             gen = int(event.name[1:])  # name format: "G{gen}"
             for metric, value in event.args.items():
@@ -442,37 +435,5 @@ def convert_trace_events_to_perfetto(
                     sequence_id, timestamp=event.ts,
                     track_event=_make_counter_event(ctr_uuid, value),
                 ))
-
-    return descriptors, packets
-
-
-# ---------------------------------------------------------------------------
-# Legacy helpers (kept for backward compatibility)
-# ---------------------------------------------------------------------------
-
-
-def convert_instant_to_perfetto_packet(
-    pid: int,
-    item: TInstantMsg,
-    state: PerfettoTrackState,
-    sequence_id: int,
-) -> tuple[list[bytes], list[bytes]]:
-    """Convert an instant marker (TInstantMsg) to Perfetto protobuf."""
-    ts_us = ts_to_us(item.ts)
-
-    descriptors: list[bytes] = []
-    packets: list[bytes] = []
-
-    descriptors.extend(_emit_process_descriptor(pid, state, sequence_id))
-
-    proc_uuid = state.get_process_track_uuid(pid)
-    packets.append(build_trace_packet(
-        sequence_id, timestamp=ts_us,
-        track_event=build_track_event(
-            type=TYPE_INSTANT,
-            track_uuid=proc_uuid,
-            name=item.name,
-        ),
-    ))
 
     return descriptors, packets
