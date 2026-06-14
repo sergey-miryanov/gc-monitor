@@ -50,7 +50,7 @@ class EventsMonitor:
             events = get_gc_stats(pid, all_interpreters=True)
             for event in events:
                 # Skip events with timestamps already processed
-                if event.ts_start > self._last_ts:
+                if event.ts_start > self._last_ts and event.ts_start < event.ts_stop:
                     self._exporter.add_event(pid, event)
                     self._stats.update(pid, event)
                     self._last_ts = event.ts_start

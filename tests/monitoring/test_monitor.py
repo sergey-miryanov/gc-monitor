@@ -50,6 +50,22 @@ class TestEventsMonitorExtra:
 
         mock_stats_update.assert_called_once_with(12345, item)
 
+    def test_poll_skips_invalid_timestamp_event(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
+        item = create_mock_stats_item(ts_start=2_000, ts_stop=1_000)
+
+        with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
+            monitor.poll(12345)
+
+        assert exporter.events == []
+
+    def test_poll_skips_equal_timestamp_event(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
+        item = create_mock_stats_item(ts_start=1_000, ts_stop=1_000)
+
+        with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
+            monitor.poll(12345)
+
+        assert exporter.events == []
+
 
 class TestCreateMonitor:
     def test_returns_events_monitor(

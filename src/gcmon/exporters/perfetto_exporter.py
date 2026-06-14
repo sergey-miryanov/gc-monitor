@@ -104,8 +104,6 @@ class PerfettoExporter(EventsExporter):
 
     @override
     def add_event(self, pid: int, item: TGCStatsInfo) -> None:
-        if item.ts_start >= item.ts_stop:
-            return
         self._ensure_cmdline(pid)
         meta = self._build_meta(pid, item.iid)
         events = meta + convert_item_to_trace_format(pid, item)
