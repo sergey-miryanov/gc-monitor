@@ -40,7 +40,7 @@ def make_trace_file(tmp_path: Path) -> Path:
     """Create a Chrome Trace JSON file with given events."""
     def _make(name: str, events: list[dict]) -> Path:
         path = tmp_path / name
-        path.write_text(msgspec.json.encode(events).decode(), encoding="utf-8")
+        path.write_bytes(msgspec.json.encode(events))
         return path
     return _make
 
@@ -83,7 +83,7 @@ def test_cmd_combine_basic(tmp_path: Path) -> None:
     from gcmon.commands import convert_cmd
 
     input_file = tmp_path / "input.json"
-    input_file.write_text(msgspec.json.encode(make_event_pair("test", ts=100)).decode())
+    input_file.write_bytes(msgspec.json.encode(make_event_pair("test", ts=100)))
 
     args = Namespace(inputs=[input_file], output=tmp_path / "output.json", verbose=1, normalize=False, input_format="chrome", output_format="chrome")
     assert convert_cmd.cmd_combine(args) == 0

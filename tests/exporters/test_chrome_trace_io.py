@@ -121,7 +121,7 @@ class TestReadJsonl:
     def test_reads_single_record(self, tmp_path: Path) -> None:
         path = tmp_path / "test.jsonl"
         record = create_jsonl_record()
-        path.write_text(msgspec.json.encode(record).decode() + "\n", encoding="utf-8")
+        path.write_bytes(msgspec.json.encode(record) + b"\n")
 
         result = read_jsonl(path)
         assert 123 in result
@@ -131,10 +131,10 @@ class TestReadJsonl:
     def test_reads_multiple_pids(self, tmp_path: Path) -> None:
         path = tmp_path / "test.jsonl"
         lines = [
-            msgspec.json.encode(create_jsonl_record(pid=1)).decode(),
-            msgspec.json.encode(create_jsonl_record(pid=2)).decode(),
+            msgspec.json.encode(create_jsonl_record(pid=1)),
+            msgspec.json.encode(create_jsonl_record(pid=2)),
         ]
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        path.write_bytes(b"\n".join(lines) + b"\n")
 
         result = read_jsonl(path)
         assert set(result.keys()) == {1, 2}
@@ -142,10 +142,7 @@ class TestReadJsonl:
     def test_ignores_empty_lines(self, tmp_path: Path) -> None:
         path = tmp_path / "test.jsonl"
         record = create_jsonl_record()
-        path.write_text(
-            msgspec.json.encode(record).decode() + "\n\n\n",
-            encoding="utf-8",
-        )
+        path.write_bytes(msgspec.json.encode(record) + b"\n\n\n")
         result = read_jsonl(path)
         assert len(result[123]) == 1
 
@@ -158,7 +155,7 @@ class TestReadJsonl:
     def test_reads_incremental_record(self, tmp_path: Path) -> None:
         path = tmp_path / "inc.jsonl"
         record = _make_inc_jsonl_record(pid=1)
-        path.write_text(msgspec.json.encode(record).decode() + "\n", encoding="utf-8")
+        path.write_bytes(msgspec.json.encode(record) + b"\n")
         result = read_jsonl(path)
         assert has_incremental(result[1][0])
 
@@ -284,7 +281,7 @@ class TestParseEvents:
             process_meta(pid=1, name="test"),
             thread_meta(pid=1, tid=1, name="t1"),
         ]
-        content = msgspec.json.encode(events).decode()
+        content = msgspec.json.encode(events)
         result = _parse_events(content)
         assert len(result) == 2
         assert result[0].ph == "M"
@@ -295,7 +292,7 @@ class TestParseEvents:
             pid=1, tid=1, name="G0", ts_us=1000,
             args={"collected": 10, "uncollectable": 1, "candidates": 5, "heap_size": 1000},
         )
-        result = _parse_events(msgspec.json.encode([event]).decode())
+        result = _parse_events(msgspec.json.encode([event]))
         assert result[0].ph == "C"
 
     def test_parses_begin_and_end_events(self) -> None:
@@ -305,7 +302,7 @@ class TestParseEvents:
             begin_event(pid=1, tid=1, name="GC Pause", cat="gc", ts_us=1000, args=args),
             end_event(pid=1, tid=1, name="GC Pause", cat="gc", ts_us=1500),
         ]
-        result = _parse_events(msgspec.json.encode(events).decode())
+        result = _parse_events(msgspec.json.encode(events))
         assert result[0].ph == "B"
         assert result[0].args["generation"] == 0
         assert result[1].ph == "E"
@@ -323,7 +320,7 @@ class TestParseEvents:
             pid=1, tid=1, name="Mark Alive", cat="gc", ts_us=1000,
             args={"generation": 0, "iid": 1, "increment_size": 500, "alive_size": 300},
         )
-        result = _parse_events(msgspec.json.encode([event]).decode())
+        result = _parse_events(msgspec.json.encode([event]))
         assert result[0].ph == "B"
         assert result[0].args["increment_size"] == 500
 
@@ -334,7 +331,7 @@ class TestParseEvents:
 
     def test_skips_non_dict_items(self) -> None:
         event = process_meta(pid=1, name="test")
-        raw = msgspec.json.encode([event, "not a dict", 42]).decode()
+        raw = msgspec.json.encode([event, "not a dict", 42])
         result = _parse_events(raw)
         assert len(result) == 1
 
@@ -488,7 +485,7 @@ class TestConvertJsonlToTraceFormat:
     def test_converts_jsonl_to_trace_events(self, tmp_path: Path) -> None:
         path = tmp_path / "test.jsonl"
         record = create_jsonl_record()
-        path.write_text(msgspec.json.encode(record).decode() + "\n", encoding="utf-8")
+        path.write_bytes(msgspec.json.encode(record) + b"\n")
 
         events = convert_jsonl_to_trace_format(path)
         assert len(events) > 0
@@ -505,7 +502,7 @@ class TestConvertJsonlToTraceFormat:
     def test_incremental_record_creates_sub_events(self, tmp_path: Path) -> None:
         path = tmp_path / "inc.jsonl"
         record = _make_inc_jsonl_record(pid=1, ts_start=1000, ts_stop=5000)
-        path.write_text(msgspec.json.encode(record).decode() + "\n", encoding="utf-8")
+        path.write_bytes(msgspec.json.encode(record) + b"\n")
         events = convert_jsonl_to_trace_format(path)
         pause_events = [e for e in events if e.ph == "B"]
         assert any("Mark Alive" in e.name for e in pause_events)
@@ -520,10 +517,10 @@ class TestConvertJsonlToTraceFormat:
     def test_multiple_pids_generates_metadata(self, tmp_path: Path) -> None:
         path = tmp_path / "multi.jsonl"
         lines = [
-            msgspec.json.encode(create_jsonl_record(pid=1)).decode(),
-            msgspec.json.encode(create_jsonl_record(pid=2)).decode(),
+            msgspec.json.encode(create_jsonl_record(pid=1)),
+            msgspec.json.encode(create_jsonl_record(pid=2)),
         ]
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        path.write_bytes(b"\n".join(lines) + b"\n")
         events = convert_jsonl_to_trace_format(path)
         process_metas = [e for e in events if e.name == "process_name"]
         assert len(process_metas) == 2
@@ -542,8 +539,8 @@ class TestCombineFiles:
         out = tmp_path / "out.json"
         e1 = process_meta(pid=1, name="p1")
         e2 = process_meta(pid=2, name="p2")
-        f1.write_text(msgspec.json.encode([e1]).decode(), encoding="utf-8")
-        f2.write_text(msgspec.json.encode([e2]).decode(), encoding="utf-8")
+        f1.write_bytes(msgspec.json.encode([e1]))
+        f2.write_bytes(msgspec.json.encode([e2]))
 
         combine_files([f1, f2], out, input_format="chrome", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
@@ -552,9 +549,8 @@ class TestCombineFiles:
     def test_jsonl_to_chrome(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.jsonl"
         out = tmp_path / "out.json"
-        f1.write_text(
-            msgspec.json.encode(create_jsonl_record()).decode() + "\n",
-            encoding="utf-8",
+        f1.write_bytes(
+            msgspec.json.encode(create_jsonl_record()) + b"\n",
         )
         combine_files([f1], out, input_format="jsonl", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
@@ -564,7 +560,7 @@ class TestCombineFiles:
         f1 = tmp_path / "a.jsonl"
         out = tmp_path / "out.jsonl"
         r = create_jsonl_record(pid=1)
-        f1.write_text(msgspec.json.encode(r).decode() + "\n", encoding="utf-8")
+        f1.write_bytes(msgspec.json.encode(r) + b"\n")
         combine_files([f1], out, input_format="jsonl", output_format="jsonl")
         lines = out.read_text(encoding="utf-8").strip().split("\n")
         assert json.loads(lines[0])["pid"] == 1
@@ -581,7 +577,7 @@ class TestCombineFiles:
                 "collected": 10, "uncollectable": 0, "candidates": 5}
         e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_us=5000, args=args)
         e2 = begin_event(pid=1, tid=1, name="e2", cat="c", ts_us=3000, args=args)
-        f1.write_text(msgspec.json.encode([e1, e2]).decode(), encoding="utf-8")
+        f1.write_bytes(msgspec.json.encode([e1, e2]))
         combine_files([f1], out, normalize=True, input_format="chrome", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
         assert data[0]["ts"] == 2000
@@ -594,7 +590,7 @@ class TestCombineFiles:
                 "collected": 10, "uncollectable": 0, "candidates": 5}
         e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_us=10000, args=args)
         e2 = begin_event(pid=2, tid=1, name="e2", cat="c", ts_us=5000, args=args)
-        f1.write_text(msgspec.json.encode([e1, e2]).decode(), encoding="utf-8")
+        f1.write_bytes(msgspec.json.encode([e1, e2]))
         combine_files([f1], out, normalize=True, input_format="chrome", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
         assert data[0]["ts"] == 0  # pid=1: 10000 - 10000
@@ -606,10 +602,10 @@ class TestCombineFiles:
         r1 = create_jsonl_record(ts_start=10_000_000, ts_stop=11_000_000)
         r2 = create_jsonl_record(ts_start=5_000_000, ts_stop=6_000_000)
         lines = [
-            msgspec.json.encode(r1).decode(),
-            msgspec.json.encode(r2).decode(),
+            msgspec.json.encode(r1),
+            msgspec.json.encode(r2),
         ]
-        f1.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        f1.write_bytes(b"\n".join(lines) + b"\n")
         combine_files([f1], out, normalize=True, input_format="jsonl", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
         pause_events = [e for e in data if e["ph"] == "B"]
@@ -622,10 +618,10 @@ class TestCombineFiles:
         r1 = create_jsonl_record(pid=1, ts_start=10_000_000, ts_stop=11_000_000)
         r2 = create_jsonl_record(pid=1, ts_start=5_000_000, ts_stop=6_000_000)
         lines = [
-            msgspec.json.encode(r1).decode(),
-            msgspec.json.encode(r2).decode(),
+            msgspec.json.encode(r1),
+            msgspec.json.encode(r2),
         ]
-        f1.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        f1.write_bytes(b"\n".join(lines) + b"\n")
         combine_files([f1], out, normalize=True, input_format="jsonl", output_format="jsonl")
         records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
         assert records[0]["ts_start"] == 5_000_000
@@ -636,9 +632,8 @@ class TestCombineFiles:
         f2 = tmp_path / "b.jsonl"
         out = tmp_path / "out.jsonl"
         for f, pid in [(f1, 1), (f2, 2)]:
-            f.write_text(
-                msgspec.json.encode(create_jsonl_record(pid=pid)).decode() + "\n",
-                encoding="utf-8",
+            f.write_bytes(
+                msgspec.json.encode(create_jsonl_record(pid=pid)) + b"\n",
             )
         combine_files([f1, f2], out, input_format="jsonl", output_format="jsonl")
         records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
@@ -652,9 +647,8 @@ class TestCombineFiles:
         r1 = create_jsonl_record(pid=1, ts_start=1000, ts_stop=2000)
         r2 = create_jsonl_record(pid=1, ts_start=3000, ts_stop=4000)
         for f, lines in [(f1, [r1]), (f2, [r2])]:
-            f.write_text(
-                "\n".join(msgspec.json.encode(r).decode() for r in lines) + "\n",
-                encoding="utf-8",
+            f.write_bytes(
+                b"\n".join(msgspec.json.encode(r) for r in lines) + b"\n",
             )
         combine_files([f1, f2], out, input_format="jsonl", output_format="jsonl")
         records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
@@ -667,9 +661,8 @@ class TestCombineFiles:
         f2 = tmp_path / "b.jsonl"
         out = tmp_path / "out.json"
         for f, pid in [(f1, 1), (f2, 2)]:
-            f.write_text(
-                msgspec.json.encode(create_jsonl_record(pid=pid)).decode() + "\n",
-                encoding="utf-8",
+            f.write_bytes(
+                msgspec.json.encode(create_jsonl_record(pid=pid)) + b"\n",
             )
         combine_files([f1, f2], out, input_format="jsonl", output_format="chrome")
         data = json.loads(out.read_text(encoding="utf-8"))
@@ -680,7 +673,7 @@ class TestCombineFiles:
         f1 = tmp_path / "a.jsonl"
         out = tmp_path / "out.jsonl"
         record = _make_inc_jsonl_record(pid=1, ts_start=1000, ts_stop=5000)
-        f1.write_text(msgspec.json.encode(record).decode() + "\n", encoding="utf-8")
+        f1.write_bytes(msgspec.json.encode(record) + b"\n")
         combine_files([f1], out, input_format="jsonl", output_format="jsonl")
         records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
         assert records[0]["increment_size"] == 500

@@ -86,20 +86,18 @@ class TraceExporter(EventsExporter):
             self._write_to_file(list(events))
 
     def _write_to_file(self, events: list[TraceEvent]) -> None:
-        with open(self._output_path, "a", encoding="utf-8") as f:
-            linesep = "\n"
+        with open(self._output_path, "ab") as f:
             if not self._has_written:
                 self._has_written = True
-                f.write(f"[{linesep}{msgspec.json.encode(events[0]).decode()}")
+                f.write(b"[\n" + msgspec.json.encode(events[0]))
                 events = events[1:]
             for e in events:
-                f.write(f",{linesep}{msgspec.json.encode(e).decode()}")
+                f.write(b",\n" + msgspec.json.encode(e))
             f.flush()
 
     def _write_finish_marker(self) -> None:
-        with open(self._output_path, "a", encoding="utf-8") as f:
-            linesep = "\n"
-            f.write(f"{linesep}]{linesep}")
+        with open(self._output_path, "ab") as f:
+            f.write(b"\n]\n")
 
     @override
     def close(self) -> None:
@@ -119,8 +117,8 @@ class TraceExporter(EventsExporter):
             self._flush(events)
 
             if not self._has_written:
-                with open(self._output_path, "w", encoding="utf-8") as f:
-                    f.write("[]\n")
+                with open(self._output_path, "wb") as f:
+                    f.write(b"[]\n")
             else:
                 self._write_finish_marker()
 
