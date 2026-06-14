@@ -353,10 +353,11 @@ def _emit_counter_track_descriptor(
     metric: str,
     state: PerfettoTrackState,
     sequence_id: int,
-) -> list[bytes]:
-    """Build a counter track descriptor if not already emitted for this metric track."""
+) -> tuple[int, list[bytes]]:
+    """Build a counter track descriptor if not already emitted."""
     if state.has_counter_track(pid, iid, name, metric):
-        return []
+        ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, name, metric)
+        return ctr_uuid, []
     ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, name, metric)
     desc = build_track_descriptor(
         ctr_uuid,
@@ -365,7 +366,7 @@ def _emit_counter_track_descriptor(
         is_counter=True,
         sibling_order_rank=_COUNTER_RANKS.get(metric, 0),
     )
-    return [build_trace_packet(sequence_id, track_descriptor=desc)]
+    return ctr_uuid, [build_trace_packet(sequence_id, track_descriptor=desc)]
 
 
 def convert_trace_events_to_perfetto(
@@ -428,8 +429,10 @@ def convert_trace_events_to_perfetto(
 
         elif isinstance(event, CounterEvent):
             for metric, value in event.args.items():
-                descriptors.extend(_emit_counter_track_descriptor(pid, event.tid, event.name, metric, state, sequence_id))
-                ctr_uuid = state.get_or_create_counter_track_uuid(pid, event.tid, event.name, metric)
+                ctr_uuid, desc_bytes = _emit_counter_track_descriptor(
+                    pid, event.tid, event.name, metric, state, sequence_id,
+                )
+                descriptors.extend(desc_bytes)
                 packets.append(build_trace_packet(
                     sequence_id, timestamp=event.ts,
                     track_event=_make_counter_event(ctr_uuid, value),
