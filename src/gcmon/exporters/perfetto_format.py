@@ -3,16 +3,15 @@
 The protobuf building primitives (build_track_descriptor, build_trace_packet,
 build_track_event, etc.) remain here along with PerfettoTrackState.
 
-The new function ``convert_trace_events_to_perfetto`` replaces the old
-``convert_item_to_perfetto_packets`` by accepting a list of ``TraceEvent``
-objects (produced by the shared ``trace_converter``) and mapping each to
+The function ``convert_trace_events_to_perfetto`` accepts a list of ``TraceEvent``
+objects (produced by the shared ``trace_converter``) and maps each to
 the corresponding Perfetto protobuf representation.
 """
 
 from enum import IntEnum
 
 from ..data import ts_to_us
-from ..protocol import TGCStatsInfo, TInstantMsg
+from ..protocol import TInstantMsg
 from ..trace_event import (
     BeginEvent,
     CounterEvent,
@@ -21,8 +20,6 @@ from ..trace_event import (
     ProcessMeta,
     ThreadMeta,
     TraceEvent,
-    process_meta,
-    thread_meta,
 )
 from .protobuf_encoder import (
     encode_bytes_field,
@@ -452,32 +449,6 @@ def convert_trace_events_to_perfetto(
 # ---------------------------------------------------------------------------
 # Legacy helpers (kept for backward compatibility)
 # ---------------------------------------------------------------------------
-
-
-def convert_item_to_perfetto_packets(
-    pid: int,
-    item: TGCStatsInfo,
-    state: PerfettoTrackState,
-    sequence_id: int,
-) -> tuple[list[bytes], list[bytes]]:
-    """Legacy entry point (deprecated).
-
-    Converts a single ``TGCStatsInfo`` item by first calling the shared
-    ``convert_item_to_trace_format`` and then ``convert_trace_events_to_perfetto``.
-    """
-    if item.ts_start >= item.ts_stop:
-        descriptors: list[bytes] = []
-        descriptors.extend(_emit_process_descriptor(pid, state, sequence_id))
-        descriptors.extend(_emit_thread_descriptor(pid, item.iid, state, sequence_id))
-        return descriptors, []
-    from .trace_converter import convert_item_to_trace_format as _to_trace
-
-    gc_events = _to_trace(pid, item)
-    meta: list[TraceEvent] = [
-        process_meta(pid, f"Process {pid}"),
-        thread_meta(pid, item.iid, f"Thread {item.iid}"),
-    ]
-    return convert_trace_events_to_perfetto(meta + gc_events, state, sequence_id)
 
 
 def convert_instant_to_perfetto_packet(
