@@ -573,6 +573,30 @@ class TestConvertItemToPerfettoPackets:
         assert state.has_tid(100, 0)
         assert state.has_tid(100, 1)
 
+    def test_debug_annotation_name_wire_format(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=5, collected=10,
+            uncollectable=2, candidates=3, duration=0.001,
+        )
+        _, packets = _convert_item(100, item, state, sequence_id=1)
+        first_packet_fields = decode_message(packets[0])
+        te_bytes = get_bytes(first_packet_fields, TracePacketField.TRACK_EVENT)
+        assert te_bytes is not None
+        te_fields = decode_message(te_bytes)
+        anns = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
+        assert len(anns) == 7
+        for ann in anns:
+            ann_fields = decode_message(ann.value)  # type: ignore[arg-type]
+            name_field_1 = get_field(ann_fields, 1)
+            assert name_field_1 is None or name_field_1.wire_type != 2, (
+                "field 1 of DebugAnnotation is `name_iid` (uint64); "
+                "the annotation name must not be written there"
+            )
+            assert get_string(ann_fields, 10) is not None
+            assert get_string(ann_fields, DebugAnnotationField.NAME) is not None
+
     def test_debug_annotations_on_pause(self) -> None:
         state = PerfettoTrackState()
         item = GCStatsInfo(
