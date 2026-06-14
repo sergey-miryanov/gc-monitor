@@ -46,6 +46,7 @@ numpy = "^2.0"
 types-psutil = "^7.2"
 twine = "^6.0"
 pytest-repeat = "^0.9.4"
+perfetto = "0.56.0"
 
 [tool.poetry.urls]
 Homepage = "https://github.com/sergey-miryanov/gcmon"
@@ -90,8 +91,9 @@ testpaths = ["tests"]
 tmp_path_retention_policy = "failed"
 markers = [
     "stress: thread-safety stress tests for exporter and control-client pipelines (deselected by default; run with -m stress)",
+    "integration: integration tests that drive the Perfetto trace processor binary (deselected by default; run with -m integration)",
 ]
-addopts = "-m 'not stress'"
+addopts = "-m 'not stress and not integration'"
 
 # =============================================================================
 # Coverage Configuration
