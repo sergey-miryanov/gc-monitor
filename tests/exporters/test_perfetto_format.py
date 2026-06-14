@@ -56,7 +56,7 @@ class TestPerfettoTrackState:
         state = PerfettoTrackState()
         assert not state.has_pid(123)
         assert not state.has_tid(123, 0)
-        assert not state.has_counter_track(123, 0, 0, "collected")
+        assert not state.has_counter_track(123, 0, "G0", "collected")
 
     def test_pid_tracking(self) -> None:
         state = PerfettoTrackState()
@@ -91,23 +91,23 @@ class TestPerfettoTrackState:
 
     def test_counter_track_uuid_sequential(self) -> None:
         state = PerfettoTrackState()
-        uuid0 = state.get_or_create_counter_track_uuid(100, 0, 0, "collected")
-        uuid1 = state.get_or_create_counter_track_uuid(100, 0, 0, "heap_size")
+        uuid0 = state.get_or_create_counter_track_uuid(100, 0, "G0", "collected")
+        uuid1 = state.get_or_create_counter_track_uuid(100, 0, "G0", "heap_size")
         assert uuid0 == _COUNTER_BASE
         assert uuid1 == _COUNTER_BASE + 1
 
     def test_counter_track_uuid_idempotent(self) -> None:
         state = PerfettoTrackState()
-        uuid1 = state.get_or_create_counter_track_uuid(100, 0, 0, "collected")
-        uuid2 = state.get_or_create_counter_track_uuid(100, 0, 0, "collected")
+        uuid1 = state.get_or_create_counter_track_uuid(100, 0, "G0", "collected")
+        uuid2 = state.get_or_create_counter_track_uuid(100, 0, "G0", "collected")
         assert uuid1 == uuid2
 
     def test_has_counter_track(self) -> None:
         state = PerfettoTrackState()
-        assert not state.has_counter_track(100, 0, 0, "collected")
-        state.get_or_create_counter_track_uuid(100, 0, 0, "collected")
-        assert state.has_counter_track(100, 0, 0, "collected")
-        assert not state.has_counter_track(100, 0, 1, "collected")
+        assert not state.has_counter_track(100, 0, "G0", "collected")
+        state.get_or_create_counter_track_uuid(100, 0, "G0", "collected")
+        assert state.has_counter_track(100, 0, "G0", "collected")
+        assert not state.has_counter_track(100, 0, "G1", "collected")
 
 
 class TestBuildTrackDescriptor:
@@ -182,11 +182,11 @@ class TestBuildTrackDescriptor:
 
     def test_counter_descriptor(self) -> None:
         data = build_track_descriptor(
-            uuid=300, name="collected (gen=0)", parent_uuid=200, is_counter=True
+            uuid=300, name="G0 collected", parent_uuid=200, is_counter=True
         )
         fields = decode_message(data)
         assert get_varint(fields, TrackDescriptorField.UUID) == 300
-        assert get_string(fields, TrackDescriptorField.NAME) == "collected (gen=0)"
+        assert get_string(fields, TrackDescriptorField.NAME) == "G0 collected"
         assert get_varint(fields, TrackDescriptorField.PARENT_UUID) == 200
         assert get_bytes(fields, TrackDescriptorField.COUNTER) == b""
 

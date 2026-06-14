@@ -136,7 +136,7 @@ class PerfettoTrackState:
         self._pids: set[int] = set()
         self._tids: set[tuple[int, int]] = set()
         self._cmdlines: dict[int, list[str]] = {}
-        self._counter_tracks: dict[tuple[int, int, int, str], int] = {}
+        self._counter_tracks: dict[tuple[int, int, str, str], int] = {}
         self._counter_counter = 0
 
     def has_pid(self, pid: int) -> bool:
@@ -163,11 +163,11 @@ class PerfettoTrackState:
     def get_thread_track_uuid(self, pid: int, iid: int) -> int:
         return (pid << 20) | iid | _THREAD_BASE
 
-    def has_counter_track(self, pid: int, iid: int, gen: int, metric: str) -> bool:
-        return (pid, iid, gen, metric) in self._counter_tracks
+    def has_counter_track(self, pid: int, iid: int, name: str, metric: str) -> bool:
+        return (pid, iid, name, metric) in self._counter_tracks
 
-    def get_or_create_counter_track_uuid(self, pid: int, iid: int, gen: int, metric: str) -> int:
-        key = (pid, iid, gen, metric)
+    def get_or_create_counter_track_uuid(self, pid: int, iid: int, name: str, metric: str) -> int:
+        key = (pid, iid, name, metric)
         if key not in self._counter_tracks:
             self._counter_tracks[key] = _COUNTER_BASE + self._counter_counter
             self._counter_counter += 1
@@ -349,18 +349,18 @@ def _emit_thread_descriptor(
 def _emit_counter_track_descriptor(
     pid: int,
     iid: int,
-    gen: int,
+    name: str,
     metric: str,
     state: PerfettoTrackState,
     sequence_id: int,
 ) -> list[bytes]:
     """Build a counter track descriptor if not already emitted for this metric track."""
-    if state.has_counter_track(pid, iid, gen, metric):
+    if state.has_counter_track(pid, iid, name, metric):
         return []
-    ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, gen, metric)
+    ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, name, metric)
     desc = build_track_descriptor(
         ctr_uuid,
-        f"{metric} (gen={gen})",
+        f"{name} {metric}",
         parent_uuid=state.get_process_track_uuid(pid),
         is_counter=True,
         sibling_order_rank=_COUNTER_RANKS.get(metric, 0),
@@ -427,10 +427,9 @@ def convert_trace_events_to_perfetto(
             ))
 
         elif isinstance(event, CounterEvent):
-            gen = int(event.name[1:])  # name format: "G{gen}"
             for metric, value in event.args.items():
-                descriptors.extend(_emit_counter_track_descriptor(pid, event.tid, gen, metric, state, sequence_id))
-                ctr_uuid = state.get_or_create_counter_track_uuid(pid, event.tid, gen, metric)
+                descriptors.extend(_emit_counter_track_descriptor(pid, event.tid, event.name, metric, state, sequence_id))
+                ctr_uuid = state.get_or_create_counter_track_uuid(pid, event.tid, event.name, metric)
                 packets.append(build_trace_packet(
                     sequence_id, timestamp=event.ts,
                     track_event=_make_counter_event(ctr_uuid, value),
