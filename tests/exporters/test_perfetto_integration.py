@@ -97,6 +97,12 @@ def _write_trace(tmp: Path, fmt: str) -> Path:
         heap_size=_HEAP_SIZE,
     ))
     exporter.add_event(DEFAULT_PID, create_mock_incremental_item(gen=1, iid=1))
+    exporter.add_event(DEFAULT_PID, create_mock_stats_item(
+        gen=_GEN, iid=2,
+        collections=_COLLECTIONS, collected=_COLLECTED,
+        uncollectable=_UNCOLLECTABLE, candidates=_CANDIDATES,
+        heap_size=_HEAP_SIZE,
+    ))
     exporter.close()
     return path
 
@@ -119,7 +125,7 @@ class TestSliceArgs:
         rows = list(trace_processor.query(
             f"SELECT name FROM slice WHERE name = '{_PAUSE_NAME}'"
         ))
-        assert len(rows) == 1, f"expected exactly one '{_PAUSE_NAME}' slice, got {rows}"
+        assert len(rows) == 2, f"expected two '{_PAUSE_NAME}' slices, got {rows}"
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_pause_slice_has_all_expected_args(
@@ -130,9 +136,11 @@ class TestSliceArgs:
             r.flat_key: r.int_value
             for r in trace_processor.query(
                 f"SELECT flat_key, int_value FROM args "
-                f"WHERE arg_set_id = ("
-                f"  SELECT arg_set_id FROM slice "
-                f"  WHERE name = '{_PAUSE_NAME}' AND dur > 0"
+                f"WHERE arg_set_id IN ("
+                f"  SELECT s.arg_set_id FROM slice s "
+                f"  JOIN track t ON s.track_id = t.id "
+                f"  WHERE s.name = '{_PAUSE_NAME}' AND s.dur > 0 "
+                f"  AND t.name = 'Thread 0'"
                 f")"
             )
         }
@@ -223,6 +231,12 @@ class TestTrackDescriptors:
             )
         ]
         assert rows == [f"Process {DEFAULT_PID}"], f"expected exactly one 'Process {DEFAULT_PID}' track, got {rows}"
+
+    @pytest.mark.parametrize("fmt", ["perfetto"])
+    def test_thread_tracks_present(self, fmt: str, trace_processor: TraceProcessor) -> None:
+        rows = {r.name for r in trace_processor.query("SELECT name FROM track")}
+        for iid in (0, 1, 2):
+            assert f"Thread {iid}" in rows, f"missing 'Thread {iid}' track; got {sorted(rows)}"
 
 
 class TestInstantEvents:
