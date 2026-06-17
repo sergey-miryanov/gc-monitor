@@ -12,7 +12,6 @@ identically. These tests are deselected from the default ``pytest`` run
 
 from __future__ import annotations
 
-import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -23,10 +22,10 @@ from perfetto.trace_processor import TraceProcessor
 
 from gcmon.data import GCStatsInfo
 from gcmon.exporters import PerfettoExporter, TraceExporter
+from tests.conftest import DEFAULT_PID
 
 pytestmark = [pytest.mark.integration]
 
-_PID: int = 12345
 _PAUSE_NAME: str = "GC Pause (gen=0)"
 
 _GEN: int = 0
@@ -80,8 +79,9 @@ def _make_item() -> GCStatsInfo:
 
 def _write_trace(tmp: Path, fmt: str) -> Path:
     path = tmp / ("trace.json" if fmt == "chrome" else "trace.pb")
+    exporter: TraceExporter | PerfettoExporter
     if fmt == "chrome":
-        exporter: TraceExporter | PerfettoExporter = TraceExporter(
+        exporter = TraceExporter(
             output_path=path, flush_threshold=1000,
         )
     else:
@@ -90,20 +90,19 @@ def _write_trace(tmp: Path, fmt: str) -> Path:
             flush_threshold=1000,
             cmdline_provider=lambda _pid: None,
         )
-    exporter.add_event(_PID, _make_item())
+    exporter.add_event(DEFAULT_PID, _make_item())
     exporter.close()
     return path
 
 
 @pytest.fixture
-def trace_processor(fmt: str) -> Iterator[TraceProcessor]:
-    with tempfile.TemporaryDirectory() as td:
-        path = _write_trace(Path(td), fmt)
-        tp = TraceProcessor(trace=str(path))
-        try:
-            yield tp
-        finally:
-            tp.close()
+def trace_processor(tmp_path: Path, fmt: str) -> Iterator[TraceProcessor]:
+    path = _write_trace(tmp_path, fmt)
+    tp = TraceProcessor(trace=str(path))
+    try:
+        yield tp
+    finally:
+        tp.close()
 
 
 class TestSliceArgs:
@@ -170,7 +169,7 @@ class TestTrackDescriptors:
     def test_process_track_present(self, fmt: str, trace_processor: TraceProcessor) -> None:
         rows = [
             r.name for r in trace_processor.query(
-                f"SELECT name FROM track WHERE name = 'Process {_PID}'"
+                f"SELECT name FROM track WHERE name = 'Process {DEFAULT_PID}'"
             )
         ]
-        assert rows == [f"Process {_PID}"], f"expected exactly one 'Process {_PID}' track, got {rows}"
+        assert rows == [f"Process {DEFAULT_PID}"], f"expected exactly one 'Process {DEFAULT_PID}' track, got {rows}"
