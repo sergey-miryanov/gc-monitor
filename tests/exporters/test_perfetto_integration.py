@@ -29,6 +29,7 @@ pytestmark = [pytest.mark.integration]
 
 _PAUSE_NAME: str = "GC Pause (gen=0)"
 _INSTANT_NAME: str = "GC monitor started"
+_SECOND_PID: int = 67890
 
 _GEN: int = 0
 _IID: int = 0
@@ -103,6 +104,16 @@ def _write_trace(tmp: Path, fmt: str) -> Path:
         uncollectable=_UNCOLLECTABLE, candidates=_CANDIDATES,
         heap_size=_HEAP_SIZE,
     ))
+    exporter.add_instant_event(
+        _SECOND_PID,
+        create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 2_000_000),
+    )
+    exporter.add_event(_SECOND_PID, create_mock_stats_item(
+        gen=_GEN, iid=0,
+        collections=_COLLECTIONS, collected=_COLLECTED,
+        uncollectable=_UNCOLLECTABLE, candidates=_CANDIDATES,
+        heap_size=_HEAP_SIZE,
+    ))
     exporter.close()
     return path
 
@@ -123,7 +134,10 @@ class TestSliceArgs:
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_pause_slice_exists(self, fmt: str, trace_processor: TraceProcessor) -> None:
         rows = list(trace_processor.query(
-            f"SELECT name FROM slice WHERE name = '{_PAUSE_NAME}'"
+            f"SELECT s.name FROM slice s "
+            f"JOIN track t  ON s.track_id = t.id "
+            f"JOIN track pt ON t.parent_id = pt.id "
+            f"WHERE s.name = '{_PAUSE_NAME}' AND pt.name = 'Process {DEFAULT_PID}'"
         ))
         assert len(rows) == 2, f"expected two '{_PAUSE_NAME}' slices, got {rows}"
 
@@ -138,9 +152,11 @@ class TestSliceArgs:
                 f"SELECT flat_key, int_value FROM args "
                 f"WHERE arg_set_id IN ("
                 f"  SELECT s.arg_set_id FROM slice s "
-                f"  JOIN track t ON s.track_id = t.id "
+                f"  JOIN track t  ON s.track_id = t.id "
+                f"  JOIN track pt ON t.parent_id = pt.id "
                 f"  WHERE s.name = '{_PAUSE_NAME}' AND s.dur > 0 "
-                f"  AND t.name = 'Thread 0'"
+                f"  AND t.name = 'Thread 0' "
+                f"  AND pt.name = 'Process {DEFAULT_PID}'"
                 f")"
             )
         }
@@ -156,7 +172,10 @@ class TestSliceArgs:
         self, fmt: str, trace_processor: TraceProcessor,
     ) -> None:
         rows = list(trace_processor.query(
-            "SELECT name FROM slice WHERE name = 'GC Pause (gen=1)'"
+            f"SELECT s.name FROM slice s "
+            f"JOIN track t  ON s.track_id = t.id "
+            f"JOIN track pt ON t.parent_id = pt.id "
+            f"WHERE s.name = 'GC Pause (gen=1)' AND pt.name = 'Process {DEFAULT_PID}'"
         ))
         assert len(rows) == 1, f"expected exactly one 'GC Pause (gen=1)' slice, got {rows}"
 
@@ -175,7 +194,10 @@ class TestSliceArgs:
             "Delete Garbage (gen=1)",
         ]
         slice_names = {r.name for r in trace_processor.query(
-            "SELECT DISTINCT name FROM slice"
+            f"SELECT DISTINCT s.name FROM slice s "
+            f"JOIN track t  ON s.track_id = t.id "
+            f"JOIN track pt ON t.parent_id = pt.id "
+            f"WHERE pt.name = 'Process {DEFAULT_PID}'"
         )}
         missing = set(expected_sub_slices) - slice_names
         assert not missing, f"missing sub-slices: {missing}"
@@ -185,9 +207,13 @@ class TestSliceArgs:
             r.flat_key: r.int_value
             for r in trace_processor.query(
                 "SELECT flat_key, int_value FROM args "
-                "WHERE arg_set_id = ("
-                "  SELECT arg_set_id FROM slice "
-                "  WHERE name = 'GC Pause (gen=1)' AND dur > 0"
+                "WHERE arg_set_id IN ("
+                "  SELECT s.arg_set_id FROM slice s "
+                "  JOIN track t  ON s.track_id = t.id "
+                "  JOIN track pt ON t.parent_id = pt.id "
+                "  WHERE s.name = 'GC Pause (gen=1)' AND s.dur > 0 "
+                "  AND t.name = 'Thread 1' "
+                f"  AND pt.name = 'Process {DEFAULT_PID}'"
                 ")"
             )
         }
@@ -202,7 +228,8 @@ class TestSliceArgs:
 class TestCounterTracks:
     """The four counter metrics (collected/uncollectable/candidates/heap_size)
     each have a counter track with the expected name, and no extra counter
-    tracks are emitted."""
+    tracks are emitted. The set comparison is robust to multiple processes
+    emitting the same counter-track names."""
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_counter_track_names_match_expected(
@@ -225,18 +252,22 @@ class TestTrackDescriptors:
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_track_present(self, fmt: str, trace_processor: TraceProcessor) -> None:
-        rows = [
-            r.name for r in trace_processor.query(
-                f"SELECT name FROM track WHERE name = 'Process {DEFAULT_PID}'"
-            )
-        ]
-        assert rows == [f"Process {DEFAULT_PID}"], f"expected exactly one 'Process {DEFAULT_PID}' track, got {rows}"
+        rows = sorted(r.name for r in trace_processor.query(
+            "SELECT name FROM track WHERE name LIKE 'Process %'"
+        ))
+        assert rows == sorted([f"Process {DEFAULT_PID}", f"Process {_SECOND_PID}"]), (
+            f"expected process tracks for both PIDs, got {rows}"
+        )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_thread_tracks_present(self, fmt: str, trace_processor: TraceProcessor) -> None:
-        rows = {r.name for r in trace_processor.query("SELECT name FROM track")}
+        rows = {r.name for r in trace_processor.query(
+            f"SELECT t.name FROM track t "
+            f"JOIN track pt ON t.parent_id = pt.id "
+            f"WHERE pt.name = 'Process {DEFAULT_PID}'"
+        )}
         for iid in (0, 1, 2):
-            assert f"Thread {iid}" in rows, f"missing 'Thread {iid}' track; got {sorted(rows)}"
+            assert f"Thread {iid}" in rows, f"missing 'Thread {iid}' in DEFAULT_PID's threads; got {sorted(rows)}"
 
 
 class TestInstantEvents:
@@ -248,9 +279,12 @@ class TestInstantEvents:
         self, fmt: str, trace_processor: TraceProcessor,
     ) -> None:
         rows = list(trace_processor.query(
-            f"SELECT name FROM slice "
-            f"WHERE name = '{_INSTANT_NAME}' AND dur = 0"
+            f"SELECT s.name FROM slice s "
+            f"JOIN track t  ON s.track_id = t.id "
+            f"JOIN track pt ON t.parent_id = pt.id "
+            f"WHERE s.name = '{_INSTANT_NAME}' AND s.dur = 0 "
+            f"AND pt.name = 'Process {DEFAULT_PID}'"
         ))
         assert len(rows) == 1, (
-            f"expected exactly one '{_INSTANT_NAME}' dur=0 slice, got {rows}"
+            f"expected exactly one '{_INSTANT_NAME}' dur=0 slice for DEFAULT_PID, got {rows}"
         )
