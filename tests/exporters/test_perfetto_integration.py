@@ -140,23 +140,20 @@ class TestSliceArgs:
 
 class TestCounterTracks:
     """The four counter metrics (collected/uncollectable/candidates/heap_size)
-    each have a counter track with the expected name."""
+    each have a counter track with the expected name, and no extra counter
+    tracks are emitted."""
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
-    def test_all_expected_counter_tracks_present(
+    def test_counter_track_names_match_expected(
         self, fmt: str, trace_processor: TraceProcessor,
     ) -> None:
         rows = {r.name for r in trace_processor.query("SELECT name FROM counter_track")}
-        assert _EXPECTED_COUNTER_NAMES.issubset(rows), (
-            f"missing counter tracks: {_EXPECTED_COUNTER_NAMES - rows}; got {rows}"
-        )
-
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
-    def test_counter_track_count(self, fmt: str, trace_processor: TraceProcessor) -> None:
-        rows = list(trace_processor.query("SELECT name FROM counter_track"))
-        assert len(rows) == len(_EXPECTED_COUNTER_NAMES), (
-            f"expected {len(_EXPECTED_COUNTER_NAMES)} counter tracks, got {len(rows)}: "
-            f"{[r.name for r in rows]}"
+        missing = _EXPECTED_COUNTER_NAMES - rows
+        unexpected = rows - _EXPECTED_COUNTER_NAMES
+        assert not missing and not unexpected, (
+            f"counter track names mismatch; "
+            f"missing: {missing or 'none'}; "
+            f"unexpected: {unexpected or 'none'}"
         )
 
 
