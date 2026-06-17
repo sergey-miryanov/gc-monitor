@@ -90,7 +90,12 @@ def _write_trace(tmp: Path, fmt: str) -> Path:
         DEFAULT_PID,
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 1_000_000),
     )
-    exporter.add_event(DEFAULT_PID, create_mock_stats_item(gen=0, iid=0))
+    exporter.add_event(DEFAULT_PID, create_mock_stats_item(
+        gen=_GEN, iid=_IID,
+        collections=_COLLECTIONS, collected=_COLLECTED,
+        uncollectable=_UNCOLLECTABLE, candidates=_CANDIDATES,
+        heap_size=_HEAP_SIZE,
+    ))
     exporter.add_event(DEFAULT_PID, create_mock_incremental_item(gen=1, iid=1))
     exporter.close()
     return path
@@ -174,7 +179,7 @@ class TestSliceArgs:
                 "SELECT flat_key, int_value FROM args "
                 "WHERE arg_set_id = ("
                 "  SELECT arg_set_id FROM slice "
-                "  WHERE name = 'GC Pause (gen=1)' AND dur > 0 AND tid = 1"
+                "  WHERE name = 'GC Pause (gen=1)' AND dur > 0"
                 ")"
             )
         }
