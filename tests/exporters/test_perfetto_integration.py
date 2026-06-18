@@ -12,7 +12,7 @@ identically. These tests are deselected from the default ``pytest`` run
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -73,6 +73,18 @@ _ARG_PREFIX: dict[str, str] = {
     "perfetto": "debug",
 }
 
+_FAKE_CMDLINE: tuple[str, ...] = ("python3", "-m", "fake_target")
+_FAKE_CMDLINE_JOINED: str = " ".join(_FAKE_CMDLINE)
+
+
+def _fake_cmdline_provider(pid: int) -> list[str] | None:
+    """Returns a known fake cmdline for the two PIDs the trace uses and
+    ``None`` for any other PID, so the encoder's ``None`` path is also
+    exercised by the same callable."""
+    if pid in (DEFAULT_PID, _SECOND_PID):
+        return list(_FAKE_CMDLINE)
+    return None
+
 
 def _process_filter(pid: int) -> str:
     """SQL fragment to scope a query to a single ``pid``.
@@ -103,7 +115,10 @@ def _process_filter_instant(pid: int) -> str:
     )
 
 
-def _write_trace(tmp: Path, fmt: str) -> Path:
+def _write_trace(
+    tmp: Path, fmt: str,
+    cmdline_provider: Callable[[int], list[str] | None] = lambda _pid: None,
+) -> Path:
     path = tmp / ("trace.json" if fmt == "chrome" else "trace.pb")
     exporter: TraceExporter | PerfettoExporter
     if fmt == "chrome":
@@ -114,7 +129,7 @@ def _write_trace(tmp: Path, fmt: str) -> Path:
         exporter = PerfettoExporter(
             output_path=path,
             flush_threshold=1000,
-            cmdline_provider=lambda _pid: None,
+            cmdline_provider=cmdline_provider,
         )
     exporter.add_instant_event(
         DEFAULT_PID,
@@ -150,6 +165,19 @@ def _write_trace(tmp: Path, fmt: str) -> Path:
 @pytest.fixture
 def trace_processor(tmp_path: Path, fmt: str) -> Iterator[TraceProcessor]:
     path = _write_trace(tmp_path, fmt)
+    config = TraceProcessorConfig(load_timeout=300)
+    tp = TraceProcessor(trace=str(path), config=config)
+    try:
+        yield tp
+    finally:
+        tp.close()
+
+
+@pytest.fixture
+def trace_processor_with_cmdline(
+    tmp_path: Path, fmt: str,
+) -> Iterator[TraceProcessor]:
+    path = _write_trace(tmp_path, fmt, cmdline_provider=_fake_cmdline_provider)
     config = TraceProcessorConfig(load_timeout=300)
     tp = TraceProcessor(trace=str(path), config=config)
     try:
@@ -341,3 +369,46 @@ class TestInstantEvents:
         assert len(rows) == 1, (
             f"expected exactly one '{_INSTANT_NAME}' dur=0 slice for DEFAULT_PID, got {rows}"
         )
+
+
+class TestCmdlineEncoding:
+    """When ``cmdline_provider`` returns a non-``None`` list, the joined
+    cmdline string is exposed by the trace processor as the process track's
+    ``description`` arg. The Perfetto trace processor does not surface the
+    per-argv ``ProcessDescriptor.CMDLINE`` repeated fields in its SQL
+    tables, so the description is the only SQL-visible check."""
+
+    def _description(self, trace_processor: TraceProcessor, pid: int) -> str | None:
+        rows = list(trace_processor.query(
+            f"SELECT a.string_value FROM args a "
+            f"JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+            f"JOIN process p ON p.upid = pt.upid "
+            f"WHERE p.pid = {pid} AND a.key = 'description'"
+        ))
+        return rows[0].string_value if rows else None
+
+    @pytest.mark.parametrize("fmt", ["perfetto"])
+    def test_cmdline_description_appears_for_known_pid(
+        self, fmt: str, trace_processor_with_cmdline: TraceProcessor,
+    ) -> None:
+        assert (
+            self._description(trace_processor_with_cmdline, DEFAULT_PID)
+            == _FAKE_CMDLINE_JOINED
+        )
+        assert (
+            self._description(trace_processor_with_cmdline, _SECOND_PID)
+            == _FAKE_CMDLINE_JOINED
+        )
+
+    @pytest.mark.parametrize("fmt", ["perfetto"])
+    def test_cmdline_absent_for_pid_outside_provider(
+        self, fmt: str, trace_processor_with_cmdline: TraceProcessor,
+    ) -> None:
+        assert self._description(trace_processor_with_cmdline, 1) is None
+
+    @pytest.mark.parametrize("fmt", ["perfetto"])
+    def test_cmdline_none_for_unknown_pid(
+        self, fmt: str, trace_processor: TraceProcessor,
+    ) -> None:
+        assert self._description(trace_processor, DEFAULT_PID) is None
+        assert self._description(trace_processor, _SECOND_PID) is None
