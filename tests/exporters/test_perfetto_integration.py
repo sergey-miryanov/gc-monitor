@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("perfetto")
-from perfetto.trace_processor import TraceProcessor
+from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from gcmon.exporters import PerfettoExporter, TraceExporter
 from tests.conftest import DEFAULT_PID
@@ -74,6 +74,35 @@ _ARG_PREFIX: dict[str, str] = {
 }
 
 
+def _process_filter(pid: int) -> str:
+    """SQL fragment to scope a query to a single ``pid``.
+
+    Thread-attached slices (begin/end, counter) are joined through the
+    ``thread_track``/``thread`` views. ``slice.track_id`` is the same track id
+    for both ``thread_track`` and ``process_track`` views; the view that
+    matches a given slice row is determined by the track's type.
+    """
+    return (
+        f"JOIN thread_track tt ON s.track_id = tt.id "
+        f"JOIN thread th ON tt.utid = th.utid "
+        f"JOIN process p ON th.upid = p.upid "
+        f"WHERE p.pid = {pid}"
+    )
+
+
+def _process_filter_instant(pid: int) -> str:
+    """SQL fragment to scope an instant-event query to a single ``pid``.
+
+    Instant events (e.g. ``GC monitor started``) are emitted on the process
+    track, not on a thread track, so the join goes through ``process_track``.
+    """
+    return (
+        f"JOIN process_track pt ON s.track_id = pt.id "
+        f"JOIN process p ON pt.upid = p.upid "
+        f"WHERE p.pid = {pid} AND s.dur = 0"
+    )
+
+
 def _write_trace(tmp: Path, fmt: str) -> Path:
     path = tmp / ("trace.json" if fmt == "chrome" else "trace.pb")
     exporter: TraceExporter | PerfettoExporter
@@ -121,7 +150,8 @@ def _write_trace(tmp: Path, fmt: str) -> Path:
 @pytest.fixture
 def trace_processor(tmp_path: Path, fmt: str) -> Iterator[TraceProcessor]:
     path = _write_trace(tmp_path, fmt)
-    tp = TraceProcessor(trace=str(path))
+    config = TraceProcessorConfig(load_timeout=300)
+    tp = TraceProcessor(trace=str(path), config=config)
     try:
         yield tp
     finally:
@@ -135,9 +165,8 @@ class TestSliceArgs:
     def test_pause_slice_exists(self, fmt: str, trace_processor: TraceProcessor) -> None:
         rows = list(trace_processor.query(
             f"SELECT s.name FROM slice s "
-            f"JOIN track t  ON s.track_id = t.id "
-            f"JOIN track pt ON t.parent_id = pt.id "
-            f"WHERE s.name = '{_PAUSE_NAME}' AND pt.name = 'Process {DEFAULT_PID}'"
+            f"{_process_filter(DEFAULT_PID)} "
+            f"AND s.name = '{_PAUSE_NAME}'"
         ))
         assert len(rows) == 2, f"expected two '{_PAUSE_NAME}' slices, got {rows}"
 
@@ -152,11 +181,9 @@ class TestSliceArgs:
                 f"SELECT flat_key, int_value FROM args "
                 f"WHERE arg_set_id IN ("
                 f"  SELECT s.arg_set_id FROM slice s "
-                f"  JOIN track t  ON s.track_id = t.id "
-                f"  JOIN track pt ON t.parent_id = pt.id "
-                f"  WHERE s.name = '{_PAUSE_NAME}' AND s.dur > 0 "
-                f"  AND t.name = 'Thread 0' "
-                f"  AND pt.name = 'Process {DEFAULT_PID}'"
+                f"  {_process_filter(DEFAULT_PID)} "
+                f"  AND s.name = '{_PAUSE_NAME}' AND s.dur > 0 "
+                f"  AND th.name = 'Thread 0'"
                 f")"
             )
         }
@@ -173,9 +200,8 @@ class TestSliceArgs:
     ) -> None:
         rows = list(trace_processor.query(
             f"SELECT s.name FROM slice s "
-            f"JOIN track t  ON s.track_id = t.id "
-            f"JOIN track pt ON t.parent_id = pt.id "
-            f"WHERE s.name = 'GC Pause (gen=1)' AND pt.name = 'Process {DEFAULT_PID}'"
+            f"{_process_filter(DEFAULT_PID)} "
+            f"AND s.name = 'GC Pause (gen=1)'"
         ))
         assert len(rows) == 1, f"expected exactly one 'GC Pause (gen=1)' slice, got {rows}"
 
@@ -195,9 +221,7 @@ class TestSliceArgs:
         ]
         slice_names = {r.name for r in trace_processor.query(
             f"SELECT DISTINCT s.name FROM slice s "
-            f"JOIN track t  ON s.track_id = t.id "
-            f"JOIN track pt ON t.parent_id = pt.id "
-            f"WHERE pt.name = 'Process {DEFAULT_PID}'"
+            f"{_process_filter(DEFAULT_PID)}"
         )}
         missing = set(expected_sub_slices) - slice_names
         assert not missing, f"missing sub-slices: {missing}"
@@ -209,11 +233,9 @@ class TestSliceArgs:
                 "SELECT flat_key, int_value FROM args "
                 "WHERE arg_set_id IN ("
                 "  SELECT s.arg_set_id FROM slice s "
-                "  JOIN track t  ON s.track_id = t.id "
-                "  JOIN track pt ON t.parent_id = pt.id "
-                "  WHERE s.name = 'GC Pause (gen=1)' AND s.dur > 0 "
-                "  AND t.name = 'Thread 1' "
-                f"  AND pt.name = 'Process {DEFAULT_PID}'"
+                f"  {_process_filter(DEFAULT_PID)} "
+                "  AND s.name = 'GC Pause (gen=1)' AND s.dur > 0 "
+                "  AND th.name = 'Thread 1'"
                 ")"
             )
         }
@@ -262,9 +284,9 @@ class TestTrackDescriptors:
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_thread_tracks_present(self, fmt: str, trace_processor: TraceProcessor) -> None:
         rows = {r.name for r in trace_processor.query(
-            f"SELECT t.name FROM track t "
-            f"JOIN track pt ON t.parent_id = pt.id "
-            f"WHERE pt.name = 'Process {DEFAULT_PID}'"
+            f"SELECT th.name FROM thread th "
+            f"JOIN process p ON th.upid = p.upid "
+            f"WHERE p.pid = {DEFAULT_PID}"
         )}
         for iid in (0, 1, 2):
             assert f"Thread {iid}" in rows, f"missing 'Thread {iid}' in DEFAULT_PID's threads; got {sorted(rows)}"
@@ -284,11 +306,11 @@ class TestDiagnosticTrackSchema:
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_dump_track_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
         rows = list(trace_processor.query(
-            "SELECT id, name, type, parent_id, utid FROM track ORDER BY id"
+            "SELECT id, name, type, parent_id FROM track ORDER BY id"
         ))
         for r in rows:
             print(f"TRACK id={r.id} name={r.name!r} type={r.type!r} "
-                  f"parent_id={r.parent_id} utid={r.utid}")
+                  f"parent_id={r.parent_id}")
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_dump_process_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
@@ -313,10 +335,8 @@ class TestInstantEvents:
     ) -> None:
         rows = list(trace_processor.query(
             f"SELECT s.name FROM slice s "
-            f"JOIN track t  ON s.track_id = t.id "
-            f"JOIN track pt ON t.parent_id = pt.id "
-            f"WHERE s.name = '{_INSTANT_NAME}' AND s.dur = 0 "
-            f"AND pt.name = 'Process {DEFAULT_PID}'"
+            f"{_process_filter_instant(DEFAULT_PID)} "
+            f"AND s.name = '{_INSTANT_NAME}'"
         ))
         assert len(rows) == 1, (
             f"expected exactly one '{_INSTANT_NAME}' dur=0 slice for DEFAULT_PID, got {rows}"
