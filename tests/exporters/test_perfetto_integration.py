@@ -276,13 +276,19 @@ class TestDiagnosticTrackSchema:
     to see the output."""
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
+    def test_dump_track_schema(self, fmt: str, trace_processor: TraceProcessor) -> None:
+        rows = list(trace_processor.query("PRAGMA table_info(track)"))
+        for r in rows:
+            print(f"COLUMN name={r.name!r} type={r.type!r} notnull={r.notnull} pk={r.pk}")
+
+    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_dump_track_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
         rows = list(trace_processor.query(
-            "SELECT id, name, type, parent_id, upid, utid FROM track ORDER BY id"
+            "SELECT id, name, type, parent_id, utid FROM track ORDER BY id"
         ))
         for r in rows:
             print(f"TRACK id={r.id} name={r.name!r} type={r.type!r} "
-                  f"parent_id={r.parent_id} upid={r.upid} utid={r.utid}")
+                  f"parent_id={r.parent_id} utid={r.utid}")
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_dump_process_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
