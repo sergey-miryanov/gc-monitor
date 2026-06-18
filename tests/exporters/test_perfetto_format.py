@@ -32,10 +32,6 @@ from tests.proto_decoder import (
     get_varint,
 )
 
-_PROCESS_BASE = 1 << 60
-_THREAD_BASE = 1 << 60
-_COUNTER_BASE = 3 << 60
-
 
 def _convert_item(
     pid: int,
@@ -76,12 +72,12 @@ class TestPerfettoTrackState:
     def test_process_track_uuid(self) -> None:
         state = PerfettoTrackState()
         uuid = state.get_process_track_uuid(12345)
-        assert uuid == 12345 | _PROCESS_BASE
+        assert uuid == 1
 
     def test_thread_track_uuid(self) -> None:
         state = PerfettoTrackState()
         uuid = state.get_thread_track_uuid(12345, 0)
-        assert uuid == (12345 << 20) | 0 | _THREAD_BASE
+        assert uuid == 1
 
     def test_thread_track_uuid_different_iid(self) -> None:
         state = PerfettoTrackState()
@@ -93,8 +89,8 @@ class TestPerfettoTrackState:
         state = PerfettoTrackState()
         uuid0 = state.get_or_create_counter_track_uuid(100, 0, "G0", "collected")
         uuid1 = state.get_or_create_counter_track_uuid(100, 0, "G0", "heap_size")
-        assert uuid0 == _COUNTER_BASE
-        assert uuid1 == _COUNTER_BASE + 1
+        assert uuid0 == 1
+        assert uuid1 == 2
 
     def test_counter_track_uuid_idempotent(self) -> None:
         state = PerfettoTrackState()
@@ -380,7 +376,8 @@ class TestConvertItemToPerfettoPackets:
             uncollectable=0, candidates=5, duration=0.001,
         )
         descriptors, _ = _convert_item(100, item, state, sequence_id=1)
-        proc_uuid = 100 | _PROCESS_BASE
+        proc_uuid = state.get_process_track_uuid(100)
+        thread_uuid = state.get_thread_track_uuid(100, 0)
         thread_found = False
         for desc_bytes in descriptors:
             fields = decode_message(desc_bytes)
@@ -388,7 +385,7 @@ class TestConvertItemToPerfettoPackets:
             if td_bytes:
                 td_fields = decode_message(td_bytes)
                 uuid = get_varint(td_fields, TrackDescriptorField.UUID)
-                if uuid == ((100 << 20) | 0 | _THREAD_BASE):
+                if uuid == thread_uuid:
                     assert get_varint(td_fields, TrackDescriptorField.PARENT_UUID) == proc_uuid
                     assert get_varint(td_fields, TrackDescriptorField.SIBLING_ORDER_RANK) == 0
                     assert get_varint(td_fields, TrackDescriptorField.CHILD_ORDERING) is None
@@ -403,7 +400,7 @@ class TestConvertItemToPerfettoPackets:
             uncollectable=0, candidates=5, duration=0.001,
         )
         descriptors, _ = _convert_item(100, item, state, sequence_id=1)
-        proc_uuid = 100 | _PROCESS_BASE
+        proc_uuid = state.get_process_track_uuid(100)
         counter_parent_uuids: list[int] = []
         for desc_bytes in descriptors:
             fields = decode_message(desc_bytes)

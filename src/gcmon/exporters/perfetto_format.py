@@ -118,12 +118,6 @@ TYPE_SLICE_END = 2
 TYPE_INSTANT = 3
 TYPE_COUNTER = 4
 
-_PROCESS_SHIFT = 60
-_THREAD_SHIFT = 60
-_PROCESS_BASE = 1 << _PROCESS_SHIFT
-_THREAD_BASE = 1 << _THREAD_SHIFT
-_COUNTER_BASE = 3 << 60
-
 _COUNTER_RANKS: dict[str, int] = {
     "collected": 1,
     "uncollectable": 2,
@@ -143,7 +137,14 @@ class PerfettoTrackState:
         self._tids: set[tuple[int, int]] = set()
         self._cmdlines: dict[int, list[str]] = {}
         self._counter_tracks: dict[tuple[int, int, str, str], int] = {}
-        self._counter_counter = 0
+        self._pid_uuids: dict[int, int] = {}
+        self._tid_uuids: dict[tuple[int, int], int] = {}
+        self._next_uuid: int = 1
+
+    def _alloc_uuid(self) -> int:
+        uuid = self._next_uuid
+        self._next_uuid += 1
+        return uuid
 
     def has_pid(self, pid: int) -> bool:
         return pid in self._pids
@@ -164,10 +165,15 @@ class PerfettoTrackState:
         return self._cmdlines.get(pid)
 
     def get_process_track_uuid(self, pid: int) -> int:
-        return pid | _PROCESS_BASE
+        if pid not in self._pid_uuids:
+            self._pid_uuids[pid] = self._alloc_uuid()
+        return self._pid_uuids[pid]
 
     def get_thread_track_uuid(self, pid: int, iid: int) -> int:
-        return (pid << 20) | iid | _THREAD_BASE
+        key = (pid, iid)
+        if key not in self._tid_uuids:
+            self._tid_uuids[key] = self._alloc_uuid()
+        return self._tid_uuids[key]
 
     def has_counter_track(self, pid: int, iid: int, name: str, metric: str) -> bool:
         return (pid, iid, name, metric) in self._counter_tracks
@@ -175,8 +181,7 @@ class PerfettoTrackState:
     def get_or_create_counter_track_uuid(self, pid: int, iid: int, name: str, metric: str) -> int:
         key = (pid, iid, name, metric)
         if key not in self._counter_tracks:
-            self._counter_tracks[key] = _COUNTER_BASE + self._counter_counter
-            self._counter_counter += 1
+            self._counter_tracks[key] = self._alloc_uuid()
         return self._counter_tracks[key]
 
 
