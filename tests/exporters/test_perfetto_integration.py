@@ -270,6 +270,33 @@ class TestTrackDescriptors:
             assert f"Thread {iid}" in rows, f"missing 'Thread {iid}' in DEFAULT_PID's threads; got {sorted(rows)}"
 
 
+class TestDiagnosticTrackSchema:
+    """Diagnostic: dump the track table to understand what columns are
+    populated. Run with ``pytest -m integration -k TestDiagnosticTrackSchema -s``
+    to see the output."""
+
+    @pytest.mark.parametrize("fmt", ["perfetto"])
+    def test_dump_track_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
+        rows = list(trace_processor.query(
+            "SELECT id, name, type, parent_id, upid, utid FROM track ORDER BY id"
+        ))
+        for r in rows:
+            print(f"TRACK id={r.id} name={r.name!r} type={r.type!r} "
+                  f"parent_id={r.parent_id} upid={r.upid} utid={r.utid}")
+
+    @pytest.mark.parametrize("fmt", ["perfetto"])
+    def test_dump_process_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
+        rows = list(trace_processor.query("SELECT * FROM process"))
+        for r in rows:
+            print(f"PROCESS {dict(r.__dict__)}")
+
+    @pytest.mark.parametrize("fmt", ["perfetto"])
+    def test_dump_thread_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
+        rows = list(trace_processor.query("SELECT * FROM thread"))
+        for r in rows:
+            print(f"THREAD {dict(r.__dict__)}")
+
+
 class TestInstantEvents:
     """The instant event emitted at monitor start is visible to the trace
     processor as a dur=0 slice."""
