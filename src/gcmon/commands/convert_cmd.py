@@ -24,7 +24,11 @@ def add_parser(parser_factory: ParserFactory) -> argparse.ArgumentParser:
     parser = parser_factory(
         "combine",
         help="Combine multiple trace files into one",
-        description="Combine multiple Chrome Trace Format or JSONL files into a single file with optional timestamp normalization.",
+        description=(
+            "Combine multiple Chrome Trace Format or JSONL files into a single "
+            "Chrome, JSONL, or Perfetto binary protobuf trace, with optional "
+            "per-PID timestamp normalization."
+        ),
     )
     parser.add_argument(
         "inputs",
@@ -60,9 +64,9 @@ def add_parser(parser_factory: ParserFactory) -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-format",
-        choices=["jsonl", "chrome"],
+        choices=["jsonl", "chrome", "perfetto"],
         default="chrome",
-        help="Output file format (default: chrome)",
+        help="Output file format: chrome (JSON), jsonl, or perfetto (binary protobuf) (default: chrome)",
     )
     parser.set_defaults(func=cmd_combine)
     return parser
@@ -85,7 +89,8 @@ def cmd_combine(args: Namespace) -> int:
 
     if input_format == "chrome" and output_format == "jsonl":
         logger.error(
-            "Input format 'chrome' with output format 'jsonl' is not supported. Use --output-format chrome instead."
+            "Input format 'chrome' with output format 'jsonl' is not supported. "
+            "Use --output-format 'chrome' or 'perfetto' instead."
         )
         return 1
 

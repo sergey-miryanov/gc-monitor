@@ -13,6 +13,7 @@
 - Drop PauseData and CounterData
 - Replace TypedDict with msgspec.Struct for TraceEvents
 - Unify Chrome trace and Perfetto exporters (#38)
+- `gcmon combine` now supports `--output-format perfetto` for binary protobuf output (chrome and jsonl inputs)
 
 ## Version 0.2.0 (2026-06-10)
 

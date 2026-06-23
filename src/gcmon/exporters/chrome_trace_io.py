@@ -31,6 +31,7 @@ from ..trace_event import (
     TraceEvent,
 )
 from .chrome_trace_format import convert_to_trace_format
+from .encoder import ProtobufEventEncoder
 
 __all__ = [
     "combine_files",
@@ -183,38 +184,10 @@ def combine_files(input_paths: list[Path], output_path: Path, normalize: bool = 
     if input_format == "chrome" and output_format == "jsonl":
         raise ValueError(
             "Input format 'chrome' with output format 'jsonl' is not supported. "
-            "Use --output-format 'chrome' instead."
+            "Use --output-format 'chrome' or 'perfetto' instead."
         )
 
-    if input_format == "chrome":
-        chrome_events: list[TraceEvent] = []
-
-        for input_path in input_paths:
-            with open(input_path, encoding="utf-8") as f:
-                content = f.read()
-            events = _parse_events(content)
-
-            if normalize:
-                _normalize_trace_timestamps(events)
-
-            chrome_events.extend(events)
-
-        write_trace_events(output_path, chrome_events)
-
-    elif input_format == "jsonl" and output_format == "chrome":
-        trace_events: list[TraceEvent] = []
-
-        for input_path in input_paths:
-            items = read_jsonl(input_path)
-            events = convert_to_trace_format(items)
-            trace_events.extend(events)
-
-        if normalize:
-            _normalize_trace_timestamps(trace_events)
-
-        write_trace_events(output_path, trace_events)
-
-    elif input_format == "jsonl" and output_format == "jsonl":
+    if input_format == "jsonl" and output_format == "jsonl":
         all_items: dict[int, list[TGCStatsInfo | TInstantMsg]] = {}
 
         for input_path in input_paths:
@@ -229,3 +202,32 @@ def combine_files(input_paths: list[Path], output_path: Path, normalize: bool = 
             _normalize_jsonl_timestamps(all_items)
 
         write_jsonl(output_path, all_items)
+        return
+
+    trace_events: list[TraceEvent] = []
+
+    for input_path in input_paths:
+        if input_format == "chrome":
+            with open(input_path, encoding="utf-8") as f:
+                content = f.read()
+            file_events = _parse_events(content)
+        else:
+            items = read_jsonl(input_path)
+            file_events = convert_to_trace_format(items)
+
+        if normalize:
+            _normalize_trace_timestamps(file_events)
+
+        trace_events.extend(file_events)
+
+    if output_format == "chrome":
+        write_trace_events(output_path, trace_events)
+    elif output_format == "perfetto":
+        encoder = ProtobufEventEncoder()
+        encoder.open(output_path)
+        try:
+            encoder.write_events(trace_events)
+        finally:
+            encoder.close()
+    else:
+        raise ValueError(f"Unsupported output format: {output_format}")

@@ -16,6 +16,7 @@ from tests.helpers import (
     assert_valid_chrome_trace_format,
     create_jsonl_record,
 )
+from tests.proto_decoder import decode_message
 
 # =============================================================================
 # Factory function for well-formed Chrome trace events
@@ -74,6 +75,72 @@ def combine_output(tmp_path: Path) -> Path:
     return tmp_path / "combined.json"
 
 
+@pytest.fixture
+def make_perfetto_output(tmp_path: Path) -> Path:
+    """Default Perfetto output path."""
+    return tmp_path / "combined.pftrace"
+
+
+# =============================================================================
+# Perfetto structural helpers
+# =============================================================================
+
+
+def _packet_bytes(trace_bytes: bytes) -> list[bytes]:
+    """Extract the inner bytes of every top-level ``Trace.PACKET`` field.
+
+    The top-level ``Trace`` message has a single repeated ``packet`` field
+    (field 1, wire-type 2 length-delimited). Returns the raw bytes of each
+    packet as they appear on the wire.
+    """
+    trace_fields = decode_message(trace_bytes)
+    return [
+        f.value  # type: ignore[union-attr]
+        for f in trace_fields
+        if f.field_number == 1 and f.wire_type == 2
+    ]
+
+
+def assert_valid_perfetto_format(path: Path) -> list[bytes]:
+    """Validate that *path* is a non-empty Perfetto ``Trace`` protobuf.
+
+    Decodes in two levels: (1) the top-level ``Trace`` message, asserting at
+    least one ``PACKET`` field (field 1, wire-type 2) is present; (2) for each
+    inner packet, asserts it can be decoded as a ``TracePacket`` message
+    (i.e. it has at least one of the known top-level packet fields). Returns
+    the list of inner packet byte-buffers for further inspection.
+    """
+    assert path.exists(), f"File {path} does not exist"
+    file_bytes = path.read_bytes()
+    assert len(file_bytes) > 0, f"File {path} is empty"
+
+    packets = _packet_bytes(file_bytes)
+    assert len(packets) > 0, f"no Trace.PACKET fields in {path}"
+
+    decoded_packets: list[bytes] = []
+    for pkt in packets:
+        pkt_fields = decode_message(pkt)
+        assert pkt_fields, f"empty TracePacket: {pkt!r}"
+        decoded_packets.append(pkt)
+    return decoded_packets
+
+
+def assert_perfetto_has_track_descriptor_and_event(path: Path) -> None:
+    """Assert the trace contains at least one ``TrackDescriptor`` (packet
+    field 60) and one ``TrackEvent`` (packet field 11)."""
+    file_bytes = path.read_bytes()
+    has_descriptor = False
+    has_track_event = False
+    for pkt in _packet_bytes(file_bytes):
+        for f in decode_message(pkt):
+            if f.field_number == 60 and f.wire_type == 2:
+                has_descriptor = True
+            elif f.field_number == 11 and f.wire_type == 2:
+                has_track_event = True
+    assert has_descriptor, f"no TrackDescriptor (field 60) in {path}"
+    assert has_track_event, f"no TrackEvent (field 11) in {path}"
+
+
 # =============================================================================
 # Unit Tests for cmd_combine
 # =============================================================================
@@ -90,21 +157,42 @@ def test_cmd_combine_basic(tmp_path: Path) -> None:
     assert args.output.exists()
 
 
-def test_cmd_combine_file_not_found(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
+def test_cmd_combine_basic_perfetto(tmp_path: Path) -> None:
     from gcmon.commands import convert_cmd
 
-    args = Namespace(inputs=[tmp_path / "nonexistent.json"], output=tmp_path / "output.json", verbose=1, normalize=False, input_format="chrome", output_format="chrome")
+    input_file = tmp_path / "input.json"
+    input_file.write_bytes(msgspec.json.encode(make_event_pair("test", ts=100)))
+
+    output = tmp_path / "output.pftrace"
+    args = Namespace(inputs=[input_file], output=output, verbose=1, normalize=False, input_format="chrome", output_format="perfetto")
+    assert convert_cmd.cmd_combine(args) == 0
+    assert output.exists()
+    assert output.read_bytes()  # non-empty
+
+
+@pytest.mark.parametrize("output_format,output_name", [
+    ("chrome", "output.json"),
+    ("perfetto", "output.pftrace"),
+])
+def test_cmd_combine_file_not_found(caplog: pytest.LogCaptureFixture, tmp_path: Path, output_format: str, output_name: str) -> None:
+    from gcmon.commands import convert_cmd
+
+    args = Namespace(inputs=[tmp_path / "nonexistent.json"], output=tmp_path / output_name, verbose=1, normalize=False, input_format="chrome", output_format=output_format)
     assert convert_cmd.cmd_combine(args) == 1
     assert "Error combining files" in caplog.text
 
 
-def test_cmd_combine_invalid_json(caplog: pytest.LogCaptureFixture, tmp_path: Path) -> None:
+@pytest.mark.parametrize("output_format,output_name", [
+    ("chrome", "output.json"),
+    ("perfetto", "output.pftrace"),
+])
+def test_cmd_combine_invalid_json(caplog: pytest.LogCaptureFixture, tmp_path: Path, output_format: str, output_name: str) -> None:
     from gcmon.commands import convert_cmd
 
     input_file = tmp_path / "invalid.json"
     input_file.write_text("not valid json")
 
-    args = Namespace(inputs=[input_file], output=tmp_path / "output.json", verbose=1, normalize=False, input_format="chrome", output_format="chrome")
+    args = Namespace(inputs=[input_file], output=tmp_path / output_name, verbose=1, normalize=False, input_format="chrome", output_format=output_format)
     assert convert_cmd.cmd_combine(args) == 1
     assert "Error combining files" in caplog.text
 
@@ -265,6 +353,38 @@ class TestCliCombineNormalize:
         data = assert_valid_chrome_trace_format(combine_output)
         begins = [e for e in data if e["ph"] == "B"]
         assert_is_begin(begins[0], name="event1", ts=0)
+
+    def test_jsonl_to_chrome_multiple_files_normalize(
+        self, make_jsonl_file, run_combine, combine_output,
+    ) -> None:
+        """Per-file normalization for jsonl->chrome: each file's timeline
+        is zeroed independently (matches the chrome->chrome contract locked
+        by test_multiple_files_independent)."""
+        f1 = make_jsonl_file("data1.jsonl", [
+            create_jsonl_record(pid=123, tid=1, gen=0, ts_start=2_000_000, ts_stop=3_000_000),
+        ])
+        f2 = make_jsonl_file("data2.jsonl", [
+            create_jsonl_record(pid=123, tid=1, gen=0, ts_start=10_000_000, ts_stop=11_000_000),
+            create_jsonl_record(pid=123, tid=1, gen=0, ts_start=10_500_000, ts_stop=11_500_000),
+        ])
+        f3 = make_jsonl_file("data3.jsonl", [
+            create_jsonl_record(pid=123, tid=1, gen=0, ts_start=50_000_000, ts_stop=50_050_000),
+        ])
+
+        result = run_combine(
+            [f1, f2, f3], output=combine_output,
+            extra_args=["--input-format", "jsonl", "--normalize"],
+        )
+        assert result.returncode == 0
+        data = assert_valid_chrome_trace_format(combine_output)
+        begins = [e for e in data if e["ph"] == "B"]
+        # jsonl ts values are in nanoseconds; convert_to_trace_format
+        # converts to microseconds, so /1000.
+        # f1: one event, ts_start 2_000_000ns -> 2000us, normalized to 0
+        # f2: two events, 10_000_000ns -> 10_000us -> 0, 10_500_000ns -> 10_500us -> 500
+        # f3: one event, 50_000_000ns -> 50_000us -> 0
+        ts_values = [b["ts"] for b in begins]
+        assert ts_values == [0, 0, 500, 0]
 
     def test_mixed_metadata_and_events(self, make_trace_file, run_combine, combine_output) -> None:
         f1 = make_trace_file("trace1.json", [
@@ -438,6 +558,7 @@ class TestCliCombineFormatValidation:
         result = run_combine([f1], output=combine_output, extra_args=["--output-format", "jsonl"])
         assert result.returncode == 1
         assert "not supported" in result.stderr.lower()
+        assert "perfetto" in result.stderr.lower()
 
     def test_explicit_chrome_to_chrome(self, make_trace_file, run_combine, combine_output) -> None:
         f1 = make_trace_file("trace.json", make_event_pair("event1", ts=100))
@@ -445,6 +566,36 @@ class TestCliCombineFormatValidation:
         assert result.returncode == 0
         data = assert_valid_chrome_trace_format(combine_output)
         assert_is_begin(data[0], name="event1", ts=100)
+
+    def test_chrome_to_perfetto(self, make_trace_file, run_combine, make_perfetto_output) -> None:
+        f1 = make_trace_file("trace.json", make_event_pair("event1", ts=100))
+        result = run_combine(
+            [f1], output=make_perfetto_output,
+            extra_args=["--output-format", "perfetto"],
+        )
+        assert result.returncode == 0, result.stderr
+        assert_valid_perfetto_format(make_perfetto_output)
+
+    def test_jsonl_to_perfetto(self, make_jsonl_file, run_combine, make_perfetto_output) -> None:
+        f1 = make_jsonl_file("data.jsonl", [create_jsonl_record()])
+        result = run_combine(
+            [f1], output=make_perfetto_output,
+            extra_args=["--input-format", "jsonl", "--output-format", "perfetto"],
+        )
+        assert result.returncode == 0, result.stderr
+        assert_valid_perfetto_format(make_perfetto_output)
+
+    def test_chrome_to_perfetto_normalize(
+        self, make_trace_file, run_combine, make_perfetto_output,
+    ) -> None:
+        f1 = make_trace_file("trace1.json", make_event_pair("event1", ts=1000))
+        f2 = make_trace_file("trace2.json", make_event_pair("event2", ts=5000))
+        result = run_combine(
+            [f1, f2], output=make_perfetto_output,
+            extra_args=["--output-format", "perfetto", "--normalize"],
+        )
+        assert result.returncode == 0, result.stderr
+        assert_valid_perfetto_format(make_perfetto_output)
 
 
 class TestCliCombineHelp:
@@ -459,3 +610,197 @@ class TestCliCombineHelp:
         assert "--output-format" in result.stdout
         assert "jsonl" in result.stdout
         assert "chrome" in result.stdout
+        assert "perfetto" in result.stdout
+
+
+# =============================================================================
+# Subprocess Tests - Chrome to Perfetto
+# =============================================================================
+
+
+class TestCliCombineChromeToPerfetto:
+    def test_basic(self, make_trace_file, run_combine, make_perfetto_output) -> None:
+        f1 = make_trace_file("trace1.json", [
+            process_meta(pid=1, name="p1"),
+            thread_meta(pid=1, tid=1, name="t1"),
+            *make_event_pair("event1", ts=100, pid=1, tid=1),
+        ])
+        f2 = make_trace_file("trace2.json", [
+            process_meta(pid=2, name="p2"),
+            thread_meta(pid=2, tid=2, name="t2"),
+            *make_event_pair("event2", ts=200, pid=2, tid=2),
+        ])
+
+        result = run_combine(
+            [f1, f2], output=make_perfetto_output,
+            extra_args=["--output-format", "perfetto", "-v"],
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "Output format: perfetto" in result.stderr
+        assert_perfetto_has_track_descriptor_and_event(make_perfetto_output)
+
+    def test_verbose_output(self, make_trace_file, run_combine, make_perfetto_output) -> None:
+        f1 = make_trace_file("trace1.json", [
+            process_meta(pid=1, name="p1"),
+            *make_event_pair("event1", ts=100, pid=1, tid=1),
+        ])
+        result = run_combine(
+            [f1], output=make_perfetto_output,
+            extra_args=["--output-format", "perfetto", "-v"],
+        )
+        assert result.returncode == 0
+        assert "Output format: perfetto" in result.stderr
+        assert "Combine complete" in result.stderr
+
+    def test_missing_file(self, run_combine, make_perfetto_output) -> None:
+        result = run_combine(
+            [Path("nonexistent.json")], output=make_perfetto_output,
+            extra_args=["--output-format", "perfetto"],
+        )
+        assert result.returncode != 0
+        assert "Error combining files" in result.stderr
+
+    def test_invalid_json(self, make_raw_file, run_combine, make_perfetto_output) -> None:
+        f = make_raw_file("invalid.json", "not valid json{{{")
+        result = run_combine(
+            [f], output=make_perfetto_output,
+            extra_args=["--output-format", "perfetto"],
+        )
+        assert result.returncode != 0, result.stderr
+        assert "Error combining files" in result.stderr
+        assert "json" in result.stderr.lower()
+
+
+# =============================================================================
+# Subprocess Tests - JSONL to Perfetto
+# =============================================================================
+
+
+class TestCliCombineJsonlToPerfetto:
+    def test_basic(self, make_jsonl_file, run_combine, make_perfetto_output) -> None:
+        f1 = make_jsonl_file("data.jsonl", [create_jsonl_record()])
+        result = run_combine(
+            [f1], output=make_perfetto_output,
+            extra_args=["--input-format", "jsonl", "--output-format", "perfetto", "-v"],
+        )
+        assert result.returncode == 0, result.stderr
+        assert "Input format: jsonl" in result.stderr
+        assert "Output format: perfetto" in result.stderr
+        assert_valid_perfetto_format(make_perfetto_output)
+        assert_perfetto_has_track_descriptor_and_event(make_perfetto_output)
+
+    def test_multiple_files(self, make_jsonl_file, run_combine, make_perfetto_output) -> None:
+        f1 = make_jsonl_file("data1.jsonl", [create_jsonl_record(pid=123, tid=1, gen=0)])
+        f2 = make_jsonl_file("data2.jsonl", [create_jsonl_record(pid=456, tid=2, gen=1)])
+        result = run_combine(
+            [f1, f2], output=make_perfetto_output,
+            extra_args=["--input-format", "jsonl", "--output-format", "perfetto"],
+        )
+        assert result.returncode == 0, result.stderr
+        # Both pids' descriptors are present.
+        packets = assert_valid_perfetto_format(make_perfetto_output)
+        descriptor_text = b"".join(
+            f.value for pkt in packets
+            for f in decode_message(pkt)
+            if f.field_number == 60 and f.wire_type == 2
+        )
+        assert b"123" in descriptor_text
+        assert b"456" in descriptor_text
+
+    def test_normalize(self, make_jsonl_file, run_combine, make_perfetto_output) -> None:
+        f1 = make_jsonl_file("data.jsonl", [
+            create_jsonl_record(ts_start=5_000_000, ts_stop=6_000_000, collections=1, collected=100),
+            create_jsonl_record(ts_start=10_000_000, ts_stop=11_000_000, collections=2, collected=200),
+        ])
+        result = run_combine(
+            [f1], output=make_perfetto_output,
+            extra_args=["--input-format", "jsonl", "--output-format", "perfetto", "--normalize", "-v"],
+        )
+        assert result.returncode == 0, result.stderr
+        assert "Normalizing timestamps: yes" in result.stderr
+        # Per-file normalization with 1 file: min ts is 5_000_000 (5 seconds).
+        # TIMESTAMP is encoded as absolute_us. We assert the minimum is 0.
+        packets = assert_valid_perfetto_format(make_perfetto_output)
+        timestamps: list[int] = []
+        for pkt in packets:
+            for f in decode_message(pkt):
+                if f.field_number == 8 and f.wire_type == 0:
+                    timestamps.append(f.value)  # type: ignore[arg-type]
+        assert min(timestamps) == 0
+
+
+# =============================================================================
+# Subprocess Tests - Perfetto Normalize
+# =============================================================================
+
+
+class TestCliCombinePerfettoNormalize:
+    """Mirror of TestCliCombineNormalize for the perfetto output format."""
+
+    def test_basic_chrome_to_perfetto(
+        self, make_trace_file, run_combine, make_perfetto_output,
+    ) -> None:
+        f1 = make_trace_file("trace1.json", [
+            process_meta(pid=1, name="p1"),
+            *make_event_pair("event1", ts=1000, pid=1, tid=1),
+            *make_event_pair("event2", ts=1100, pid=1, tid=1),
+        ])
+        f2 = make_trace_file("trace2.json", [
+            process_meta(pid=1, name="p1"),
+            *make_event_pair("event3", ts=5000, pid=1, tid=1),
+            *make_event_pair("event4", ts=5200, pid=1, tid=1),
+        ])
+
+        result = run_combine(
+            [f1, f2], output=make_perfetto_output,
+            extra_args=["--output-format", "perfetto", "--normalize", "-v"],
+        )
+        assert result.returncode == 0, result.stderr
+        assert "Normalizing timestamps: yes" in result.stderr
+        packets = assert_valid_perfetto_format(make_perfetto_output)
+        timestamps: list[int] = [
+            f.value  # type: ignore[misc]
+            for pkt in packets
+            for f in decode_message(pkt)
+            if f.field_number == 8 and f.wire_type == 0
+        ]
+        assert min(timestamps) == 0
+
+    def test_with_metadata(
+        self, make_trace_file, run_combine, make_perfetto_output,
+    ) -> None:
+        f1 = make_trace_file("trace1.json", [
+            process_meta(pid=999, name="process_name"),
+            *make_event_pair("event1", ts=1000, pid=999),
+            thread_meta(pid=999, tid=1, name="thread_name"),
+            *make_event_pair("event2", ts=1500, pid=999),
+        ])
+        result = run_combine(
+            [f1], output=make_perfetto_output,
+            extra_args=["--output-format", "perfetto", "--normalize"],
+        )
+        assert result.returncode == 0, result.stderr
+        assert_valid_perfetto_format(make_perfetto_output)
+
+    def test_basic_jsonl_to_perfetto(
+        self, make_jsonl_file, run_combine, make_perfetto_output,
+    ) -> None:
+        f1 = make_jsonl_file("data.jsonl", [
+            create_jsonl_record(ts_start=1_000_000, ts_stop=2_000_000, collections=1, collected=100),
+            create_jsonl_record(ts_start=5_000_000, ts_stop=6_000_000, collections=2, collected=200),
+        ])
+        result = run_combine(
+            [f1], output=make_perfetto_output,
+            extra_args=["--input-format", "jsonl", "--output-format", "perfetto", "--normalize"],
+        )
+        assert result.returncode == 0, result.stderr
+        packets = assert_valid_perfetto_format(make_perfetto_output)
+        timestamps: list[int] = [
+            f.value  # type: ignore[misc]
+            for pkt in packets
+            for f in decode_message(pkt)
+            if f.field_number == 8 and f.wire_type == 0
+        ]
+        assert min(timestamps) == 0
+
