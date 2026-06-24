@@ -425,7 +425,7 @@ class TestConvertItemToPerfettoPackets:
         _, packets = _convert_item(100, item, state, sequence_id=1)
         assert len(packets) >= 2
         first_packet_fields = decode_message(packets[0])
-        assert get_varint(first_packet_fields, TracePacketField.TIMESTAMP) == 1
+        assert get_varint(first_packet_fields, TracePacketField.TIMESTAMP) == 1_000
         track_event_bytes = get_bytes(first_packet_fields, TracePacketField.TRACK_EVENT)
         assert track_event_bytes is not None
         te_fields = decode_message(track_event_bytes)
@@ -628,7 +628,7 @@ class TestConvertInstantToPerfettoPacket:
         state = PerfettoTrackState()
         events = [
             process_meta(100, "Process 100"),
-            instant_event(100, "start", ts_us=5),
+            instant_event(100, "start", ts_ns=5_000),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         assert len(descriptors) == 1
@@ -638,12 +638,12 @@ class TestConvertInstantToPerfettoPacket:
         state = PerfettoTrackState()
         events = [
             process_meta(100, "Process 100"),
-            instant_event(100, "start GC monitor", ts_us=5),
+            instant_event(100, "start GC monitor", ts_ns=5_000),
         ]
         _, packets = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         assert len(packets) == 1
         fields = decode_message(packets[0])
-        assert get_varint(fields, TracePacketField.TIMESTAMP) == 5
+        assert get_varint(fields, TracePacketField.TIMESTAMP) == 5_000
         te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
         assert te_bytes is not None
         te_fields = decode_message(te_bytes)
@@ -653,11 +653,11 @@ class TestConvertInstantToPerfettoPacket:
     def test_reuses_process_descriptor(self) -> None:
         state = PerfettoTrackState()
         desc1, _ = convert_trace_events_to_perfetto(
-            [process_meta(100, "Process 100"), instant_event(100, "start", ts_us=5)],
+            [process_meta(100, "Process 100"), instant_event(100, "start", ts_ns=5_000)],
             state, sequence_id=1,
         )
         desc2, _ = convert_trace_events_to_perfetto(
-            [process_meta(100, "Process 100"), instant_event(100, "stop", ts_us=10)],
+            [process_meta(100, "Process 100"), instant_event(100, "stop", ts_ns=10_000)],
             state, sequence_id=1,
         )
         assert len(desc1) == 1
@@ -672,7 +672,7 @@ class TestConvertInstantToPerfettoPacket:
         )
         gc_desc, _ = _convert_item(100, gc_item, state, sequence_id=1)
         inst_desc, _ = convert_trace_events_to_perfetto(
-            [process_meta(100, "Process 100"), instant_event(100, "stop", ts_us=5)],
+            [process_meta(100, "Process 100"), instant_event(100, "stop", ts_ns=5_000)],
             state, sequence_id=1,
         )
         assert len(gc_desc) >= 2

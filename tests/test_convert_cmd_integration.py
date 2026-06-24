@@ -434,11 +434,10 @@ class TestCombineChromePerfettoEquivalenceIntegration:
                     f"only in perfetto: {rows_perfetto - rows_chrome}"
                 )
 
-            # Slice-level dur comparison: Chrome stores durations in
-            # microseconds; Perfetto (as written by our encoder) stores them
-            # interpreted as nanoseconds, so the chrome dur is 1000x larger.
-            # Compare the relative ordering and ratio instead of equality.
-            # Thread names are also excluded: chrome uses "<pid>:<tid>" while
+            # Slice-level dur comparison: both chrome (after us→ns
+            # conversion by the trace processor) and perfetto now store
+            # nanosecond durations, so the values are directly comparable.
+            # Thread names are excluded: chrome uses "<pid>:<tid>" while
             # perfetto uses "Thread <tid>".
             chrome_durs = sorted(
                 (r.name, r.dur)
@@ -453,13 +452,9 @@ class TestCombineChromePerfettoEquivalenceIntegration:
             )
             for (c_name, c_dur), (p_name, p_dur) in zip(chrome_durs, perfetto_durs, strict=True):
                 assert c_name == p_name
-                # Chrome ts is in us, perfetto ts is in ns-as-written, ratio 1000.
-                if c_dur == 0:
-                    assert p_dur == 0
-                else:
-                    assert c_dur // 1000 == p_dur, (
-                        f"dur mismatch for {c_name}: chrome={c_dur}us, perfetto={p_dur}"
-                    )
+                assert c_dur == p_dur, (
+                    f"dur mismatch for {c_name}: chrome={c_dur}ns, perfetto={p_dur}ns"
+                )
 
             # Arg values: same content modulo the args./debug. prefix.
             # The perfetto trace processor exposes a number of synthetic args

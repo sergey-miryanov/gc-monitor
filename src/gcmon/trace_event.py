@@ -100,13 +100,13 @@ def thread_meta(pid: int, tid: int, name: str) -> ThreadMeta:
 
 
 def begin_event(
-    pid: int, tid: int, name: str, cat: str, ts_us: int, args: dict[str, int]
+    pid: int, tid: int, name: str, cat: str, ts_ns: int, args: dict[str, int]
 ) -> BeginEvent:
     return BeginEvent(
         name=name,
         cat=cat,
         ph="B",
-        ts=ts_us,
+        ts=ts_ns,
         pid=pid,
         tid=tid,
         args=args,
@@ -114,35 +114,35 @@ def begin_event(
 
 
 def end_event(
-    pid: int, tid: int, name: str, cat: str, ts_us: int,
+    pid: int, tid: int, name: str, cat: str, ts_ns: int,
 ) -> EndEvent:
     return EndEvent(
         name=name,
         cat=cat,
         ph="E",
-        ts=ts_us,
+        ts=ts_ns,
         pid=pid,
         tid=tid,
     )
 
 
 def instant_event(
-    pid: int, name: str, ts_us: int,
+    pid: int, name: str, ts_ns: int,
 ) -> InstantEvent:
     return InstantEvent(
         name=name,
         ph="I",
         s="p",
         pid=pid,
-        ts=ts_us,
+        ts=ts_ns,
     )
 
 
-def counter_event(pid: int, tid: int, name: str, ts_us: int, args: dict[str, int]) -> CounterEvent:
+def counter_event(pid: int, tid: int, name: str, ts_ns: int, args: dict[str, int]) -> CounterEvent:
     return CounterEvent(
         name=name,
         ph="C",
-        ts=ts_us,
+        ts=ts_ns,
         pid=pid,
         tid=tid,
         args=args,

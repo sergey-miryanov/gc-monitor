@@ -18,6 +18,7 @@ from typing import Protocol
 
 import msgspec
 
+from ..data import ts_to_us
 from ..trace_event import ProcessMeta, TraceEvent
 from .perfetto_format import (
     PerfettoTrackState,
@@ -64,12 +65,17 @@ class JsonEventEncoder:
             return
         assert self._path is not None, "open() must be called before write_events()"
         with open(self._path, "ab") as f:
-            if not self._has_written:
-                self._has_written = True
-                f.write(b"[\n" + msgspec.json.encode(events[0]))
-                events = events[1:]
             for e in events:
-                f.write(b",\n" + msgspec.json.encode(e))
+                d = msgspec.to_builtins(e)
+                ts_ns = getattr(e, "ts", None)
+                if ts_ns is not None:
+                    d["ts"] = ts_to_us(ts_ns)
+                encoded = msgspec.json.encode(d)
+                if not self._has_written:
+                    self._has_written = True
+                    f.write(b"[\n" + encoded)
+                else:
+                    f.write(b",\n" + encoded)
             f.flush()
 
     def close(self) -> None:

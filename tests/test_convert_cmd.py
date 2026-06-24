@@ -24,10 +24,17 @@ from tests.proto_decoder import decode_message
 
 
 def make_event_pair(name: str, ts: int = 0, dur: float = 10, pid: int = 1, tid: int = 1, cat: str = "test") -> list[dict]:
+    """Build a begin/end event pair.
+
+    ``ts`` and ``dur`` are in the same unit as the assertion in the calling
+    test. Chrome-output assertions (which read the JSON) use microseconds,
+    so the helper passes the value through as nanoseconds (multiplied by
+    1000). In-memory assertions must use the ns value too.
+    """
     args = {"generation": 0, "iid": tid, "collections": 1, "heap_size": 1000, "collected": 0, "uncollectable": 0, "candidates": 0}
     return [
-        begin_event(pid=pid, tid=tid, name=name, cat=cat, ts_us=ts, args=args),
-        end_event(pid=pid, tid=tid, name=name, cat=cat, ts_us=ts + int(dur)),
+        begin_event(pid=pid, tid=tid, name=name, cat=cat, ts_ns=ts * 1000, args=args),
+        end_event(pid=pid, tid=tid, name=name, cat=cat, ts_ns=(ts + int(dur)) * 1000),
     ]
 
 

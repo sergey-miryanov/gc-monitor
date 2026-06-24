@@ -14,6 +14,7 @@
 - Replace TypedDict with msgspec.Struct for TraceEvents
 - Unify Chrome trace and Perfetto exporters (#38)
 - `gcmon combine` now supports `--output-format perfetto` for binary protobuf output (chrome and jsonl inputs)
+- `TraceEvent.ts` is now stored in nanoseconds (was microseconds). Fixes a bug where perfetto traces were displayed 1000x compressed in `ui.perfetto.dev`
 
 ## Version 0.2.0 (2026-06-10)
 

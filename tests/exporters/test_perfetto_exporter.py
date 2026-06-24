@@ -158,7 +158,7 @@ class TestPerfettoExporter:
             if te and get_varint(te, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
                 pause_ts = get_int_at(pf, TracePacketField.TIMESTAMP)
                 break
-        assert pause_ts == 1_500_000
+        assert pause_ts == 1_500_000_000
 
     def test_multiple_close_calls(self, mock_stats_item, perfetto_exporter) -> None:
         exporter, path = perfetto_exporter()

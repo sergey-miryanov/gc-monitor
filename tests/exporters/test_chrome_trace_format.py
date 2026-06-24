@@ -61,12 +61,12 @@ class TestBeginEvent:
         }
         event = begin_event(
             pid=123, tid=1, name="GC Pause (gen=0)",
-            cat="gc.pause(gen=0)", ts_us=1000, args=args,
+            cat="gc.pause(gen=0)", ts_ns=1_000_000, args=args,
         )
         assert event.name == "GC Pause (gen=0)"
         assert event.cat == "gc.pause(gen=0)"
         assert event.ph == "B"
-        assert event.ts == 1000
+        assert event.ts == 1_000_000
         assert event.pid == 123
         assert event.tid == 1
         assert event.args == args
@@ -76,12 +76,12 @@ class TestEndEvent:
     def test_returns_end_event(self) -> None:
         event = end_event(
             pid=123, tid=1, name="GC Pause (gen=0)",
-            cat="gc.pause(gen=0)", ts_us=2000,
+            cat="gc.pause(gen=0)", ts_ns=2_000_000,
         )
         assert event.name == "GC Pause (gen=0)"
         assert event.cat == "gc.pause(gen=0)"
         assert event.ph == "E"
-        assert event.ts == 2000
+        assert event.ts == 2_000_000
         assert event.pid == 123
         assert event.tid == 1
 
@@ -92,21 +92,21 @@ class TestCounterEvent:
             "collected": 50, "uncollectable": 1,
             "candidates": 20, "heap_size": 1024,
         }
-        event = counter_event(pid=123, tid=1, name="G0", ts_us=1000, args=args)
+        event = counter_event(pid=123, tid=1, name="G0", ts_ns=1_000_000, args=args)
         assert event.ph == "C"
         assert event.name == "G0"
-        assert event.ts == 1000
+        assert event.ts == 1_000_000
         assert event.args["heap_size"] == 1024
 
 
 class TestInstantEvent:
     def test_returns_instant_event(self) -> None:
-        event = instant_event(pid=123, name="start GC monitor", ts_us=5_000)
+        event = instant_event(pid=123, name="start GC monitor", ts_ns=5_000_000)
         assert event.name == "start GC monitor"
         assert event.ph == "I"
         assert event.s == "p"
         assert event.pid == 123
-        assert event.ts == 5_000
+        assert event.ts == 5_000_000
 
 
 # =============================================================================
@@ -164,13 +164,13 @@ class TestConvertItemToTraceFormat:
         assert begins[0].name == "GC Pause (gen=0)"
         assert counters[0].name == "G0"
 
-    def test_converts_timestamps_to_microseconds(self) -> None:
+    def test_preserves_timestamps_in_nanoseconds(self) -> None:
         item = create_mock_stats_item(ts_start=1_500_000_000, ts_stop=1_505_000_000)
         events = convert_item_to_trace_format(pid=12345, item=item)
         begin = next(e for e in events if e.ph == "B")
         end = next(e for e in events if e.ph == "E")
-        assert begin.ts == 1_500_000  # ns → us
-        assert end.ts == 1_505_000  # ns → us
+        assert begin.ts == 1_500_000_000  # ns preserved (no us conversion)
+        assert end.ts == 1_505_000_000  # ns preserved (no us conversion)
 
     def test_incremental_gen0_includes_mark_alive(self) -> None:
         item = _make_incremental_item(gen=0)
@@ -371,7 +371,7 @@ class TestConvertToTraceFormatWithInstant:
         assert len(instants) == 1
         assert instants[0].name == "start GC monitor"
         assert instants[0].pid == 1
-        assert instants[0].ts == 1_500_000  # ns -> us
+        assert instants[0].ts == 1_500_000_000  # ns preserved (no us conversion)
 
     def test_mixed_gc_stats_and_instant_msg(self) -> None:
         item = create_mock_stats_item()
@@ -391,6 +391,6 @@ class TestConvertToTraceFormatWithInstant:
         instants = [e for e in events if e.ph == "I"]
         assert len(instants) == 2
         assert instants[0].name == "start GC monitor"
-        assert instants[0].ts == 1_000_000
+        assert instants[0].ts == 1_000_000_000
         assert instants[1].name == "stop GC monitor"
-        assert instants[1].ts == 2_000_000
+        assert instants[1].ts == 2_000_000_000

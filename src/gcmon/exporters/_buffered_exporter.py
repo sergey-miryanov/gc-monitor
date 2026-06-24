@@ -6,7 +6,6 @@ import threading
 from pathlib import Path
 from typing import override
 
-from ..data import ts_to_us
 from ..protocol import TGCStatsInfo, TInstantMsg
 from ..trace_event import TraceEvent, instant_event, process_meta, thread_meta
 from .encoder import EventEncoder
@@ -67,7 +66,7 @@ class BufferedTraceExporter(EventsExporter):
 
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
-        events = [*self._build_meta(pid, None), instant_event(pid, item.name, ts_to_us(item.ts))]
+        events = [*self._build_meta(pid, None), instant_event(pid, item.name, item.ts)]
         self._enqueue(events)
 
     @override

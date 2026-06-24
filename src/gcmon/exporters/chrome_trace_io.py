@@ -31,13 +31,12 @@ from ..trace_event import (
     TraceEvent,
 )
 from .chrome_trace_format import convert_to_trace_format
-from .encoder import ProtobufEventEncoder
+from .encoder import JsonEventEncoder, ProtobufEventEncoder
 
 __all__ = [
     "combine_files",
     "convert_jsonl_to_trace_format",
     "read_jsonl",
-    "write_trace_events",
 ]
 
 
@@ -65,19 +64,6 @@ def read_jsonl(filename: Path) -> dict[int, list[TGCStatsInfo | TInstantMsg]]:
 def convert_jsonl_to_trace_format(path: Path) -> list[TraceEvent]:
     items = read_jsonl(path)
     return convert_to_trace_format(items)
-
-
-def write_trace_events(filename: Path, events: list[TraceEvent]) -> None:
-    """Write TraceEvents to a file."""
-    with open(filename, "wb") as f:
-        linesep = b"\n"
-        f.write(b"[")
-        for event in events:
-            f.write(linesep)
-            f.write(msgspec.json.encode(event))
-            linesep = b",\n"
-        f.write(b"]\n")
-        f.flush()
 
 
 def write_jsonl(filename: Path, items: dict[int, list[TGCStatsInfo | TInstantMsg]]) -> None:
@@ -221,13 +207,18 @@ def combine_files(input_paths: list[Path], output_path: Path, normalize: bool = 
         trace_events.extend(file_events)
 
     if output_format == "chrome":
-        write_trace_events(output_path, trace_events)
-    elif output_format == "perfetto":
-        encoder = ProtobufEventEncoder()
-        encoder.open(output_path)
+        chrome_encoder = JsonEventEncoder()
+        chrome_encoder.open(output_path)
         try:
-            encoder.write_events(trace_events)
+            chrome_encoder.write_events(trace_events)
         finally:
-            encoder.close()
+            chrome_encoder.close()
+    elif output_format == "perfetto":
+        perfetto_encoder = ProtobufEventEncoder()
+        perfetto_encoder.open(output_path)
+        try:
+            perfetto_encoder.write_events(trace_events)
+        finally:
+            perfetto_encoder.close()
     else:
         raise ValueError(f"Unsupported output format: {output_format}")
