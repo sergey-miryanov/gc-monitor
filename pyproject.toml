@@ -91,9 +91,8 @@ testpaths = ["tests"]
 tmp_path_retention_policy = "failed"
 markers = [
     "stress: thread-safety stress tests for exporter and control-client pipelines (deselected by default; run with -m stress)",
-    "integration: integration tests that drive the Perfetto trace processor binary (deselected by default; run with -m integration)",
 ]
-addopts = "-m 'not stress and not integration'"
+addopts = "-m 'not stress'"
 
 # =============================================================================
 # Coverage Configuration

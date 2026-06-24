@@ -1,13 +1,10 @@
-"""Integration tests for Chrome and Perfetto trace exporters.
-
-Drives the real ``perfetto.trace_processor`` binary against synthetic
-``GCStatsInfo`` traces and asserts on the SQL tables (``slice``, ``args``,
-``track``, ``counter_track``) the trace processor exposes.
+"""Tests for Chrome and Perfetto trace exporters that drive the real
+``perfetto.trace_processor`` binary against synthetic ``GCStatsInfo`` traces
+and assert on the SQL tables (``slice``, ``args``, ``track``,
+``counter_track``) the trace processor exposes.
 
 Both Chrome JSON and Perfetto binary protobuf formats are exercised
-identically. These tests are deselected from the default ``pytest`` run
-(marker ``integration``) because the ``perfetto`` package downloads a
-~100 MB binary on first use. Run with ``pytest -m integration``.
+identically.
 """
 
 from __future__ import annotations
@@ -16,16 +13,12 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-
-pytest.importorskip("perfetto")
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from gcmon.exporters import PerfettoExporter, TraceExporter
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
-
-pytestmark = [pytest.mark.integration]
 
 _PAUSE_NAME: str = "GC Pause (gen=0)"
 _INSTANT_NAME: str = "GC monitor started"

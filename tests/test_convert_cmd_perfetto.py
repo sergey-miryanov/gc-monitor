@@ -1,14 +1,10 @@
-"""Integration tests for the ``gcmon combine`` command's new ``perfetto`` output
-format.
+"""Tests for the ``gcmon combine`` command's ``perfetto`` output format that
+drive the real ``perfetto.trace_processor`` binary against combined traces
+produced via the CLI.
 
-Drives the real ``perfetto.trace_processor`` binary against combined traces
-produced via the CLI. Both ``chrome -> perfetto`` and ``jsonl -> perfetto`` are
-exercised, plus a full content-equivalence test that compares the SQL-visible
-rows from ``chrome -> chrome`` and ``chrome -> perfetto`` for the same input.
-
-These tests are deselected from the default ``pytest`` run (marker
-``integration``) because the ``perfetto`` package downloads a ~100 MB binary
-on first use. Run with ``pytest -m integration tests/test_convert_cmd_integration.py``.
+Both ``chrome -> perfetto`` and ``jsonl -> perfetto`` are exercised, plus a
+full content-equivalence test that compares the SQL-visible rows from
+``chrome -> chrome`` and ``chrome -> perfetto`` for the same input.
 """
 
 from __future__ import annotations
@@ -20,17 +16,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-
-pytest.importorskip("perfetto")
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
 
-pytestmark = [pytest.mark.integration]
-
-# ---------------------------------------------------------------------------
-# Coverage dimensions (per spec §4.6)
-# ---------------------------------------------------------------------------
 # Multiple processes, multiple generations, multiple tids/iids per process.
 # Counter-track-name coverage and thread-track coverage depend on these.
 _PID_A: int = 1001
@@ -71,11 +60,6 @@ _EXPECTED_PAUSE_ARGS: dict[str, int] = {
 
 # Arg-key namespace: chrome path uses "args", perfetto uses "debug".
 _ARG_PREFIX: dict[str, str] = {"chrome": "args", "perfetto": "debug"}
-
-
-# ---------------------------------------------------------------------------
-# Multi-dimensional fixture builders
-# ---------------------------------------------------------------------------
 
 
 def _multi_dimensional_records() -> list[dict[str, int | float]]:
@@ -166,11 +150,6 @@ def _write_jsonl(records: list[dict[str, int | float]], path: Path) -> None:
             f.write(json.dumps(r) + "\n")
 
 
-# ---------------------------------------------------------------------------
-# CLI-driven fixture: run gcmon combine, then load into TraceProcessor
-# ---------------------------------------------------------------------------
-
-
 def _run_combine(
     inputs: list[Path],
     output: Path,
@@ -219,11 +198,6 @@ def loaded_trace_processor(
         yield tp
     finally:
         tp.close()
-
-
-# ---------------------------------------------------------------------------
-# SQL helpers
-# ---------------------------------------------------------------------------
 
 
 def _process_filter(pid: int) -> str:
