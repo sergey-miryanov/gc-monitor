@@ -529,6 +529,75 @@ class TestConvertItemToPerfettoPackets:
         assert "Clear Weakrefs (gen=1)" in slice_begins
         assert "Delete Garbage (gen=1)" in slice_begins
 
+    def _make_full_incremental_item(self) -> GCStatsInfo:
+        return GCStatsInfo(
+            gen=1, iid=0, ts_start=3_000, ts_stop=4_000,
+            heap_size=2048, collections=10, collected=100,
+            uncollectable=1, candidates=20, duration=0.01,
+            increment_size=500, alive_size=300,
+            ts_mark_alive_start=3_000, ts_mark_alive_stop=3_100,
+            ts_fill_increment_start=3_100, ts_fill_increment_stop=3_200,
+            ts_deduce_unreachable_start=3_200, ts_deduce_unreachable_stop=3_300,
+            ts_handle_weakref_callbacks_start=3_300,
+            ts_handle_weakref_callbacks_stop=3_400,
+            ts_finalize_garbage_stop=3_500,
+            finalized_garbage_count=42,
+            ts_handle_resurrected_stop=3_600,
+            ts_clear_weakrefs_stop=3_700,
+            clear_weakrefs_count=7,
+            ts_delete_garbage_start=3_800,
+            ts_delete_garbage_stop=3_900,
+            deleted_garbage_count=13,
+        )
+
+    def _annotations_for_slice(
+        self, packets: list[bytes], slice_name: str,
+    ) -> list[tuple[str | None, int | None]]:
+        for p in packets:
+            fields = decode_message(p)
+            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
+            if not te_bytes:
+                continue
+            te_fields = decode_message(te_bytes)
+            if get_varint(te_fields, TrackEventField.TYPE) != TYPE_SLICE_BEGIN:
+                continue
+            if get_string(te_fields, TrackEventField.NAME) != slice_name:
+                continue
+            anns = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
+            out: list[tuple[str | None, int | None]] = []
+            for ann in anns:
+                ann_fields = decode_message(ann.value)  # type: ignore[arg-type]
+                out.append((
+                    get_string(ann_fields, DebugAnnotationField.NAME),
+                    get_varint(ann_fields, DebugAnnotationField.INT_VALUE),
+                ))
+            return out
+        raise AssertionError(f"slice {slice_name!r} not found in packets")
+
+    def test_finalize_garbage_substep_has_count_annotation(self) -> None:
+        state = PerfettoTrackState()
+        _, packets = _convert_item(100, self._make_full_incremental_item(), state, sequence_id=1)
+        anns = self._annotations_for_slice(packets, "Finalize Garbage (gen=1)")
+        assert ("finalized_garbage_count", 42) in anns
+        assert all(name not in ("deleted_garbage_count", "clear_weakrefs_count")
+                   for name, _ in anns)
+
+    def test_clear_weakrefs_substep_has_count_annotation(self) -> None:
+        state = PerfettoTrackState()
+        _, packets = _convert_item(100, self._make_full_incremental_item(), state, sequence_id=1)
+        anns = self._annotations_for_slice(packets, "Clear Weakrefs (gen=1)")
+        assert ("clear_weakrefs_count", 7) in anns
+        assert all(name not in ("finalized_garbage_count", "deleted_garbage_count")
+                   for name, _ in anns)
+
+    def test_delete_garbage_substep_has_count_annotation(self) -> None:
+        state = PerfettoTrackState()
+        _, packets = _convert_item(100, self._make_full_incremental_item(), state, sequence_id=1)
+        anns = self._annotations_for_slice(packets, "Delete Garbage (gen=1)")
+        assert ("deleted_garbage_count", 13) in anns
+        assert all(name not in ("finalized_garbage_count", "clear_weakrefs_count")
+                   for name, _ in anns)
+
     def test_zero_duration_subphase_skipped(self) -> None:
         state = PerfettoTrackState()
         item = GCStatsInfo(

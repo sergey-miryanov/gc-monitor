@@ -324,6 +324,48 @@ class TestConvertItemToTraceFormat:
         assert "deleted_garbage_count" not in counter.args
         assert "clear_weakrefs_count" not in counter.args
 
+    def test_finalize_garbage_substep_has_count(self) -> None:
+        item = _make_incremental_item(
+            gen=0, finalized_garbage_count=42,
+            deleted_garbage_count=13, clear_weakrefs_count=7,
+        )
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        begin = next(
+            e for e in events
+            if e.ph == "B" and e.name == "Finalize Garbage (gen=0)"
+        )
+        assert begin.args["finalized_garbage_count"] == 42
+        assert "deleted_garbage_count" not in begin.args
+        assert "clear_weakrefs_count" not in begin.args
+
+    def test_clear_weakrefs_substep_has_count(self) -> None:
+        item = _make_incremental_item(
+            gen=0, finalized_garbage_count=42,
+            deleted_garbage_count=13, clear_weakrefs_count=7,
+        )
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        begin = next(
+            e for e in events
+            if e.ph == "B" and e.name == "Clear Weakrefs (gen=0)"
+        )
+        assert begin.args["clear_weakrefs_count"] == 7
+        assert "finalized_garbage_count" not in begin.args
+        assert "deleted_garbage_count" not in begin.args
+
+    def test_delete_garbage_substep_has_count(self) -> None:
+        item = _make_incremental_item(
+            gen=0, finalized_garbage_count=42,
+            deleted_garbage_count=13, clear_weakrefs_count=7,
+        )
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        begin = next(
+            e for e in events
+            if e.ph == "B" and e.name == "Delete Garbage (gen=0)"
+        )
+        assert begin.args["deleted_garbage_count"] == 13
+        assert "finalized_garbage_count" not in begin.args
+        assert "clear_weakrefs_count" not in begin.args
+
 
 class TestConvertToTraceFormat:
     def test_empty_items_returns_empty_events(self) -> None:
