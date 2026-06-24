@@ -55,10 +55,6 @@ _EXPECTED_COUNTER_NAMES: frozenset[str] = frozenset({
     "G1 candidates",
     "G1 heap_size",
     "G1 increment_size",
-    "G1 alive_size",
-    "G1 finalized_garbage_count",
-    "G1 deleted_garbage_count",
-    "G1 clear_weakrefs_count",
 })
 
 _ARG_PREFIX: dict[str, str] = {

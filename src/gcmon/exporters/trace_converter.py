@@ -60,19 +60,15 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
 
     if has_mark_alive(item) and gen > 0:
         pause_data["alive_size"] = item.alive_size
-        counter_data["alive_size"] = item.alive_size
 
     if has_finalize_garbage(item):
         pause_data["finalized_garbage_count"] = item.finalized_garbage_count
-        counter_data["finalized_garbage_count"] = item.finalized_garbage_count
 
     if has_delete_garbage(item):
         pause_data["deleted_garbage_count"] = item.deleted_garbage_count
-        counter_data["deleted_garbage_count"] = item.deleted_garbage_count
 
     if has_clear_weakrefs(item):
         pause_data["clear_weakrefs_count"] = item.clear_weakrefs_count
-        counter_data["clear_weakrefs_count"] = item.clear_weakrefs_count
 
     events: list[TraceEvent] = []
     events.append(

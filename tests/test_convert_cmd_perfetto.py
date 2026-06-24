@@ -39,9 +39,7 @@ _G0_COUNTERS: frozenset[str] = frozenset({
 })
 _G1_COUNTERS: frozenset[str] = frozenset({
     "G1 collected", "G1 uncollectable", "G1 candidates", "G1 heap_size",
-    "G1 increment_size", "G1 alive_size",
-    "G1 finalized_garbage_count", "G1 deleted_garbage_count",
-    "G1 clear_weakrefs_count",
+    "G1 increment_size",
 })
 _G2_COUNTERS: frozenset[str] = frozenset({
     "G2 collected", "G2 uncollectable", "G2 candidates", "G2 heap_size",
@@ -81,9 +79,9 @@ def _multi_dimensional_records() -> list[dict[str, int | float]]:
         "collected": item_g0.collected, "uncollectable": item_g0.uncollectable,
         "candidates": item_g0.candidates, "duration": item_g0.duration,
     })
-    # pid=1001, iid=1, gen=1 (incremental — exercises all sub-slices and
-    # the full set of G1 counter metrics: increment_size, alive_size,
-    # finalized_garbage_count, deleted_garbage_count, clear_weakrefs_count).
+    # pid=1001, iid=1, gen=1 (incremental — exercises all sub-slices;
+    # only `increment_size` is emitted as a G1 counter, the other
+    # incremental fields appear in pause/sub-step args).
     item_g1 = create_mock_incremental_item(
         gen=1, iid=_IID_A2,
         ts_start=_TS_START + 100_000_000, ts_stop=_TS_START + 100_000_000 + _DURATION_NS,
