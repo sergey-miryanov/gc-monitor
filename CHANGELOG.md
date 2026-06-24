@@ -15,6 +15,8 @@
 - Unify Chrome trace and Perfetto exporters (#38)
 - `gcmon combine` now supports `--output-format perfetto` for binary protobuf output (chrome and jsonl inputs)
 - `TraceEvent.ts` is now stored in nanoseconds (was microseconds). Fixes a bug where perfetto traces were displayed 1000x compressed in `ui.perfetto.dev`
+- GC sub-step slices (`Finalize Garbage`, `Delete Garbage`, `Clear Weakrefs`) now include their respective count in slice args
+- Counter events no longer include `alive_size`, `finalized_garbage_count`, `deleted_garbage_count`, `clear_weakrefs_count` (these remain in pause and sub-step args)
 
 ## Version 0.2.0 (2026-06-10)
 
