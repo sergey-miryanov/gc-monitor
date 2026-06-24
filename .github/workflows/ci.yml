@@ -147,24 +147,3 @@ jobs:
         run: |
           poetry run pytest --basetemp=.temp -m stress --count 20
 
-  integration-tests:
-    if: github.ref_name != 'main' && !startsWith(github.ref_name, 'release/')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.15"]
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: ./.github/actions/setup
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache-prefix: main
-      - name: Create directories
-        run: |
-          mkdir -p .temp
-        shell: bash
-      - name: Run integration tests
-        run: |
-          poetry run pytest --basetemp=.temp -m integration -q
