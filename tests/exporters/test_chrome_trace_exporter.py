@@ -34,9 +34,16 @@ class TestTraceExporter:
         counters = [e for e in data if e["ph"] == "C"]
         metas = [e for e in data if e["ph"] == "M"]
         assert len(begins) == num_items
-        assert len(counters) == num_items
+        assert len(counters) == 2 * num_items  # per-gen + shared heap_size
         assert all(e["name"] == "GC Pause (gen=0)" for e in begins)
-        assert all(e["name"] == "G0" for e in counters)
+        per_gen_counters = [e for e in counters if e["name"] == "G0"]
+        # Consolidated heap_size counter: the JSON encoder rewrites its
+        # event name to "" so the trace processor produces a single track
+        # named " heap_size" instead of "heap_size heap_size".
+        heap_counters = [e for e in counters if e["name"] == ""]
+        assert len(per_gen_counters) == num_items
+        assert len(heap_counters) == num_items
+        assert all(set(c["args"].keys()) == {"heap_size"} for c in heap_counters)
         assert_is_process_meta(next(e for e in metas if e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
         assert_is_thread_meta(next(e for e in metas if e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
 
@@ -67,8 +74,10 @@ class TestTraceExporter:
         for event in data:
             if event["ph"] == "B":
                 assert_is_begin(event, name="GC Pause (gen=0)", cat="gc.pause(gen=0)", ts=1_500_000, pid=12345, tid=0, args={"generation": 0, "iid": 0, "collections": 50, "heap_size": 52428800, "collected": 200, "uncollectable": 10, "candidates": 40})
-            elif event["ph"] == "C":
-                assert_is_counter(event, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40, "heap_size": 52428800})
+            elif event["ph"] == "C" and event["name"] == "G0":
+                assert_is_counter(event, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40})
+            elif event["ph"] == "C" and event["name"] == "":
+                assert_is_counter(event, name="", ts=1_500_000, pid=12345, tid=0, args={"heap_size": 52428800})
             elif event["ph"] == "M" and event["name"] == "process_name":
                 assert_is_process_meta(event, pid=12345, args={"name": "Process 12345"})
             elif event["ph"] == "M" and event["name"] == "thread_name":
@@ -107,8 +116,12 @@ class TestTraceExporter:
         exporter.close()
 
         data = assert_valid_chrome_trace_format(path)
-        event = next(e for e in data if e["ph"] == "C")
-        assert_is_counter(event, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40, "heap_size": 52428800})
+        counters = [e for e in data if e["ph"] == "C"]
+        assert len(counters) == 2  # per-gen + shared heap_size
+        per_gen = next(e for e in counters if e["name"] == "G0")
+        assert_is_counter(per_gen, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40})
+        heap = next(e for e in counters if e["name"] == "")
+        assert_is_counter(heap, name="", ts=1_500_000, pid=12345, tid=0, args={"heap_size": 52428800})
 
     def test_close_adds_metadata(self, mock_stats_item, trace_exporter) -> None:
         exporter, path = trace_exporter()
@@ -293,4 +306,4 @@ class TestGCMonitorStreaming:
         assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
         assert_is_thread_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
         assert len([e for e in data if e["ph"] == "B"]) == 1
-        assert len([e for e in data if e["ph"] == "C"]) == 1
+        assert len([e for e in data if e["ph"] == "C"]) == 2  # per-gen + shared heap_size

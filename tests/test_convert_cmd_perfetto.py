@@ -32,17 +32,21 @@ _TS_START: int = 1_500_000_000
 _DURATION_NS: int = 5_000_000
 
 # Counter-track names produced by the encoder for each generation. Gen 0 has
-# the basic 4; gen 1 has the additional 5 incremental fields; gen 2 has the
-# basic 4 only.
+# the basic 3 per-gen metrics; gen 1 has the additional `increment_size`;
+# gen 2 has the basic 3 only. `heap_size` is a single shared counter per
+# (pid, iid) updated by every generation, not split per gen.
 _G0_COUNTERS: frozenset[str] = frozenset({
-    "G0 collected", "G0 uncollectable", "G0 candidates", "G0 heap_size",
+    "G0 collected", "G0 uncollectable", "G0 candidates",
 })
 _G1_COUNTERS: frozenset[str] = frozenset({
-    "G1 collected", "G1 uncollectable", "G1 candidates", "G1 heap_size",
+    "G1 collected", "G1 uncollectable", "G1 candidates",
     "G1 increment_size",
 })
 _G2_COUNTERS: frozenset[str] = frozenset({
-    "G2 collected", "G2 uncollectable", "G2 candidates", "G2 heap_size",
+    "G2 collected", "G2 uncollectable", "G2 candidates",
+})
+_HEAP_COUNTERS: frozenset[str] = frozenset({
+    "heap_size",
 })
 
 # Pause slice args exposed via the trace processor.
@@ -228,7 +232,7 @@ class TestCombineChromeToPerfettoIntegration:
         names = {r.name for r in loaded_trace_processor.query(
             "SELECT name FROM counter_track",
         )}
-        expected = _G0_COUNTERS | _G1_COUNTERS | _G2_COUNTERS
+        expected = _G0_COUNTERS | _G1_COUNTERS | _G2_COUNTERS | _HEAP_COUNTERS
         assert names == expected, (
             f"counter track names mismatch; missing: {expected - names}; "
             f"unexpected: {names - expected}"
@@ -394,16 +398,29 @@ class TestCombineChromePerfettoEquivalenceIntegration:
         try:
             for query in [
                 # Track names: skip `Process <pid>` because chrome has no
-                # separate process-track descriptor (perfetto does).
-                "SELECT name FROM track WHERE name NOT LIKE 'Process %' ORDER BY name",
+                # separate process-track descriptor (perfetto does). Also skip
+                # `GC Counters` — a perfetto-only grouping track that holds the
+                # counter tracks (chrome has no equivalent grouping concept).
+                "SELECT name FROM track "
+                "WHERE name NOT LIKE 'Process %' AND name != 'GC Counters' "
+                "ORDER BY name",
+                # Chrome JSON's trace processor prepends a space to counter
+                # track names whose event-level name is empty (e.g. the
+                # consolidated `heap_size` counter). Strip whitespace so the
+                # set comparison is format-agnostic.
                 "SELECT name FROM counter_track ORDER BY name",
             ]:
                 rows_chrome = _row_set(tp_chrome.query(query))
                 rows_perfetto = _row_set(tp_perfetto.query(query))
-                assert rows_chrome == rows_perfetto, (
+                # Normalize: extract the single string column and strip
+                # whitespace (the leading space in the chrome counter track
+                # name is a chrome-specific naming quirk).
+                def _normalize(rs: set[tuple]) -> set[str]:
+                    return {next(iter(t))[1].strip() for t in rs}
+                assert _normalize(rows_chrome) == _normalize(rows_perfetto), (
                     f"row set mismatch for query:\n  {query}\n"
-                    f"only in chrome: {rows_chrome - rows_perfetto}\n"
-                    f"only in perfetto: {rows_perfetto - rows_chrome}"
+                    f"only in chrome: {_normalize(rows_chrome) - _normalize(rows_perfetto)}\n"
+                    f"only in perfetto: {_normalize(rows_perfetto) - _normalize(rows_chrome)}"
                 )
 
             # Slice-level dur comparison: both chrome (after us→ns

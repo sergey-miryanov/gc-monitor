@@ -49,12 +49,11 @@ _EXPECTED_COUNTER_NAMES: frozenset[str] = frozenset({
     "G0 collected",
     "G0 uncollectable",
     "G0 candidates",
-    "G0 heap_size",
     "G1 collected",
     "G1 uncollectable",
     "G1 candidates",
-    "G1 heap_size",
     "G1 increment_size",
+    "heap_size",
 })
 
 _ARG_PREFIX: dict[str, str] = {
@@ -265,8 +264,9 @@ class TestSliceArgs:
 
 
 class TestCounterTracks:
-    """The four counter metrics (collected/uncollectable/candidates/heap_size)
-    each have a counter track with the expected name, and no extra counter
+    """The per-gen counter metrics (collected/uncollectable/candidates and
+    gen<2 increment_size) each have a counter track with the expected name,
+    plus a single shared `heap_size` track per (pid, tid). No extra counter
     tracks are emitted. The set comparison is robust to multiple processes
     emitting the same counter-track names."""
 
@@ -275,8 +275,13 @@ class TestCounterTracks:
         self, fmt: str, trace_processor: TraceProcessor,
     ) -> None:
         rows = {r.name for r in trace_processor.query("SELECT name FROM counter_track")}
-        missing = _EXPECTED_COUNTER_NAMES - rows
-        unexpected = rows - _EXPECTED_COUNTER_NAMES
+        # Chrome JSON's trace processor prepends a space when the counter
+        # event name is empty (the consolidated `heap_size` event has no
+        # event-level name to avoid the `heap_size heap_size` duplication).
+        # Strip the leading space so the set comparison is format-agnostic.
+        normalized = {r.strip() for r in rows}
+        missing = _EXPECTED_COUNTER_NAMES - normalized
+        unexpected = normalized - _EXPECTED_COUNTER_NAMES
         assert not missing and not unexpected, (
             f"counter track names mismatch; "
             f"missing: {missing or 'none'}; "

@@ -17,6 +17,8 @@
 - `TraceEvent.ts` is now stored in nanoseconds (was microseconds). Fixes a bug where perfetto traces were displayed 1000x compressed in `ui.perfetto.dev`
 - GC sub-step slices (`Finalize Garbage`, `Delete Garbage`, `Clear Weakrefs`) now include their respective count in slice args
 - Counter events no longer include `alive_size`, `finalized_garbage_count`, `deleted_garbage_count`, `clear_weakrefs_count` (these remain in pause and sub-step args)
+- `heap_size` is now emitted as a single counter track per `(pid, tid)`, updated by all generations; it is no longer split into `G0 heap_size` / `G1 heap_size` / `G2 heap_size` counter tracks
+- All other counter tracks are grouped under `GC Counters` group
 
 ## Version 0.2.0 (2026-06-10)
 

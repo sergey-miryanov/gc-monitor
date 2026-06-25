@@ -70,6 +70,8 @@ class JsonEventEncoder:
                 ts_ns = getattr(e, "ts", None)
                 if ts_ns is not None:
                     d["ts"] = ts_to_us(ts_ns)
+                if e.ph == "C" and len(e.args) == 1:
+                    d["name"] = ""
                 encoded = msgspec.json.encode(d)
                 if not self._has_written:
                     self._has_written = True

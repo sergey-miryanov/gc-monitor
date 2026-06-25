@@ -119,16 +119,31 @@ TYPE_INSTANT = 3
 TYPE_COUNTER = 4
 
 _COUNTER_RANKS: dict[str, int] = {
+    "heap_size": 0,
     "collected": 1,
     "uncollectable": 2,
     "candidates": 3,
-    "heap_size": 4,
     "increment_size": 5,
     "alive_size": 6,
     "finalized_garbage_count": 7,
     "deleted_garbage_count": 8,
     "clear_weakrefs_count": 9,
 }
+
+# Metrics listed here are parented directly to the process track (outside the
+# GC Counters group) so they render as top-level counters rather than inside
+# the group. NOTE: because the process track is OS-scoped, trace processor
+# drops `sibling_order_rank` for these — their UI position is heuristic, not
+# guaranteed.
+_TOPLEVEL_COUNTER_METRICS: frozenset[str] = frozenset({"heap_size"})
+
+# Name of the non-OS-scoped grouping track that holds all GC counter tracks
+# for a given (pid, tid). Parenting counters to this group (instead of
+# directly to the process track) is what makes Perfetto actually honour
+# `child_ordering`/`sibling_order_rank`: trace processor ignores those fields
+# on OS-scoped (process/thread) tracks, but honors them on plain custom
+# child tracks.
+_COUNTER_GROUP_NAME: str = "GC Counters"
 
 
 class PerfettoTrackState:
@@ -137,6 +152,7 @@ class PerfettoTrackState:
         self._tids: set[tuple[int, int]] = set()
         self._cmdlines: dict[int, list[str]] = {}
         self._counter_tracks: dict[tuple[int, int, str, str], int] = {}
+        self._counter_group_uuids: dict[tuple[int, int], int] = {}
         self._pid_uuids: dict[int, int] = {}
         self._tid_uuids: dict[tuple[int, int], int] = {}
         self._next_uuid: int = 1
@@ -183,6 +199,15 @@ class PerfettoTrackState:
         if key not in self._counter_tracks:
             self._counter_tracks[key] = self._alloc_uuid()
         return self._counter_tracks[key]
+
+    def has_counter_group_track(self, pid: int, iid: int) -> bool:
+        return (pid, iid) in self._counter_group_uuids
+
+    def get_or_create_counter_group_track_uuid(self, pid: int, iid: int) -> int:
+        key = (pid, iid)
+        if key not in self._counter_group_uuids:
+            self._counter_group_uuids[key] = self._alloc_uuid()
+        return self._counter_group_uuids[key]
 
 
 def build_track_descriptor(
@@ -357,6 +382,33 @@ def _emit_thread_descriptor(
     return [build_trace_packet(sequence_id, track_descriptor=desc)]
 
 
+def _emit_counter_group_descriptor(
+    pid: int,
+    iid: int,
+    state: PerfettoTrackState,
+    sequence_id: int,
+) -> tuple[int, list[bytes]]:
+    """Build the per-(pid, iid) GC Counters grouping track descriptor.
+
+    The group is a plain custom track (no ``process``/``thread`` field) so
+    Perfetto honors ``child_ordering``/``sibling_order_rank`` on its children
+    — unlike OS-scoped process/thread tracks where those fields are ignored.
+    Counter tracks are parented to this group; the group itself is parented
+    to the process track.
+    """
+    if state.has_counter_group_track(pid, iid):
+        return state.get_or_create_counter_group_track_uuid(pid, iid), []
+    group_uuid = state.get_or_create_counter_group_track_uuid(pid, iid)
+    desc = build_track_descriptor(
+        group_uuid,
+        _COUNTER_GROUP_NAME,
+        parent_uuid=state.get_process_track_uuid(pid),
+        child_ordering=ChildTracksOrdering.EXPLICIT,
+        sibling_order_rank=0,
+    )
+    return group_uuid, [build_trace_packet(sequence_id, track_descriptor=desc)]
+
+
 def _emit_counter_track_descriptor(
     pid: int,
     iid: int,
@@ -364,20 +416,46 @@ def _emit_counter_track_descriptor(
     metric: str,
     state: PerfettoTrackState,
     sequence_id: int,
+    display_name: str | None = None,
 ) -> tuple[int, list[bytes]]:
-    """Build a counter track descriptor if not already emitted."""
+    """Build a counter track descriptor if not already emitted.
+
+    Metrics in ``_TOPLEVEL_COUNTER_METRICS`` are parented directly to the
+    process track (outside the GC Counters group) so they render at the top
+    level. All other counters are parented to the per-(pid, iid) GC Counters
+    group track so that ``sibling_order_rank`` from ``_COUNTER_RANKS`` is
+    honored by trace processor and the UI.
+
+    When ``display_name`` is provided, it is used as the on-the-wire track
+    name; otherwise the default ``f"{name} {metric}"`` form is used.
+    """
+    if metric in _TOPLEVEL_COUNTER_METRICS:
+        if state.has_counter_track(pid, iid, name, metric):
+            return state.get_or_create_counter_track_uuid(pid, iid, name, metric), []
+        ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, name, metric)
+        track_name = display_name if display_name is not None else f"{name} {metric}"
+        desc = build_track_descriptor(
+            ctr_uuid,
+            track_name,
+            parent_uuid=state.get_process_track_uuid(pid),
+            is_counter=True,
+            sibling_order_rank=_COUNTER_RANKS.get(metric, 0),
+        )
+        return ctr_uuid, [build_trace_packet(sequence_id, track_descriptor=desc)]
+    group_uuid, group_packets = _emit_counter_group_descriptor(pid, iid, state, sequence_id)
     if state.has_counter_track(pid, iid, name, metric):
         ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, name, metric)
-        return ctr_uuid, []
+        return ctr_uuid, group_packets
     ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, name, metric)
+    track_name = display_name if display_name is not None else f"{name} {metric}"
     desc = build_track_descriptor(
         ctr_uuid,
-        f"{name} {metric}",
-        parent_uuid=state.get_process_track_uuid(pid),
+        track_name,
+        parent_uuid=group_uuid,
         is_counter=True,
         sibling_order_rank=_COUNTER_RANKS.get(metric, 0),
     )
-    return ctr_uuid, [build_trace_packet(sequence_id, track_descriptor=desc)]
+    return ctr_uuid, [*group_packets, build_trace_packet(sequence_id, track_descriptor=desc)]
 
 
 def convert_trace_events_to_perfetto(
@@ -439,9 +517,12 @@ def convert_trace_events_to_perfetto(
             ))
 
         elif isinstance(event, CounterEvent):
+            single_arg = len(event.args) == 1
             for metric, value in event.args.items():
+                display_name = metric if single_arg else f"{event.name} {metric}"
                 ctr_uuid, desc_bytes = _emit_counter_track_descriptor(
                     pid, event.tid, event.name, metric, state, sequence_id,
+                    display_name=display_name,
                 )
                 descriptors.extend(desc_bytes)
                 packets.append(build_trace_packet(

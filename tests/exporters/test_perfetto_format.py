@@ -22,7 +22,7 @@ from gcmon.exporters.perfetto_format import (
     convert_trace_events_to_perfetto,
 )
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
-from gcmon.trace_event import instant_event, process_meta, thread_meta
+from gcmon.trace_event import counter_event, instant_event, process_meta, thread_meta
 from tests.proto_decoder import (
     decode_message,
     get_bytes,
@@ -392,7 +392,7 @@ class TestConvertItemToPerfettoPackets:
                     thread_found = True
         assert thread_found
 
-    def test_counter_tracks_parented_to_process(self) -> None:
+    def test_counter_tracks_parented_to_counter_group(self) -> None:
         state = PerfettoTrackState()
         item = GCStatsInfo(
             gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
@@ -401,19 +401,32 @@ class TestConvertItemToPerfettoPackets:
         )
         descriptors, _ = _convert_item(100, item, state, sequence_id=1)
         proc_uuid = state.get_process_track_uuid(100)
-        counter_parent_uuids: list[int] = []
+        group_uuid = state.get_or_create_counter_group_track_uuid(100, 0)
+        assert group_uuid != proc_uuid
+        group_seen = False
+        per_metric_parent: dict[str, int] = {}
         for desc_bytes in descriptors:
             fields = decode_message(desc_bytes)
             td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
             if td_bytes:
                 td_fields = decode_message(td_bytes)
                 counter_bytes = get_bytes(td_fields, TrackDescriptorField.COUNTER)
+                uuid = get_varint(td_fields, TrackDescriptorField.UUID)
                 if counter_bytes is not None:
                     parent_uuid = get_varint(td_fields, TrackDescriptorField.PARENT_UUID)
-                    counter_parent_uuids.append(parent_uuid)
-        assert len(counter_parent_uuids) > 0
-        for parent_uuid in counter_parent_uuids:
-            assert parent_uuid == proc_uuid
+                    track_name = get_string(td_fields, TrackDescriptorField.NAME)
+                    per_metric_parent[track_name] = parent_uuid
+                elif uuid == group_uuid:
+                    group_seen = True
+                    assert get_varint(td_fields, TrackDescriptorField.PARENT_UUID) == proc_uuid
+                    assert get_varint(td_fields, TrackDescriptorField.CHILD_ORDERING) == 3
+        assert group_seen, "GC Counters group track descriptor was not emitted"
+        # heap_size is a top-level counter: parented directly to the process.
+        assert per_metric_parent["heap_size"] == proc_uuid
+        # Per-gen counters are parented to the GC Counters group.
+        for name, parent_uuid in per_metric_parent.items():
+            if name != "heap_size":
+                assert parent_uuid == group_uuid, f"{name!r} should parent to group"
 
     def test_basic_item_emits_pause_slice(self) -> None:
         state = PerfettoTrackState()
@@ -746,3 +759,48 @@ class TestConvertInstantToPerfettoPacket:
         )
         assert len(gc_desc) >= 2
         assert len(inst_desc) == 0
+
+    def test_single_arg_counter_uses_metric_name_as_track_name(self) -> None:
+        state = PerfettoTrackState()
+        descriptors, packets = convert_trace_events_to_perfetto(
+            [
+                process_meta(100, "Process 100"),
+                thread_meta(100, 0, "Thread 0"),
+                counter_event(pid=100, tid=0, name="heap_size", ts_ns=1_000,
+                              args={"heap_size": 1234}),
+            ],
+            state, sequence_id=1,
+        )
+        track_names: list[str] = []
+        for d in descriptors:
+            fields = decode_message(d)
+            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
+            if not td_bytes:
+                continue
+            td_fields = decode_message(td_bytes)
+            counter_bytes = get_bytes(td_fields, TrackDescriptorField.COUNTER)
+            if counter_bytes is None:
+                continue
+            name = get_string(td_fields, TrackDescriptorField.NAME)
+            if name is not None:
+                track_names.append(name)
+        assert "heap_size" in track_names
+        assert "heap_size heap_size" not in track_names
+
+    def test_shared_heap_size_track_reused_across_generations(self) -> None:
+        state = PerfettoTrackState()
+        item_g0 = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        item_g1 = GCStatsInfo(
+            gen=1, iid=0, ts_start=3_000, ts_stop=4_000,
+            heap_size=2000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        _convert_item(100, item_g0, state, sequence_id=1)
+        uuid_after_g0 = state.get_or_create_counter_track_uuid(100, 0, "heap_size", "heap_size")
+        _convert_item(100, item_g1, state, sequence_id=1)
+        uuid_after_g1 = state.get_or_create_counter_track_uuid(100, 0, "heap_size", "heap_size")
+        assert uuid_after_g0 == uuid_after_g1

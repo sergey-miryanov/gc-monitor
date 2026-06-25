@@ -51,7 +51,6 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         "collected": item.collected,
         "uncollectable": item.uncollectable,
         "candidates": item.candidates,
-        "heap_size": item.heap_size,
     }
 
     if has_incremental(item) and gen < 2:
@@ -267,6 +266,16 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             f"G{gen}",
             ts_start_ns,
             counter_data,
+        )
+    )
+
+    events.append(
+        counter_event(
+            pid,
+            tid,
+            "heap_size",
+            ts_start_ns,
+            {"heap_size": item.heap_size},
         )
     )
 
