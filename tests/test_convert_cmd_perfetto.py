@@ -31,16 +31,16 @@ _IID_B1: int = 10
 _TS_START: int = 1_500_000_000
 _DURATION_NS: int = 5_000_000
 
-# Counter-track names produced by the encoder for each generation. Gen 0 has
-# the basic 3 per-gen metrics; gen 1 has the additional `increment_size`;
-# gen 2 has the basic 3 only. `heap_size` is a single shared counter per
-# (pid, iid) updated by every generation, not split per gen.
+# Counter-track names produced by the encoder for each generation. All three
+# generations emit the same basic 3 per-gen metrics. `heap_size` is a single
+# shared counter per (pid, iid) updated by every generation, not split per
+# gen. `increment_size` is NOT a counter track — it lives on the `GC Pause`
+# slice's args.
 _G0_COUNTERS: frozenset[str] = frozenset({
     "G0 collected", "G0 uncollectable", "G0 candidates",
 })
 _G1_COUNTERS: frozenset[str] = frozenset({
     "G1 collected", "G1 uncollectable", "G1 candidates",
-    "G1 increment_size",
 })
 _G2_COUNTERS: frozenset[str] = frozenset({
     "G2 collected", "G2 uncollectable", "G2 candidates",
@@ -236,6 +236,17 @@ class TestCombineChromeToPerfettoIntegration:
         assert names == expected, (
             f"counter track names mismatch; missing: {expected - names}; "
             f"unexpected: {names - expected}"
+        )
+
+    def test_no_increment_size_counter_track(
+        self, loaded_trace_processor: TraceProcessor,
+    ) -> None:
+        rows = list(loaded_trace_processor.query(
+            "SELECT name FROM counter_track WHERE name LIKE '%increment_size%'",
+        ))
+        assert rows == [], (
+            f"`increment_size` should not be a counter track; "
+            f"got: {[r.name for r in rows]}"
         )
 
     def test_process_tracks_present(

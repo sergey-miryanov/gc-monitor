@@ -212,12 +212,21 @@ class TestConvertItemToTraceFormat:
         assert "increment_size" not in pause.args
         assert pause.args["alive_size"] == 800
 
-    def test_counter_data_includes_inc_fields_for_gen0(self) -> None:
+    def test_counter_data_excludes_increment_size(self) -> None:
         item = _make_incremental_item(gen=0, increment_size=1000)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        counter = next(e for e in events if e.ph == "C")
-        assert counter.args["increment_size"] == 1000
-        assert "alive_size" not in counter.args
+        # The per-gen `G{gen}` counter no longer carries `increment_size`;
+        # it is exposed on the GC Pause slice's args instead. The
+        # consolidated `heap_size` event is also a `C` event — pick the
+        # per-gen one by its name prefix.
+        counter = next(
+            e for e in events
+            if e.ph == "C" and e.name.startswith("G")
+        )
+        assert "increment_size" not in counter.args
+        assert "collected" in counter.args
+        pause = next(e for e in events if e.ph == "B" and "GC Pause" in e.name)
+        assert pause.args["increment_size"] == 1000
 
     def test_zero_duration_sub_steps_are_skipped(self) -> None:
         base = _make_incremental_item(gen=0)

@@ -19,6 +19,7 @@
 - Counter events no longer include `alive_size`, `finalized_garbage_count`, `deleted_garbage_count`, `clear_weakrefs_count` (these remain in pause and sub-step args)
 - `heap_size` is now emitted as a single counter track per `(pid, tid)`, updated by all generations; it is no longer split into `G0 heap_size` / `G1 heap_size` / `G2 heap_size` counter tracks
 - All other counter tracks are grouped under `GC Counters` group
+- `increment_size` is no longer emitted as a per-generation counter track (`G0 increment_size` / `G1 increment_size`); it remains queryable from the `GC Pause (gen=N)` slice's args and from the `Fill increment (gen=N)` sub-step args
 
 ## Version 0.2.0 (2026-06-10)
 

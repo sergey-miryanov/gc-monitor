@@ -55,7 +55,6 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
 
     if has_incremental(item) and gen < 2:
         pause_data["increment_size"] = item.increment_size
-        counter_data["increment_size"] = item.increment_size
 
     if has_mark_alive(item) and gen > 0:
         pause_data["alive_size"] = item.alive_size

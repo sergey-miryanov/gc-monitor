@@ -52,7 +52,6 @@ _EXPECTED_COUNTER_NAMES: frozenset[str] = frozenset({
     "G1 collected",
     "G1 uncollectable",
     "G1 candidates",
-    "G1 increment_size",
     "heap_size",
 })
 
@@ -264,10 +263,11 @@ class TestSliceArgs:
 
 
 class TestCounterTracks:
-    """The per-gen counter metrics (collected/uncollectable/candidates and
-    gen<2 increment_size) each have a counter track with the expected name,
-    plus a single shared `heap_size` track per (pid, tid). No extra counter
-    tracks are emitted. The set comparison is robust to multiple processes
+    """The per-gen counter metrics (collected/uncollectable/candidates) each
+    have a counter track with the expected name, plus a single shared
+    `heap_size` track per (pid, tid). No extra counter tracks are emitted —
+    in particular `increment_size` is not a counter track (it lives on the
+    pause slice's args). The set comparison is robust to multiple processes
     emitting the same counter-track names."""
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
