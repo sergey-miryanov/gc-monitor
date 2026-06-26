@@ -70,9 +70,14 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--format",
-        choices=["chrome", "perfetto", "stdout", "jsonl"],
+        choices=["chrome", "perfetto", "stdout", "jsonl", "chrome+perfetto"],
         default=get_env_format(),
-        help=f"Output format: 'chrome' for Chrome DevTools, 'perfetto' for Perfetto binary protobuf, 'stdout' for one-line-per-event JSONL to stdout, 'jsonl' for JSONL file (default: chrome or {ENV_FORMAT} env var)",
+        help=(
+            f"Output format: 'chrome' for Chrome DevTools, 'perfetto' for Perfetto binary protobuf, "
+            f"'chrome+perfetto' for both Chrome JSON and Perfetto binary outputs (the `-o` argument is a "
+            f"base name; `.json` and `.pftrace` extensions are appended), 'stdout' for one-line-per-event "
+            f"JSONL to stdout, 'jsonl' for JSONL file (default: chrome or {ENV_FORMAT} env var)"
+        ),
     )
     parser.add_argument(
         "--flush-threshold",

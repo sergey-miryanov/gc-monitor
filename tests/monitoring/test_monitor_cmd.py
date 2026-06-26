@@ -178,6 +178,60 @@ class TestCliJsonlFormat:
         assert output_file.read_text().strip().startswith("[")
 
 
+class TestCliChromePlusPerfettoFormat:
+    """End-to-end: ``--format chrome+perfetto`` writes both files in one
+    monitoring session. The ``-o`` argument is a base name; ``.json`` and
+    ``.pftrace`` extensions are appended automatically."""
+
+    def test_basic(self, run_monitor_self: Any, tmp_path: Path) -> None:
+        base = tmp_path / "trace"
+        result = run_monitor_self([
+            "--format", "chrome+perfetto",
+            "-o", str(base),
+            "-d", "0.5",
+            "-r", "0.05",
+            "-v",
+        ], timeout=15)
+        assert result.returncode == 0
+        assert "Format: chrome+perfetto" in result.stderr
+
+        chrome_path = tmp_path / "trace.json"
+        perfetto_path = tmp_path / "trace.pftrace"
+        assert chrome_path.exists()
+        assert perfetto_path.exists()
+        assert chrome_path.stat().st_size > 0
+        assert perfetto_path.stat().st_size > 0
+
+        # The chrome file must be a valid Chrome Trace JSON array.
+        assert chrome_path.read_text().strip().startswith("[")
+        assert_valid_chrome_trace_format(chrome_path)
+
+    def test_default_base_name(self, run_monitor_self: Any, tmp_path: Path) -> None:
+        """Without ``-o``, both files land in the cwd as ``gcmon.json`` and
+        ``gcmon.pftrace``."""
+        result = run_monitor_self([
+            "--format", "chrome+perfetto",
+            "-d", "0.5",
+            "-r", "0.05",
+        ], cwd=tmp_path, timeout=15)
+        assert result.returncode == 0
+        assert (tmp_path / "gcmon.json").exists()
+        assert (tmp_path / "gcmon.pftrace").exists()
+
+    def test_strips_json_extension_from_base(self, run_monitor_self: Any, tmp_path: Path) -> None:
+        """If ``-o`` ends in ``.json``, the chrome path is unchanged and the
+        perfetto path is derived with the ``.pftrace`` extension."""
+        result = run_monitor_self([
+            "--format", "chrome+perfetto",
+            "-o", str(tmp_path / "trace.json"),
+            "-d", "0.5",
+            "-r", "0.05",
+        ], timeout=15)
+        assert result.returncode == 0
+        assert (tmp_path / "trace.json").exists()
+        assert (tmp_path / "trace.pftrace").exists()
+
+
 # =============================================================================
 # Environment Variable Tests
 # =============================================================================

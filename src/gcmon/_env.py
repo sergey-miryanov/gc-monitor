@@ -126,7 +126,7 @@ def get_env_format() -> str:
     format_str = os.environ.get(ENV_FORMAT)
     if format_str:
         format_lower = format_str.lower()
-        if format_lower in ("chrome", "stdout", "jsonl"):
+        if format_lower in ("chrome", "perfetto", "stdout", "jsonl", "chrome+perfetto"):
             return format_lower
     return "chrome"
 

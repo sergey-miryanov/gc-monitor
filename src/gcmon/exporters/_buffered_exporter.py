@@ -29,6 +29,7 @@ class BufferedTraceExporter(EventsExporter):
         self._io_lock = threading.Lock()
         self._buffer: list[TraceEvent] = []
         self._flush_threshold = flush_threshold
+        self._output_path = output_path
         self._encoder = encoder
         self._seen_pids: set[int] = set()
         self._seen_tids: set[tuple[int, int]] = set()

@@ -23,6 +23,7 @@
 - `Deduce Unreachable (gen=N)` slice args now include `candidates` (the per-pause candidate count)
 - `uncollectable` is no longer emitted as a per-generation counter track (`G{gen} uncollectable`) when its value is 0; it remains queryable from the `GC Pause (gen=N)` slice's args
 - Added `duration` as a shared counter track (one per `(pid, iid)`, double value, seconds) in a renamed `GC Metrics` group, positioned at the top via `sibling_order_rank=0`; the per-gen counter tracks moved into the renamed group and their ranks were renumbered (1+) so the new layout is `GC Metrics` → `duration` (rank 0) → `G{gen} collected` (rank 2) → `G{gen} uncollectable` (rank 3, when present) → `G{gen} candidates` (rank 4); `heap_size` stays as a top-level counter (rank 1, ignored by trace processor due to OS-scoped parent)
+- `gcmon monitor` and `gcmon run` now support `--format chrome+perfetto` for simultaneous Chrome JSON and Perfetto binary outputs (paths derived from `-o`: `<base>.json` and `<base>.pftrace`); also fixes a pre-existing bug where `GCMON_FORMAT=perfetto` was silently falling back to `chrome`
 
 ## Version 0.2.0 (2026-06-10)
 

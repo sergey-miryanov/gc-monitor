@@ -4,11 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.exporters.exporter_factory import EventsExporterFactory
-from gcmon.exporters.stdout_exporter import StdoutExporter
-from gcmon.exporters.jsonl_exporter import JsonlExporter
 from gcmon.exporters.chrome_trace_exporter import TraceExporter
+from gcmon.exporters.combined_exporter import CombinedTraceExporter
+from gcmon.exporters.exporter_factory import EventsExporterFactory
+from gcmon.exporters.jsonl_exporter import JsonlExporter
 from gcmon.exporters.perfetto_exporter import PerfettoExporter
+from gcmon.exporters.stdout_exporter import StdoutExporter
 
 
 class TestEventsExporterFactory:
@@ -36,6 +37,20 @@ class TestEventsExporterFactory:
         factory = EventsExporterFactory("perfetto", tmp_path / "out.pb", 100)
         exporter = factory()
         assert isinstance(exporter, PerfettoExporter)
+
+    def test_chrome_plus_perfetto_format(self, tmp_path: Path) -> None:
+        factory = EventsExporterFactory("chrome+perfetto", tmp_path / "trace", 100)
+        exporter = factory()
+        assert isinstance(exporter, CombinedTraceExporter)
+        assert exporter.chrome_path == tmp_path / "trace.json"
+        assert exporter.perfetto_path == tmp_path / "trace.pftrace"
+
+    def test_chrome_plus_perfetto_strips_extensions(self, tmp_path: Path) -> None:
+        factory = EventsExporterFactory("chrome+perfetto", tmp_path / "trace.json", 100)
+        exporter = factory()
+        assert isinstance(exporter, CombinedTraceExporter)
+        assert exporter.chrome_path == tmp_path / "trace.json"
+        assert exporter.perfetto_path == tmp_path / "trace.pftrace"
 
     def test_unknown_format_raises_value_error(self, tmp_path: Path) -> None:
         factory = EventsExporterFactory("unknown", tmp_path / "out", 100)

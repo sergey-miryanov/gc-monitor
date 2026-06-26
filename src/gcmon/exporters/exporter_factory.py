@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from .chrome_trace_exporter import TraceExporter
+from .combined_exporter import CombinedTraceExporter, derive_combined_paths
 from .exporter import EventsExporter
 from .jsonl_exporter import JsonlExporter
 from .perfetto_exporter import PerfettoExporter
@@ -23,5 +24,10 @@ class EventsExporterFactory:
                 return TraceExporter(output_path=self._output_path, flush_threshold=self._flush_threshold)
             case "perfetto":
                 return PerfettoExporter(output_path=self._output_path, flush_threshold=self._flush_threshold)
+            case "chrome+perfetto":
+                chrome_path, perfetto_path = derive_combined_paths(self._output_path)
+                chrome = TraceExporter(output_path=chrome_path, flush_threshold=self._flush_threshold)
+                perfetto = PerfettoExporter(output_path=perfetto_path, flush_threshold=self._flush_threshold)
+                return CombinedTraceExporter(chrome=chrome, perfetto=perfetto)
             case _:
                 raise ValueError(f"Unknown output format: {self._output_format}")
