@@ -54,6 +54,7 @@ class TMarkAliveInfo(Protocol):
 
 
 class TDeduceUnreachableInfo(Protocol):
+    candidates: int
     ts_deduce_unreachable_start: int
     ts_deduce_unreachable_stop: int
 

@@ -192,6 +192,16 @@ class TestConvertItemToTraceFormat:
         pause = next(e for e in events if e.ph == "B" and "GC Pause" in e.name)
         assert pause.args["increment_size"] == 1000
 
+    def test_deduce_unreachable_slice_args_has_candidates(self) -> None:
+        item = _make_incremental_item(gen=0)
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        deduce = next(
+            e for e in events
+            if e.ph == "B" and e.name == "Deduce Unreachable (gen=0)"
+        )
+        assert deduce.args["candidates"] == item.candidates
+        assert deduce.args["generation"] == 0
+
     def test_incremental_gen0_pause_data_no_alive_size(self) -> None:
         item = _make_incremental_item(gen=0)
         events = convert_item_to_trace_format(pid=12345, item=item)

@@ -241,6 +241,28 @@ class TestSliceArgs:
         missing = set(expected_sub_slices) - slice_names
         assert not missing, f"missing sub-slices: {missing}"
 
+    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
+    def test_deduce_unreachable_slice_args_has_candidates(
+        self, fmt: str, trace_processor: TraceProcessor,
+    ) -> None:
+        prefix = _ARG_PREFIX[fmt]
+        rows = {
+            r.flat_key: r.int_value
+            for r in trace_processor.query(
+                "SELECT flat_key, int_value FROM args "
+                "WHERE arg_set_id IN ("
+                f"  SELECT s.arg_set_id FROM slice s "
+                f"  {_process_filter(DEFAULT_PID)} "
+                "  AND s.name = 'Deduce Unreachable (gen=1)' AND s.dur > 0 "
+                f"  AND th.name = 'Thread 1'"
+                ")"
+            )
+        }
+        assert f"{prefix}.candidates" in rows, (
+            f"missing {prefix}.candidates on Deduce Unreachable (gen=1); "
+            f"got {sorted(rows)}"
+        )
+
         prefix = _ARG_PREFIX[fmt]
         pause_args = {
             r.flat_key: r.int_value

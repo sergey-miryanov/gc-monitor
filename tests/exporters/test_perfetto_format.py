@@ -611,6 +611,14 @@ class TestConvertItemToPerfettoPackets:
         assert all(name not in ("finalized_garbage_count", "clear_weakrefs_count")
                    for name, _ in anns)
 
+    def test_deduce_unreachable_substep_has_candidates_annotation(self) -> None:
+        state = PerfettoTrackState()
+        item = self._make_full_incremental_item()
+        _, packets = _convert_item(100, item, state, sequence_id=1)
+        anns = self._annotations_for_slice(packets, "Deduce Unreachable (gen=1)")
+        assert ("candidates", item.candidates) in anns
+        assert ("generation", 1) in anns
+
     def test_zero_duration_subphase_skipped(self) -> None:
         state = PerfettoTrackState()
         item = GCStatsInfo(

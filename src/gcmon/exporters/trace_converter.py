@@ -125,7 +125,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
 
     if has_deduce_unreachable(item) and item.ts_deduce_unreachable_stop - item.ts_deduce_unreachable_start > 0:
-        inc_data = {"generation": gen, "iid": iid}
+        inc_data = {"generation": gen, "iid": iid, "candidates": item.candidates}
         events.append(
             begin_event(
                 pid,
