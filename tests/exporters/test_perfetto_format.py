@@ -542,6 +542,52 @@ class TestConvertItemToPerfettoPackets:
         assert "Clear Weakrefs (gen=1)" in slice_begins
         assert "Delete Garbage (gen=1)" in slice_begins
 
+    def test_uncollectable_counter_omitted_when_zero(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=5, collected=10,
+            uncollectable=0, candidates=3, duration=0.001,
+        )
+        _, packets = _convert_item(100, item, state, sequence_id=1)
+        counter_uuids: set[int] = set()
+        for p in packets:
+            fields = decode_message(p)
+            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
+            if te_bytes is None:
+                continue
+            te_fields = decode_message(te_bytes)
+            if get_varint(te_fields, TrackEventField.TYPE) != TYPE_COUNTER:
+                continue
+            uuid = get_varint(te_fields, TrackEventField.TRACK_UUID)
+            if uuid is not None:
+                counter_uuids.add(uuid)
+        # collected, candidates, heap_size — no uncollectable counter event.
+        assert len(counter_uuids) == 3
+
+    def test_uncollectable_counter_emitted_when_nonzero(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=5, collected=10,
+            uncollectable=2, candidates=3, duration=0.001,
+        )
+        _, packets = _convert_item(100, item, state, sequence_id=1)
+        counter_uuids: set[int] = set()
+        for p in packets:
+            fields = decode_message(p)
+            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
+            if te_bytes is None:
+                continue
+            te_fields = decode_message(te_bytes)
+            if get_varint(te_fields, TrackEventField.TYPE) != TYPE_COUNTER:
+                continue
+            uuid = get_varint(te_fields, TrackEventField.TRACK_UUID)
+            if uuid is not None:
+                counter_uuids.add(uuid)
+        # collected, uncollectable, candidates, heap_size.
+        assert len(counter_uuids) == 4
+
     def _make_full_incremental_item(self) -> GCStatsInfo:
         return GCStatsInfo(
             gen=1, iid=0, ts_start=3_000, ts_stop=4_000,

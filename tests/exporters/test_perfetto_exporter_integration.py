@@ -310,6 +310,37 @@ class TestCounterTracks:
             f"unexpected: {unexpected or 'none'}"
         )
 
+    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
+    def test_uncollectable_counter_omitted_when_zero(
+        self, fmt: str, tmp_path: Path,
+    ) -> None:
+        path = tmp_path / ("trace.json" if fmt == "chrome" else "trace.pb")
+        exporter: TraceExporter | PerfettoExporter
+        if fmt == "chrome":
+            exporter = TraceExporter(
+                output_path=path, flush_threshold=1000,
+            )
+        else:
+            exporter = PerfettoExporter(
+                output_path=path, flush_threshold=1000,
+            )
+        exporter.add_event(DEFAULT_PID, create_mock_stats_item(
+            gen=0, iid=0, uncollectable=0, heap_size=_HEAP_SIZE,
+        ))
+        exporter.close()
+        tp = TraceProcessor(
+            trace=str(path), config=TraceProcessorConfig(load_timeout=300),
+        )
+        try:
+            names = {r.name for r in tp.query("SELECT name FROM counter_track")}
+            assert "G0 uncollectable" not in {n.strip() for n in names}, (
+                f"uncollectable counter should be omitted when 0; got {names}"
+            )
+            assert "G0 collected" in {n.strip() for n in names}
+            assert "G0 candidates" in {n.strip() for n in names}
+        finally:
+            tp.close()
+
 
 class TestTrackDescriptors:
     """The Perfetto exporter emits a process track descriptor with the

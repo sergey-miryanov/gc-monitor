@@ -49,9 +49,10 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
 
     counter_data = {
         "collected": item.collected,
-        "uncollectable": item.uncollectable,
         "candidates": item.candidates,
     }
+    if item.uncollectable:
+        counter_data["uncollectable"] = item.uncollectable
 
     if has_incremental(item) and gen < 2:
         pause_data["increment_size"] = item.increment_size

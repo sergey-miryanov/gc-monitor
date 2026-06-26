@@ -20,6 +20,8 @@
 - `heap_size` is now emitted as a single counter track per `(pid, tid)`, updated by all generations; it is no longer split into `G0 heap_size` / `G1 heap_size` / `G2 heap_size` counter tracks
 - All other counter tracks are grouped under `GC Counters` group
 - `increment_size` is no longer emitted as a per-generation counter track (`G0 increment_size` / `G1 increment_size`); it remains queryable from the `GC Pause (gen=N)` slice's args and from the `Fill increment (gen=N)` sub-step args
+- `Deduce Unreachable (gen=N)` slice args now include `candidates` (the per-pause candidate count)
+- `uncollectable` is no longer emitted as a per-generation counter track (`G{gen} uncollectable`) when its value is 0; it remains queryable from the `GC Pause (gen=N)` slice's args
 
 ## Version 0.2.0 (2026-06-10)
 

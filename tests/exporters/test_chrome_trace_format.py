@@ -292,6 +292,14 @@ class TestConvertItemToTraceFormat:
             "collected", "uncollectable", "candidates",
         }
 
+    def test_counter_data_omits_uncollectable_when_zero(self) -> None:
+        item = create_mock_stats_item(uncollectable=0)
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        counter = next(e for e in events if e.ph == "C" and e.name.startswith("G"))
+        assert "uncollectable" not in counter.args
+        assert "collected" in counter.args
+        assert "candidates" in counter.args
+
     def test_heap_size_counter_event_is_shared_across_generations(self) -> None:
         events_g0 = convert_item_to_trace_format(
             pid=12345, item=create_mock_stats_item(gen=0, iid=7, heap_size=1000),

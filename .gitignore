@@ -36,3 +36,7 @@ htmlcov
 .mypy_cache
 
 *.json
+
+specs/
+examples/
+scripts/
