@@ -48,6 +48,9 @@ _G2_COUNTERS: frozenset[str] = frozenset({
 _HEAP_COUNTERS: frozenset[str] = frozenset({
     "heap_size",
 })
+_DURATION_COUNTERS: frozenset[str] = frozenset({
+    "duration",
+})
 
 # Pause slice args exposed via the trace processor.
 _EXPECTED_PAUSE_ARGS: dict[str, int] = {
@@ -232,7 +235,10 @@ class TestCombineChromeToPerfettoIntegration:
         names = {r.name for r in loaded_trace_processor.query(
             "SELECT name FROM counter_track",
         )}
-        expected = _G0_COUNTERS | _G1_COUNTERS | _G2_COUNTERS | _HEAP_COUNTERS
+        expected = (
+            _G0_COUNTERS | _G1_COUNTERS | _G2_COUNTERS
+            | _HEAP_COUNTERS | _DURATION_COUNTERS
+        )
         assert names == expected, (
             f"counter track names mismatch; missing: {expected - names}; "
             f"unexpected: {names - expected}"
@@ -410,10 +416,10 @@ class TestCombineChromePerfettoEquivalenceIntegration:
             for query in [
                 # Track names: skip `Process <pid>` because chrome has no
                 # separate process-track descriptor (perfetto does). Also skip
-                # `GC Counters` — a perfetto-only grouping track that holds the
+                # `GC Metrics` — a perfetto-only grouping track that holds the
                 # counter tracks (chrome has no equivalent grouping concept).
                 "SELECT name FROM track "
-                "WHERE name NOT LIKE 'Process %' AND name != 'GC Counters' "
+                "WHERE name NOT LIKE 'Process %' AND name != 'GC Metrics' "
                 "ORDER BY name",
                 # Chrome JSON's trace processor prepends a space to counter
                 # track names whose event-level name is empty (e.g. the

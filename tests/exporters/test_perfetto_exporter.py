@@ -293,7 +293,8 @@ class TestPerfettoExporter:
                 uuid = get_varint(te, TrackEventField.TRACK_UUID)
                 if uuid is not None:
                     counter_tracks.add(uuid)
-        assert len(counter_tracks) == 4
+        # collected, uncollectable, candidates, heap_size, duration.
+        assert len(counter_tracks) == 5
 
     def test_cmdline_collected_from_psutil(self, tmp_path):
         calls: list[int] = []

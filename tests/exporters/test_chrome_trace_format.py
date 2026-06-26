@@ -160,9 +160,9 @@ class TestConvertItemToTraceFormat:
         begins = [e for e in events if e.ph == "B"]
         counters = [e for e in events if e.ph == "C"]
         assert len(begins) == 1
-        assert len(counters) == 2
+        assert len(counters) == 3
         assert begins[0].name == "GC Pause (gen=0)"
-        assert {c.name for c in counters} == {"G0", "heap_size"}
+        assert {c.name for c in counters} == {"G0", "heap_size", "duration"}
 
     def test_preserves_timestamps_in_nanoseconds(self) -> None:
         item = create_mock_stats_item(ts_start=1_500_000_000, ts_stop=1_505_000_000)
@@ -299,6 +299,36 @@ class TestConvertItemToTraceFormat:
         assert "uncollectable" not in counter.args
         assert "collected" in counter.args
         assert "candidates" in counter.args
+
+    def test_duration_counter_event_emitted(self) -> None:
+        item = create_mock_stats_item(duration=0.123)
+        events = convert_item_to_trace_format(pid=12345, item=item)
+        duration = next(
+            e for e in events
+            if e.ph == "C" and "duration" in e.args
+        )
+        assert duration.args["duration"] == 0.123
+        assert duration.name == "duration"
+
+    def test_duration_counter_shared_across_generations(self) -> None:
+        events_g0 = convert_item_to_trace_format(
+            pid=12345, item=create_mock_stats_item(gen=0, iid=7, duration=0.01),
+        )
+        events_g1 = convert_item_to_trace_format(
+            pid=12345, item=create_mock_stats_item(gen=1, iid=7, duration=0.02),
+        )
+        events_g2 = convert_item_to_trace_format(
+            pid=12345, item=create_mock_stats_item(gen=2, iid=7, duration=0.03),
+        )
+        # All three produce exactly one duration counter event each (one per
+        # call), and they all use the shared event name "duration" so the
+        # perfetto/chrome trace processor collapses them onto a single track.
+        for events in (events_g0, events_g1, events_g2):
+            duration_events = [
+                e for e in events if e.ph == "C" and "duration" in e.args
+            ]
+            assert len(duration_events) == 1
+            assert duration_events[0].name == "duration"
 
     def test_heap_size_counter_event_is_shared_across_generations(self) -> None:
         events_g0 = convert_item_to_trace_format(

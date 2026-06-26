@@ -26,6 +26,7 @@ from gcmon.trace_event import counter_event, instant_event, process_meta, thread
 from tests.proto_decoder import (
     decode_message,
     get_bytes,
+    get_double,
     get_field,
     get_fields,
     get_string,
@@ -461,12 +462,19 @@ class TestConvertItemToPerfettoPackets:
                 te_fields = decode_message(te_bytes)
                 if get_varint(te_fields, TrackEventField.TYPE) == TYPE_COUNTER:
                     counter_packets.append((fields, te_fields))
-        assert len(counter_packets) == 4
+        assert len(counter_packets) == 5
         values = [get_varint(te, TrackEventField.COUNTER_VALUE) for _, te in counter_packets]
         assert 10 in values
         assert 2 in values
         assert 5 in values
         assert 1000 in values
+        # The `duration` value is encoded as a double (DOUBLE_COUNTER_VALUE,
+        # field 44), not as a varint counter_value. Verify it is present.
+        double_values = [
+            get_double(te, TrackEventField.DOUBLE_COUNTER_VALUE)
+            for _, te in counter_packets
+        ]
+        assert 0.001 in double_values
 
     def test_counter_descriptor_emitted_once(self) -> None:
         state = PerfettoTrackState()
@@ -562,8 +570,8 @@ class TestConvertItemToPerfettoPackets:
             uuid = get_varint(te_fields, TrackEventField.TRACK_UUID)
             if uuid is not None:
                 counter_uuids.add(uuid)
-        # collected, candidates, heap_size — no uncollectable counter event.
-        assert len(counter_uuids) == 3
+        # collected, candidates, heap_size, duration — no uncollectable counter.
+        assert len(counter_uuids) == 4
 
     def test_uncollectable_counter_emitted_when_nonzero(self) -> None:
         state = PerfettoTrackState()
@@ -585,8 +593,57 @@ class TestConvertItemToPerfettoPackets:
             uuid = get_varint(te_fields, TrackEventField.TRACK_UUID)
             if uuid is not None:
                 counter_uuids.add(uuid)
-        # collected, uncollectable, candidates, heap_size.
-        assert len(counter_uuids) == 4
+        # collected, uncollectable, candidates, heap_size, duration.
+        assert len(counter_uuids) == 5
+
+    def test_duration_counter_in_gc_metrics_group(self) -> None:
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
+            heap_size=1000, collections=5, collected=10,
+            uncollectable=2, candidates=3, duration=0.42,
+        )
+        descriptors_packets, packets = _convert_item(100, item, state, sequence_id=1)
+        # Find the `duration` counter track UUID from its counter event.
+        duration_track_uuid: int | None = None
+        for p in packets:
+            fields = decode_message(p)
+            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
+            if te_bytes is None:
+                continue
+            te_fields = decode_message(te_bytes)
+            if (
+                get_varint(te_fields, TrackEventField.TYPE) == TYPE_COUNTER
+                and get_double(te_fields, TrackEventField.DOUBLE_COUNTER_VALUE) == 0.42
+            ):
+                duration_track_uuid = get_varint(
+                    te_fields, TrackEventField.TRACK_UUID,
+                )
+                break
+        assert duration_track_uuid is not None
+
+        # Find the matching TrackDescriptor and assert rank=0 plus parent
+        # resolves to a track named "GC Metrics".
+        descriptors: dict[int, tuple[int | None, int | None, str | None]] = {}
+        for p in descriptors_packets:
+            fields = decode_message(p)
+            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
+            if td_bytes is None:
+                continue
+            td_fields = decode_message(td_bytes)
+            uuid = get_varint(td_fields, TrackDescriptorField.UUID)
+            if uuid is None:
+                continue
+            descriptors[uuid] = (
+                get_varint(td_fields, TrackDescriptorField.PARENT_UUID),
+                get_varint(td_fields, TrackDescriptorField.SIBLING_ORDER_RANK),
+                get_string(td_fields, TrackDescriptorField.NAME),
+            )
+        assert duration_track_uuid in descriptors
+        parent, rank, _ = descriptors[duration_track_uuid]
+        assert rank == 0
+        assert parent is not None
+        assert descriptors[parent][2] == "GC Metrics"
 
     def _make_full_incremental_item(self) -> GCStatsInfo:
         return GCStatsInfo(

@@ -59,7 +59,7 @@ class CounterEvent(msgspec.Struct):
     ts: int
     pid: int
     tid: int
-    args: dict[str, int]
+    args: dict[str, int | float]
 
 
 class ProcessMeta(msgspec.Struct):
@@ -138,7 +138,7 @@ def instant_event(
     )
 
 
-def counter_event(pid: int, tid: int, name: str, ts_ns: int, args: dict[str, int]) -> CounterEvent:
+def counter_event(pid: int, tid: int, name: str, ts_ns: int, args: dict[str, int | float]) -> CounterEvent:
     return CounterEvent(
         name=name,
         ph="C",

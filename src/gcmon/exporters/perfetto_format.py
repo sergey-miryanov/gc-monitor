@@ -21,6 +21,7 @@ from ..trace_event import (
 )
 from .protobuf_encoder import (
     encode_bytes_field,
+    encode_double_field,
     encode_string_field,
     encode_varint_field,
 )
@@ -75,6 +76,7 @@ class TrackEventField(IntEnum):
     CATEGORIES = 22
     NAME = 23
     COUNTER_VALUE = 30
+    DOUBLE_COUNTER_VALUE = 44
     TIMESTAMP_DELTA_US = 1
     TIMESTAMP_ABSOLUTE_US = 16
 
@@ -119,10 +121,11 @@ TYPE_INSTANT = 3
 TYPE_COUNTER = 4
 
 _COUNTER_RANKS: dict[str, int] = {
-    "heap_size": 0,
-    "collected": 1,
-    "uncollectable": 2,
-    "candidates": 3,
+    "duration": 0,
+    "heap_size": 1,
+    "collected": 2,
+    "uncollectable": 3,
+    "candidates": 4,
     "increment_size": 5,
     "alive_size": 6,
     "finalized_garbage_count": 7,
@@ -131,7 +134,7 @@ _COUNTER_RANKS: dict[str, int] = {
 }
 
 # Metrics listed here are parented directly to the process track (outside the
-# GC Counters group) so they render as top-level counters rather than inside
+# GC Metrics group) so they render as top-level counters rather than inside
 # the group. NOTE: because the process track is OS-scoped, trace processor
 # drops `sibling_order_rank` for these — their UI position is heuristic, not
 # guaranteed.
@@ -143,7 +146,7 @@ _TOPLEVEL_COUNTER_METRICS: frozenset[str] = frozenset({"heap_size"})
 # `child_ordering`/`sibling_order_rank`: trace processor ignores those fields
 # on OS-scoped (process/thread) tracks, but honors them on plain custom
 # child tracks.
-_COUNTER_GROUP_NAME: str = "GC Counters"
+_COUNTER_GROUP_NAME: str = "GC Metrics"
 
 
 class PerfettoTrackState:
@@ -279,6 +282,7 @@ def build_track_event(
     name: str | None = None,
     categories: list[str] | None = None,
     counter_value: int | None = None,
+    double_counter_value: float | None = None,
     debug_annotations: list[bytes] | None = None,
 ) -> bytes:
     result = encode_varint_field(TrackEventField.TYPE, type)
@@ -290,6 +294,10 @@ def build_track_event(
         result += encode_string_field(TrackEventField.NAME, name)
     if counter_value is not None:
         result += encode_varint_field(TrackEventField.COUNTER_VALUE, counter_value)
+    if double_counter_value is not None:
+        result += encode_double_field(
+            TrackEventField.DOUBLE_COUNTER_VALUE, double_counter_value,
+        )
     if debug_annotations:
         for ann in debug_annotations:
             result += encode_bytes_field(TrackEventField.DEBUG_ANNOTATIONS, ann)
@@ -325,7 +333,13 @@ def _make_slice_end(track_uuid: int) -> bytes:
     )
 
 
-def _make_counter_event(track_uuid: int, value: int) -> bytes:
+def _make_counter_event(track_uuid: int, value: int | float) -> bytes:
+    if isinstance(value, float):
+        return build_track_event(
+            type=TYPE_COUNTER,
+            track_uuid=track_uuid,
+            double_counter_value=value,
+        )
     return build_track_event(
         type=TYPE_COUNTER,
         track_uuid=track_uuid,
@@ -388,7 +402,7 @@ def _emit_counter_group_descriptor(
     state: PerfettoTrackState,
     sequence_id: int,
 ) -> tuple[int, list[bytes]]:
-    """Build the per-(pid, iid) GC Counters grouping track descriptor.
+    """Build the per-(pid, iid) GC Metrics grouping track descriptor.
 
     The group is a plain custom track (no ``process``/``thread`` field) so
     Perfetto honors ``child_ordering``/``sibling_order_rank`` on its children
@@ -421,8 +435,8 @@ def _emit_counter_track_descriptor(
     """Build a counter track descriptor if not already emitted.
 
     Metrics in ``_TOPLEVEL_COUNTER_METRICS`` are parented directly to the
-    process track (outside the GC Counters group) so they render at the top
-    level. All other counters are parented to the per-(pid, iid) GC Counters
+    process track (outside the GC Metrics group) so they render at the top
+    level. All other counters are parented to the per-(pid, iid) GC Metrics
     group track so that ``sibling_order_rank`` from ``_COUNTER_RANKS`` is
     honored by trace processor and the UI.
 
