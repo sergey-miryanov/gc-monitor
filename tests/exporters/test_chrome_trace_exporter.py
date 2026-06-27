@@ -34,21 +34,22 @@ class TestTraceExporter:
         counters = [e for e in data if e["ph"] == "C"]
         metas = [e for e in data if e["ph"] == "M"]
         assert len(begins) == num_items
-        # per-gen + shared duration + shared heap_size
-        assert len(counters) == 3 * num_items
+        # per-gen counter (with duration folded in) + shared heap_size
+        assert len(counters) == 2 * num_items
         assert all(e["name"] == "GC Pause (gen=0)" for e in begins)
         per_gen_counters = [e for e in counters if e["name"] == "G0"]
-        # Consolidated duration and heap_size counters: the JSON encoder
-        # rewrites their event names to "" so the trace processor produces
-        # single tracks named " duration" / " heap_size" instead of
-        # "duration duration" / "heap_size heap_size".
+        # The shared heap_size counter: the JSON encoder rewrites its event
+        # name to "" so the trace processor produces a single track named
+        # " heap_size" instead of "heap_size heap_size".
         shared_counters = [e for e in counters if e["name"] == ""]
         assert len(per_gen_counters) == num_items
-        assert len(shared_counters) == 2 * num_items
-        duration_counters = [c for c in shared_counters if set(c["args"].keys()) == {"duration"}]
+        assert len(shared_counters) == num_items
         heap_counters = [c for c in shared_counters if set(c["args"].keys()) == {"heap_size"}]
-        assert len(duration_counters) == num_items
         assert len(heap_counters) == num_items
+        # The per-gen counter now includes `duration` alongside the other
+        # per-gen metrics.
+        for c in per_gen_counters:
+            assert "duration" in c["args"]
         assert_is_process_meta(next(e for e in metas if e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
         assert_is_thread_meta(next(e for e in metas if e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
 
@@ -80,9 +81,7 @@ class TestTraceExporter:
             if event["ph"] == "B":
                 assert_is_begin(event, name="GC Pause (gen=0)", cat="gc.pause(gen=0)", ts=1_500_000, pid=12345, tid=0, args={"generation": 0, "iid": 0, "collections": 50, "heap_size": 52428800, "collected": 200, "uncollectable": 10, "candidates": 40})
             elif event["ph"] == "C" and event["name"] == "G0":
-                assert_is_counter(event, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40})
-            elif event["ph"] == "C" and event["name"] == "" and event["args"].keys() == {"duration"}:
-                assert_is_counter(event, name="", ts=1_500_000, pid=12345, tid=0, args={"duration": 0.005})
+                assert_is_counter(event, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40, "duration": 0.005})
             elif event["ph"] == "C" and event["name"] == "" and event["args"].keys() == {"heap_size"}:
                 assert_is_counter(event, name="", ts=1_500_000, pid=12345, tid=0, args={"heap_size": 52428800})
             elif event["ph"] == "M" and event["name"] == "process_name":
@@ -124,12 +123,10 @@ class TestTraceExporter:
 
         data = assert_valid_chrome_trace_format(path)
         counters = [e for e in data if e["ph"] == "C"]
-        # per-gen + shared duration + shared heap_size
-        assert len(counters) == 3
+        # per-gen counter (with duration folded in) + shared heap_size
+        assert len(counters) == 2
         per_gen = next(e for e in counters if e["name"] == "G0")
-        assert_is_counter(per_gen, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40})
-        duration = next(c for c in counters if c["name"] == "" and "duration" in c["args"])
-        assert_is_counter(duration, name="", ts=1_500_000, pid=12345, tid=0, args={"duration": 0.005})
+        assert_is_counter(per_gen, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40, "duration": 0.005})
         heap = next(c for c in counters if c["name"] == "" and "heap_size" in c["args"])
         assert_is_counter(heap, name="", ts=1_500_000, pid=12345, tid=0, args={"heap_size": 52428800})
 
@@ -316,5 +313,5 @@ class TestGCMonitorStreaming:
         assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
         assert_is_thread_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
         assert len([e for e in data if e["ph"] == "B"]) == 1
-        # per-gen + shared duration + shared heap_size
-        assert len([e for e in data if e["ph"] == "C"]) == 3
+        # per-gen counter (with duration folded in) + shared heap_size
+        assert len([e for e in data if e["ph"] == "C"]) == 2

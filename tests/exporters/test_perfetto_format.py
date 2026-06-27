@@ -604,7 +604,9 @@ class TestConvertItemToPerfettoPackets:
             uncollectable=2, candidates=3, duration=0.42,
         )
         descriptors_packets, packets = _convert_item(100, item, state, sequence_id=1)
-        # Find the `duration` counter track UUID from its counter event.
+        # Find the per-gen `G0 duration` counter track UUID. The duration is
+        # now split by generation (one `G{gen} duration` track per (pid, iid))
+        # so a shared `duration` track is no longer emitted.
         duration_track_uuid: int | None = None
         for p in packets:
             fields = decode_message(p)
@@ -622,8 +624,9 @@ class TestConvertItemToPerfettoPackets:
                 break
         assert duration_track_uuid is not None
 
-        # Find the matching TrackDescriptor and assert rank=0 plus parent
-        # resolves to a track named "GC Metrics".
+        # Find the matching TrackDescriptor and assert rank=4 (per-gen rank
+        # for `duration` in the new layout) plus parent resolves to a track
+        # named "GC Metrics".
         descriptors: dict[int, tuple[int | None, int | None, str | None]] = {}
         for p in descriptors_packets:
             fields = decode_message(p)
@@ -641,7 +644,7 @@ class TestConvertItemToPerfettoPackets:
             )
         assert duration_track_uuid in descriptors
         parent, rank, _ = descriptors[duration_track_uuid]
-        assert rank == 0
+        assert rank == 4
         assert parent is not None
         assert descriptors[parent][2] == "GC Metrics"
 

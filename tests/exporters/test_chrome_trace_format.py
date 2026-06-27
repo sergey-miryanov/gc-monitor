@@ -160,9 +160,9 @@ class TestConvertItemToTraceFormat:
         begins = [e for e in events if e.ph == "B"]
         counters = [e for e in events if e.ph == "C"]
         assert len(begins) == 1
-        assert len(counters) == 3
+        assert len(counters) == 2
         assert begins[0].name == "GC Pause (gen=0)"
-        assert {c.name for c in counters} == {"G0", "heap_size", "duration"}
+        assert {c.name for c in counters} == {"G0", "heap_size"}
 
     def test_preserves_timestamps_in_nanoseconds(self) -> None:
         item = create_mock_stats_item(ts_start=1_500_000_000, ts_stop=1_505_000_000)
@@ -289,7 +289,7 @@ class TestConvertItemToTraceFormat:
         events = convert_item_to_trace_format(pid=12345, item=item)
         counter = next(e for e in events if e.ph == "C" and e.name.startswith("G"))
         assert set(counter.args.keys()) == {
-            "collected", "uncollectable", "candidates",
+            "collected", "uncollectable", "candidates", "duration",
         }
 
     def test_counter_data_omits_uncollectable_when_zero(self) -> None:
@@ -299,18 +299,18 @@ class TestConvertItemToTraceFormat:
         assert "uncollectable" not in counter.args
         assert "collected" in counter.args
         assert "candidates" in counter.args
+        assert "duration" in counter.args
 
     def test_duration_counter_event_emitted(self) -> None:
         item = create_mock_stats_item(duration=0.123)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        duration = next(
+        counter = next(
             e for e in events
-            if e.ph == "C" and "duration" in e.args
+            if e.ph == "C" and e.name == "G0"
         )
-        assert duration.args["duration"] == 0.123
-        assert duration.name == "duration"
+        assert counter.args["duration"] == 0.123
 
-    def test_duration_counter_shared_across_generations(self) -> None:
+    def test_duration_counter_split_by_generation(self) -> None:
         events_g0 = convert_item_to_trace_format(
             pid=12345, item=create_mock_stats_item(gen=0, iid=7, duration=0.01),
         )
@@ -320,15 +320,17 @@ class TestConvertItemToTraceFormat:
         events_g2 = convert_item_to_trace_format(
             pid=12345, item=create_mock_stats_item(gen=2, iid=7, duration=0.03),
         )
-        # All three produce exactly one duration counter event each (one per
-        # call), and they all use the shared event name "duration" so the
-        # perfetto/chrome trace processor collapses them onto a single track.
-        for events in (events_g0, events_g1, events_g2):
-            duration_events = [
-                e for e in events if e.ph == "C" and "duration" in e.args
-            ]
-            assert len(duration_events) == 1
-            assert duration_events[0].name == "duration"
+        # Each generation produces a per-gen counter event ("G{gen}") with
+        # `duration` as one of its args. The three generations' duration
+        # values are NOT collapsed onto a single shared track; they live on
+        # three separate per-gen tracks.
+        for gen, events, expected in (
+            (0, events_g0, 0.01),
+            (1, events_g1, 0.02),
+            (2, events_g2, 0.03),
+        ):
+            counter = next(e for e in events if e.ph == "C" and e.name == f"G{gen}")
+            assert counter.args["duration"] == expected
 
     def test_heap_size_counter_event_is_shared_across_generations(self) -> None:
         events_g0 = convert_item_to_trace_format(

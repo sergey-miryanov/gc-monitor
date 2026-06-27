@@ -121,11 +121,11 @@ TYPE_INSTANT = 3
 TYPE_COUNTER = 4
 
 _COUNTER_RANKS: dict[str, int] = {
-    "duration": 0,
-    "heap_size": 1,
-    "collected": 2,
-    "uncollectable": 3,
-    "candidates": 4,
+    "heap_size": 0,
+    "collected": 1,
+    "uncollectable": 2,
+    "candidates": 3,
+    "duration": 4,
     "increment_size": 5,
     "alive_size": 6,
     "finalized_garbage_count": 7,

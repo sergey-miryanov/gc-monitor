@@ -50,6 +50,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     counter_data: dict[str, int | float] = {
         "collected": item.collected,
         "candidates": item.candidates,
+        "duration": item.duration,
     }
     if item.uncollectable:
         counter_data["uncollectable"] = item.uncollectable
@@ -266,16 +267,6 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             f"G{gen}",
             ts_start_ns,
             counter_data,
-        )
-    )
-
-    events.append(
-        counter_event(
-            pid,
-            tid,
-            "duration",
-            ts_start_ns,
-            {"duration": item.duration},
         )
     )
 

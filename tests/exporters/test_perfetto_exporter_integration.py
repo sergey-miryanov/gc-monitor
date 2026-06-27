@@ -49,11 +49,12 @@ _EXPECTED_COUNTER_NAMES: frozenset[str] = frozenset({
     "G0 collected",
     "G0 uncollectable",
     "G0 candidates",
+    "G0 duration",
     "G1 collected",
     "G1 uncollectable",
     "G1 candidates",
+    "G1 duration",
     "heap_size",
-    "duration",
 })
 
 _ARG_PREFIX: dict[str, str] = {
@@ -286,12 +287,12 @@ class TestSliceArgs:
 
 
 class TestCounterTracks:
-    """The per-gen counter metrics (collected/uncollectable/candidates) each
-    have a counter track with the expected name, plus shared `heap_size` and
-    `duration` tracks per (pid, tid). No extra counter tracks are emitted —
-    in particular `increment_size` is not a counter track (it lives on the
-    pause slice's args). The set comparison is robust to multiple processes
-    emitting the same counter-track names."""
+    """The per-gen counter metrics (collected/uncollectable/candidates/
+    duration) each have a counter track with the expected name, plus a
+    shared `heap_size` track per (pid, tid). No extra counter tracks are
+    emitted — in particular `increment_size` is not a counter track (it
+    lives on the pause slice's args). The set comparison is robust to
+    multiple processes emitting the same counter-track names."""
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_counter_track_names_match_expected(
@@ -346,9 +347,15 @@ class TestCounterTracks:
     def test_duration_counter_track_present(
         self, fmt: str, trace_processor: TraceProcessor,
     ) -> None:
-        names = {r.name for r in trace_processor.query("SELECT name FROM counter_track")}
-        assert "duration" in {n.strip() for n in names}, (
-            f"duration counter should be present; got {names}"
+        names = {r.name.strip() for r in trace_processor.query(
+            "SELECT name FROM counter_track",
+        )}
+        for gen in (0, 1):
+            assert f"G{gen} duration" in names, (
+                f"G{gen} duration counter should be present; got {names}"
+            )
+        assert "duration" not in names, (
+            f"shared 'duration' counter should NOT be present; got {names}"
         )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
@@ -356,31 +363,35 @@ class TestCounterTracks:
         self, fmt: str, trace_processor: TraceProcessor,
     ) -> None:
         # The `counter` table stores both int and double values in a single
-        # `value` column (DOUBLE). For the `duration` track, that value should
-        # equal the per-pause duration (0.005 for the default fixture).
+        # `value` column (DOUBLE). For the per-gen `G0 duration` track, that
+        # value should equal the per-pause duration (0.005 for the default
+        # fixture).
         rows = list(trace_processor.query(
-            "SELECT id, name FROM counter_track WHERE name = 'duration'",
+            "SELECT id, name FROM counter_track WHERE name = 'G0 duration'",
         ))
-        assert rows, "no duration counter track found"
+        assert rows, "no G0 duration counter track found"
         for r in rows:
             values = list(trace_processor.query(
                 f"SELECT value FROM counter WHERE track_id = {r.id}",
             ))
-            assert values, f"no counter values for duration track {r.id}"
+            assert values, f"no counter values for G0 duration track {r.id}"
             assert any(abs(v.value - 0.005) < 1e-9 for v in values)
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_duration_counter_parented_to_gc_metrics_group(
         self, fmt: str, trace_processor: TraceProcessor,
     ) -> None:
-        # Every `duration` track should be parented to a `GC Metrics` group
-        # (one per pid/iid combination).
+        # Every per-gen `G{gen} duration` track should be parented to a
+        # `GC Metrics` group (one per pid/iid combination).
         rows = list(trace_processor.query(
-            "SELECT id, parent_id FROM track WHERE name = 'duration'",
+            "SELECT id, parent_id, name FROM track "
+            "WHERE name LIKE 'G_ duration'",
         ))
-        assert rows, "no duration tracks found"
+        assert rows, "no G{gen} duration tracks found"
         for r in rows:
-            assert r.parent_id is not None, "duration track has no parent"
+            assert r.parent_id is not None, (
+                f"{r.name} track has no parent"
+            )
             parents = list(trace_processor.query(
                 f"SELECT name FROM track WHERE id = {r.parent_id}",
             ))

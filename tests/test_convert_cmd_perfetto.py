@@ -49,7 +49,9 @@ _HEAP_COUNTERS: frozenset[str] = frozenset({
     "heap_size",
 })
 _DURATION_COUNTERS: frozenset[str] = frozenset({
-    "duration",
+    "G0 duration",
+    "G1 duration",
+    "G2 duration",
 })
 
 # Pause slice args exposed via the trace processor.
