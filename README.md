@@ -30,7 +30,7 @@ leaks, or integrate GC metrics into benchmarks.
 
 - **Real-time GC monitoring** - Track garbage collection events in running Python
 processes without in-process overhead
-- **Multiple export formats** - Chrome Trace Event, JSONL file, and JSONL to stdout
+- **Multiple export formats** - Chrome Trace Event, Perfetto binary protobuf, JSONL file, and JSONL to stdout
 - **CLI** - Monitor processes or run scripts with GC monitoring
 - **Pyperf hook integration** - Seamlessly integrate with pyperf benchmarks
 
@@ -40,14 +40,10 @@ processes without in-process overhead
 |---|---|---|---|---|
 | `gc.callbacks` | Yes | Yes | No | No — distorts timing |
 | `gc.get_stats()` | Yes | No — cumulative only | No | Minimal |
-| `tracemalloc` | Yes | N/A — allocations, not GC | No | High |
-| [`memray`](https://github.com/bloomberg/memray) | Yes (partial¹) | N/A — allocations, not GC | Partial (attach mode) | Moderate |
-| [`py-spy`](https://github.com/benfred/py-spy) | No | N/A — CPU profiling only | Yes | Low |
-| [`austin`](https://github.com/P403n1x87/austin) | No | Partial² | Yes | Minimal |
+| [`austin`](https://github.com/P403n1x87/austin) | No | Partial¹ | Yes | Minimal |
 | **gcmon** | **No** | **Yes** | **Yes** | **Yes — zero in-process cost** |
 
-¹ memray's `attach` mode avoids modifying code but still injects an allocator into the target process.
-² austin's `-g` flag tags frames during GC activity but provides no per-pause timing or heap data.
+¹ austin's `-g` flag tags frames during GC activity but provides no per-pause timing or heap data.
 
 ## How It Works
 
@@ -78,9 +74,37 @@ versions (fields, offsets, sizes), so mismatched binaries are rejected by
 ```bash
 pip install gcmon
 
-# With stats support (see Statistics below)
+# With optional extras
+pip install gcmon[stats]      # High-accuracy statistics (see Statistics below)
+pip install gcmon[cmdline]    # Process command line in Perfetto traces
+pip install gcmon[stats,cmdline]  # Both extras
+```
+
+## Optional Dependencies
+
+gcmon has two optional extras that enhance functionality:
+
+### `[stats]` — High-Accuracy Statistics
+
+Install [DDSketch](https://github.com/DataDog/sketches-py) for memory-efficient, high-accuracy percentile tracking:
+
+```bash
 pip install gcmon[stats]
 ```
+
+Without this extra, statistics use a fixed 1024-sample buffer. With it, all samples are tracked with 0.1% relative accuracy. See [Statistics](#statistics) for details.
+
+### `[cmdline]` — Process Command Line in Perfetto
+
+Install [psutil](https://github.com/giampaolo/psutil) to populate the `cmdline` field in Perfetto traces:
+
+```bash
+pip install gcmon[cmdline]
+```
+
+When this extra is installed, the Perfetto exporter reads the command line of each monitored process and includes it in the trace. This appears as a tooltip in the Perfetto UI, making it easier to identify processes in multi-process traces.
+
+Without this extra, the `cmdline` field is omitted, but all other trace data is unaffected.
 
 ## Quick Start
 
@@ -93,22 +117,38 @@ gcmon run -s my_script.py
 
 # Monitor with custom output and statistics output
 gcmon 12345 -o trace.json --stats
+
+# Perfetto binary output
+gcmon 12345 --format perfetto -o trace.pftrace
+
+# Combine multiple traces
+gcmon combine trace1.json trace2.json -o combined.json -n
 ```
 
 ### Example: Chrome Trace Output
 
 <img src="docs/images/chrome-trace-example.png" alt="Chrome Trace Example" width="800">
 
-*Example: GC monitoring data visualized in Chrome Trace viewer showing:*
-- *GC Pause events (top row with markers)*
-- *Heap Size over time (green area chart)*
-- *Memory Counters*
+*Example: GC monitoring data visualized in Perfetto UI showing:*
+- *Process tracks with command line tooltips (requires `[cmdline]` extra)*
+- *GC Pause slices with sub-step breakdown (Mark Alive, Fill increment, Deduce Unreachable, etc.)*
+- *Per-gen `G{gen}` counter tracks (`collected`, `candidates`, `duration`, `uncollectable`)*
+- *Shared `heap_size` top-level counter*
+- *`Processes` lifetime track showing the duration of each monitored process*
+
+Perfetto features:
+- **Counter Y-axis sharing**: Same metric names share Y-axis across generations (e.g., `G0 collected`, `G1 collected`, `G2 collected` all on one axis).
+- **Process ordering**: Tracks are ordered by first event timestamp, so the earliest-starting process appears at the top.
+- **Command line tooltips**: Install the `[cmdline]` extra to populate process command lines, visible as tooltips in the UI.
 
 This visualization helps you:
 - **Identify GC pause patterns** - See when and how long GC pauses occur
 - **Track memory growth** - Monitor heap size changes over time
-- **Analyze collection efficiency** - Compare GC-related counters
+- **Analyze collection efficiency** - Compare GC-related metrics
 - **Debug memory issues** - Spot memory leaks or inefficient collection patterns
+- **Correlate sub-step timing** - See which GC phase (mark, sweep, finalize) dominates pause time
+
+> **Note:** Sub-step slices (Mark Alive, Fill increment, Deduce Unreachable, etc.) and their associated data are only available when using a custom CPython build with enhanced GC instrumentation. Standard CPython builds provide only the top-level GC Pause slices and counter data.
 
 ### Example: JSONL Output
 
@@ -132,9 +172,13 @@ each line is a JSON object representing one GC event:
 | `uncollectable` | Objects that could not be collected |
 | `candidates` | Candidate objects for collection |
 | `duration` | Pause duration (milliseconds) |
+| `increment_size` | Increment size for incremental GC (gen < 2) |
+| `alive_size` | Objects marked alive (gen > 0) |
+| `finalized_garbage_count` | Objects finalized in this event |
+| `deleted_garbage_count` | Objects deleted in this event |
+| `clear_weakrefs_count` | Weakrefs cleared in this event |
 
-For incremental GC events, additional fields (`increment_size`, `alive_size`,
-`ts_mark_alive_*`, `ts_fill_increment_*`, `ts_deduce_unreachable_*`) are included.
+> **Note:** The sub-step fields (`increment_size`, `alive_size`, `finalized_garbage_count`, `deleted_garbage_count`, `clear_weakrefs_count`) are only available when using a custom CPython build with enhanced GC instrumentation. Standard CPython builds provide only the core fields (`pid`, `gen`, `iid`, `ts_start`, `ts_stop`, `heap_size`, `collections`, `collected`, `uncollectable`, `candidates`, `duration`).
 
 ## When to Use
 
@@ -148,10 +192,6 @@ For incremental GC events, additional fields (`increment_size`, `alive_size`,
 
 **Use something else when you need to:**
 
-- Per-object allocation tracking — use [`tracemalloc`](https://docs.python.org/3/library/tracemalloc.html)
-- Object reference graph inspection — use [`objgraph`](https://pypi.org/project/objgraph/)
-- Allocation profiling — use [`memray`](https://github.com/bloomberg/memray)
-- CPU profiling and flame graphs — use [`py-spy`](https://github.com/benfred/py-spy) or [`austin`](https://github.com/P403n1x87/austin)
 - Coarse GC activity tagging in CPU profiles — use [`austin`](https://github.com/P403n1x87/austin) with `-g` (no per-pause timing or heap data)
 - In-process GC callbacks (e.g., triggering actions on collection) — use [`gc.callbacks`](https://docs.python.org/3/library/gc.html#gc.callbacks)
 - Cumulative collection counters without per-pause detail — use [`gc.get_stats()`](https://docs.python.org/3/library/gc.html#gc.get_stats)
@@ -159,7 +199,7 @@ For incremental GC events, additional fields (`increment_size`, `alive_size`,
 
 ## CLI Usage
 
-The `gcmon` command uses subcommands (`monitor`, `run`). If no subcommand
+The `gcmon` command uses subcommands (`monitor`, `run`, `combine`). If no subcommand
 is given, `monitor` is used by default.
 
 ### monitor
@@ -211,12 +251,12 @@ You must specify exactly one of `-s`/`--script` or `-m`/`--module`.
 | `pid` (required) | `monitor` | Process ID to monitor | - |
 | `-s, --script <path>` | `run` | Python script path to run | - |
 | `-m, --module <name>` | `run` | Module name to run (like `python -m`) | - |
-| `-o, --output` | both | Output file path for trace data | `gcmon.json` (chrome), `gcmon.jsonl` (JSONL) |
+| `-o, --output` | both | Output file path for trace data | `gcmon.json` (chrome), `gcmon.pftrace` (perfetto), `gcmon.jsonl` (JSONL) |
 | `-r, --rate` | both | Polling rate in seconds | `0.1` |
 | `-d, --duration` | both | Monitoring duration in seconds | Until interrupted / script exits |
 | `-v, --verbose` | both | Enable verbose output (`-v` for INFO, `-vv` for DEBUG) | `0` |
-| `--format` | both | Output format: `chrome` (Chrome Trace Event), `jsonl` (JSONL to file), or `stdout` (JSONL to stdout) | `chrome` |
-| `--flush-threshold` | both | Number of events to buffer before flushing (JSONL format) | `100` |
+| `--format` | both | Output format: `chrome` (Chrome Trace Event), `perfetto` (Perfetto binary protobuf), `jsonl` (JSONL to file), or `stdout` (JSONL to stdout) | `chrome` |
+| `--flush-threshold` | both | Number of events to buffer before flushing | `100` |
 | `--stats` | both | Show statistics table at end of monitoring (see [Statistics](#statistics)) | `False` |
 | `--table-format` | both | Table format: `plain` or `markdown`/`md` | `plain` |
 
@@ -226,14 +266,37 @@ All CLI options can be overridden via environment variables. CLI flags take prec
 
 | Variable | Equivalent flag | Description | Default |
 |----------|----------------|-------------|---------|
-| `GCMON_OUTPUT` | `-o, --output` | Output file path for trace data | `gcmon.json` (chrome), `gcmon.jsonl` (JSONL) |
+| `GCMON_OUTPUT` | `-o, --output` | Output file path for trace data | `gcmon.json` (chrome), `gcmon.pftrace` (perfetto), `gcmon.jsonl` (JSONL) |
 | `GCMON_RATE` | `-r, --rate` | Polling rate in seconds | `0.1` |
 | `GCMON_DURATION` | `-d, --duration` | Monitoring duration in seconds | Until interrupted / script exits |
 | `GCMON_VERBOSE` | `-v, --verbose` | Verbose level (integer or truthy value) | `0` |
-| `GCMON_FORMAT` | `--format` | Output format: `chrome`, `jsonl`, or `stdout` | `chrome` |
-| `GCMON_FLUSH_THRESHOLD` | `--flush-threshold` | Number of events to buffer before flushing (JSONL format) | `100` |
+| `GCMON_FORMAT` | `--format` | Output format: `chrome`, `perfetto`, `jsonl`, or `stdout` | `chrome` |
+| `GCMON_FLUSH_THRESHOLD` | `--flush-threshold` | Number of events to buffer before flushing | `100` |
 | `GCMON_STATS` | `--stats` | Enable statistics table (`1`, `true`, `yes`, `on`) | `False` |
 | `GCMON_TABLE_FORMAT` | `--table-format` | Table format: `plain`, `md`, or `markdown` | `plain` |
+
+### combine
+
+Combine multiple trace files into a single trace, with optional per-PID timestamp normalization.
+
+```bash
+# Combine Chrome Trace files
+gcmon combine trace1.json trace2.json -o combined.json
+
+# Combine with timestamp normalization (each process starts at t=0)
+gcmon combine trace1.json trace2.json -o combined.json -n
+
+# Convert JSONL to Perfetto
+gcmon combine trace1.jsonl --input-format jsonl --output-format perfetto -o combined.pftrace
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `inputs` (required) | One or more input trace files | - |
+| `-o, --output` (required) | Output file path for the combined trace | - |
+| `--input-format` | Input format: `chrome` or `jsonl` | `chrome` |
+| `--output-format` | Output format: `chrome`, `jsonl`, or `perfetto` | `chrome` |
+| `-n, --normalize` | Normalize timestamps per PID so each process timeline starts at 0 | `False` |
 
 
 ## Statistics
@@ -305,7 +368,7 @@ The hook collects and reports the following GC metrics in pyperf metadata:
 - `gc_pause_gen_0_count`, `gc_pause_gen_1_count`, `gc_pause_gen_2_count` - Number of GC pauses by generation
 - `gc_heap_size_p99` - P99 heap size across all samples (bytes)
 
-## How It Works
+### How It Works
 
 For the pyperf hook integration, gcmon uses an **external process model**:
 
@@ -354,6 +417,70 @@ worker subprocesses so the hook writes to the intended file.
 | `GCMON_PYPERF_HOOK_OUTPUT` | Output path for the combined GC trace file (JSONL). Supports `{bench_name}` and `{pid}` substitution. | `gcmon_{bench_name}_combined_{pid}.jsonl` |
 | `GCMON_PYPERF_HOOK_TEMP_DIR` | Directory for temporary JSONL files written during monitoring. | System temp directory |
 | `GCMON_PYPERF_HOOK_VERBOSE` | Enable verbose logging from the hook. Accepts `1`, `yes`, `on`, or `true` (case-insensitive). | Disabled |
+| `GCMON_PYPERF_HOOK_CONTROL_TIMEOUT` | Timeout (seconds) for the hook to connect to the control plane. | `10.0` |
+
+## Advanced Usage
+
+### Programmatic Control
+
+When your application is started with `gcmon run` or `gcmon monitor`, you can use the control plane API to programmatically start, stop, and annotate GC monitoring from within your application.
+
+#### Import and Setup
+
+```python
+from gcmon.control.control_client import ControlClient
+
+# Create a client — no address needed, auto-discovered from environment
+client = ControlClient()
+```
+
+#### Start/Stop Monitoring
+
+Control when GC monitoring is active:
+
+```python
+# Skip monitoring during setup
+client.stop_monitoring()
+# ... setup code ...
+client.start_monitoring()
+
+# Now GC events are tracked
+```
+
+#### Context Manager
+
+Temporarily pause monitoring for a block of code:
+
+```python
+with client.pause_monitoring():
+    # GC monitoring is paused here
+    # ... code that shouldn't be monitored ...
+# Monitoring automatically resumes
+```
+
+#### Custom Instant Messages
+
+Add application-specific markers to your trace:
+
+```python
+client.instant_msg("request_start")
+# ... handle request ...
+client.instant_msg("request_end")
+```
+
+These messages appear as instant events in the trace viewer, helping you correlate GC activity with application behavior.
+
+#### When to Use
+
+- **Skip setup/teardown**: Avoid monitoring during initialization or cleanup phases that aren't relevant to your analysis.
+- **Focus on specific phases**: Monitor only the critical sections of your application (e.g., request handling, batch processing).
+- **Correlate with application events**: Add custom markers to understand how GC pauses relate to specific operations (database queries, API calls, etc.).
+- **Dynamic control**: Enable/disable monitoring based on runtime conditions (e.g., only monitor during peak load).
+
+#### Prerequisites
+
+The control plane is only available when your application is started with `gcmon run` or `gcmon monitor`. Standalone processes cannot use the control plane.
+
 
 ## License
 
