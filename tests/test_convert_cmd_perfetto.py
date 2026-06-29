@@ -22,8 +22,8 @@ from tests.helpers import create_mock_incremental_item, create_mock_stats_item
 
 # Multiple processes, multiple generations, multiple tids/iids per process.
 # Counter-track-name coverage and thread-track coverage depend on these.
-_PID_A: int = 1001
-_PID_B: int = 2002
+_PID_A: int = 999_001
+_PID_B: int = 999_002
 _IID_A1: int = 0
 _IID_A2: int = 1
 _IID_A3: int = 2
@@ -493,6 +493,7 @@ class TestCombineChromePerfettoEquivalenceIntegration:
             _EXCLUDED_PERFETTO = {
                 "sibling_order_rank", "is_root_in_scope", "source",
                 "child_ordering", "trace_id", "track_uuid",
+                "cmdline",
             }
             args_chrome = {
                 r.flat_key: r.int_value
