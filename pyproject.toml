@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "gcmon"
-version = "0.3.0"
+version = "0.3.1"
 description = "Zero-overhead GC monitoring for Python - read garbage collection events from another process without modifying it."
 readme = "README.md"
 license = "MIT"
@@ -19,7 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.15",
     "Topic :: Software Development :: Debuggers",
-    "Topic :: Software Development :: Performance",
     "Topic :: System :: Monitoring",
 ]
 keywords = ["gc", "garbage-collection", "monitoring", "perfetto", "profiling", "tracing"]

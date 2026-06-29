@@ -2,6 +2,10 @@
 
 ## WIP
 
+## Version 0.3.1 (2026-06-29)
+
+- Fix PyPI classifiers
+
 ## Version 0.3.0 (2026-06-29)
 
 - Simplify error handling from `_remote_debugging` (#32)
