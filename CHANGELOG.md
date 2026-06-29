@@ -2,6 +2,8 @@
 
 ## WIP
 
+## Version 0.3.0 (2026-06-29)
+
 - Simplify error handling from `_remote_debugging` (#32)
 - Remove `PollStatus.INVALID_PYTHON` (merged into `INVALID_PROCESS`) (#32)
 - Add input validation for `Stats.percentile()` (must be in [0, 100])
