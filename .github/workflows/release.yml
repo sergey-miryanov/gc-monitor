@@ -4,7 +4,7 @@ on:
   push:
     tags: ["v*"]
   pull_request:
-    branches: [release/*]
+    branches: [main]
     paths: [pyproject.toml, .github/workflows/release.yml, CHANGELOG.md]
   workflow_dispatch:
     inputs:
@@ -27,6 +27,7 @@ permissions:
 
 jobs:
   release:
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'release/')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release
