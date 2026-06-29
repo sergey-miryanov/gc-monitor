@@ -5,8 +5,13 @@
 [![Python Version](https://img.shields.io/badge/python-3.15+-blue.svg)](https://pypi.org/project/gcmon/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A package for monitoring Python garbage collection events and exporting
-statistics in various formats.
+gcmon watches a running Python process's garbage collector from **outside**
+the process — no code changes, no callbacks, no overhead. Export to Chrome
+Trace, Perfetto, or JSONL; query with PerfettoSQL. Requires CPython 3.15+.
+
+> **Requires CPython 3.15+** for the monitored process and the `gcmon`
+> process, built from the same source. See [Limitations](#limitations) for
+> details.
 
 ## Why gcmon?
 
@@ -18,21 +23,38 @@ overhead that distorts timing, while `gc.get_stats()` only exposes
 cumulative counters with no per-pause resolution. Neither can monitor
 a process without modifying its code.
 
-gcmon reads GC statistics directly from a target process's memory via
-the `_remote_debugging` CPython extension, with zero in-process
-overhead and without pausing the target process — no code changes or
-runtime modification required.
+gcmon reads GC statistics directly from a target process's memory using
+platform-specific memory access APIs. The target process is never
+paused (GC statistics are written to a ring buffer and read as a whole),
+so there is zero in-process overhead and no code changes required.
 
-Use it to profile GC pause times in production services, debug memory
-leaks, or integrate GC metrics into benchmarks.
+Use it to profile GC pause times, debug memory leaks, or integrate GC
+metrics into benchmarks.
 
 ## Features
 
-- **Real-time GC monitoring** - Track garbage collection events in running Python
-processes without in-process overhead
-- **Multiple export formats** - Chrome Trace Event, Perfetto binary protobuf, JSONL file, and JSONL to stdout
-- **CLI** - Monitor processes or run scripts with GC monitoring
-- **Pyperf hook integration** - Seamlessly integrate with pyperf benchmarks
+- **Real-time GC monitoring** - Track garbage collection events in running Python processes
+  without in-process overhead
+- **Multiple export formats** - Chrome Trace Event, Perfetto binary protobuf, JSONL file, and JSONL to stdout ([examples](#example-chrome-trace-output))
+- **CLI** - Monitor processes or run scripts with GC monitoring ([usage](#cli-usage))
+- **Pyperf hook integration** - Seamlessly integrate with pyperf benchmarks ([pyperf hook](#pyperf-hook-integration))
+
+## When to Use
+
+**Use gcmon when you want to:**
+
+- Profile GC pause times in production or staging without modifying application code
+- Measure GC impact on latency-sensitive services (APIs, real-time systems)
+- Correlate GC activity with benchmark results via the pyperf hook
+- Track live object count trends over time across running processes
+- Debug intermittent latency spikes suspected to be GC-related
+
+**Use something else when you need to:**
+
+- Coarse GC activity tagging in CPU profiles — use [`austin`](https://github.com/P403n1x87/austin) with `-g` (no per-pause timing or heap data)
+- In-process GC callbacks (e.g., triggering actions on collection) — use [`gc.callbacks`](https://docs.python.org/3/library/gc.html#gc.callbacks)
+- Cumulative collection counters without per-pause detail — use [`gc.get_stats()`](https://docs.python.org/3/library/gc.html#gc.get_stats)
+- Monitor across different Python builds — gcmon requires the exact same binary (see [Limitations](#limitations))
 
 ## Alternatives Comparison
 
@@ -48,8 +70,8 @@ processes without in-process overhead
 ## How It Works
 
 gcmon runs **outside** the target process. It reads GC statistics directly
-from the process's memory via the `_remote_debugging` CPython C extension
-(available in CPython 3.15+), which uses platform-specific memory access APIs.
+from the process's memory using platform-specific memory access APIs
+(available in CPython 3.15+).
 
 For the pyperf hook integration, gcmon uses an **external process model**:
 
@@ -65,9 +87,24 @@ This provides zero in-process overhead during benchmarks, crash isolation
 
 The monitoring and monitored processes must use the **exact same Python version
 and build**. `gcmon` reads GC statistics directly from the target process's
-in-memory data structures. The layout of these structures varies between Python
-versions (fields, offsets, sizes), so mismatched binaries are rejected by
-`_remote_debugging` to prevent undefined behavior or crashes.
+in-memory data structures, and the layout of these structures varies between
+Python versions and build configurations (fields, offsets, sizes). Mismatched
+binaries are rejected by Python runtime to prevent undefined behavior or
+crashes.
+
+In practice, run both processes from the same virtualenv, container image, or
+`pyenv`/`uv` environment so they share a single Python binary.
+
+## Requirements
+
+- **Python**: CPython 3.15 or newer is required for both the monitoring and
+  the monitored process.
+- **Operating systems**: Linux, macOS, and Windows are supported (the test
+  matrix runs on `ubuntu-latest`, `macos-latest`, and `windows-latest`).
+- **Process access**: gcmon reads another process's memory using
+  platform-specific APIs. On Linux and Windows no extra setup is
+  needed. On **macOS**, the calling process must be authorized to read the
+  target process memory.
 
 ## Installation
 
@@ -79,10 +116,6 @@ pip install gcmon[stats]      # High-accuracy statistics (see Statistics below)
 pip install gcmon[cmdline]    # Process command line in Perfetto traces
 pip install gcmon[stats,cmdline]  # Both extras
 ```
-
-## Optional Dependencies
-
-gcmon has two optional extras that enhance functionality:
 
 ### `[stats]` — High-Accuracy Statistics
 
@@ -121,9 +154,28 @@ gcmon 12345 -o trace.json --stats
 # Perfetto binary output
 gcmon 12345 --format perfetto -o trace.pftrace
 
-# Combine multiple traces
+# Combine multiple traces (e.g. different runs or builds) into a single file
 gcmon combine trace1.json trace2.json -o combined.json -n
 ```
+
+### What you'll see
+
+By default gcmon stays quiet — the trace is written to a file and gcmon
+exits when the target ends or you press `Ctrl+C`. Use `-v` to follow
+progress:
+
+```bash
+$ gcmon 12345 -v
+[INFO] monitoring PID 12345 (chrome trace → gcmon.json)
+[INFO] collected 42 GC events so far
+...
+[INFO] stopping (Ctrl+C)
+[INFO] wrote 42 events to gcmon.json
+```
+
+Open the output file in [Perfetto UI](https://ui.perfetto.dev) — the
+built-in SQL panel lets you query the trace directly; see the examples
+below.
 
 ### Example: Chrome Trace Output
 
@@ -143,7 +195,7 @@ Perfetto features:
 
 This visualization helps you:
 - **Identify GC pause patterns** - See when and how long GC pauses occur
-- **Track memory growth** - Monitor heap size changes over time
+- **Track object growth** - Monitor the live object count over time
 - **Analyze collection efficiency** - Compare GC-related metrics
 - **Debug memory issues** - Spot memory leaks or inefficient collection patterns
 - **Correlate sub-step timing** - See which GC phase (mark, sweep, finalize) dominates pause time
@@ -160,42 +212,27 @@ each line is a JSON object representing one GC event:
 {"pid": 12345, "tid": 0, "gen": 1, "iid": 2, "ts_start": 1700000000200000, "ts_stop": 1700000000235000, "heap_size": 2097152, "collections": 3, "collected": 85, "uncollectable": 1, "candidates": 150, "duration": 3.5}
 ```
 
-| Field | Description |
-|-------|-------------|
-| `pid` | Process ID of the monitored target |
-| `gen` | GC generation (0, 1, or 2) |
-| `iid` | Interpreter ID (`0` for the main interpreter) |
-| `ts_start`, `ts_stop` | Event timestamps (nanoseconds) |
-| `heap_size` | Heap size at event time (bytes) |
-| `collections` | Cumulative collection count for this generation |
-| `collected` | Objects collected in this event |
-| `uncollectable` | Objects that could not be collected |
-| `candidates` | Candidate objects for collection |
-| `duration` | Pause duration (milliseconds) |
-| `increment_size` | Increment size for incremental GC (gen < 2) |
-| `alive_size` | Objects marked alive (gen > 0) |
-| `finalized_garbage_count` | Objects finalized in this event |
-| `deleted_garbage_count` | Objects deleted in this event |
-| `clear_weakrefs_count` | Weakrefs cleared in this event |
+| Field | Description | Build |
+|-------|-------------|-------|
+| `pid` | Process ID of the monitored target | Standard |
+| `gen` | GC generation (0, 1, or 2) | Standard |
+| `iid` | Interpreter ID (`0` for the main interpreter) | Standard |
+| `ts_start`, `ts_stop` | Event timestamps (nanoseconds) | Standard |
+| `heap_size` | Number of live objects at event time | Standard |
+| `collections` | Cumulative collection count for this generation | Standard |
+| `collected` | Objects collected in this event | Standard |
+| `uncollectable` | Objects that could not be collected | Standard |
+| `candidates` | Candidate objects for collection | Standard |
+| `duration` | Pause duration (milliseconds) | Standard |
+| `increment_size` | Increment size for incremental GC | Custom build |
+| `alive_size` | Objects marked alive (gen > 0) | Custom build |
+| `finalized_garbage_count` | Objects finalized in this event | Custom build |
+| `deleted_garbage_count` | Objects deleted in this event | Custom build |
+| `clear_weakrefs_count` | Weakrefs cleared in this event | Custom build |
 
-> **Note:** The sub-step fields (`increment_size`, `alive_size`, `finalized_garbage_count`, `deleted_garbage_count`, `clear_weakrefs_count`) are only available when using a custom CPython build with enhanced GC instrumentation. Standard CPython builds provide only the core fields (`pid`, `gen`, `iid`, `ts_start`, `ts_stop`, `heap_size`, `collections`, `collected`, `uncollectable`, `candidates`, `duration`).
-
-## When to Use
-
-**Use gcmon when you want to:**
-
-- Profile GC pause times in production or staging without modifying application code
-- Measure GC impact on latency-sensitive services (APIs, real-time systems)
-- Correlate GC activity with benchmark results via the pyperf hook
-- Track heap size trends over time across running processes
-- Debug intermittent latency spikes suspected to be GC-related
-
-**Use something else when you need to:**
-
-- Coarse GC activity tagging in CPU profiles — use [`austin`](https://github.com/P403n1x87/austin) with `-g` (no per-pause timing or heap data)
-- In-process GC callbacks (e.g., triggering actions on collection) — use [`gc.callbacks`](https://docs.python.org/3/library/gc.html#gc.callbacks)
-- Cumulative collection counters without per-pause detail — use [`gc.get_stats()`](https://docs.python.org/3/library/gc.html#gc.get_stats)
-- Monitor across different Python builds — gcmon requires the exact same binary (see [Limitations](#limitations))
+> **Note:** Fields marked **Custom build** require a CPython build with enhanced
+> GC instrumentation — see the [Example: Chrome Trace Output](#example-chrome-trace-output)
+> note above.
 
 ## CLI Usage
 
@@ -244,7 +281,7 @@ gcmon run --format jsonl -o trace.jsonl --stats -m http.server 8000
 
 You must specify exactly one of `-s`/`--script` or `-m`/`--module`.
 
-### Options
+### Options for `monitor` and `run`
 
 | Option | Applies to | Description | Default |
 |--------|------------|-------------|---------|
@@ -298,10 +335,11 @@ gcmon combine trace1.jsonl --input-format jsonl --output-format perfetto -o comb
 | `--output-format` | Output format: `chrome`, `jsonl`, or `perfetto` | `chrome` |
 | `-n, --normalize` | Normalize timestamps per PID so each process timeline starts at 0 | `False` |
 
-
 ## Statistics
 
-Use `--stats` to display a statistics table at the end of monitoring. The table reports GC pause durations (p50, p90, p95, p99) and counts per generation, broken down by process.
+Use `--stats` to display a statistics table at the end of monitoring. The table reports GC pause durations (p50, p90, p95, p99) and counts per generation, with one row per monitored process plus an overall Total row.
+
+Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this long), **Sum / duration tells you the GC time budget share**, and **Count × Avg shows how many pauses and how long they were on average**. A P99 GC pause that exceeds your request SLO is a good starting point for tuning.
 
 ### Example Output
 
@@ -323,7 +361,7 @@ $ gcmon 12345 --stats --table-format md
 
 ### Without `[stats]` extra
 
-By default, statistics are computed from an in-memory buffer of up to 1024 samples. Percentiles are calculated exactly by sorting the buffered values. Once the buffer is full, older samples are discarded. This is sufficient for short monitoring sessions but may lose data during long runs.
+By default, statistics are computed from an in-memory buffer of up to 1024 samples, with percentiles calculated exactly by sorting the buffered values. Once the buffer is full, older samples are discarded, so data is lost on long-running sessions.
 
 ### With `[stats]` extra
 
@@ -340,10 +378,11 @@ This installs [DDSketch](https://github.com/DataDog/sketches-py), which:
 
 For long-running processes or high-frequency polling, the `[stats]` extra is recommended.
 
-
 ## Pyperf Hook Integration
 
-The gcmon package provides a pyperf hook for automatic GC metrics collection during benchmarks.
+The gcmon package provides a pyperf hook for automatic GC metrics collection during benchmarks. The hook uses the same [external-process model](#how-it-works) as the CLI.
+
+> **Prerequisite:** install [pyperf](https://pypi.org/project/pyperf/) first (`pip install pyperf`). pyperf auto-discovers the hook once `gcmon` is installed; pass `--hook=gcmon` to enable it for a benchmark.
 
 ### Usage
 
@@ -356,7 +395,6 @@ pyperf timeit --hook=gcmon my_benchmark.py
 
 # Save results with GC metrics
 python my_benchmark.py --hook=gcmon -o benchmark_results.json
-
 ```
 
 ### GC Metrics Collected
@@ -366,23 +404,11 @@ The hook collects and reports the following GC metrics in pyperf metadata:
 - `gc_pause_gen_0_p99`, `gc_pause_gen_1_p99`, `gc_pause_gen_2_p99` - P99 GC pause duration by generation (microseconds)
 - `gc_pause_gen_0_sum`, `gc_pause_gen_1_sum`, `gc_pause_gen_2_sum` - Total GC pause time by generation (microseconds)
 - `gc_pause_gen_0_count`, `gc_pause_gen_1_count`, `gc_pause_gen_2_count` - Number of GC pauses by generation
-- `gc_heap_size_p99` - P99 heap size across all samples (bytes)
-
-### How It Works
-
-For the pyperf hook integration, gcmon uses an **external process model**:
-
-1. The hook spawns the `gcmon` CLI as a separate process
-2. The external process reads the target process memory directly
-3. Results are written to a temporary JSONL file
-4. The hook reads the JSONL and injects metrics into pyperf metadata
-
-This provides zero in-process overhead during benchmarks, crash isolation
-(gcmon crashes don't affect the target), and clean separation of concerns.
+- `gc_heap_size_p99` - P99 live object count across all samples
 
 ### Example: Perfetto Trace Viewer for Pyperf Benchmarks
 
-When you run a pyperf benchmark with the gcmon hook and export the results in Chrome Trace format, you can visualize the GC activity alongside the benchmark execution in Perfetto:
+When you run a pyperf benchmark with the gcmon hook, you can visualize the GC activity alongside the benchmark execution in Perfetto:
 
 <img src="docs/images/perfetto-pyperf-example.png" alt="Perfetto Pyperf Example" width="800">
 
@@ -423,7 +449,7 @@ worker subprocesses so the hook writes to the intended file.
 
 ### Programmatic Control
 
-When your application is started with `gcmon run` or `gcmon monitor`, you can use the control plane API to programmatically start, stop, and annotate GC monitoring from within your application.
+If you start your app with `gcmon run` or `gcmon monitor`, the control plane API lets you programmatically start, stop, and annotate GC monitoring from within your application.
 
 #### Import and Setup
 
@@ -479,11 +505,11 @@ These messages appear as instant events in the trace viewer, helping you correla
 
 #### Prerequisites
 
-The control plane is only available when your application is started with `gcmon run` or `gcmon monitor`. Standalone processes cannot use the control plane.
+The control plane is only available if you start your app with `gcmon run` or `gcmon monitor`. Standalone processes cannot use the control plane.
 
 ### Trace Analysis with Perfetto SQL
 
-When you export traces in Perfetto format (`.pftrace`), you can use Perfetto's SQL query interface to perform advanced analysis beyond what the UI provides. PerfettoSQL is a direct descendent of the dialect of SQL implemented by SQLite. Specifically, any SQL valid in SQLite is also valid in PerfettoSQL.
+When you export traces in Perfetto format (`.pftrace`), you can use Perfetto's SQL query interface to perform advanced analysis beyond what the UI provides. PerfettoSQL extends SQLite's SQL dialect — any query valid in SQLite also works in PerfettoSQL.
 
 The trace data is stored in a structured schema that you can query directly.
 
@@ -502,7 +528,7 @@ gcmon traces use the standard Perfetto schema:
   - `ts`: Start timestamp (nanoseconds)
   - `dur`: Duration (nanoseconds)
   - `arg_set_id`: Reference to arguments/annotations
-- **`counter`** table: Contains counter values (heap size, collected objects, etc.)
+- **`counter`** table: Contains counter values (live object count, collected objects, etc.)
   - `track_id`: Reference to the counter track
   - `ts`: Timestamp (nanoseconds)
   - `value`: Counter value
@@ -542,16 +568,26 @@ This query:
 
 #### Tips for Writing Queries
 
-- **Timestamps are in nanoseconds**: Divide by `1e6` for milliseconds, `1e9` for seconds
-- **Use `EXTRACT_ARG`**: Access slice annotations (e.g., `EXTRACT_ARG(arg_set_id, 'heap_size')`)
-- **Filter by name**: Use `LIKE` patterns to match specific event types
-- **Join tracks**: Connect slices/counters to process/thread information via track IDs
-- **Use window functions**: `LAG()`, `LEAD()`, `ROW_NUMBER()` for time-series analysis
+- **Timestamps are in nanoseconds:** Divide by `1e6` for milliseconds, `1e9` for seconds
+- **Use `EXTRACT_ARG`:** Access slice annotations (e.g., `EXTRACT_ARG(arg_set_id, 'heap_size')`)
+- **Filter by name:** Use `LIKE` patterns to match specific event types
+- **Join tracks:** Connect slices/counters to process/thread information via track IDs
+- **Use window functions:** `LAG()`, `LEAD()`, `ROW_NUMBER()` for time-series analysis
 
 #### Further Reading
 
 - [Perfetto SQL Getting Started](https://perfetto.dev/docs/analysis/perfetto-sql-getting-started)
 - [Perfetto SQL documentation](https://perfetto.dev/docs/analysis/perfetto-sql-syntax)
+
+## See Also
+
+Related tools that solve adjacent (but different) problems:
+
+- [`tracemalloc`](https://docs.python.org/3/library/tracemalloc.html) — track per-object allocations (in-process, not GC)
+- [`memray`](https://github.com/bloomberg/memray) — high-resolution memory profiler (in-process, allocations)
+- [`py-spy`](https://github.com/benfred/py-spy) — sampling CPU profiler (out-of-process, CPU frames not GC)
+- [`austin`](https://github.com/P403n1x87/austin) — sampling CPU/memory profiler (out-of-process, supports `-g` for GC tagging)
+- [Perfetto UI](https://ui.perfetto.dev) — the trace viewer used by gcmon's Perfetto exporter
 
 ## License
 
