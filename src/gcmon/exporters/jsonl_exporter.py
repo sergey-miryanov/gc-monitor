@@ -9,6 +9,7 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TextIO, override
 
+from ..poll_status import ProcessLifecycle
 from ..protocol import TGCStatsInfo, TInstantMsg, to_mapping
 from .exporter import EventsExporter
 
@@ -74,6 +75,12 @@ class JsonlExporter(EventsExporter):
         if events:
             with self._io_lock:
                 self._flush(events)
+
+    @override
+    def mark_process_lifecycle(
+        self, pid: int, kind: ProcessLifecycle, ts_ns: int,
+    ) -> None:
+        """No-op: JSONL has no per-process lifetime track concept."""
 
     def _flush(self, events: list[dict[str, str|int|float]]) -> None:
         if not events:

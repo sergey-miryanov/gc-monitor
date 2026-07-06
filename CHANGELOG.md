@@ -2,6 +2,10 @@
 
 ## WIP
 
+- Perfetto `Processes`-track lifetime slice no longer uses GC event timestamps: the slice BEGIN is now the timestamp of the monitor's first successful poll for the pid (ProcessLifecycle.STARTED) and the slice END is the timestamp of the detected process death (ProcessLifecycle.DIED). When no lifecycle transition was reported (e.g. reading a pre-recorded JSONL / Chrome trace via `gcmon combine`), the BEGIN / END fall back to the first / last non-counter non-meta event timestamp. `ProcessDescriptor.start_timestamp_ns` follows the same source. New abstract `EventsExporter.mark_process_lifecycle` and `EventEncoder.mark_process_lifecycle`; no-op on the JSONL / Chrome JSON exporters. `EventsMonitor.stop()` now emits a synthetic `DIED` transition for every still-alive pid so the slice END lands at "now" on graceful shutdown.
+- `MonitorLoop` now tracks previously-polled pids and calls `EventsMonitor.mark_pid_died(pid)` for any pid that disappeared from the parent's child list between poll cycles. This closes the per-process lifetime slice for short-lived children that exit before their next `poll()` would have returned `INVALID_PROCESS`. New public `EventsMonitor.mark_pid_died(pid) -> bool` (returns `True` when a DIED transition was actually emitted).
+- Fix `Processes`-track slice mispairing when lifetime ranges overlap: the trace processor pairs each `TYPE_SLICE_BEGIN` with the closest `TYPE_SLICE_END` whose ts is at or after the BEGIN.ts, so when an earlier pid's last event landed after the next pid's first event, the earlier pid's END was "stolen" by the next pid's BEGIN, collapsing the next pid's slice to a few ns and triggering a `misplaced_end_event` warning in the Perfetto UI. The encoder now walks pids in BEGIN-ts order at trace close and clips each pid's slice END to one nanosecond before the next pid's BEGIN. The previous (clipped) pid loses at most a few ns; the next pid keeps its full first-to-last-event slice. The trace processor then pairs each BEGIN with its own END and the warning disappears.
+
 ## Version 0.3.1 (2026-06-29)
 
 - Fix PyPI classifiers

@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from gcmon.monitor import EventsMonitor, create_monitor
-from gcmon.poll_status import PollStatus
+from gcmon.poll_status import PollStatus, ProcessLifecycle
 from tests.helpers import MockExporter, create_mock_stats_item
 
 
@@ -65,6 +65,159 @@ class TestEventsMonitorExtra:
             monitor.poll(12345)
 
         assert exporter.events == []
+
+
+class TestEventsMonitorLifecycle:
+    """Tests for the STARTED / DIED transitions reported via
+    ``EventsMonitor.poll`` and ``EventsMonitor.stop``."""
+
+    def test_first_ok_poll_emits_started(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            status = monitor.poll(12345)
+        assert status is PollStatus.OK
+        assert exporter.lifecycle_events == [
+            (12345, ProcessLifecycle.STARTED, exporter.lifecycle_events[0][2]),
+        ]
+        assert exporter.lifecycle_events[0][2] > 0  # monotonic_ns
+
+    def test_subsequent_ok_polls_do_not_re_emit_started(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            monitor.poll(12345)
+            monitor.poll(12345)
+            monitor.poll(12345)
+        kinds = [kind for _, kind, _ in exporter.lifecycle_events]
+        assert kinds == [ProcessLifecycle.STARTED]
+
+    def test_ok_then_invalid_emits_died_once(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            monitor.poll(12345)
+        with patch("gcmon.monitor.get_gc_stats", side_effect=RuntimeError("gone")):
+            status = monitor.poll(12345)
+        assert status is PollStatus.INVALID_PROCESS
+        kinds = [kind for _, kind, _ in exporter.lifecycle_events]
+        assert kinds == [ProcessLifecycle.STARTED, ProcessLifecycle.DIED]
+
+    def test_invalid_without_prior_ok_does_not_emit_died(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", side_effect=PermissionError("nope")):
+            status = monitor.poll(12345)
+        assert status is PollStatus.INVALID_PROCESS
+        assert exporter.lifecycle_events == []
+
+    def test_repeated_invalid_does_not_emit_died_twice(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            monitor.poll(12345)
+        with patch("gcmon.monitor.get_gc_stats", side_effect=RuntimeError("gone")):
+            monitor.poll(12345)
+            monitor.poll(12345)
+        kinds = [kind for _, kind, _ in exporter.lifecycle_events]
+        assert kinds == [ProcessLifecycle.STARTED, ProcessLifecycle.DIED]
+
+    def test_multiple_pids_track_lifecycle_independently(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            monitor.poll(12345)
+            monitor.poll(99999)
+        with patch("gcmon.monitor.get_gc_stats", side_effect=RuntimeError("gone")):
+            monitor.poll(12345)
+        # pid 99999 should still be alive.
+        kinds = [(pid, kind) for pid, kind, _ in exporter.lifecycle_events]
+        assert kinds == [
+            (12345, ProcessLifecycle.STARTED),
+            (99999, ProcessLifecycle.STARTED),
+            (12345, ProcessLifecycle.DIED),
+        ]
+
+    def test_stop_emits_died_for_alive_pids(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            monitor.poll(12345)
+            monitor.poll(99999)
+        monitor.stop()
+        kinds = [(pid, kind) for pid, kind, _ in exporter.lifecycle_events]
+        assert kinds == [
+            (12345, ProcessLifecycle.STARTED),
+            (99999, ProcessLifecycle.STARTED),
+            (12345, ProcessLifecycle.DIED),
+            (99999, ProcessLifecycle.DIED),
+        ]
+        assert exporter._close_called
+
+    def test_stop_emits_no_died_when_no_pids_were_alive(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        monitor.stop()
+        assert exporter.lifecycle_events == []
+        assert exporter._close_called
+
+    def test_stop_is_idempotent(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            monitor.poll(12345)
+        monitor.stop()
+        first = list(exporter.lifecycle_events)
+        monitor.stop()  # second call must not re-emit DIED
+        assert exporter.lifecycle_events == first
+
+    def test_fail_does_not_emit_lifecycle(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", side_effect=Exception("boom")):
+            status = monitor.poll(12345)
+        assert status is PollStatus.FAIL
+        assert exporter.lifecycle_events == []
+
+    def test_mark_pid_died_emits_died_for_alive_pid(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            monitor.poll(12345)
+        assert monitor.mark_pid_died(12345) is True
+        kinds = [kind for _, kind, _ in exporter.lifecycle_events]
+        assert kinds == [ProcessLifecycle.STARTED, ProcessLifecycle.DIED]
+
+    def test_mark_pid_died_returns_false_for_unknown_pid(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        assert monitor.mark_pid_died(99999) is False
+        assert exporter.lifecycle_events == []
+
+    def test_mark_pid_died_is_idempotent(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            monitor.poll(12345)
+        assert monitor.mark_pid_died(12345) is True
+        # Second call: no longer alive, must not re-emit.
+        assert monitor.mark_pid_died(12345) is False
+        kinds = [kind for _, kind, _ in exporter.lifecycle_events]
+        assert kinds == [ProcessLifecycle.STARTED, ProcessLifecycle.DIED]
+
+    def test_mark_pid_died_per_pid(
+        self, monitor: EventsMonitor, exporter: MockExporter,
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", return_value=[]):
+            monitor.poll(12345)
+            monitor.poll(99999)
+        # 12345 is alive; mark it died.
+        assert monitor.mark_pid_died(12345) is True
+        # 99999 is still alive; reporting it died again must succeed.
+        assert monitor.mark_pid_died(99999) is True
+        kinds = [kind for _, kind, _ in exporter.lifecycle_events]
+        assert kinds == [
+            ProcessLifecycle.STARTED,
+            ProcessLifecycle.STARTED,
+            ProcessLifecycle.DIED,
+            ProcessLifecycle.DIED,
+        ]
 
 
 class TestCreateMonitor:

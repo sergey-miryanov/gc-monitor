@@ -150,6 +150,26 @@ class TestProcessLifetimeState:
         assert state.has_process_lifetime(100)
         assert not state.has_process_lifetime(200)
 
+    def test_open_order_tracks_first_open_per_pid(self) -> None:
+        state = PerfettoTrackState()
+        for pid in (300, 100, 200):
+            state.mark_process_lifetime_opened(pid)
+        # Re-opening an already-open pid is a no-op; the order list
+        # must not duplicate it.
+        state.mark_process_lifetime_opened(100)
+        assert state.get_process_lifetime_open_order() == [300, 100, 200]
+
+    def test_open_order_is_independent_of_end_pop(self) -> None:
+        state = PerfettoTrackState()
+        state.mark_process_lifetime_opened(100)
+        state.update_process_lifetime_end_ts(100, 1_000)
+        state.pop_process_lifetime_ends()
+        # The open-order list survives `pop_process_lifetime_ends`
+        # because it is used by `finalize_perfetto_packets` to walk
+        # pids in BEGIN order even though the end-ts state was
+        # already cleared.
+        assert state.get_process_lifetime_open_order() == [100]
+
     def test_end_ts_update_overwrites(self) -> None:
         state = PerfettoTrackState()
         state.update_process_lifetime_end_ts(100, 1_000)
@@ -176,6 +196,236 @@ class TestProcessLifetimeState:
         state.pop_process_lifetime_ends()
         assert state.has_process_lifetime(100)
         assert state.pop_process_lifetime_ends() == []
+
+    def test_started_ts_default_none(self) -> None:
+        state = PerfettoTrackState()
+        assert state.get_process_started_ts(100) is None
+
+    def test_record_started_ts_first_wins(self) -> None:
+        state = PerfettoTrackState()
+        state.update_process_lifetime(100, 500)
+        assert state.get_process_started_ts(100) == 500
+        # Second call is ignored.
+        state.update_process_lifetime(100, 9_999)
+        assert state.get_process_started_ts(100) == 500
+
+    def test_died_ts_default_none(self) -> None:
+        state = PerfettoTrackState()
+        assert state.get_process_died_ts(100) is None
+
+    def test_record_died_ts_first_wins(self) -> None:
+        state = PerfettoTrackState()
+        state.record_process_died(100, 7_500)
+        assert state.get_process_died_ts(100) == 7_500
+        # Second call is ignored.
+        state.record_process_died(100, 9_999)
+        assert state.get_process_died_ts(100) == 7_500
+
+    def test_started_and_died_per_pid(self) -> None:
+        state = PerfettoTrackState()
+        state.update_process_lifetime(100, 500)
+        state.record_process_died(100, 9_000)
+        state.update_process_lifetime(200, 600)
+        state.record_process_died(200, 9_500)
+        assert state.get_process_started_ts(100) == 500
+        assert state.get_process_died_ts(100) == 9_000
+        assert state.get_process_started_ts(200) == 600
+        assert state.get_process_died_ts(200) == 9_500
+        # Unrelated pid.
+        assert state.get_process_started_ts(300) is None
+        assert state.get_process_died_ts(300) is None
+
+
+def _lifetime_end_packet_ts(packet_bytes: bytes) -> tuple[int, int] | None:
+    """Return ``(pid, ts)`` for a ``Processes``-track slice END packet,
+    or ``None`` if the packet is not a lifetime slice END.
+
+    The slice END packet carries ``name="Process <pid>"`` for symmetry
+    with the BEGIN so SQL-style queries can identify the owning pid
+    without joining to the BEGIN packet. The packet-level TIMESTAMP
+    field carries the END ts_ns.
+    """
+    fields = decode_message(packet_bytes)
+    te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
+    if te_bytes is None:
+        return None
+    te_fields = decode_message(te_bytes)
+    if get_varint(te_fields, TrackEventField.TYPE) != TYPE_SLICE_END:
+        return None
+    name = get_string(te_fields, TrackEventField.NAME)
+    if not (name and name.startswith("Process ")):
+        return None
+    try:
+        pid = int(name.split(" ", 1)[1])
+    except ValueError:
+        return None
+    return pid, get_varint(fields, TracePacketField.TIMESTAMP)
+
+
+class TestFinalizePerPidClipping:
+    """``finalize_perfetto_packets`` walks pids in BEGIN-ts order and
+    clips each pid's END ts to one nanosecond before the next pid's
+    BEGIN ts. The Perfetto trace processor pairs BEGIN with the
+    closest END whose ts is at or after the BEGIN.ts, so without the
+    clip, an earlier pid's events that extend past the next pid's
+    first event would steal the next pid's BEGIN, collapsing the
+    next pid's slice to a few ns and emitting a
+    ``misplaced_end_event`` warning. The clip keeps each BEGIN paired
+    with its own END, at the cost of trimming a few ns off the
+    previous pid's slice."""
+
+    def _convert_two_pids(
+        self,
+        pid_a_first: int, pid_a_last: int,
+        pid_b_first: int, pid_b_last: int,
+    ) -> list[bytes]:
+        state = PerfettoTrackState()
+        item_a = GCStatsInfo(
+            gen=0, iid=0, ts_start=pid_a_first, ts_stop=pid_a_last,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        item_b = GCStatsInfo(
+            gen=0, iid=0, ts_start=pid_b_first, ts_stop=pid_b_last,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        for pid, item in ((100, item_a), (200, item_b)):
+            gc_events = convert_item_to_trace_format(pid, item)
+            meta = [
+                process_meta(pid, f"Process {pid}"),
+                thread_meta(pid, item.iid, f"Thread {item.iid}"),
+            ]
+            convert_trace_events_to_perfetto(meta + gc_events, state, 1)
+        return finalize_perfetto_packets(state, sequence_id=1)
+
+    def test_overlapping_lifetimes_clip_earlier_pid_end(self) -> None:
+        """Pid A's events extend past Pid B's first event. The fix
+        clips A's END to ``B's BEGIN - 1`` so the trace processor
+        pairs B's BEGIN with B's own END, not with A's END."""
+        # Pid A: first=100, last=500. Pid B: first=300, last=600.
+        # A.end (500) >= B.begin (300), so A.end is clipped to 299.
+        closeout = self._convert_two_pids(
+            pid_a_first=100, pid_a_last=500,
+            pid_b_first=300, pid_b_last=600,
+        )
+        ends: dict[int, int] = {}
+        for pkt in closeout:
+            decoded = _lifetime_end_packet_ts(pkt)
+            if decoded is not None:
+                ends[decoded[0]] = decoded[1]
+        assert ends == {100: 299, 200: 600}
+
+    def test_non_overlapping_lifetimes_unchanged(self) -> None:
+        """When pids are naturally disjoint (B begins after A ends),
+        no clipping is applied."""
+        closeout = self._convert_two_pids(
+            pid_a_first=100, pid_a_last=500,
+            pid_b_first=600, pid_b_last=900,
+        )
+        ends: dict[int, int] = {}
+        for pkt in closeout:
+            decoded = _lifetime_end_packet_ts(pkt)
+            if decoded is not None:
+                ends[decoded[0]] = decoded[1]
+        assert ends == {100: 500, 200: 900}
+
+    def test_three_pids_clip_in_begin_order(self) -> None:
+        """With three pids, the clipping walk follows the BEGIN-ts
+        order: each pid's END is clipped to the next pid's BEGIN - 1
+        in BEGIN-ts order, regardless of arrival order. The first pid
+        in BEGIN order loses at most a few ns (clipped to the second
+        pid's BEGIN - 1); the last pid is never clipped (no successor)."""
+        state = PerfettoTrackState()
+        # Arrival order is 300, 100, 200 (each carries its own first
+        # event ts). In BEGIN-ts order: pid 300 (begin=100), pid 100
+        # (begin=200), pid 200 (begin=300).
+        for pid, first, last in (
+            (300, 100, 800),  # 1st in BEGIN order; natural END 800,
+                              # clipped to 199 (pid 100's begin - 1)
+            (100, 200, 600),  # 2nd in BEGIN order; natural END 600,
+                              # clipped to 299 (pid 200's begin - 1)
+            (200, 300, 700),  # 3rd (last) in BEGIN order; NOT clipped
+        ):
+            item = GCStatsInfo(
+                gen=0, iid=0, ts_start=first, ts_stop=last,
+                heap_size=1000, collections=1, collected=10,
+                uncollectable=0, candidates=5, duration=0.001,
+            )
+            gc_events = convert_item_to_trace_format(pid, item)
+            meta = [
+                process_meta(pid, f"Process {pid}"),
+                thread_meta(pid, item.iid, f"Thread {item.iid}"),
+            ]
+            convert_trace_events_to_perfetto(meta + gc_events, state, 1)
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+        ends: dict[int, int] = {}
+        for pkt in closeout:
+            decoded = _lifetime_end_packet_ts(pkt)
+            if decoded is not None:
+                ends[decoded[0]] = decoded[1]
+        assert ends == {300: 199, 100: 299, 200: 700}
+
+    def test_died_ts_clamps_to_next_begin_after_clip(self) -> None:
+        """If DIED ts is later than the next pid's BEGIN, the clip
+        still wins: the END is set to ``next_begin - 1``, not to
+        ``died_ts``. This guarantees the trace processor does not
+        re-introduce the overlap that the clip is meant to prevent."""
+        state = PerfettoTrackState()
+        # Pid A's natural END would be 500; add a DIED far in the
+        # future (900). Pid B begins at 300 (overlaps A's range).
+        # Without the clip, A's END would be max(500, 900) = 900,
+        # which is way past B's BEGIN and re-triggers the mispair.
+        # With the clip, A's END is clamped to B's BEGIN - 1 = 299
+        # *before* the DIED is even considered (DIED only stretches
+        # the END, never re-grows it past a clipped boundary).
+        item_a = GCStatsInfo(
+            gen=0, iid=0, ts_start=100, ts_stop=500,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        item_b = GCStatsInfo(
+            gen=0, iid=0, ts_start=300, ts_stop=600,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        gc_a = convert_item_to_trace_format(100, item_a)
+        meta_a = [process_meta(100, "Process 100"), thread_meta(100, item_a.iid, "Thread 0")]
+        convert_trace_events_to_perfetto(meta_a + gc_a, state, 1)
+        state.record_process_died(100, 900)
+        gc_b = convert_item_to_trace_format(200, item_b)
+        meta_b = [process_meta(200, "Process 200"), thread_meta(200, item_b.iid, "Thread 0")]
+        convert_trace_events_to_perfetto(meta_b + gc_b, state, 1)
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+        ends: dict[int, int] = {}
+        for pkt in closeout:
+            decoded = _lifetime_end_packet_ts(pkt)
+            if decoded is not None:
+                ends[decoded[0]] = decoded[1]
+        # Pid 100 is clipped to next_begin - 1 = 299, not stretched to
+        # 900 by DIED. The clip is the outer bound; DIED is a lower
+        # bound on END (it only pushes the END *up* to a later ts).
+        assert ends == {100: 299, 200: 600}
+
+    def test_single_pid_unaffected_by_clipping(self) -> None:
+        """A single pid (no successor) is never clipped: there is no
+        next pid to bound the END."""
+        state = PerfettoTrackState()
+        item = GCStatsInfo(
+            gen=0, iid=0, ts_start=100, ts_stop=10_000,
+            heap_size=1000, collections=1, collected=10,
+            uncollectable=0, candidates=5, duration=0.001,
+        )
+        gc_events = convert_item_to_trace_format(100, item)
+        meta = [process_meta(100, "Process 100"), thread_meta(100, item.iid, "Thread 0")]
+        convert_trace_events_to_perfetto(meta + gc_events, state, 1)
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+        ends: dict[int, int] = {}
+        for pkt in closeout:
+            decoded = _lifetime_end_packet_ts(pkt)
+            if decoded is not None:
+                ends[decoded[0]] = decoded[1]
+        assert ends == {100: 10_000}
 
 
 class TestBuildTrackDescriptor:

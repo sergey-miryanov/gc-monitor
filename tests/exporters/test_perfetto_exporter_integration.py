@@ -859,6 +859,97 @@ class TestProcessesTrack:
                 f"{_FAKE_CMDLINE_JOINED!r}, got {rows[0].string_value!r}"
             )
 
+    @pytest.mark.parametrize("fmt", ["perfetto"])
+    def test_no_misplaced_end_event_for_overlapping_lifetimes(
+        self, fmt: str,
+    ) -> None:
+        """The fixture emits ``_SECOND_PID`` first (instant at
+        ``_TS_START - 2_000_000``) and ``DEFAULT_PID`` second
+        (instant at ``_TS_START - 1_000_000``); both then have GC
+        items whose ``GC Pause`` EndEvents land AFTER
+        ``DEFAULT_PID``'s BEGIN at ``_TS_START - 1_000_000``.
+        In BEGIN-ts order, ``_SECOND_PID`` is opened first, but its
+        GC events extend past ``DEFAULT_PID``'s BEGIN. Without the
+        END-clipping fix, the trace processor would collapse
+        ``DEFAULT_PID``'s slice to the overlap duration (a few ns)
+        and emit a ``misplaced_end_event`` warning (visible in
+        the Perfetto UI). With the fix, the ``Processes`` track
+        holds one dur-bearing slice per pid, each slice covers
+        the full first-to-last event span, and no
+        ``misplaced_end_event`` warning is raised."""
+        from perfetto.trace_processor import TraceProcessor
+        from tests.exporters.test_perfetto_exporter_integration import (
+            _PROCESS_LIFETIME_TRACK_NAME,
+        )
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write_trace(Path(tmp), fmt)
+            tp = TraceProcessor(
+                trace=str(path),
+                config=TraceProcessorConfig(load_timeout=60),
+            )
+            try:
+                # 1) One dur-bearing slice per pid.
+                rows = list(tp.query(
+                    f"SELECT s.name, s.ts, s.dur FROM slice s "
+                    f"JOIN track t ON s.track_id = t.id "
+                    f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                    f"AND s.dur > 0 "
+                    f"ORDER BY s.name"
+                ))
+                names = [r.name for r in rows]
+                assert names == [
+                    f"Process {DEFAULT_PID}",
+                    f"Process {_SECOND_PID}",
+                ], (
+                    f"expected exactly one dur-bearing slice per pid, "
+                    f"got {[(r.name, r.dur) for r in rows]}"
+                )
+                # 2) Each slice BEGIN matches the pid's first
+                # non-meta event ts (the instant event ts). The
+                # expected BEGIN/END values are derived from the
+                # fixture: pid 12345 has a gen=1 incremental item
+                # whose GC Pause EndEvent lands at 1_505_000_000
+                # (the incremental item's ts_stop), and pid 67890
+                # has a single gen=0 item whose Pause EndEvent
+                # lands at ``_TS_STOP`` = 1_500_005_000. Without
+                # the clip, pid 12345's slice would be collapsed
+                # to the overlap between the two pids (a few
+                # ns). With the clip, pid 67890's slice END is
+                # pinned to one nanosecond before pid 12345's
+                # BEGIN, so both slices have positive dur and
+                # cover the full event span.
+                slice_by_name = {r.name: r for r in rows}
+                # pid 12345's natural end (the last GC Pause
+                # EndEvent in the gen=1 incremental item).
+                _PAUSE_END_PID_12345: int = 1_505_000_000
+                cases = (
+                    (DEFAULT_PID, _TS_START - 1_000_000),
+                    (_SECOND_PID, _TS_START - 2_000_000),
+                )
+                expected_ends = {
+                    # pid 12345 is last in BEGIN order, no clip.
+                    DEFAULT_PID: _PAUSE_END_PID_12345,
+                    # pid 67890 is first in BEGIN order; clip to
+                    # pid 12345's BEGIN - 1.
+                    _SECOND_PID: cases[0][1] - 1,
+                }
+                for pid, expected_first in cases:
+                    name = f"Process {pid}"
+                    s = slice_by_name[name]
+                    expected_dur = expected_ends[pid] - expected_first
+                    assert s.ts == expected_first, (
+                        f"{name}: ts mismatch (got {s.ts}, "
+                        f"expected {expected_first})"
+                    )
+                    assert s.dur == expected_dur, (
+                        f"{name}: dur mismatch (got {s.dur}, "
+                        f"expected {expected_dur}); a short dur here "
+                        f"indicates the END-clipping fix is missing"
+                    )
+            finally:
+                tp.close()
+
 
 @pytest.mark.stress
 class TestMultiFlushProcessesTrack:

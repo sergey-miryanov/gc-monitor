@@ -8,6 +8,8 @@ objects (produced by the shared ``trace_converter``) and maps each to
 the corresponding Perfetto protobuf representation.
 """
 
+import logging
+
 from enum import IntEnum
 
 from ..trace_event import (
@@ -25,6 +27,8 @@ from .protobuf_encoder import (
     encode_string_field,
     encode_varint_field,
 )
+
+logger = logging.getLogger("gcmon")
 
 
 class TraceField(IntEnum):
@@ -200,9 +204,7 @@ class PerfettoTrackState:
         self._tid_uuids: dict[tuple[int, int], int] = {}
         self._start_process_marker_emitted: set[int] = set()
         self._process_lifetime_track_uuid: int | None = None
-        self._process_lifetime_opened: set[int] = set()
-        self._process_lifetime_end_ts: dict[int, int] = {}
-        self._first_event_ts: dict[int, int] = {}
+        self._process_lifetime: dict[int, tuple[int, int]] = {}
         self._root_descriptor_emitted: bool = False
         self._next_uuid: int = 1
 
@@ -272,31 +274,26 @@ class PerfettoTrackState:
             self._process_lifetime_track_uuid = self._alloc_uuid()
         return self._process_lifetime_track_uuid
 
-    def has_process_lifetime(self, pid: int) -> bool:
-        return pid in self._process_lifetime_opened
+    def update_process_lifetime(self, pid: int, ts: int) -> None:
+        """Record the monitor-reported process-start timestamp for *pid*.
 
-    def mark_process_lifetime_opened(self, pid: int) -> None:
-        self._process_lifetime_opened.add(pid)
+        The first call for a given *pid* wins; subsequent calls (e.g. if
+        the same pid is polled again across batches) are ignored. The
+        timestamp is in the monitor's own clock domain (``time.monotonic_ns``)
+        and is used as the start of the ``Processes`` track lifetime slice
+        and the value of ``ProcessDescriptor.start_timestamp_ns``.
+        """
+        if pid not in self._process_lifetime:
+            self._process_lifetime[pid] = (ts, ts)
+        else:
+            start_ts, end_ts = self._process_lifetime[pid]
+            self._process_lifetime[pid] = (min(ts, start_ts), max(ts, end_ts))
 
-    def update_process_lifetime_end_ts(self, pid: int, ts: int) -> None:
-        self._process_lifetime_end_ts[pid] = ts
+    def get_process_started_ts(self, pid: int) -> int | None:
+        return self._process_lifetime.get(pid, (None, None))[0]
 
-    def pop_process_lifetime_ends(self) -> list[tuple[int, int]]:
-        """Return ``[(pid, end_ts), ...]`` sorted by ``(end_ts, pid)`` and
-        clear the internal end-ts state. The slice BEGINs are NOT cleared;
-        they remain marked as opened for the lifetime of ``self``."""
-        ends = sorted(self._process_lifetime_end_ts.items(), key=lambda kv: (kv[1], kv[0]))
-        self._process_lifetime_end_ts.clear()
-        return ends
-
-    def record_first_event_ts(self, pid: int, ts: int) -> None:
-        """Record the first non-meta event timestamp for *pid*. Subsequent
-        calls for the same *pid* are ignored (the first ts wins)."""
-        if pid not in self._first_event_ts:
-            self._first_event_ts[pid] = ts
-
-    def get_first_event_ts(self, pid: int) -> int | None:
-        return self._first_event_ts.get(pid)
+    def get_process_died_ts(self, pid: int) -> int | None:
+        return self._process_lifetime.get(pid, (None, None))[1]
 
     def get_process_track_ranks(self) -> dict[int, int]:
         """Return a ``{pid: rank}`` map for every pid with a recorded
@@ -304,11 +301,11 @@ class PerfettoTrackState:
         ``(first_ts, pid)`` ascending and assigning sequential ranks
         starting at ``0``. Pids with no recorded first ts are absent
         from the result."""
-        if not self._first_event_ts:
+        if not self._process_lifetime:
             return {}
         sorted_pids = sorted(
-            self._first_event_ts.keys(),
-            key=lambda p: (self._first_event_ts[p], p),
+            self._process_lifetime.keys(),
+            key=lambda p: (self._process_lifetime[p][0], p),
         )
         return {pid: rank for rank, pid in enumerate(sorted_pids)}
 
@@ -825,8 +822,8 @@ def convert_trace_events_to_perfetto(
     packets: list[bytes] = []
 
     if events:
-        for event in events:
-            _record_first_event_ts(event, state)
+        # for event in events:
+        #     _record_first_event_ts(event, state)
         descriptors.extend(_emit_root_descriptor(state, sequence_id))
 
     ranks = state.get_process_track_ranks()
@@ -834,12 +831,13 @@ def convert_trace_events_to_perfetto(
     for event in events:
         pid = event.pid
 
+        ts: int | None = None
         if isinstance(event, ProcessMeta):
             descriptors.extend(
                 _emit_process_descriptor(
                     pid, state, sequence_id,
                     sibling_order_rank=ranks.get(pid),
-                    start_timestamp_ns=state.get_first_event_ts(pid),
+                    start_timestamp_ns=state.get_process_started_ts(pid),
                 )
             )
 
@@ -850,14 +848,13 @@ def convert_trace_events_to_perfetto(
                 _emit_process_descriptor(
                     pid, state, sequence_id,
                     sibling_order_rank=ranks.get(pid),
-                    start_timestamp_ns=state.get_first_event_ts(pid),
+                    start_timestamp_ns=state.get_process_started_ts(pid),
                 )
             )
             descriptors.extend(_emit_thread_descriptor(pid, event.tid, state, sequence_id))
 
         elif isinstance(event, BeginEvent):
-            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
+            ts = event.ts
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
             annotations = _args_to_debug_annotations(event.args)
             packets.append(build_trace_packet(
@@ -869,8 +866,7 @@ def convert_trace_events_to_perfetto(
             ))
 
         elif isinstance(event, EndEvent):
-            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
+            ts = event.ts
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
             packets.append(build_trace_packet(
                 sequence_id, timestamp=event.ts,
@@ -878,8 +874,7 @@ def convert_trace_events_to_perfetto(
             ))
 
         elif isinstance(event, InstantEvent):
-            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
+            ts = event.ts
             proc_uuid = state.get_process_track_uuid(pid)
             packets.append(build_trace_packet(
                 sequence_id, timestamp=event.ts,
@@ -891,8 +886,7 @@ def convert_trace_events_to_perfetto(
             ))
 
         elif isinstance(event, CounterEvent):
-            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
+            ts = event.ts
             single_arg = len(event.args) == 1
             for metric, value in event.args.items():
                 display_name = metric if single_arg else f"{event.name} {metric}"
@@ -906,86 +900,27 @@ def convert_trace_events_to_perfetto(
                     track_event=_make_counter_event(ctr_uuid, value),
                 ))
 
+        if ts is not None:
+            state.update_process_lifetime(pid, ts)
+            _maybe_emit_start_process_marker(pid, ts, state, sequence_id, packets)
+
     return descriptors, packets
 
 
 def _maybe_emit_start_process_marker(
-    event: TraceEvent,
+    pid:int,
+    ts:int,
     state: PerfettoTrackState,
     sequence_id: int,
     packets: list[bytes],
 ) -> None:
     """Emit the ``Start Process`` marker once per pid, on the first non-meta
     event for that pid, using that event's timestamp."""
-    if not state.has_pid(event.pid) or state.has_start_process_marker(event.pid):
+    if not state.has_pid(pid) or state.has_start_process_marker(pid):
         return
-    ts = getattr(event, "ts", 0)
     packets.extend(
-        _emit_start_process_marker(event.pid, ts, state, sequence_id)
+        _emit_start_process_marker(pid, ts, state, sequence_id)
     )
-
-
-def _record_or_open_process_lifetime(
-    event: TraceEvent,
-    state: PerfettoTrackState,
-    sequence_id: int,
-    packets: list[bytes],
-    descriptors: list[bytes],
-) -> None:
-    """Update / open the ``Processes`` track for *event*.
-
-    On the first non-meta event for a pid:
-      - emit the ``Processes`` track descriptor (once, total),
-      - mark the slice as opened for that pid,
-      - emit a ``TYPE_SLICE_BEGIN`` at this event's ts.
-
-    On every subsequent non-counter non-meta event for that pid, the
-    end-ts is updated. Counter events are skipped for end-ts tracking
-    because the encoder emits them at the start of a GC pause (not at
-    the end), so they would otherwise pull the slice duration down to
-    zero. Closeout (the slice END) is emitted exactly once at trace
-    close by ``finalize_perfetto_packets``; this function never emits
-    the END.
-
-    A no-op if the process descriptor has not yet been emitted (the
-    caller is expected to emit ``ProcessMeta`` before any non-meta
-    event for a pid).
-    """
-    if not state.has_pid(event.pid):
-        return
-    ts = getattr(event, "ts", 0)
-    if not state.has_process_lifetime_track():
-        descriptors.append(_emit_process_lifetime_track_descriptor(state, sequence_id))
-    if state.has_process_lifetime(event.pid):
-        if not isinstance(event, CounterEvent):
-            state.update_process_lifetime_end_ts(event.pid, ts)
-        return
-    state.mark_process_lifetime_opened(event.pid)
-    packets.extend(
-        _emit_process_lifetime_slice_begin(event.pid, ts, state, sequence_id)
-    )
-    if not isinstance(event, CounterEvent):
-        state.update_process_lifetime_end_ts(event.pid, ts)
-
-
-def _record_first_event_ts(
-    event: TraceEvent,
-    state: PerfettoTrackState,
-) -> None:
-    """Record the first non-meta event timestamp for *event*'s pid.
-
-    ``ProcessMeta`` and ``ThreadMeta`` are skipped. The first ts for
-    each pid wins (subsequent calls for the same pid are ignored via
-    ``PerfettoTrackState.record_first_event_ts``). This mirrors the
-    pattern of ``_record_or_open_process_lifetime`` so a single
-    per-event call site handles both concerns.
-    """
-    if isinstance(event, (ProcessMeta, ThreadMeta)):
-        return
-    ts = getattr(event, "ts", None)
-    if ts is None:
-        return
-    state.record_first_event_ts(event.pid, ts)
 
 
 def finalize_perfetto_packets(
@@ -997,6 +932,14 @@ def finalize_perfetto_packets(
     opened, in ascending order of end timestamp (ties broken by
     ascending pid). Returns the list of closeout packets to append
     to the trace.
+
+    The end timestamp for each pid is the **later** of the
+    monitor-reported DIED ts (via ``state.get_process_died_ts``) and
+    the most recent non-counter non-meta event ts accumulated during
+    conversion. Whichever is later wins, so the slice never clips
+    the last GC event (when events kept arriving after the death
+    signal) and never ends before the actual death (when the death
+    was detected after the last event).
 
     Call this exactly once, at the end of the trace (typically in the
     encoder's ``close()``), not at the end of every
@@ -1011,9 +954,23 @@ def finalize_perfetto_packets(
     list). Safe to call more than once (subsequent calls return
     an empty list because the state was already cleared).
     """
+
     packets: list[bytes] = []
-    for pid, end_ts in state.pop_process_lifetime_ends():
-        packets.append(
-            _emit_process_lifetime_slice_end(pid, end_ts, state, sequence_id)
-        )
+
+    starts = [s for s, _ in state._process_lifetime.values()]
+    ends = [e for _, e in state._process_lifetime.values()]
+
+    for idx in range(len(starts)-1):
+        if starts[idx+1] < ends[idx] and ends[idx+1] > ends[idx]:
+            ends[idx] = starts[idx+1]-1
+
+    if not ends:
+        return packets
+
+    if not state.has_process_lifetime_track():
+        packets.append(_emit_process_lifetime_track_descriptor(state, sequence_id))
+
+    for idx, pid in enumerate(state._process_lifetime.keys()):
+        packets.extend(_emit_process_lifetime_slice_begin(pid, starts[idx], state, sequence_id))
+        packets.append(_emit_process_lifetime_slice_end(pid, ends[idx], state, sequence_id))
     return packets

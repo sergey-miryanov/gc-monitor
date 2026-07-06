@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 from typing import override
 
+from ..poll_status import ProcessLifecycle
 from ..protocol import TGCStatsInfo, TInstantMsg
 from ..trace_event import TraceEvent, instant_event, process_meta, thread_meta
 from .encoder import EventEncoder
@@ -69,6 +70,19 @@ class BufferedTraceExporter(EventsExporter):
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
         events = [*self._build_meta(pid, None), instant_event(pid, item.name, item.ts)]
         self._enqueue(events)
+
+    @override
+    def mark_process_lifecycle(
+        self, pid: int, kind: ProcessLifecycle, ts_ns: int,
+    ) -> None:
+        """Forward a process lifecycle transition to the encoder.
+
+        Serialized under ``_io_lock`` so that the resulting encoder state
+        update is observed in the same order with respect to event writes
+        and ``close()``.
+        """
+        with self._io_lock:
+            self._encoder.mark_process_lifecycle(pid, kind, ts_ns)
 
     @override
     def close(self) -> None:

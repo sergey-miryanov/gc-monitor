@@ -34,10 +34,30 @@ class MonitorLoop:
 
     def run(self) -> None:
         pid_policies: dict[int, WaitPolicy] = {}
+        seen_pids: set[int] = set()
         with set_on_exit(self._stop_event):
             for _ in self._runner.run(self._stop_event.is_set):
                 wait: list[bool] = []
                 children: list[int] = [self._monitor.pid, *self._monitor.get_child_pids()]
+                current_pids = set(children)
+
+                # Detect pids that were previously polled but no longer
+                # appear in the children list (process died between
+                # iterations). The next ``poll()`` for them would never
+                # run, so ``EventsMonitor.poll()`` cannot emit DIED via
+                # the normal INVALID_PROCESS path. The monitor exposes
+                # ``mark_pid_died`` exactly for this signal.
+                vanished = seen_pids - current_pids
+                for pid in vanished:
+                    if self._monitor.mark_pid_died(pid):
+                        logger.debug(
+                            "Child PID %s no longer present in children list; emitted DIED",
+                            pid,
+                        )
+                    pid_policies.pop(pid, None)
+
+                seen_pids = current_pids
+
                 for pid in children:
                     if self._stop_event.is_set():
                         break

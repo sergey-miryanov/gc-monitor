@@ -8,6 +8,7 @@ from typing import Any
 
 from gcmon.data import GCStatsInfo
 from gcmon.exporters.exporter import EventsExporter
+from gcmon.poll_status import ProcessLifecycle
 from gcmon.protocol import TGCStatsInfo, TInstantMsg
 
 __all__ = [
@@ -38,6 +39,7 @@ class MockExporter(EventsExporter):
         super().__init__()
         self.events: list[TGCStatsInfo] = []
         self.instant_events: list[tuple[int, TInstantMsg]] = []
+        self.lifecycle_events: list[tuple[int, ProcessLifecycle, int]] = []
         self._close_called = False
         self._event_added = threading.Event()
 
@@ -59,6 +61,13 @@ class MockExporter(EventsExporter):
             item: The instant message to add.
         """
         self.instant_events.append((pid, item))
+        self._event_added.set()
+
+    def mark_process_lifecycle(
+        self, pid: int, kind: ProcessLifecycle, ts_ns: int,
+    ) -> None:
+        """Record a process lifecycle transition in memory."""
+        self.lifecycle_events.append((pid, kind, ts_ns))
         self._event_added.set()
 
     def close(self) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import override
 
+from ..poll_status import ProcessLifecycle
 from ..protocol import TGCStatsInfo, TInstantMsg
 from .exporter import EventsExporter
 
@@ -63,6 +64,13 @@ class CombinedTraceExporter(EventsExporter):
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
         self._chrome.add_instant_event(pid, item)
         self._perfetto.add_instant_event(pid, item)
+
+    @override
+    def mark_process_lifecycle(
+        self, pid: int, kind: ProcessLifecycle, ts_ns: int,
+    ) -> None:
+        self._chrome.mark_process_lifecycle(pid, kind, ts_ns)
+        self._perfetto.mark_process_lifecycle(pid, kind, ts_ns)
 
     @override
     def close(self) -> None:

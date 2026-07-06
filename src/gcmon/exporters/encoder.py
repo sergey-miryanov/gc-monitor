@@ -19,6 +19,7 @@ from typing import Protocol
 import msgspec
 
 from ..data import ts_to_us
+from ..poll_status import ProcessLifecycle
 from ..trace_event import ProcessMeta, TraceEvent
 from .perfetto_format import (
     PerfettoTrackState,
@@ -45,6 +46,16 @@ class EventEncoder(Protocol):
 
     def write_events(self, events: Sequence[TraceEvent]) -> None:
         """Encode and persist *events* as a single batch."""
+
+    def mark_process_lifecycle(
+        self, pid: int, kind: ProcessLifecycle, ts_ns: int,
+    ) -> None:
+        """Update encoder state for a process lifecycle transition.
+
+        Encoders with a per-process lifetime track (e.g. Perfetto) record
+        the timestamp; encoders without one (e.g. Chrome JSON / JSONL) may
+        treat this as a no-op.
+        """
 
     def close(self) -> None:
         """Finalize the output. May be a no-op for some encoders."""
@@ -80,6 +91,11 @@ class JsonEventEncoder:
                 else:
                     f.write(b",\n" + encoded)
             f.flush()
+
+    def mark_process_lifecycle(
+        self, pid: int, kind: ProcessLifecycle, ts_ns: int,
+    ) -> None:
+        """No-op: Chrome JSON has no per-process lifetime track concept."""
 
     def close(self) -> None:
         assert self._path is not None, "open() must be called before close()"
@@ -154,6 +170,17 @@ class ProtobufEventEncoder:
             for entry in packets:
                 f.write(encode_bytes_field(TraceField.PACKET, entry))
             f.flush()
+
+    def mark_process_lifecycle(
+        self, pid: int, kind: ProcessLifecycle, ts_ns: int,
+    ) -> None:
+        """Record a process lifecycle transition on the Perfetto track state.
+
+        BufferedTraceExporter serializes this call under its ``_io_lock``,
+        so the resulting state update is observed in the same order as
+        ``write_events`` and ``close()`` on the same encoder instance.
+        """
+        self._track_state.update_process_lifetime(pid, ts_ns)
 
     def close(self) -> None:
         if self._path is None or not self._has_written:
