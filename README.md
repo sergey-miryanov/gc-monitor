@@ -558,7 +558,7 @@ name,
 FROM slice
 WHERE category IS NOT NULL
 GROUP BY name
-ORDER BY IIF(parent_id IS NULL, 0, 1), name
+ORDER BY IF(parent_id IS NULL, 0, 1), name
 ```
 
 This query:
