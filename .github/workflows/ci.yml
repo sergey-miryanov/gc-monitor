@@ -114,17 +114,7 @@ jobs:
 
       - name: Run tests
         run: |
-          poetry run pytest -q --basetemp=.temp --cov=src/gcmon --cov-report=term-missing --cov-branch --cov-reset --junitxml=reports/tests.xml
-
-      - name: List files (debug)
-        if: always()
-        run: ls -la .coverage coverage*.xml 2>&1 || true
-        shell: bash
-
-      - name: Generate coverage XML
-        if: always()
-        run: |
-          poetry run coverage xml -o coverage-${{ matrix.os }}.xml
+          poetry run pytest -q --basetemp=.temp --cov=src/gcmon --cov-report=xml:coverage-${{ matrix.os }}.xml --cov-report=term-missing --cov-branch --junitxml=reports/tests.xml
 
       - name: Upload test results
         if: always()
