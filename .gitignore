@@ -27,7 +27,7 @@ envs/
 .vscode/
 
 # coverage
-coverage.xml
+coverage*.xml
 .coverage
 .coverage*
 htmlcov
