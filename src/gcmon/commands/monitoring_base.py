@@ -51,7 +51,9 @@ def run_monitoring_loop(
             stack.enter_context(monitor)
 
             run_policy = RunnerFactory(options.duration)
-            loop = MonitorLoop(monitor, run_policy, wait_policy_factory, rate=options.rate, enabled=control_server.is_enabled)
+            loop = MonitorLoop(
+                monitor, run_policy, wait_policy_factory, rate=options.rate, enabled=control_server.is_enabled
+            )
 
             def _signal_handler(signum: int, frame: object) -> None:
                 loop.close()

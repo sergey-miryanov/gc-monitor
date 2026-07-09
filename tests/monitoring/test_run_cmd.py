@@ -121,7 +121,6 @@ def _check_process_alive(pid: int) -> bool:
     return True
 
 
-
 def _sample_process(pid: int) -> None:
     if sys.platform != "darwin":
         return
@@ -178,12 +177,12 @@ def _popen_with_timeout(cmd: list[str], timeout: float) -> subprocess.CompletedP
         except subprocess.TimeoutExpired:
             continue
         reader_thread.join(timeout=5)
-        return subprocess.CompletedProcess(
-            args=cmd, returncode=ret, stdout="".join(buf), stderr=""
-        )
+        return subprocess.CompletedProcess(args=cmd, returncode=ret, stdout="".join(buf), stderr="")
 
 
-def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
+def run_script(
+    script_file: Path, *script_args: str, gc_args: list[str] | None = None
+) -> subprocess.CompletedProcess[str]:
     gc_opts = gc_args or []
     cmd = [
         sys.executable,
@@ -202,7 +201,9 @@ def run_script(script_file: Path, *script_args: str, gc_args: list[str] | None =
         raise
 
 
-def run_module(module_name: str, *script_args: str, gc_args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
+def run_module(
+    module_name: str, *script_args: str, gc_args: list[str] | None = None
+) -> subprocess.CompletedProcess[str]:
     gc_opts = gc_args or []
     cmd = [
         sys.executable,

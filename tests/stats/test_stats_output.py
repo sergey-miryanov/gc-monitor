@@ -92,9 +92,7 @@ class TestStatsOutput:
         captured = capsys.readouterr()
         lines = captured.out.splitlines()
         blank = any(
-            line.startswith("|")
-            and not any(c.isalpha() or c.isdigit() or c == "-" for c in line)
-            for line in lines[2:]
+            line.startswith("|") and not any(c.isalpha() or c.isdigit() or c == "-" for c in line) for line in lines[2:]
         )
         assert blank
 
@@ -148,10 +146,7 @@ class TestPrintTable:
         _print_table(rows, table_format=TableFormat.MARKDOWN)
         captured = capsys.readouterr()
         lines = captured.out.strip().splitlines()
-        blank_separator_found = any(
-            line.startswith("|") and all(c in ("|", " ") for c in line)
-            for line in lines[2:]
-        )
+        blank_separator_found = any(line.startswith("|") and all(c in ("|", " ") for c in line) for line in lines[2:])
         assert blank_separator_found
 
 

@@ -27,6 +27,7 @@ def mock_gc_stats():
 def thread_factory():
     def _make(rate: float = 0.1) -> MonitorThread:
         return MonitorThread(lambda: StartupTimeoutPolicy(5), rate=rate)
+
     return _make
 
 
@@ -61,13 +62,16 @@ class TestGCMonitor:
         assert exporter.events[0].ts_start == 1_000_000_000
         assert exporter.events[1].ts_start == 2_000_000_000
 
-    @pytest.mark.parametrize("expected_status, error_msg", [
-        (PollStatus.INVALID_PROCESS, "Failed to initialize process handle"),
-        (PollStatus.INVALID_PROCESS, "Failed to get Python runtime address"),
-        (PollStatus.INVALID_PROCESS, "Failed to read debug offsets"),
-        (PollStatus.INVALID_PROCESS, "Invalid debug offsets found"),
-        (PollStatus.INVALID_PROCESS, "Some other error"),
-    ])
+    @pytest.mark.parametrize(
+        "expected_status, error_msg",
+        [
+            (PollStatus.INVALID_PROCESS, "Failed to initialize process handle"),
+            (PollStatus.INVALID_PROCESS, "Failed to get Python runtime address"),
+            (PollStatus.INVALID_PROCESS, "Failed to read debug offsets"),
+            (PollStatus.INVALID_PROCESS, "Invalid debug offsets found"),
+            (PollStatus.INVALID_PROCESS, "Some other error"),
+        ],
+    )
     def test_poll_runtime_error(self, monitor: EventsMonitor, expected_status: PollStatus, error_msg: str) -> None:
         with patch("gcmon.monitor.get_gc_stats", side_effect=RuntimeError(error_msg)):
             result = monitor.poll(12345)
@@ -184,8 +188,7 @@ class TestGCMonitorThread:
         monitor1 = make_monitor(exp=exporter1)
 
         mock_gc_stats.side_effect = lambda pid, all_interpreters=False: (
-            [item1] if pid == 12345
-            else [create_mock_stats_item(ts_start=2_000_000_000, ts_stop=2_005_000_000)]
+            [item1] if pid == 12345 else [create_mock_stats_item(ts_start=2_000_000_000, ts_stop=2_005_000_000)]
         )
 
         thread.add_monitor(monitor1)

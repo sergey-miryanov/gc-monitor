@@ -143,9 +143,7 @@ class GCMonitorHook:
 
         except Exception as e:
             raise RuntimeError(
-                "Failed to run gcmon module: "
-                + str(e)
-                + ". Ensure gcmon is installed: pip install gcmon"
+                "Failed to run gcmon module: " + str(e) + ". Ensure gcmon is installed: pip install gcmon"
             ) from e
 
         verbose = _get_env_pyperf_hook_verbose()
@@ -267,6 +265,7 @@ class GCMonitorHook:
             "--control-name",
             self._control_name,
         ]
+
 
 # Entry point factory function
 def gcmon_hook() -> GCMonitorHook:

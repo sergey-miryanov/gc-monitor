@@ -62,13 +62,14 @@ class OutputCapture(Protocol):
                        TYPE_INSTANT track events
     """
 
-    def count_completes(self) -> int:...
-    def count_instants(self) -> int:...
+    def count_completes(self) -> int: ...
+    def count_instants(self) -> int: ...
 
 
 class ExporterFactory(Protocol):
     name: str
-    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:...
+
+    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]: ...
 
 
 def _run_two_threads(workers: list[Callable[[], None]]) -> list[BaseException]:
@@ -193,8 +194,8 @@ class PerfettoFileCapture(OutputCapture):
             te_bytes = self._get_bytes_at(pf, TracePacketField.TRACK_EVENT)
             if not te_bytes:
                 continue
-            te = decode_message(te_bytes)
-            if get_varint(te, TrackEventField.TYPE) == event_type:
+            track_event = decode_message(te_bytes)
+            if get_varint(track_event, TrackEventField.TYPE) == event_type:
                 n += 1
         return n
 
@@ -261,6 +262,7 @@ class _ChromeTraceExporterFactory:
         exporter = TraceExporter(output_path=path, flush_threshold=threshold)
         return exporter, ChromeTraceFileCapture(path)
 
+
 class _JsonlExporterFactory:
     name = "jsonl"
 
@@ -286,7 +288,9 @@ class _PerfettoFactory:
 class _StdoutFactory:
     name = "stdout"
 
-    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:  # tmp_path unused but kept for symmetry
+    def build(
+        self, tmp_path: Path, threshold: int
+    ) -> tuple[EventsExporter, OutputCapture]:  # tmp_path unused but kept for symmetry
         buffer = _LockingStringIO()
         exporter = StdoutExporter(flush_threshold=threshold, output=buffer)
         return exporter, StdoutCapture(buffer)
@@ -328,9 +332,7 @@ class TestExporterThreadSafety:
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == N_GC + (
-            2 if isinstance(capture, PerfettoFileCapture) else 0
-        ), (
+        assert capture.count_completes() == N_GC + (2 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected {N_GC} complete events "
             f"(plus 1 Processes-track lifetime begin per pid for Perfetto), "
             f"got {capture.count_completes()}"
@@ -346,8 +348,7 @@ class TestExporterThreadSafety:
             )
         else:
             assert capture.count_instants() == N_INSTANT, (
-                f"[{exporter_factory.name}] expected {N_INSTANT} instant events, "
-                f"got {capture.count_instants()}"
+                f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
             )
 
     def test_concurrent_add_event_and_close_no_data_loss(
@@ -382,9 +383,7 @@ class TestExporterThreadSafety:
             f"got {completes}"
         )
 
-    def test_double_close_safe(
-        self, exporter_factory: ExporterFactory, tmp_path: Path
-    ) -> None:
+    def test_double_close_safe(self, exporter_factory: ExporterFactory, tmp_path: Path) -> None:
         exporter, capture = exporter_factory.build(tmp_path, threshold=1)
         for ev in _make_gc_events(5, 1_500_000_000):
             exporter.add_event(MAIN_PID, ev)
@@ -399,17 +398,13 @@ class TestExporterThreadSafety:
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == 5 + (
-            1 if isinstance(capture, PerfettoFileCapture) else 0
-        ), (
+        assert capture.count_completes() == 5 + (1 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected 5 complete events "
             f"(plus 1 Processes-track lifetime begin for Perfetto), "
             f"got {capture.count_completes()}"
         )
 
-    def test_concurrent_add_event_same_pid(
-        self, exporter_factory: ExporterFactory, tmp_path: Path
-    ) -> None:
+    def test_concurrent_add_event_same_pid(self, exporter_factory: ExporterFactory, tmp_path: Path) -> None:
         """Both threads write to the same new PID concurrently.
 
         The Perfetto exporter must not emit duplicate track descriptors
@@ -438,19 +433,14 @@ class TestExporterThreadSafety:
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == 2 * N_GC + (
-            1 if isinstance(capture, PerfettoFileCapture) else 0
-        ), (
+        assert capture.count_completes() == 2 * N_GC + (1 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected {2 * N_GC} complete events "
             f"(plus 1 Processes-track lifetime begin for Perfetto), "
             f"got {capture.count_completes()}"
         )
         if isinstance(capture, PerfettoFileCapture):
             proc_descs = capture.count_process_descriptors()
-            assert proc_descs == 1, (
-                f"[perfetto] expected exactly 1 process descriptor, "
-                f"got {proc_descs}"
-            )
+            assert proc_descs == 1, f"[perfetto] expected exactly 1 process descriptor, got {proc_descs}"
 
     def test_concurrent_add_event_and_add_instant_event_same_new_pid(
         self, exporter_factory: ExporterFactory, tmp_path: Path
@@ -485,9 +475,7 @@ class TestExporterThreadSafety:
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == N_GC + (
-            1 if isinstance(capture, PerfettoFileCapture) else 0
-        ), (
+        assert capture.count_completes() == N_GC + (1 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected {N_GC} complete events "
             f"(plus 1 Processes-track lifetime begin for Perfetto), "
             f"got {capture.count_completes()}"
@@ -503,19 +491,13 @@ class TestExporterThreadSafety:
             )
         else:
             assert capture.count_instants() == N_INSTANT, (
-                f"[{exporter_factory.name}] expected {N_INSTANT} instant events, "
-                f"got {capture.count_instants()}"
+                f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
             )
         if isinstance(capture, PerfettoFileCapture):
             proc_descs = capture.count_process_descriptors()
-            assert proc_descs == 1, (
-                f"[perfetto] expected exactly 1 process descriptor, "
-                f"got {proc_descs}"
-            )
+            assert proc_descs == 1, f"[perfetto] expected exactly 1 process descriptor, got {proc_descs}"
 
-    def test_post_close_add_event_does_not_crash(
-        self, exporter_factory: ExporterFactory, tmp_path: Path
-    ) -> None:
+    def test_post_close_add_event_does_not_crash(self, exporter_factory: ExporterFactory, tmp_path: Path) -> None:
         """Calling ``add_event`` after ``close()`` must not raise.
 
         The Perfetto exporter's ``_ensure_cmdline`` does not check
@@ -528,10 +510,7 @@ class TestExporterThreadSafety:
         exporter.close()
 
         exporter.add_event(MAIN_PID, create_mock_stats_item(iid=1000))
-        exporter.add_instant_event(
-            MAIN_PID, create_instant_msg(name="post-close", ts=999_999)
-        )
-
+        exporter.add_instant_event(MAIN_PID, create_instant_msg(name="post-close", ts=999_999))
 
 
 @pytest.mark.stress
@@ -539,9 +518,7 @@ class TestPerfettoExporterCmdlinePath:
     """Tests that target the cmdline fetch + DCL path in
     ``PerfettoExporter._ensure_cmdline``."""
 
-    def test_ensure_cmdline_none_event_still_emitted(
-        self, tmp_path: Path
-    ) -> None:
+    def test_ensure_cmdline_none_event_still_emitted(self, tmp_path: Path) -> None:
         """When the cmdline provider returns ``None`` (process gone),
         the convert still builds a process descriptor (just without
         a cmdline). The DCL pattern with ``set_cmdline(pid, None)``
@@ -575,18 +552,15 @@ class TestPerfettoExporterCmdlinePath:
                 continue
             proc_fields = decode_message(proc)
             cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
-            assert cmdline_entries == [], (
-                f"expected no cmdline entries, got {len(cmdline_entries)}"
-            )
+            assert cmdline_entries == [], f"expected no cmdline entries, got {len(cmdline_entries)}"
 
-    def test_concurrent_same_pid_cmdline_provider_raises(
-        self, tmp_path: Path
-    ) -> None:
+    def test_concurrent_same_pid_cmdline_provider_raises(self, tmp_path: Path) -> None:
         """Two threads race on the same new PID when the cmdline
         provider raises. DCL must still produce exactly one
         process descriptor (no cmdline), all events must arrive,
         and no exception must leak to the caller.
         """
+
         class _CmdlineError(Exception):
             pass
 
@@ -638,9 +612,7 @@ class TestMetaDedupRaceClosed:
     load.
     """
 
-    def test_chrome_two_threads_same_new_pid_produces_single_process_meta(
-        self, tmp_path: Path
-    ) -> None:
+    def test_chrome_two_threads_same_new_pid_produces_single_process_meta(self, tmp_path: Path) -> None:
         path = tmp_path / "out_chrome.dat"
         exporter = TraceExporter(output_path=path, flush_threshold=10)
         events_a = _make_gc_events(N_GC, 1_500_000_000)
@@ -661,13 +633,9 @@ class TestMetaDedupRaceClosed:
 
         text = path.read_text(encoding="utf-8")
         proc_metas = text.count('"name":"process_name"')
-        assert proc_metas == 1, (
-            f"expected exactly 1 process_name event, got {proc_metas}"
-        )
+        assert proc_metas == 1, f"expected exactly 1 process_name event, got {proc_metas}"
 
-    def test_perfetto_two_threads_same_new_pid_produces_single_descriptor(
-        self, tmp_path: Path
-    ) -> None:
+    def test_perfetto_two_threads_same_new_pid_produces_single_descriptor(self, tmp_path: Path) -> None:
         path = tmp_path / "out_perfetto.pb"
         exporter = PerfettoExporter(
             output_path=path,
@@ -692,13 +660,9 @@ class TestMetaDedupRaceClosed:
 
         capture = PerfettoFileCapture(path)
         proc_descs = capture.count_process_descriptors()
-        assert proc_descs == 1, (
-            f"expected exactly 1 process descriptor, got {proc_descs}"
-        )
+        assert proc_descs == 1, f"expected exactly 1 process descriptor, got {proc_descs}"
 
-    def test_chrome_one_thread_add_event_one_thread_add_instant_same_new_pid(
-        self, tmp_path: Path
-    ) -> None:
+    def test_chrome_one_thread_add_event_one_thread_add_instant_same_new_pid(self, tmp_path: Path) -> None:
         path = tmp_path / "out_mixed.dat"
         exporter = TraceExporter(output_path=path, flush_threshold=10)
         gc_events = _make_gc_events(N_GC, 1_500_000_000)
@@ -719,6 +683,4 @@ class TestMetaDedupRaceClosed:
 
         text = path.read_text(encoding="utf-8")
         proc_metas = text.count('"name":"process_name"')
-        assert proc_metas == 1, (
-            f"expected exactly 1 process_name event, got {proc_metas}"
-        )
+        assert proc_metas == 1, f"expected exactly 1 process_name event, got {proc_metas}"

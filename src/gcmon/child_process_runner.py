@@ -24,6 +24,7 @@ class ChildProcess(TargetProcess):
     def pid(self) -> int:
         return self._pid
 
+
 class ChildProcessRunner:
     def __init__(
         self,

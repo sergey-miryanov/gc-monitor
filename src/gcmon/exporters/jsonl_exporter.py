@@ -75,7 +75,7 @@ class JsonlExporter(EventsExporter):
             with self._io_lock:
                 self._flush(events)
 
-    def _flush(self, events: list[dict[str, str|int|float]]) -> None:
+    def _flush(self, events: list[dict[str, str | int | float]]) -> None:
         if not events:
             return
         with self._open_writer() as w:
@@ -96,5 +96,3 @@ class JsonlExporter(EventsExporter):
         if events:
             with self._io_lock:
                 self._flush(events)
-
-

@@ -4,6 +4,7 @@ from typing import Protocol
 
 try:
     from ddsketch import DDSketch
+
     HAS_DDSKETCH = True
 except ImportError:
     HAS_DDSKETCH = False
@@ -23,7 +24,7 @@ from .protocol import (
 )
 
 
-def get_quantile_value(buffer:Sequence[float], q:int) -> float:
+def get_quantile_value(buffer: Sequence[float], q: int) -> float:
     if not buffer:
         return 0.0
 
@@ -111,7 +112,8 @@ class Stats:
 
 class Metric(Protocol):
     name: str
-    def get_values(self, item: object) -> tuple[int, int]:...
+
+    def get_values(self, item: object) -> tuple[int, int]: ...
 
 
 class PauseMetric:
@@ -121,7 +123,8 @@ class PauseMetric:
     def get_values(self, item: object) -> tuple[int, int]:
         if has_pause_ts(item):
             return item.ts_start, item.ts_stop
-        return 0,0
+        return 0, 0
+
 
 class MarkAliveMetric:
     def __init__(self) -> None:
@@ -132,6 +135,7 @@ class MarkAliveMetric:
             return item.ts_mark_alive_start, item.ts_mark_alive_stop
         return 0, 0
 
+
 class FillIncrementMetric:
     def __init__(self) -> None:
         self.name = "GC Fill Increment"
@@ -140,6 +144,7 @@ class FillIncrementMetric:
         if has_incremental(item):
             return item.ts_fill_increment_start, item.ts_fill_increment_stop
         return 0, 0
+
 
 class DeduceUnreachableMetric:
     def __init__(self) -> None:
@@ -150,6 +155,7 @@ class DeduceUnreachableMetric:
             return item.ts_deduce_unreachable_start, item.ts_deduce_unreachable_stop
         return 0, 0
 
+
 class HandleWeakrefsMetric:
     def __init__(self) -> None:
         self.name = "GC Handle Weakrefs Callbacks"
@@ -158,6 +164,7 @@ class HandleWeakrefsMetric:
         if has_handle_weakrefs(item):
             return item.ts_handle_weakref_callbacks_start, item.ts_handle_weakref_callbacks_stop
         return 0, 0
+
 
 class FinalizeGarbageMetric:
     def __init__(self) -> None:
@@ -168,6 +175,7 @@ class FinalizeGarbageMetric:
             return item.ts_handle_weakref_callbacks_stop, item.ts_finalize_garbage_stop
         return 0, 0
 
+
 class HandleResurrectedMetric:
     def __init__(self) -> None:
         self.name = "GC Handle Resurrected"
@@ -177,6 +185,7 @@ class HandleResurrectedMetric:
             return item.ts_finalize_garbage_stop, item.ts_handle_resurrected_stop
         return 0, 0
 
+
 class ClearWeakrefsMetric:
     def __init__(self) -> None:
         self.name = "GC Clear Weakrefs"
@@ -185,6 +194,7 @@ class ClearWeakrefsMetric:
         if has_clear_weakrefs(item):
             return item.ts_handle_resurrected_stop, item.ts_clear_weakrefs_stop
         return 0, 0
+
 
 class DeleteGarbageMetric:
     def __init__(self) -> None:
@@ -227,9 +237,7 @@ class StreamingStats:
 
     def __init__(self) -> None:
         self._count: int = 0
-        self.metrics: TStatsData = {
-            metric: {gen: Stats() for gen in self.GENS} for metric in METRICS
-        }
+        self.metrics: TStatsData = {metric: {gen: Stats() for gen in self.GENS} for metric in METRICS}
         self._metrics_per_pid: OrderedDict[int, TStatsData] = OrderedDict()
         self._materialized_metrics: dict[int, TStatsData] = {}
         self._heap_size: dict[int, int] = {}
@@ -268,7 +276,7 @@ class StreamingStats:
         return self._count
 
     def aggregate(self) -> dict[str, int | float]:
-        result: dict[str, int|float] = {}
+        result: dict[str, int | float] = {}
         for gen in self.GENS:
             s = self.metrics["pause"][gen]
             if s.count() > 0:

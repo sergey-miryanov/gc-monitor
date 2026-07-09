@@ -81,6 +81,7 @@ def run_monitor(gcmon_cmd: list[str]) -> Callable[..., subprocess.CompletedProce
     Usage:
         result = run_monitor(["-d", "0.1"], timeout=5)
     """
+
     def _run(extra_args: list[str] | None = None, **kwargs: object) -> subprocess.CompletedProcess[str]:
         cmd = gcmon_cmd + ["monitor", "12345"] + (extra_args or [])
         return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
@@ -95,6 +96,7 @@ def run_monitor_self(gcmon_cmd: list[str]) -> Callable[..., subprocess.Completed
     Usage:
         result = run_monitor(["-d", "0.1"], timeout=5)
     """
+
     def _run(extra_args: list[str] | None = None, **kwargs: object) -> subprocess.CompletedProcess[str]:
         cmd = gcmon_cmd + ["monitor", "-1"] + (extra_args or [])
         return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
@@ -109,6 +111,7 @@ def monitoring_options() -> Callable[..., MonitoringOptions]:
     Usage:
         opts = monitoring_options(output_format="stdout")
     """
+
     def _make(**overrides: Any) -> MonitoringOptions:
         defaults: dict[str, Any] = {
             "output_path": Path("test.json"),
@@ -121,6 +124,7 @@ def monitoring_options() -> Callable[..., MonitoringOptions]:
             "table_format": TableFormat.PLAIN,
         }
         return MonitoringOptions(**{**defaults, **overrides})
+
     return _make
 
 

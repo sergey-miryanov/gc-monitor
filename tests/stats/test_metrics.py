@@ -60,7 +60,8 @@ class TestMarkAliveMetric:
     ) -> None:
         metric = MarkAliveMetric()
         item = incremental_gc_stats_item_factory(
-            ts_mark_alive_start=2000, ts_mark_alive_stop=4000,
+            ts_mark_alive_start=2000,
+            ts_mark_alive_stop=4000,
         )
         ts_start, ts_stop = metric.get_values(item)
         assert ts_start == 2000
@@ -73,8 +74,8 @@ class TestMarkAliveMetric:
         metric = MarkAliveMetric()
         item = gc_stats_item_factory()
         ts1, ts2 = metric.get_values(item)
-        assert(ts1 == 0)
-        assert(ts2 == 0)
+        assert ts1 == 0
+        assert ts2 == 0
 
 
 class TestFillIncrementMetric:
@@ -90,7 +91,8 @@ class TestFillIncrementMetric:
     ) -> None:
         metric = FillIncrementMetric()
         item = incremental_gc_stats_item_factory(
-            ts_fill_increment_start=3000, ts_fill_increment_stop=5000,
+            ts_fill_increment_start=3000,
+            ts_fill_increment_stop=5000,
         )
         ts_start, ts_stop = metric.get_values(item)
         assert ts_start == 3000
@@ -103,8 +105,8 @@ class TestFillIncrementMetric:
         metric = FillIncrementMetric()
         item = gc_stats_item_factory()
         ts1, ts2 = metric.get_values(item)
-        assert(ts1 == 0)
-        assert(ts2 == 0)
+        assert ts1 == 0
+        assert ts2 == 0
 
 
 class TestDeduceUnreachableMetric:
@@ -120,7 +122,8 @@ class TestDeduceUnreachableMetric:
     ) -> None:
         metric = DeduceUnreachableMetric()
         item = incremental_gc_stats_item_factory(
-            ts_deduce_unreachable_start=7000, ts_deduce_unreachable_stop=9000,
+            ts_deduce_unreachable_start=7000,
+            ts_deduce_unreachable_stop=9000,
         )
         ts_start, ts_stop = metric.get_values(item)
         assert ts_start == 7000
@@ -133,8 +136,8 @@ class TestDeduceUnreachableMetric:
         metric = DeduceUnreachableMetric()
         item = gc_stats_item_factory()
         ts1, ts2 = metric.get_values(item)
-        assert(ts1 == 0)
-        assert(ts2 == 0)
+        assert ts1 == 0
+        assert ts2 == 0
 
 
 class TestHandleWeakrefsMetric:
@@ -297,9 +300,15 @@ class TestMetricDictionaries:
 
     def test_metrics_keys(self) -> None:
         expected_keys = {
-            "pause", "mark_alive", "fill_increment", "deduce_unreachable",
-            "handle_weakrefs", "finalize_garbage", "handle_resurrected",
-            "clear_weakrefs", "delete_garbage",
+            "pause",
+            "mark_alive",
+            "fill_increment",
+            "deduce_unreachable",
+            "handle_weakrefs",
+            "finalize_garbage",
+            "handle_resurrected",
+            "clear_weakrefs",
+            "delete_garbage",
         }
         assert set(METRICS) == expected_keys
 

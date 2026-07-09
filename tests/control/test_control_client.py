@@ -46,11 +46,14 @@ def patched_client_factory():
 
 
 class TestPublicAPI:
-    @pytest.mark.parametrize("method, args, expected_msg", [
-        ("start_monitoring", (), "start"),
-        ("stop_monitoring", (), "stop"),
-        ("instant_msg", ("custom event",), "custom event"),
-    ])
+    @pytest.mark.parametrize(
+        "method, args, expected_msg",
+        [
+            ("start_monitoring", (), "start"),
+            ("stop_monitoring", (), "stop"),
+            ("instant_msg", ("custom event",), "custom event"),
+        ],
+    )
     def test_sends_payload(self, client, mock_conn, method, args, expected_msg):
         getattr(client, method)(*args)
         mock_conn.send.assert_called_once()

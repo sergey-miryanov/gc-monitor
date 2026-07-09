@@ -51,19 +51,11 @@ def encode_fixed64_field(field_number: int, value: int) -> bytes:
 
 def encode_string_field(field_number: int, value: str) -> bytes:
     encoded = value.encode("utf-8")
-    return (
-        encode_field_key(field_number, WIRE_TYPE_LENGTH_DELIMITED)
-        + encode_varint(len(encoded))
-        + encoded
-    )
+    return encode_field_key(field_number, WIRE_TYPE_LENGTH_DELIMITED) + encode_varint(len(encoded)) + encoded
 
 
 def encode_bytes_field(field_number: int, value: bytes) -> bytes:
-    return (
-        encode_field_key(field_number, WIRE_TYPE_LENGTH_DELIMITED)
-        + encode_varint(len(value))
-        + value
-    )
+    return encode_field_key(field_number, WIRE_TYPE_LENGTH_DELIMITED) + encode_varint(len(value)) + value
 
 
 def encode_double_field(field_number: int, value: float) -> bytes:

@@ -35,6 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
       - uses: ./.github/actions/setup
@@ -62,10 +63,12 @@ jobs:
 
       - name: Create GitHub Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && (github.event.inputs.dry_run != 'true')
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          body: ${{ steps.changelog.outputs.body }}
-          generate_release_notes: true
-          files: |
-            dist/*.whl
-            dist/*.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          NOTES: ${{ steps.changelog.outputs.body }}
+        run: |
+          gh release create "$TAG" \
+            --notes "$NOTES" \
+            --generate-notes \
+            dist/*.whl dist/*.tar.gz

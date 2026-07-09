@@ -50,9 +50,9 @@ def _get_track_event(fields: list[ProtoField]) -> list[ProtoField] | None:
 
 
 def _is_track_event(fields: list[ProtoField], event_type: int) -> bool:
-    te = _get_track_event(fields)
-    if te is not None:
-        return any(f.field_number == TrackEventField.TYPE and f.value == event_type for f in te)
+    track_event = _get_track_event(fields)
+    if track_event is not None:
+        return any(f.field_number == TrackEventField.TYPE and f.value == event_type for f in track_event)
     return False
 
 
@@ -73,9 +73,9 @@ def get_int_at(fields: list[ProtoField], field_number: int) -> int | None:
 def _count_event_type(packet_fields: list[list[ProtoField]], event_type: int) -> int:
     count = 0
     for pf in packet_fields:
-        te = _get_track_event(pf)
-        if te:
-            for f in te:
+        track_event = _get_track_event(pf)
+        if track_event:
+            for f in track_event:
                 if f.field_number == TrackEventField.TYPE and f.value == event_type:
                     count += 1
     return count
@@ -133,9 +133,9 @@ class TestPerfettoExporter:
         # Verify pause slice
         hit = False
         for pf in packets:
-            te = _get_track_event(pf)
-            if te and get_varint(te, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
-                name = get_string(te, TrackEventField.NAME)
+            track_event = _get_track_event(pf)
+            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
+                name = get_string(track_event, TrackEventField.NAME)
                 if name == "GC Pause (gen=0)":
                     hit = True
                     break
@@ -159,8 +159,8 @@ class TestPerfettoExporter:
         packets = _read_trace_packets(path)
         pause_ts = None
         for pf in packets:
-            te = _get_track_event(pf)
-            if te and get_varint(te, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
+            track_event = _get_track_event(pf)
+            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
                 pause_ts = get_int_at(pf, TracePacketField.TIMESTAMP)
                 break
         assert pause_ts == 1_500_000_000
@@ -186,9 +186,9 @@ class TestPerfettoExporter:
         packets = _read_trace_packets(path)
         names = set()
         for pf in packets:
-            te = _get_track_event(pf)
-            if te and get_varint(te, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
-                name = get_string(te, TrackEventField.NAME)
+            track_event = _get_track_event(pf)
+            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
+                name = get_string(track_event, TrackEventField.NAME)
                 if name and "GC Pause" in name:
                     names.add(name)
         assert names == {"GC Pause (gen=0)", "GC Pause (gen=1)", "GC Pause (gen=2)"}
@@ -202,9 +202,9 @@ class TestPerfettoExporter:
         packets = _read_trace_packets(path)
         names = []
         for pf in packets:
-            te = _get_track_event(pf)
-            if te and get_varint(te, TrackEventField.TYPE) == TYPE_INSTANT:
-                name = get_string(te, TrackEventField.NAME)
+            track_event = _get_track_event(pf)
+            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_INSTANT:
+                name = get_string(track_event, TrackEventField.NAME)
                 if name:
                     names.append(name)
         # First the synthetic "Start Process" marker (emitted on the
@@ -221,14 +221,16 @@ class TestPerfettoExporter:
         packets = _read_trace_packets(path)
         names = []
         for pf in packets:
-            te = _get_track_event(pf)
-            if te and get_varint(te, TrackEventField.TYPE) == TYPE_INSTANT:
-                name = get_string(te, TrackEventField.NAME)
+            track_event = _get_track_event(pf)
+            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_INSTANT:
+                name = get_string(track_event, TrackEventField.NAME)
                 if name:
                     names.append(name)
         # The marker is emitted only on the first event for the pid.
         assert names == [
-            _START_PROCESS_MARKER_NAME, "start GC monitor", "stop GC monitor",
+            _START_PROCESS_MARKER_NAME,
+            "start GC monitor",
+            "stop GC monitor",
         ]
 
     def test_events_have_valid_timestamps(self, mock_stats_item, perfetto_exporter) -> None:
@@ -275,9 +277,9 @@ class TestPerfettoExporter:
         packets = _read_trace_packets(path)
         begin_names = set()
         for pf in packets:
-            te = _get_track_event(pf)
-            if te and get_varint(te, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
-                name = get_string(te, TrackEventField.NAME)
+            track_event = _get_track_event(pf)
+            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
+                name = get_string(track_event, TrackEventField.NAME)
                 if name:
                     begin_names.add(name)
         expected = {
@@ -301,9 +303,9 @@ class TestPerfettoExporter:
         packets = _read_trace_packets(path)
         counter_tracks = set()
         for pf in packets:
-            te = _get_track_event(pf)
-            if te and get_varint(te, TrackEventField.TYPE) == TYPE_COUNTER:
-                uuid = get_varint(te, TrackEventField.TRACK_UUID)
+            track_event = _get_track_event(pf)
+            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_COUNTER:
+                uuid = get_varint(track_event, TrackEventField.TRACK_UUID)
                 if uuid is not None:
                     counter_tracks.add(uuid)
         # collected, uncollectable, candidates, heap_size, duration.
@@ -321,9 +323,16 @@ class TestPerfettoExporter:
             cmdline_provider=_cmdline_provider,
         )
         item = GCStatsInfo(
-            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
-            heap_size=1000, collections=1, collected=10,
-            uncollectable=0, candidates=5, duration=0.001,
+            gen=0,
+            iid=0,
+            ts_start=1_000,
+            ts_stop=2_000,
+            heap_size=1000,
+            collections=1,
+            collected=10,
+            uncollectable=0,
+            candidates=5,
+            duration=0.001,
         )
         exporter.add_event(12345, item)
         exporter.close()
@@ -359,9 +368,16 @@ class TestPerfettoExporter:
             cmdline_provider=lambda pid: None,
         )
         item = GCStatsInfo(
-            gen=0, iid=0, ts_start=1_000, ts_stop=2_000,
-            heap_size=1000, collections=1, collected=10,
-            uncollectable=0, candidates=5, duration=0.001,
+            gen=0,
+            iid=0,
+            ts_start=1_000,
+            ts_stop=2_000,
+            heap_size=1000,
+            collections=1,
+            collected=10,
+            uncollectable=0,
+            candidates=5,
+            duration=0.001,
         )
         exporter.add_event(12345, item)
         exporter.close()
@@ -374,8 +390,9 @@ class TestPerfettoExporter:
             td_bytes = get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR)
             if td_bytes:
                 td_fields = decode_message(td_bytes)
-                assert get_field(td_fields, TrackDescriptorField.DESCRIPTION) is None, \
+                assert get_field(td_fields, TrackDescriptorField.DESCRIPTION) is None, (
                     "description should be absent when cmdline is unavailable"
+                )
                 proc_bytes = get_bytes_at(td_fields, TrackDescriptorField.PROCESS)
                 if proc_bytes:
                     proc_fields = decode_message(proc_bytes)

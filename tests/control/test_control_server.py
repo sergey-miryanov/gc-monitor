@@ -33,6 +33,7 @@ def mock_conn():
 
 def _send_msg(server: ControlServer, msg: str, pid: int) -> None:
     import time
+
     address = server.address
     conn = Client(address)
     try:
@@ -508,7 +509,9 @@ class TestControlServerReaderLoop:
 
         with (
             patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
-            patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
+            patch.object(
+                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
+            ),
         ):
             server_not_started._reader_loop()
 
@@ -520,7 +523,9 @@ class TestControlServerReaderLoop:
 
         with (
             patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
-            patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
+            patch.object(
+                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
+            ),
         ):
             server_not_started._reader_loop()
 
@@ -532,7 +537,9 @@ class TestControlServerReaderLoop:
 
         with (
             patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
-            patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
+            patch.object(
+                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
+            ),
         ):
             server_not_started._reader_loop()
 
@@ -545,7 +552,9 @@ class TestControlServerReaderLoop:
 
         with (
             patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
-            patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
+            patch.object(
+                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
+            ),
         ):
             server_not_started._reader_loop()
 
@@ -555,7 +564,9 @@ class TestControlServerReaderLoop:
     def test_reader_loop_no_connections(self, server_not_started) -> None:
         with (
             patch("gcmon.control.control_server._wait", return_value=[]),
-            patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
+            patch.object(
+                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
+            ),
         ):
             server_not_started._reader_loop()
 
@@ -567,7 +578,9 @@ class TestControlServerReaderLoop:
 
         with (
             patch("gcmon.control.control_server._wait", return_value=[]),
-            patch.object(server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()),
+            patch.object(
+                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
+            ),
         ):
             server_not_started._reader_loop()
 

@@ -24,8 +24,12 @@ class TestRunMonitoringLoop:
         return MagicMock()
 
     def test_success(
-        self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        caplog: pytest.LogCaptureFixture,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -36,8 +40,12 @@ class TestRunMonitoringLoop:
         assert "Total events: 5" in caplog.text
 
     def test_exception_returns_1(
-        self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        caplog: pytest.LogCaptureFixture,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -48,8 +56,12 @@ class TestRunMonitoringLoop:
         assert "Failed to run GC monitor" in caplog.text
 
     def test_loop_run_exception_returns_1(
-        self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        caplog: pytest.LogCaptureFixture,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -60,8 +72,11 @@ class TestRunMonitoringLoop:
         assert "Failed to run GC monitor" in caplog.text
 
     def test_returns_child_returncode(
-        self, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -72,8 +87,12 @@ class TestRunMonitoringLoop:
         assert result == 42
 
     def test_stdout_format_no_trace_path(
-        self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        caplog: pytest.LogCaptureFixture,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -84,8 +103,12 @@ class TestRunMonitoringLoop:
         assert "Trace saved to" not in caplog.text
 
     def test_show_stats_calls_print_stats(
-        self, caplog: pytest.LogCaptureFixture, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        caplog: pytest.LogCaptureFixture,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -97,8 +120,11 @@ class TestRunMonitoringLoop:
         mock_monitoring_base_deps["print_stats"].assert_called_once()
 
     def test_factory_called_with_control_address(
-        self, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -107,8 +133,11 @@ class TestRunMonitoringLoop:
         mock_factory.assert_called_once_with("/tmp/test-address")
 
     def test_runner_entered_as_context(
-        self, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -120,8 +149,11 @@ class TestRunMonitoringLoop:
         runner.__exit__.assert_called_once()
 
     def test_control_server_started(
-        self, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -134,8 +166,11 @@ class TestRunMonitoringLoop:
         mock_control_instance.__exit__.assert_called_once()
 
     def test_enabled_uses_control_server(
-        self, mock_factory: MagicMock, mock_wait_policy_factory: MagicMock,
-        monitoring_options: MagicMock, mock_monitoring_base_deps: dict,
+        self,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict,
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -144,5 +179,9 @@ class TestRunMonitoringLoop:
         run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
 
         mock_monitoring_base_deps["MonitorLoop"].assert_called_once_with(
-            ANY, ANY, ANY, rate=0.1, enabled=mock_control_instance.is_enabled,
+            ANY,
+            ANY,
+            ANY,
+            rate=0.1,
+            enabled=mock_control_instance.is_enabled,
         )

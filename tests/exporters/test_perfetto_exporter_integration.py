@@ -45,17 +45,19 @@ _EXPECTED_PAUSE_ARGS: dict[str, int] = {
     "candidates": _CANDIDATES,
 }
 
-_EXPECTED_COUNTER_NAMES: frozenset[str] = frozenset({
-    "G0 collected",
-    "G0 uncollectable",
-    "G0 candidates",
-    "G0 duration",
-    "G1 collected",
-    "G1 uncollectable",
-    "G1 candidates",
-    "G1 duration",
-    "heap_size",
-})
+_EXPECTED_COUNTER_NAMES: frozenset[str] = frozenset(
+    {
+        "G0 collected",
+        "G0 uncollectable",
+        "G0 candidates",
+        "G0 duration",
+        "G1 collected",
+        "G1 uncollectable",
+        "G1 candidates",
+        "G1 duration",
+        "heap_size",
+    }
+)
 
 _ARG_PREFIX: dict[str, str] = {
     "chrome": "args",
@@ -116,14 +118,16 @@ def _process_filter_instant(pid: int) -> str:
 
 
 def _write_trace(
-    tmp: Path, fmt: str,
+    tmp: Path,
+    fmt: str,
     cmdline_provider: Callable[[int], list[str] | None] = lambda _pid: None,
 ) -> Path:
     path = tmp / ("trace.json" if fmt == "chrome" else "trace.pb")
     exporter: TraceExporter | PerfettoExporter
     if fmt == "chrome":
         exporter = TraceExporter(
-            output_path=path, flush_threshold=1000,
+            output_path=path,
+            flush_threshold=1000,
         )
     else:
         exporter = PerfettoExporter(
@@ -135,42 +139,62 @@ def _write_trace(
         DEFAULT_PID,
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 1_000_000),
     )
-    exporter.add_event(DEFAULT_PID, create_mock_stats_item(
-        gen=_GEN, iid=_IID,
-        collections=_COLLECTIONS, collected=_COLLECTED,
-        uncollectable=_UNCOLLECTABLE, candidates=_CANDIDATES,
-        heap_size=_HEAP_SIZE,
-    ))
+    exporter.add_event(
+        DEFAULT_PID,
+        create_mock_stats_item(
+            gen=_GEN,
+            iid=_IID,
+            collections=_COLLECTIONS,
+            collected=_COLLECTED,
+            uncollectable=_UNCOLLECTABLE,
+            candidates=_CANDIDATES,
+            heap_size=_HEAP_SIZE,
+        ),
+    )
     exporter.add_event(DEFAULT_PID, create_mock_incremental_item(gen=1, iid=1))
-    exporter.add_event(DEFAULT_PID, create_mock_stats_item(
-        gen=_GEN, iid=2,
-        collections=_COLLECTIONS, collected=_COLLECTED,
-        uncollectable=_UNCOLLECTABLE, candidates=_CANDIDATES,
-        heap_size=_HEAP_SIZE,
-    ))
+    exporter.add_event(
+        DEFAULT_PID,
+        create_mock_stats_item(
+            gen=_GEN,
+            iid=2,
+            collections=_COLLECTIONS,
+            collected=_COLLECTED,
+            uncollectable=_UNCOLLECTABLE,
+            candidates=_CANDIDATES,
+            heap_size=_HEAP_SIZE,
+        ),
+    )
     exporter.add_instant_event(
         _SECOND_PID,
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 2_000_000),
     )
-    exporter.add_event(_SECOND_PID, create_mock_stats_item(
-        gen=_GEN, iid=0,
-        collections=_COLLECTIONS, collected=_COLLECTED,
-        uncollectable=_UNCOLLECTABLE, candidates=_CANDIDATES,
-        heap_size=_HEAP_SIZE,
-    ))
+    exporter.add_event(
+        _SECOND_PID,
+        create_mock_stats_item(
+            gen=_GEN,
+            iid=0,
+            collections=_COLLECTIONS,
+            collected=_COLLECTED,
+            uncollectable=_UNCOLLECTABLE,
+            candidates=_CANDIDATES,
+            heap_size=_HEAP_SIZE,
+        ),
+    )
     exporter.close()
     return path
 
 
 def _write_trace_no_instant(
-    tmp: Path, fmt: str,
+    tmp: Path,
+    fmt: str,
     cmdline_provider: Callable[[int], list[str] | None] = lambda _pid: None,
 ) -> Path:
     path = tmp / ("trace.json" if fmt == "chrome" else "trace.pb")
     exporter: TraceExporter | PerfettoExporter
     if fmt == "chrome":
         exporter = TraceExporter(
-            output_path=path, flush_threshold=1000,
+            output_path=path,
+            flush_threshold=1000,
         )
     else:
         exporter = PerfettoExporter(
@@ -178,18 +202,30 @@ def _write_trace_no_instant(
             flush_threshold=1000,
             cmdline_provider=cmdline_provider,
         )
-    exporter.add_event(DEFAULT_PID, create_mock_stats_item(
-        gen=_GEN, iid=_IID,
-        collections=_COLLECTIONS, collected=_COLLECTED,
-        uncollectable=_UNCOLLECTABLE, candidates=_CANDIDATES,
-        heap_size=_HEAP_SIZE,
-    ))
-    exporter.add_event(_SECOND_PID, create_mock_stats_item(
-        gen=_GEN, iid=0,
-        collections=_COLLECTIONS, collected=_COLLECTED,
-        uncollectable=_UNCOLLECTABLE, candidates=_CANDIDATES,
-        heap_size=_HEAP_SIZE,
-    ))
+    exporter.add_event(
+        DEFAULT_PID,
+        create_mock_stats_item(
+            gen=_GEN,
+            iid=_IID,
+            collections=_COLLECTIONS,
+            collected=_COLLECTED,
+            uncollectable=_UNCOLLECTABLE,
+            candidates=_CANDIDATES,
+            heap_size=_HEAP_SIZE,
+        ),
+    )
+    exporter.add_event(
+        _SECOND_PID,
+        create_mock_stats_item(
+            gen=_GEN,
+            iid=0,
+            collections=_COLLECTIONS,
+            collected=_COLLECTED,
+            uncollectable=_UNCOLLECTABLE,
+            candidates=_CANDIDATES,
+            heap_size=_HEAP_SIZE,
+        ),
+    )
     exporter.close()
     return path
 
@@ -207,7 +243,8 @@ def trace_processor(tmp_path: Path, fmt: str) -> Iterator[TraceProcessor]:
 
 @pytest.fixture
 def trace_processor_with_cmdline(
-    tmp_path: Path, fmt: str,
+    tmp_path: Path,
+    fmt: str,
 ) -> Iterator[TraceProcessor]:
     path = _write_trace(tmp_path, fmt, cmdline_provider=_fake_cmdline_provider)
     config = TraceProcessorConfig(load_timeout=300)
@@ -220,7 +257,8 @@ def trace_processor_with_cmdline(
 
 @pytest.fixture
 def trace_processor_no_instant(
-    tmp_path: Path, fmt: str,
+    tmp_path: Path,
+    fmt: str,
 ) -> Iterator[TraceProcessor]:
     path = _write_trace_no_instant(tmp_path, fmt)
     config = TraceProcessorConfig(load_timeout=300)
@@ -236,16 +274,18 @@ class TestSliceArgs:
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_pause_slice_exists(self, fmt: str, trace_processor: TraceProcessor) -> None:
-        rows = list(trace_processor.query(
-            f"SELECT s.name FROM slice s "
-            f"{_process_filter(DEFAULT_PID)} "
-            f"AND s.name = '{_PAUSE_NAME}'"
-        ))
+        rows = list(
+            trace_processor.query(
+                f"SELECT s.name FROM slice s {_process_filter(DEFAULT_PID)} AND s.name = '{_PAUSE_NAME}'"
+            )
+        )
         assert len(rows) == 2, f"expected two '{_PAUSE_NAME}' slices, got {rows}"
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_pause_slice_has_all_expected_args(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         prefix = _ARG_PREFIX[fmt]
         rows = {
@@ -263,24 +303,26 @@ class TestSliceArgs:
         for key, expected in _EXPECTED_PAUSE_ARGS.items():
             qualified = f"{prefix}.{key}"
             assert qualified in rows, f"missing arg {qualified}; got {sorted(rows)}"
-            assert rows[qualified] == expected, (
-                f"{qualified}: expected {expected}, got {rows[qualified]}"
-            )
+            assert rows[qualified] == expected, f"{qualified}: expected {expected}, got {rows[qualified]}"
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_full_gen1_pause_slice_exists(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
-        rows = list(trace_processor.query(
-            f"SELECT s.name FROM slice s "
-            f"{_process_filter(DEFAULT_PID)} "
-            f"AND s.name = 'GC Pause (gen=1)'"
-        ))
+        rows = list(
+            trace_processor.query(
+                f"SELECT s.name FROM slice s {_process_filter(DEFAULT_PID)} AND s.name = 'GC Pause (gen=1)'"
+            )
+        )
         assert len(rows) == 1, f"expected exactly one 'GC Pause (gen=1)' slice, got {rows}"
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_full_fields_pause_encodes_all_optional_fields(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         expected_sub_slices = [
             "Mark Alive (gen=1)",
@@ -292,16 +334,17 @@ class TestSliceArgs:
             "Clear Weakrefs (gen=1)",
             "Delete Garbage (gen=1)",
         ]
-        slice_names = {r.name for r in trace_processor.query(
-            f"SELECT DISTINCT s.name FROM slice s "
-            f"{_process_filter(DEFAULT_PID)}"
-        )}
+        slice_names = {
+            r.name for r in trace_processor.query(f"SELECT DISTINCT s.name FROM slice s {_process_filter(DEFAULT_PID)}")
+        }
         missing = set(expected_sub_slices) - slice_names
         assert not missing, f"missing sub-slices: {missing}"
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_deduce_unreachable_slice_args_has_candidates(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         prefix = _ARG_PREFIX[fmt]
         rows = {
@@ -317,8 +360,7 @@ class TestSliceArgs:
             )
         }
         assert f"{prefix}.candidates" in rows, (
-            f"missing {prefix}.candidates on Deduce Unreachable (gen=1); "
-            f"got {sorted(rows)}"
+            f"missing {prefix}.candidates on Deduce Unreachable (gen=1); got {sorted(rows)}"
         )
 
         prefix = _ARG_PREFIX[fmt]
@@ -335,8 +377,11 @@ class TestSliceArgs:
             )
         }
         for key in (
-            "increment_size", "alive_size",
-            "finalized_garbage_count", "deleted_garbage_count", "clear_weakrefs_count",
+            "increment_size",
+            "alive_size",
+            "finalized_garbage_count",
+            "deleted_garbage_count",
+            "clear_weakrefs_count",
         ):
             qualified = f"{prefix}.{key}"
             assert qualified in pause_args, f"missing arg {qualified}; got {sorted(pause_args)}"
@@ -352,7 +397,9 @@ class TestCounterTracks:
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_counter_track_names_match_expected(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         rows = {r.name for r in trace_processor.query("SELECT name FROM counter_track")}
         # Chrome JSON's trace processor prepends a space when the counter
@@ -363,31 +410,40 @@ class TestCounterTracks:
         missing = _EXPECTED_COUNTER_NAMES - normalized
         unexpected = normalized - _EXPECTED_COUNTER_NAMES
         assert not missing and not unexpected, (
-            f"counter track names mismatch; "
-            f"missing: {missing or 'none'}; "
-            f"unexpected: {unexpected or 'none'}"
+            f"counter track names mismatch; missing: {missing or 'none'}; unexpected: {unexpected or 'none'}"
         )
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_uncollectable_counter_omitted_when_zero(
-        self, fmt: str, tmp_path: Path,
+        self,
+        fmt: str,
+        tmp_path: Path,
     ) -> None:
         path = tmp_path / ("trace.json" if fmt == "chrome" else "trace.pb")
         exporter: TraceExporter | PerfettoExporter
         if fmt == "chrome":
             exporter = TraceExporter(
-                output_path=path, flush_threshold=1000,
+                output_path=path,
+                flush_threshold=1000,
             )
         else:
             exporter = PerfettoExporter(
-                output_path=path, flush_threshold=1000,
+                output_path=path,
+                flush_threshold=1000,
             )
-        exporter.add_event(DEFAULT_PID, create_mock_stats_item(
-            gen=0, iid=0, uncollectable=0, heap_size=_HEAP_SIZE,
-        ))
+        exporter.add_event(
+            DEFAULT_PID,
+            create_mock_stats_item(
+                gen=0,
+                iid=0,
+                uncollectable=0,
+                heap_size=_HEAP_SIZE,
+            ),
+        )
         exporter.close()
         tp = TraceProcessor(
-            trace=str(path), config=TraceProcessorConfig(load_timeout=300),
+            trace=str(path),
+            config=TraceProcessorConfig(load_timeout=300),
         )
         try:
             names = {r.name for r in tp.query("SELECT name FROM counter_track")}
@@ -401,56 +457,66 @@ class TestCounterTracks:
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_duration_counter_track_present(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
-        names = {r.name.strip() for r in trace_processor.query(
-            "SELECT name FROM counter_track",
-        )}
-        for gen in (0, 1):
-            assert f"G{gen} duration" in names, (
-                f"G{gen} duration counter should be present; got {names}"
+        names = {
+            r.name.strip()
+            for r in trace_processor.query(
+                "SELECT name FROM counter_track",
             )
-        assert "duration" not in names, (
-            f"shared 'duration' counter should NOT be present; got {names}"
-        )
+        }
+        for gen in (0, 1):
+            assert f"G{gen} duration" in names, f"G{gen} duration counter should be present; got {names}"
+        assert "duration" not in names, f"shared 'duration' counter should NOT be present; got {names}"
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_duration_counter_value_is_double(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         # The `counter` table stores both int and double values in a single
         # `value` column (DOUBLE). For the per-gen `G0 duration` track, that
         # value should equal the per-pause duration (0.005 for the default
         # fixture).
-        rows = list(trace_processor.query(
-            "SELECT id, name FROM counter_track WHERE name = 'G0 duration'",
-        ))
+        rows = list(
+            trace_processor.query(
+                "SELECT id, name FROM counter_track WHERE name = 'G0 duration'",
+            )
+        )
         assert rows, "no G0 duration counter track found"
         for r in rows:
-            values = list(trace_processor.query(
-                f"SELECT value FROM counter WHERE track_id = {r.id}",
-            ))
+            values = list(
+                trace_processor.query(
+                    f"SELECT value FROM counter WHERE track_id = {r.id}",
+                )
+            )
             assert values, f"no counter values for G0 duration track {r.id}"
             assert any(abs(v.value - 0.005) < 1e-9 for v in values)
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_duration_counter_parented_to_gc_metrics_group(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         # Every per-gen `G{gen} duration` track should be parented to a
         # `GC Metrics` group (one per pid/iid combination).
-        rows = list(trace_processor.query(
-            "SELECT id, parent_id, name FROM track "
-            "WHERE name LIKE 'G_ duration'",
-        ))
+        rows = list(
+            trace_processor.query(
+                "SELECT id, parent_id, name FROM track WHERE name LIKE 'G_ duration'",
+            )
+        )
         assert rows, "no G{gen} duration tracks found"
         for r in rows:
-            assert r.parent_id is not None, (
-                f"{r.name} track has no parent"
+            assert r.parent_id is not None, f"{r.name} track has no parent"
+            parents = list(
+                trace_processor.query(
+                    f"SELECT name FROM track WHERE id = {r.parent_id}",
+                )
             )
-            parents = list(trace_processor.query(
-                f"SELECT name FROM track WHERE id = {r.parent_id}",
-            ))
             assert len(parents) == 1
             assert parents[0].name == "GC Metrics"
 
@@ -479,18 +545,22 @@ class TestCounterYAxisShareKey:
     )
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_y_axis_share_key_shared_across_generations(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """``G0 collected`` / ``G1 collected`` / ``G2 collected`` all
         carry the same ``y_axis_share_key`` value, and that value
         matches the metric suffix verbatim. Same for ``candidates`` and
         ``duration``. Verified via ``counter_track.y_axis_share_key``.
         """
-        rows = list(trace_processor.query(
-            "SELECT name, y_axis_share_key FROM counter_track "
-            "WHERE name LIKE 'G_ %' AND name != 'heap_size' "
-            "ORDER BY name",
-        ))
+        rows = list(
+            trace_processor.query(
+                "SELECT name, y_axis_share_key FROM counter_track "
+                "WHERE name LIKE 'G_ %' AND name != 'heap_size' "
+                "ORDER BY name",
+            )
+        )
         assert rows, "expected at least one G{N} <metric> track"
         by_suffix: dict[str, set[str]] = {}
         for r in rows:
@@ -498,8 +568,7 @@ class TestCounterYAxisShareKey:
             by_suffix.setdefault(suffix, set()).add(r.y_axis_share_key)
         for suffix, keys in by_suffix.items():
             assert keys == {suffix}, (
-                f"expected y_axis_share_key for metric {suffix!r} to be exactly "
-                f"the metric name; got {keys}"
+                f"expected y_axis_share_key for metric {suffix!r} to be exactly the metric name; got {keys}"
             )
 
     @pytest.mark.xfail(
@@ -508,16 +577,19 @@ class TestCounterYAxisShareKey:
     )
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_heap_size_y_axis_share_key_is_null(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """The top-level ``heap_size`` track has no ``y_axis_share_key``
         — the SQL value is NULL or empty string, depending on how the
         trace processor surfaces an absent optional string field.
         """
-        rows = list(trace_processor.query(
-            "SELECT name, y_axis_share_key FROM counter_track "
-            "WHERE name = 'heap_size'",
-        ))
+        rows = list(
+            trace_processor.query(
+                "SELECT name, y_axis_share_key FROM counter_track WHERE name = 'heap_size'",
+            )
+        )
         assert len(rows) == 1, f"expected exactly one heap_size row, got {len(rows)}"
         r = rows[0]
         assert r.y_axis_share_key is None or r.y_axis_share_key == "", (
@@ -532,20 +604,19 @@ class TestTrackDescriptors:
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_track_present(self, fmt: str, trace_processor: TraceProcessor) -> None:
-        rows = sorted(r.name for r in trace_processor.query(
-            "SELECT name FROM track WHERE name LIKE 'Process %'"
-        ))
+        rows = sorted(r.name for r in trace_processor.query("SELECT name FROM track WHERE name LIKE 'Process %'"))
         assert rows == sorted([f"Process {DEFAULT_PID}", f"Process {_SECOND_PID}"]), (
             f"expected process tracks for both PIDs, got {rows}"
         )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_thread_tracks_present(self, fmt: str, trace_processor: TraceProcessor) -> None:
-        rows = {r.name for r in trace_processor.query(
-            f"SELECT th.name FROM thread th "
-            f"JOIN process p ON th.upid = p.upid "
-            f"WHERE p.pid = {DEFAULT_PID}"
-        )}
+        rows = {
+            r.name
+            for r in trace_processor.query(
+                f"SELECT th.name FROM thread th JOIN process p ON th.upid = p.upid WHERE p.pid = {DEFAULT_PID}"
+            )
+        }
         for iid in (0, 1, 2):
             assert f"Thread {iid}" in rows, f"missing 'Thread {iid}' in DEFAULT_PID's threads; got {sorted(rows)}"
 
@@ -563,12 +634,9 @@ class TestDiagnosticTrackSchema:
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_dump_track_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
-        rows = list(trace_processor.query(
-            "SELECT id, name, type, parent_id FROM track ORDER BY id"
-        ))
+        rows = list(trace_processor.query("SELECT id, name, type, parent_id FROM track ORDER BY id"))
         for r in rows:
-            print(f"TRACK id={r.id} name={r.name!r} type={r.type!r} "
-                  f"parent_id={r.parent_id}")
+            print(f"TRACK id={r.id} name={r.name!r} type={r.type!r} parent_id={r.parent_id}")
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_dump_process_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
@@ -589,16 +657,16 @@ class TestInstantEvents:
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_instant_event_present(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
-        rows = list(trace_processor.query(
-            f"SELECT s.name FROM slice s "
-            f"{_process_filter_instant(DEFAULT_PID)} "
-            f"AND s.name = '{_INSTANT_NAME}'"
-        ))
-        assert len(rows) == 1, (
-            f"expected exactly one '{_INSTANT_NAME}' dur=0 slice for DEFAULT_PID, got {rows}"
+        rows = list(
+            trace_processor.query(
+                f"SELECT s.name FROM slice s {_process_filter_instant(DEFAULT_PID)} AND s.name = '{_INSTANT_NAME}'"
+            )
         )
+        assert len(rows) == 1, f"expected exactly one '{_INSTANT_NAME}' dur=0 slice for DEFAULT_PID, got {rows}"
 
 
 class TestCmdlineEncoding:
@@ -609,36 +677,38 @@ class TestCmdlineEncoding:
     tables, so the description is the only SQL-visible check."""
 
     def _description(self, trace_processor: TraceProcessor, pid: int) -> str | None:
-        rows = list(trace_processor.query(
-            f"SELECT a.string_value FROM args a "
-            f"JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
-            f"JOIN process p ON p.upid = pt.upid "
-            f"WHERE p.pid = {pid} AND a.key = 'description'"
-        ))
+        rows = list(
+            trace_processor.query(
+                f"SELECT a.string_value FROM args a "
+                f"JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                f"JOIN process p ON p.upid = pt.upid "
+                f"WHERE p.pid = {pid} AND a.key = 'description'"
+            )
+        )
         return rows[0].string_value if rows else None
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_cmdline_description_appears_for_known_pid(
-        self, fmt: str, trace_processor_with_cmdline: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
-        assert (
-            self._description(trace_processor_with_cmdline, DEFAULT_PID)
-            == _FAKE_CMDLINE_JOINED
-        )
-        assert (
-            self._description(trace_processor_with_cmdline, _SECOND_PID)
-            == _FAKE_CMDLINE_JOINED
-        )
+        assert self._description(trace_processor_with_cmdline, DEFAULT_PID) == _FAKE_CMDLINE_JOINED
+        assert self._description(trace_processor_with_cmdline, _SECOND_PID) == _FAKE_CMDLINE_JOINED
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_cmdline_absent_for_pid_outside_provider(
-        self, fmt: str, trace_processor_with_cmdline: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
         assert self._description(trace_processor_with_cmdline, 1) is None
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_cmdline_none_for_unknown_pid(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         assert self._description(trace_processor, DEFAULT_PID) is None
         assert self._description(trace_processor, _SECOND_PID) is None
@@ -655,38 +725,45 @@ class TestStartProcessMarker:
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_marker_emitted_with_user_instant(
-        self, fmt: str, trace_processor_with_cmdline: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
         """The user-provided instant events (``GC monitor started``) and
         the synthetic marker (``Start Process``) both land on the
         process track. Verify one marker per pid."""
-        markers = list(trace_processor_with_cmdline.query(
-            f"SELECT p.pid FROM slice s "
-            f"JOIN process_track pt ON s.track_id = pt.id "
-            f"JOIN process p ON pt.upid = p.upid "
-            f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
-            f"ORDER BY p.pid"
-        ))
+        markers = list(
+            trace_processor_with_cmdline.query(
+                f"SELECT p.pid FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
+                f"ORDER BY p.pid"
+            )
+        )
         assert [r.pid for r in markers] == [DEFAULT_PID, _SECOND_PID], (
-            f"expected one {_START_PROCESS_MARKER_NAME!r} marker per pid, "
-            f"got {markers}"
+            f"expected one {_START_PROCESS_MARKER_NAME!r} marker per pid, got {markers}"
         )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_marker_emitted_without_user_instant(
-        self, fmt: str, trace_processor_no_instant: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor_no_instant: TraceProcessor,
     ) -> None:
         """This is the regression case: the caller never calls
         ``add_instant_event``, so the process track would otherwise be
         empty and the UI would hide the description. The marker keeps
         the process track rendered."""
-        markers = list(trace_processor_no_instant.query(
-            f"SELECT p.pid FROM slice s "
-            f"JOIN process_track pt ON s.track_id = pt.id "
-            f"JOIN process p ON pt.upid = p.upid "
-            f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
-            f"ORDER BY p.pid"
-        ))
+        markers = list(
+            trace_processor_no_instant.query(
+                f"SELECT p.pid FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
+                f"ORDER BY p.pid"
+            )
+        )
         assert [r.pid for r in markers] == [DEFAULT_PID, _SECOND_PID], (
             f"expected one {_START_PROCESS_MARKER_NAME!r} marker per pid "
             f"even without user instant events, got {markers}"
@@ -694,22 +771,24 @@ class TestStartProcessMarker:
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_marker_at_first_event_timestamp(
-        self, fmt: str, trace_processor_with_cmdline: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
         """The marker is placed at the timestamp of the first non-meta
         event for the pid, not at 0."""
-        rows = list(trace_processor_with_cmdline.query(
-            f"SELECT p.pid, s.ts FROM slice s "
-            f"JOIN process_track pt ON s.track_id = pt.id "
-            f"JOIN process p ON pt.upid = p.upid "
-            f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
-            f"ORDER BY p.pid"
-        ))
+        rows = list(
+            trace_processor_with_cmdline.query(
+                f"SELECT p.pid, s.ts FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
+                f"ORDER BY p.pid"
+            )
+        )
         assert len(rows) == 2
         for r in rows:
-            assert r.ts > 0, (
-                f"expected marker ts > 0 for pid {r.pid}, got {r.ts}"
-            )
+            assert r.ts > 0, f"expected marker ts > 0 for pid {r.pid}, got {r.ts}"
 
 
 class TestProcessesTrack:
@@ -721,63 +800,69 @@ class TestProcessesTrack:
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_track_present(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """The ``Processes`` track is present exactly once."""
-        rows = list(trace_processor.query(
-            f"SELECT name FROM track WHERE name = '{_PROCESS_LIFETIME_TRACK_NAME}'"
-        ))
+        rows = list(trace_processor.query(f"SELECT name FROM track WHERE name = '{_PROCESS_LIFETIME_TRACK_NAME}'"))
         assert len(rows) == 1, (
-            f"expected exactly one {_PROCESS_LIFETIME_TRACK_NAME!r} track, "
-            f"got {[r.name for r in rows]}"
+            f"expected exactly one {_PROCESS_LIFETIME_TRACK_NAME!r} track, got {[r.name for r in rows]}"
         )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_slice_per_pid(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """There is exactly one BEGIN+END pair per pid on the
         ``Processes`` track. The trace processor collapses matching
         BEGIN/END pairs into a single dur-bearing slice, so we expect
         one dur>0 row per pid."""
-        rows = list(trace_processor.query(
-            f"SELECT s.name, s.dur FROM slice s "
-            f"JOIN track t ON s.track_id = t.id "
-            f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
-            f"ORDER BY s.name"
-        ))
+        rows = list(
+            trace_processor.query(
+                f"SELECT s.name, s.dur FROM slice s "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                f"ORDER BY s.name"
+            )
+        )
         assert [r.name for r in rows] == [
             f"Process {DEFAULT_PID}",
             f"Process {_SECOND_PID}",
-        ], (
-            f"expected exactly one dur-bearing Process <pid> slice per pid, "
-            f"got {[(r.name, r.dur) for r in rows]}"
-        )
+        ], f"expected exactly one dur-bearing Process <pid> slice per pid, got {[(r.name, r.dur) for r in rows]}"
         for r in rows:
             assert r.dur > 0, f"slice {r.name!r} has dur={r.dur}, expected > 0"
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_slice_name_format(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """Every slice name on the ``Processes`` track matches the
         ``Process <pid>`` pattern."""
         import re
-        rows = list(trace_processor.query(
-            f"SELECT s.name FROM slice s "
-            f"JOIN track t ON s.track_id = t.id "
-            f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}'"
-        ))
+
+        rows = list(
+            trace_processor.query(
+                f"SELECT s.name FROM slice s "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}'"
+            )
+        )
         pat = re.compile(r"^Process \d+$")
         for r in rows:
             assert pat.match(r.name), (
-                f"slice name {r.name!r} on the {_PROCESS_LIFETIME_TRACK_NAME!r} "
-                f"track must match 'Process <pid>'"
+                f"slice name {r.name!r} on the {_PROCESS_LIFETIME_TRACK_NAME!r} track must match 'Process <pid>'"
             )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_begin_end_match_first_last_event(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """For each pid, the slice BEGIN is at the first non-meta event
         ts, and the slice END (BEGIN + dur) is at the last Begin/End/
@@ -798,65 +883,59 @@ class TestProcessesTrack:
             # End events) for this pid.
             candidates: list[int] = []
             for join_clause in (
-                f"JOIN process_track pt ON s.track_id = pt.id "
-                f"JOIN process p ON pt.upid = p.upid "
-                f"WHERE p.pid = {pid}",
+                f"JOIN process_track pt ON s.track_id = pt.id JOIN process p ON pt.upid = p.upid WHERE p.pid = {pid}",
                 f"JOIN thread_track tt ON s.track_id = tt.id "
                 f"JOIN thread th ON tt.utid = th.utid "
                 f"JOIN process p ON th.upid = p.upid "
                 f"WHERE p.pid = {pid}",
             ):
-                rows = trace_processor.query(
-                    f"SELECT MIN(s.ts) AS ts FROM slice s {join_clause}"
-                )
+                rows = trace_processor.query(f"SELECT MIN(s.ts) AS ts FROM slice s {join_clause}")
                 for r in rows:
                     if r.ts is not None:
                         candidates.append(r.ts)
             assert candidates, f"no first event found for pid {pid}"
             expected_first = min(candidates)
 
-            slice_rows = list(trace_processor.query(
-                f"SELECT s.ts, s.dur FROM slice s "
-                f"JOIN track t ON s.track_id = t.id "
-                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
-                f"AND s.name = 'Process {pid}' "
-                f"AND s.dur > 0"
-            ))
-            assert len(slice_rows) == 1, (
-                f"expected exactly one duration-bearing Process {pid} "
-                f"slice, got {slice_rows}"
+            slice_rows = list(
+                trace_processor.query(
+                    f"SELECT s.ts, s.dur FROM slice s "
+                    f"JOIN track t ON s.track_id = t.id "
+                    f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                    f"AND s.name = 'Process {pid}' "
+                    f"AND s.dur > 0"
+                )
             )
+            assert len(slice_rows) == 1, f"expected exactly one duration-bearing Process {pid} slice, got {slice_rows}"
             assert slice_rows[0].ts == expected_first, (
-                f"slice begin ts mismatch for pid {pid}: "
-                f"got {slice_rows[0].ts}, expected {expected_first}"
+                f"slice begin ts mismatch for pid {pid}: got {slice_rows[0].ts}, expected {expected_first}"
             )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_cmdline_arg_present(
-        self, fmt: str, trace_processor_with_cmdline: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
         """Each ``Process <pid>`` slice on the ``Processes`` track
         carries a ``cmdline`` debug annotation whose value is the
         argv joined with single spaces."""
         for pid in (DEFAULT_PID, _SECOND_PID):
-            rows = list(trace_processor_with_cmdline.query(
-                f"SELECT a.string_value AS string_value "
-                f"FROM args a "
-                f"WHERE a.flat_key = 'debug.cmdline' "
-                f"AND a.arg_set_id IN ("
-                f"  SELECT s.arg_set_id FROM slice s "
-                f"  JOIN track t ON s.track_id = t.id "
-                f"  WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
-                f"  AND s.name = 'Process {pid}'"
-                f")"
-            ))
-            assert len(rows) == 1, (
-                f"expected exactly one debug.cmdline arg for pid {pid}, "
-                f"got {rows}"
+            rows = list(
+                trace_processor_with_cmdline.query(
+                    f"SELECT a.string_value AS string_value "
+                    f"FROM args a "
+                    f"WHERE a.flat_key = 'debug.cmdline' "
+                    f"AND a.arg_set_id IN ("
+                    f"  SELECT s.arg_set_id FROM slice s "
+                    f"  JOIN track t ON s.track_id = t.id "
+                    f"  WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                    f"  AND s.name = 'Process {pid}'"
+                    f")"
+                )
             )
+            assert len(rows) == 1, f"expected exactly one debug.cmdline arg for pid {pid}, got {rows}"
             assert rows[0].string_value == _FAKE_CMDLINE_JOINED, (
-                f"debug.cmdline for pid {pid}: expected "
-                f"{_FAKE_CMDLINE_JOINED!r}, got {rows[0].string_value!r}"
+                f"debug.cmdline for pid {pid}: expected {_FAKE_CMDLINE_JOINED!r}, got {rows[0].string_value!r}"
             )
 
 
@@ -888,28 +967,35 @@ class TestMultiFlushProcessesTrack:
             for i in range(n_items):
                 ts_start = 1_000_000 * (i + 1)
                 ts_stop = ts_start + 50_000
-                exporter.add_event(pid, create_mock_stats_item(
-                    gen=0, iid=i,
-                    collections=1, collected=10,
-                    uncollectable=0, candidates=5, heap_size=1000,
-                    ts_start=ts_start, ts_stop=ts_stop,
-                ))
+                exporter.add_event(
+                    pid,
+                    create_mock_stats_item(
+                        gen=0,
+                        iid=i,
+                        collections=1,
+                        collected=10,
+                        uncollectable=0,
+                        candidates=5,
+                        heap_size=1000,
+                        ts_start=ts_start,
+                        ts_stop=ts_stop,
+                    ),
+                )
         finally:
             exporter.close()
 
         config = TraceProcessorConfig(load_timeout=300)
         tp = TraceProcessor(trace=str(path), config=config)
         try:
-            rows = list(tp.query(
-                f"SELECT s.ts, s.dur FROM slice s "
-                f"JOIN track t ON s.track_id = t.id "
-                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
-                f"AND s.name = 'Process {pid}'"
-            ))
-            assert len(rows) == 1, (
-                f"expected exactly one Processes-track slice for pid "
-                f"{pid}, got {rows}"
+            rows = list(
+                tp.query(
+                    f"SELECT s.ts, s.dur FROM slice s "
+                    f"JOIN track t ON s.track_id = t.id "
+                    f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                    f"AND s.name = 'Process {pid}'"
+                )
             )
+            assert len(rows) == 1, f"expected exactly one Processes-track slice for pid {pid}, got {rows}"
             slice_ts = rows[0].ts
             slice_dur = rows[0].dur
             slice_end = slice_ts + slice_dur
@@ -922,9 +1008,7 @@ class TestMultiFlushProcessesTrack:
             )
             # Also assert BEGIN is at the first non-meta event ts
             # (the instant event at ts=0).
-            assert slice_ts == 0, (
-                f"slice begin ts mismatch: got {slice_ts}, expected 0"
-            )
+            assert slice_ts == 0, f"slice begin ts mismatch: got {slice_ts}, expected 0"
         finally:
             tp.close()
 
@@ -950,7 +1034,9 @@ class TestProcessOrderingIntegration:
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_root_descriptor_does_not_appear_as_a_track_row(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """The root descriptor (``uuid=0``) carries no ``name`` and no
         ``process``/``thread``/``counter`` sub-message, so it must NOT
@@ -961,34 +1047,40 @@ class TestProcessOrderingIntegration:
         table correspond to ``thread_execution`` tracks and are
         therefore not related to the root descriptor.
         """
-        rows = list(trace_processor.query(
-            "SELECT id FROM track WHERE type IS NULL",
-        ))
+        rows = list(
+            trace_processor.query(
+                "SELECT id FROM track WHERE type IS NULL",
+            )
+        )
         assert rows == [], (
-            f"root track descriptor should not create a track row with "
-            f"unknown type; got ids {[r.id for r in rows]}"
+            f"root track descriptor should not create a track row with unknown type; got ids {[r.id for r in rows]}"
         )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_table_unchanged_after_ranking(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """The ``process`` SQL table must still contain one row per pid
         that emitted events, and no more. Adding ``sibling_order_rank``
         to the process track descriptor must not change the cardinality
         or pid column.
         """
-        rows = list(trace_processor.query(
-            f"SELECT pid FROM process WHERE pid IN ({DEFAULT_PID}, {_SECOND_PID}) "
-            f"ORDER BY pid",
-        ))
+        rows = list(
+            trace_processor.query(
+                f"SELECT pid FROM process WHERE pid IN ({DEFAULT_PID}, {_SECOND_PID}) ORDER BY pid",
+            )
+        )
         assert [r.pid for r in rows] == sorted([DEFAULT_PID, _SECOND_PID]), (
             f"expected one process row per pid; got {[r.pid for r in rows]}"
         )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_track_rows_still_present_after_ranking(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """Regression guard: the process track rows (one per pid) must
         still be present in the ``track`` table after the new fields
@@ -996,18 +1088,23 @@ class TestProcessOrderingIntegration:
         here (it is a UI concern); the existence of the rows is the
         contract.
         """
-        rows = list(trace_processor.query(
-            "SELECT name FROM track WHERE name LIKE 'Process %' ORDER BY name",
-        ))
-        assert [r.name for r in rows] == sorted([
-            f"Process {DEFAULT_PID}", f"Process {_SECOND_PID}",
-        ]), (
-            f"expected process track rows for both pids; got {[r.name for r in rows]}"
+        rows = list(
+            trace_processor.query(
+                "SELECT name FROM track WHERE name LIKE 'Process %' ORDER BY name",
+            )
         )
+        assert [r.name for r in rows] == sorted(
+            [
+                f"Process {DEFAULT_PID}",
+                f"Process {_SECOND_PID}",
+            ]
+        ), f"expected process track rows for both pids; got {[r.name for r in rows]}"
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_track_order_matches_rank(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """The trace processor must order process tracks by
         ``sibling_order_rank`` when ``process_ordering=EXPLICIT`` is
@@ -1022,25 +1119,30 @@ class TestProcessOrderingIntegration:
         track id than the row for ``DEFAULT_PID`` in the
         ``process_track_event`` rows.
         """
-        rows = list(trace_processor.query("""
+        rows = list(
+            trace_processor.query(
+                """
             SELECT t.id, p.pid
             FROM track t
             JOIN process_track pt ON t.id = pt.id
             JOIN process p ON pt.upid = p.upid
             WHERE t.type = 'process_track_event'
               AND p.pid IN ({default}, {second})
-        """.format(default=DEFAULT_PID, second=_SECOND_PID)))
+        """.format(default=DEFAULT_PID, second=_SECOND_PID)
+            )
+        )
         pid_to_id = {r.pid: r.id for r in rows}
         assert DEFAULT_PID in pid_to_id
         assert _SECOND_PID in pid_to_id
         assert pid_to_id[_SECOND_PID] < pid_to_id[DEFAULT_PID], (
-            f"expected _SECOND_PID (earlier first event) to have lower "
-            f"track id; got pid_to_id={pid_to_id}"
+            f"expected _SECOND_PID (earlier first event) to have lower track id; got pid_to_id={pid_to_id}"
         )
 
     @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_table_start_ts_matches_first_event(
-        self, fmt: str, trace_processor: TraceProcessor,
+        self,
+        fmt: str,
+        trace_processor: TraceProcessor,
     ) -> None:
         """The ``process.start_ts`` column in the trace processor's
         SQL table must reflect the first non-meta event timestamp
@@ -1051,12 +1153,16 @@ class TestProcessOrderingIntegration:
         ``_TS_START - 1_000_000`` and ``_SECOND_PID`` at
         ``_TS_START - 2_000_000`` (earlier).
         """
-        rows = list(trace_processor.query("""
+        rows = list(
+            trace_processor.query(
+                """
             SELECT pid, start_ts
             FROM process
             WHERE pid IN ({default}, {second})
             ORDER BY pid
-        """.format(default=DEFAULT_PID, second=_SECOND_PID)))
+        """.format(default=DEFAULT_PID, second=_SECOND_PID)
+            )
+        )
         pid_to_start_ts = {r.pid: r.start_ts for r in rows}
         assert pid_to_start_ts == {
             DEFAULT_PID: _TS_START - 1_000_000,

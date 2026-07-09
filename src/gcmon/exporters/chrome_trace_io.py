@@ -165,8 +165,13 @@ def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TInstantMsg
                     item.ts_delete_garbage_stop -= min_ts
 
 
-def combine_files(input_paths: list[Path], output_path: Path, normalize: bool = False,
-                  input_format: str = "chrome", output_format: str = "chrome") -> None:
+def combine_files(
+    input_paths: list[Path],
+    output_path: Path,
+    normalize: bool = False,
+    input_format: str = "chrome",
+    output_format: str = "chrome",
+) -> None:
     if input_format == "chrome" and output_format == "jsonl":
         raise ValueError(
             "Input format 'chrome' with output format 'jsonl' is not supported. "

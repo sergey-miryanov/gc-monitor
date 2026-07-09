@@ -3,7 +3,6 @@
 # https://github.com/python/typeshed/blob/main/stdlib/_remote_debugging.pyi
 from typing import Protocol
 
-
 class GCStatsInfo(Protocol):
     gen: int
     iid: int
@@ -15,7 +14,6 @@ class GCStatsInfo(Protocol):
     uncollectable: int
     candidates: int
     duration: float
-
 
 def get_child_pids(pid: int, *, recursive: bool) -> list[int]: ...
 def get_gc_stats(pid: int, *, all_interpreters: bool) -> list[GCStatsInfo]: ...

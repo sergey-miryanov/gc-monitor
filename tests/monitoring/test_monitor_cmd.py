@@ -26,10 +26,13 @@ def test_cmd_monitor_connect_failure(caplog: pytest.LogCaptureFixture, monitor_a
 
 
 class TestCmdMonitorFormat:
-    @pytest.mark.parametrize("fmt, extra_kwargs", [
-        ("stdout", {}),
-        ("jsonl", {"thread_id": 99, "flush_threshold": 50}),
-    ])
+    @pytest.mark.parametrize(
+        "fmt, extra_kwargs",
+        [
+            ("stdout", {}),
+            ("jsonl", {"thread_id": 99, "flush_threshold": 50}),
+        ],
+    )
     def test_cmd_monitor_format(
         self, caplog: pytest.LogCaptureFixture, monitor_args: MonitorArgsFactory, fmt: str, extra_kwargs: dict
     ) -> None:
@@ -43,13 +46,18 @@ class TestCmdMonitorFormat:
 
 
 class TestCmdMonitorValidation:
-    @pytest.mark.parametrize("override, expected_msg", [
-        ({"pid": -2}, "PID must be positive"),
-        ({"rate": 0}, "Rate must be positive"),
-        ({"duration": 0}, "Duration must be positive"),
-        ({"flush_threshold": 0}, "Flush threshold must be positive"),
-    ])
-    def test_invalid_params(self, caplog: pytest.LogCaptureFixture, monitor_args: MonitorArgsFactory, override: dict, expected_msg: str) -> None:
+    @pytest.mark.parametrize(
+        "override, expected_msg",
+        [
+            ({"pid": -2}, "PID must be positive"),
+            ({"rate": 0}, "Rate must be positive"),
+            ({"duration": 0}, "Duration must be positive"),
+            ({"flush_threshold": 0}, "Flush threshold must be positive"),
+        ],
+    )
+    def test_invalid_params(
+        self, caplog: pytest.LogCaptureFixture, monitor_args: MonitorArgsFactory, override: dict, expected_msg: str
+    ) -> None:
         from gcmon.commands import monitor_cmd
 
         result = monitor_cmd.cmd_monitor(monitor_args(**override))
@@ -108,6 +116,7 @@ class TestCliBasicRun:
 
     def test_duration_based(self, run_monitor_self: Any, tmp_path: Path) -> None:
         import time
+
         start = time.monotonic()
         result = run_monitor_self(["-o", str(tmp_path / "test_trace.json"), "-d", "0.5", "-r", "0.1", "-v"])
         assert result.returncode == 0
@@ -185,13 +194,20 @@ class TestCliChromePlusPerfettoFormat:
 
     def test_basic(self, run_monitor_self: Any, tmp_path: Path) -> None:
         base = tmp_path / "trace"
-        result = run_monitor_self([
-            "--format", "chrome+perfetto",
-            "-o", str(base),
-            "-d", "0.5",
-            "-r", "0.05",
-            "-v",
-        ], timeout=15)
+        result = run_monitor_self(
+            [
+                "--format",
+                "chrome+perfetto",
+                "-o",
+                str(base),
+                "-d",
+                "0.5",
+                "-r",
+                "0.05",
+                "-v",
+            ],
+            timeout=15,
+        )
         assert result.returncode == 0
         assert "Format: chrome+perfetto" in result.stderr
 
@@ -209,11 +225,18 @@ class TestCliChromePlusPerfettoFormat:
     def test_default_base_name(self, run_monitor_self: Any, tmp_path: Path) -> None:
         """Without ``-o``, both files land in the cwd as ``gcmon.json`` and
         ``gcmon.pftrace``."""
-        result = run_monitor_self([
-            "--format", "chrome+perfetto",
-            "-d", "0.5",
-            "-r", "0.05",
-        ], cwd=tmp_path, timeout=15)
+        result = run_monitor_self(
+            [
+                "--format",
+                "chrome+perfetto",
+                "-d",
+                "0.5",
+                "-r",
+                "0.05",
+            ],
+            cwd=tmp_path,
+            timeout=15,
+        )
         assert result.returncode == 0
         assert (tmp_path / "gcmon.json").exists()
         assert (tmp_path / "gcmon.pftrace").exists()
@@ -221,12 +244,19 @@ class TestCliChromePlusPerfettoFormat:
     def test_strips_json_extension_from_base(self, run_monitor_self: Any, tmp_path: Path) -> None:
         """If ``-o`` ends in ``.json``, the chrome path is unchanged and the
         perfetto path is derived with the ``.pftrace`` extension."""
-        result = run_monitor_self([
-            "--format", "chrome+perfetto",
-            "-o", str(tmp_path / "trace.json"),
-            "-d", "0.5",
-            "-r", "0.05",
-        ], timeout=15)
+        result = run_monitor_self(
+            [
+                "--format",
+                "chrome+perfetto",
+                "-o",
+                str(tmp_path / "trace.json"),
+                "-d",
+                "0.5",
+                "-r",
+                "0.05",
+            ],
+            timeout=15,
+        )
         assert result.returncode == 0
         assert (tmp_path / "trace.json").exists()
         assert (tmp_path / "trace.pftrace").exists()
@@ -311,12 +341,21 @@ class TestCliEnvVars:
         monkeypatch.setenv("GCMON_FLUSH_THRESHOLD", "50")
         assert run_monitor(["--format", "jsonl", "-o", str(output_file), "-d", "0.1", "-v"]).returncode == 0
 
-    def test_flush_threshold_cli_override(self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, tmp_path: Path) -> None:
+    def test_flush_threshold_cli_override(
+        self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, tmp_path: Path
+    ) -> None:
         output_file = tmp_path / "test.jsonl"
         monkeypatch.setenv("GCMON_FLUSH_THRESHOLD", "50")
-        assert run_monitor(["--format", "jsonl", "-o", str(output_file), "--flush-threshold", "200", "-d", "0.1"]).returncode == 0
+        assert (
+            run_monitor(
+                ["--format", "jsonl", "-o", str(output_file), "--flush-threshold", "200", "-d", "0.1"]
+            ).returncode
+            == 0
+        )
 
-    def test_env_output_default_format_jsonl(self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, tmp_path: Path) -> None:
+    def test_env_output_default_format_jsonl(
+        self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("GCMON_FORMAT", "jsonl")
         assert run_monitor(["-d", "0.1"], cwd=tmp_path).returncode == 0
 
@@ -325,7 +364,9 @@ class TestCliEnvHelp:
     def test_monitor_help_shows_env_vars(self, gcmon_cmd: list[str]) -> None:
         result = subprocess.run(
             gcmon_cmd + ["monitor", "--help"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         for var in ("GCMON_OUTPUT", "GCMON_RATE", "GCMON_DURATION", "GCMON_VERBOSE", "GCMON_FORMAT"):
             assert var in result.stdout

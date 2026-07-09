@@ -30,14 +30,25 @@ from tests.helpers import create_jsonl_record, create_mock_stats_item
 
 
 def _make_inc_item(
-    gen: int = 0, ts_start: int = 1000, ts_stop: int = 2000,
-    increment_size: int = 500, alive_size: int = 300,
+    gen: int = 0,
+    ts_start: int = 1000,
+    ts_stop: int = 2000,
+    increment_size: int = 500,
+    alive_size: int = 300,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        gen=gen, iid=1, ts_start=ts_start, ts_stop=ts_stop,
-        collections=1, heap_size=100, collected=10,
-        uncollectable=0, candidates=5, duration=1.0,
-        increment_size=increment_size, alive_size=alive_size,
+        gen=gen,
+        iid=1,
+        ts_start=ts_start,
+        ts_stop=ts_stop,
+        collections=1,
+        heap_size=100,
+        collected=10,
+        uncollectable=0,
+        candidates=5,
+        duration=1.0,
+        increment_size=increment_size,
+        alive_size=alive_size,
         ts_mark_alive_start=ts_start,
         ts_mark_alive_stop=ts_start + 100,
         ts_fill_increment_start=ts_start + 100,
@@ -58,30 +69,36 @@ def _make_inc_item(
 
 
 def _make_inc_jsonl_record(
-    pid: int = 1, gen: int = 0, ts_start: int = 1000, ts_stop: int = 2000,
-    increment_size: int = 500, alive_size: int = 300,
+    pid: int = 1,
+    gen: int = 0,
+    ts_start: int = 1000,
+    ts_stop: int = 2000,
+    increment_size: int = 500,
+    alive_size: int = 300,
 ) -> dict:
     record = create_jsonl_record(pid=pid, gen=gen, ts_start=ts_start, ts_stop=ts_stop)
-    record.update({
-        "increment_size": increment_size,
-        "alive_size": alive_size,
-        "ts_mark_alive_start": ts_start,
-        "ts_mark_alive_stop": ts_start + 100,
-        "ts_fill_increment_start": ts_start + 100,
-        "ts_fill_increment_stop": ts_start + 200,
-        "ts_deduce_unreachable_start": ts_start + 200,
-        "ts_deduce_unreachable_stop": ts_start + 300,
-        "ts_handle_weakref_callbacks_start": ts_start + 300,
-        "ts_handle_weakref_callbacks_stop": ts_start + 400,
-        "ts_finalize_garbage_stop": ts_start + 500,
-        "finalized_garbage_count": 42,
-        "ts_handle_resurrected_stop": ts_start + 600,
-        "ts_clear_weakrefs_stop": ts_start + 700,
-        "clear_weakrefs_count": 7,
-        "ts_delete_garbage_start": ts_start + 800,
-        "ts_delete_garbage_stop": ts_start + 900,
-        "deleted_garbage_count": 13,
-    })
+    record.update(
+        {
+            "increment_size": increment_size,
+            "alive_size": alive_size,
+            "ts_mark_alive_start": ts_start,
+            "ts_mark_alive_stop": ts_start + 100,
+            "ts_fill_increment_start": ts_start + 100,
+            "ts_fill_increment_stop": ts_start + 200,
+            "ts_deduce_unreachable_start": ts_start + 200,
+            "ts_deduce_unreachable_stop": ts_start + 300,
+            "ts_handle_weakref_callbacks_start": ts_start + 300,
+            "ts_handle_weakref_callbacks_stop": ts_start + 400,
+            "ts_finalize_garbage_stop": ts_start + 500,
+            "finalized_garbage_count": 42,
+            "ts_handle_resurrected_stop": ts_start + 600,
+            "ts_clear_weakrefs_stop": ts_start + 700,
+            "clear_weakrefs_count": 7,
+            "ts_delete_garbage_start": ts_start + 800,
+            "ts_delete_garbage_stop": ts_start + 900,
+            "deleted_garbage_count": 13,
+        }
+    )
     return record
 
 
@@ -233,15 +250,25 @@ class TestParseEvents:
 
     def test_parses_counter_event(self) -> None:
         event = counter_event(
-            pid=1, tid=1, name="G0", ts_ns=1_000_000,
+            pid=1,
+            tid=1,
+            name="G0",
+            ts_ns=1_000_000,
             args={"collected": 10, "uncollectable": 1, "candidates": 5, "heap_size": 1000},
         )
         result = _parse_events(msgspec.json.encode([event]))
         assert result[0].ph == "C"
 
     def test_parses_begin_and_end_events(self) -> None:
-        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
-                "collected": 10, "uncollectable": 0, "candidates": 5}
+        args = {
+            "generation": 0,
+            "iid": 1,
+            "collections": 1,
+            "heap_size": 100,
+            "collected": 10,
+            "uncollectable": 0,
+            "candidates": 5,
+        }
         events = [
             begin_event(pid=1, tid=1, name="GC Pause", cat="gc", ts_ns=1_000_000, args=args),
             end_event(pid=1, tid=1, name="GC Pause", cat="gc", ts_ns=1_500_000),
@@ -261,7 +288,11 @@ class TestParseEvents:
 
     def test_parses_begin_event_with_args(self) -> None:
         event = begin_event(
-            pid=1, tid=1, name="Mark Alive", cat="gc", ts_ns=1_000_000,
+            pid=1,
+            tid=1,
+            name="Mark Alive",
+            cat="gc",
+            ts_ns=1_000_000,
             args={"generation": 0, "iid": 1, "increment_size": 500, "alive_size": 300},
         )
         result = _parse_events(msgspec.json.encode([event]))
@@ -280,23 +311,29 @@ class TestParseEvents:
         assert len(result) == 1
 
     def test_skips_unknown_ph(self) -> None:
-        raw = json.dumps([
-            {"ph": "R", "name": "resource", "ts": 100, "pid": 1, "tid": 1, "args": {}},
-        ])
+        raw = json.dumps(
+            [
+                {"ph": "R", "name": "resource", "ts": 100, "pid": 1, "tid": 1, "args": {}},
+            ]
+        )
         result = _parse_events(raw)
         assert len(result) == 0
 
     def test_skips_unknown_meta_name(self) -> None:
-        raw = json.dumps([
-            {"name": "unknown_meta", "ph": "M", "pid": 1, "args": {"name": "x"}},
-        ])
+        raw = json.dumps(
+            [
+                {"name": "unknown_meta", "ph": "M", "pid": 1, "args": {"name": "x"}},
+            ]
+        )
         result = _parse_events(raw)
         assert len(result) == 0
 
     def test_parses_instant_event(self) -> None:
-        raw = json.dumps([
-            {"ph": "I", "name": "marker", "ts": 5000, "pid": 1, "s": "p"},
-        ])
+        raw = json.dumps(
+            [
+                {"ph": "I", "name": "marker", "ts": 5000, "pid": 1, "s": "p"},
+            ]
+        )
         result = _parse_events(raw)
         assert len(result) == 1
         assert result[0].ph == "I"
@@ -306,17 +343,29 @@ class TestParseEvents:
 
 class TestNormalizeTraceTimestamps:
     def test_normalizes_to_zero(self) -> None:
-        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
-                "collected": 10, "uncollectable": 0, "candidates": 5}
+        args = {
+            "generation": 0,
+            "iid": 1,
+            "collections": 1,
+            "heap_size": 100,
+            "collected": 10,
+            "uncollectable": 0,
+            "candidates": 5,
+        }
         events: list = [
             begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=5_000_000, args=args),
-            counter_event(pid=1, tid=1, name="c1", ts_ns=3_000_000,
-                          args={"collected": 10, "uncollectable": 0, "candidates": 5, "heap_size": 100}),
+            counter_event(
+                pid=1,
+                tid=1,
+                name="c1",
+                ts_ns=3_000_000,
+                args={"collected": 10, "uncollectable": 0, "candidates": 5, "heap_size": 100},
+            ),
             process_meta(pid=1, name="p"),
         ]
         _normalize_trace_timestamps(events)  # type: ignore[arg-type]
         assert events[0].ts == 2_000_000  # 5_000_000 - 3_000_000
-        assert events[1].ts == 0           # 3_000_000 - 3_000_000
+        assert events[1].ts == 0  # 3_000_000 - 3_000_000
         assert events[2].name == "process_name"  # metadata preserved
 
     def test_no_timestamp_events_is_noop(self) -> None:
@@ -326,8 +375,15 @@ class TestNormalizeTraceTimestamps:
         assert events[0].name == "process_name"
 
     def test_single_event_ts_becomes_zero(self) -> None:
-        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
-                "collected": 10, "uncollectable": 0, "candidates": 5}
+        args = {
+            "generation": 0,
+            "iid": 1,
+            "collections": 1,
+            "heap_size": 100,
+            "collected": 10,
+            "uncollectable": 0,
+            "candidates": 5,
+        }
         events: list = [
             begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=1_000_000, args=args),
         ]
@@ -340,8 +396,15 @@ class TestNormalizeTraceTimestamps:
         assert events == []
 
     def test_per_pid_normalization(self) -> None:
-        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
-                "collected": 10, "uncollectable": 0, "candidates": 5}
+        args = {
+            "generation": 0,
+            "iid": 1,
+            "collections": 1,
+            "heap_size": 100,
+            "collected": 10,
+            "uncollectable": 0,
+            "candidates": 5,
+        }
         events: list = [
             begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=10_000_000, args=args),
             begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=12_000_000, args=args),
@@ -349,14 +412,21 @@ class TestNormalizeTraceTimestamps:
             begin_event(pid=2, tid=1, name="e4", cat="c", ts_ns=7_000_000, args=args),
         ]
         _normalize_trace_timestamps(events)  # type: ignore[arg-type]
-        assert events[0].ts == 0            # pid=1: 10_000_000 - 10_000_000
-        assert events[1].ts == 2_000_000    # pid=1: 12_000_000 - 10_000_000
-        assert events[2].ts == 0            # pid=2: 5_000_000 - 5_000_000
-        assert events[3].ts == 2_000_000    # pid=2: 7_000_000 - 5_000_000
+        assert events[0].ts == 0  # pid=1: 10_000_000 - 10_000_000
+        assert events[1].ts == 2_000_000  # pid=1: 12_000_000 - 10_000_000
+        assert events[2].ts == 0  # pid=2: 5_000_000 - 5_000_000
+        assert events[3].ts == 2_000_000  # pid=2: 7_000_000 - 5_000_000
 
     def test_negative_timestamps(self) -> None:
-        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
-                "collected": 10, "uncollectable": 0, "candidates": 5}
+        args = {
+            "generation": 0,
+            "iid": 1,
+            "collections": 1,
+            "heap_size": 100,
+            "collected": 10,
+            "uncollectable": 0,
+            "candidates": 5,
+        }
         events: list = [
             begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=-100, args=args),
             begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=-500, args=args),
@@ -407,8 +477,8 @@ class TestNormalizeJsonlTimestamps:
         item2 = _make_inc_item(ts_start=5000, ts_stop=6000)
         items = {1: [item1], 2: [item2]}
         _normalize_jsonl_timestamps(items)
-        assert item1.ts_start == 0     # per-PID min
-        assert item2.ts_start == 0     # per-PID min
+        assert item1.ts_start == 0  # per-PID min
+        assert item2.ts_start == 0  # per-PID min
 
 
 class TestConvertJsonlToTraceFormat:
@@ -492,14 +562,20 @@ class TestCombineFiles:
 
     def test_chrome_to_jsonl_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="not supported"):
-            combine_files([], tmp_path / "out.jsonl",
-                          input_format="chrome", output_format="jsonl")
+            combine_files([], tmp_path / "out.jsonl", input_format="chrome", output_format="jsonl")
 
     def test_normalize_chrome(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.json"
         out = tmp_path / "out.json"
-        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
-                "collected": 10, "uncollectable": 0, "candidates": 5}
+        args = {
+            "generation": 0,
+            "iid": 1,
+            "collections": 1,
+            "heap_size": 100,
+            "collected": 10,
+            "uncollectable": 0,
+            "candidates": 5,
+        }
         e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=5_000_000, args=args)
         e2 = begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=3_000_000, args=args)
         f1.write_bytes(msgspec.json.encode([e1, e2]))
@@ -511,8 +587,15 @@ class TestCombineFiles:
     def test_normalize_chrome_multiple_pids(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.json"
         out = tmp_path / "out.json"
-        args = {"generation": 0, "iid": 1, "collections": 1, "heap_size": 100,
-                "collected": 10, "uncollectable": 0, "candidates": 5}
+        args = {
+            "generation": 0,
+            "iid": 1,
+            "collections": 1,
+            "heap_size": 100,
+            "collected": 10,
+            "uncollectable": 0,
+            "candidates": 5,
+        }
         e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=10_000_000, args=args)
         e2 = begin_event(pid=2, tid=1, name="e2", cat="c", ts_ns=5_000_000, args=args)
         f1.write_bytes(msgspec.json.encode([e1, e2]))

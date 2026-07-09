@@ -1,4 +1,5 @@
 """Tests for streaming_stats module."""
+
 from collections.abc import Callable
 
 import numpy as np
@@ -130,15 +131,11 @@ class TestStreamingStatsUpdate:
 class TestStreamingStatsPidTracking:
     """Tests for StreamingStats PID tracking."""
 
-    def test_pids_returns_all_tracked_pids(
-        self, streaming_stats_with_pids: StreamingStats
-    ) -> None:
+    def test_pids_returns_all_tracked_pids(self, streaming_stats_with_pids: StreamingStats) -> None:
         pids = streaming_stats_with_pids.pids()
         assert pids == {11111, 22222, 33333}
 
-    def test_get_pid_stats_returns_active(
-        self, streaming_stats_with_pids: StreamingStats
-    ) -> None:
+    def test_get_pid_stats_returns_active(self, streaming_stats_with_pids: StreamingStats) -> None:
         pid_stats = streaming_stats_with_pids.get_pid_stats(11111)
         assert pid_stats is not None
         assert "pause" in pid_stats
@@ -155,9 +152,7 @@ class TestStreamingStatsPidTracking:
         pid_stats = streaming_stats.get_pid_stats(old_pid)
         assert pid_stats is not None
 
-    def test_get_pid_stats_missing_returns_none(
-        self, streaming_stats: StreamingStats
-    ) -> None:
+    def test_get_pid_stats_missing_returns_none(self, streaming_stats: StreamingStats) -> None:
         assert streaming_stats.get_pid_stats(99999) is None
 
 
@@ -201,24 +196,18 @@ class TestStreamingStatsPidEviction:
 class TestStreamingStatsAggregate:
     """Tests for StreamingStats.aggregate method."""
 
-    def test_aggregate_pause_metrics(
-        self, streaming_stats_with_pids: StreamingStats
-    ) -> None:
+    def test_aggregate_pause_metrics(self, streaming_stats_with_pids: StreamingStats) -> None:
         result = streaming_stats_with_pids.aggregate()
         for gen in range(3):
             assert f"pause_gen_{gen}_p99" in result
             assert f"pause_gen_{gen}_sum" in result
             assert f"pause_gen_{gen}_count" in result
 
-    def test_aggregate_heap_size_p99(
-        self, streaming_stats_with_pids: StreamingStats
-    ) -> None:
+    def test_aggregate_heap_size_p99(self, streaming_stats_with_pids: StreamingStats) -> None:
         result = streaming_stats_with_pids.aggregate()
         assert "heap_size_p99" in result
 
-    def test_aggregate_pause_count(
-        self, streaming_stats_with_pids: StreamingStats
-    ) -> None:
+    def test_aggregate_pause_count(self, streaming_stats_with_pids: StreamingStats) -> None:
         result = streaming_stats_with_pids.aggregate()
         assert result["pause_count"] == streaming_stats_with_pids.count()
 

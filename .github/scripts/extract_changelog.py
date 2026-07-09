@@ -36,9 +36,7 @@ def extract(version: str) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Extract a version's section from CHANGELOG.md"
-    )
+    parser = argparse.ArgumentParser(description="Extract a version's section from CHANGELOG.md")
     parser.add_argument(
         "tag",
         nargs="?",
@@ -59,4 +57,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

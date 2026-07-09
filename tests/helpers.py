@@ -107,13 +107,24 @@ def create_mock_stats_item(
 
 def create_mock_incremental_item(**kwargs: object) -> GCStatsInfo:
     defaults: dict[str, object] = dict(
-        gen=0, iid=0, ts_start=1_500_000_000, ts_stop=1_505_000_000,
-        heap_size=52428800, collections=50, collected=200, uncollectable=10,
-        candidates=40, duration=0.005,
-        increment_size=1000, alive_size=800,
-        ts_mark_alive_start=1_500_000_000, ts_mark_alive_stop=1_501_000_000,
-        ts_fill_increment_start=1_501_000_000, ts_fill_increment_stop=1_502_000_000,
-        ts_deduce_unreachable_start=1_502_000_000, ts_deduce_unreachable_stop=1_503_000_000,
+        gen=0,
+        iid=0,
+        ts_start=1_500_000_000,
+        ts_stop=1_505_000_000,
+        heap_size=52428800,
+        collections=50,
+        collected=200,
+        uncollectable=10,
+        candidates=40,
+        duration=0.005,
+        increment_size=1000,
+        alive_size=800,
+        ts_mark_alive_start=1_500_000_000,
+        ts_mark_alive_stop=1_501_000_000,
+        ts_fill_increment_start=1_501_000_000,
+        ts_fill_increment_stop=1_502_000_000,
+        ts_deduce_unreachable_start=1_502_000_000,
+        ts_deduce_unreachable_stop=1_503_000_000,
         ts_handle_weakref_callbacks_start=1_503_000_000,
         ts_handle_weakref_callbacks_stop=1_504_000_000,
         ts_finalize_garbage_stop=1_505_000_000,
@@ -180,9 +191,7 @@ def assert_valid_jsonl_format(file_path: Path) -> list[dict[str, Any]]:
             if not line:
                 continue
             obj: object = json.loads(line)
-            assert isinstance(obj, dict), (
-                f"Line {line_no} in JSONL file should be a JSON object, got {type(obj)}"
-            )
+            assert isinstance(obj, dict), f"Line {line_no} in JSONL file should be a JSON object, got {type(obj)}"
             data.append(obj)  # type: ignore[arg-type]
 
     assert len(data) > 0, f"JSONL file {file_path} is empty"
@@ -208,24 +217,16 @@ def assert_valid_chrome_trace_format(file_path: Path) -> list[dict[str, Any]]:
 
     # Check basic JSON array structure
     content_stripped = content.strip()
-    assert content_stripped.startswith("["), (
-        f"Chrome Trace file should start with '[', got: {content_stripped[:20]}"
-    )
-    assert content_stripped.endswith("]"), (
-        f"Chrome Trace file should end with ']', got: {content_stripped[-20:]}"
-    )
+    assert content_stripped.startswith("["), f"Chrome Trace file should start with '[', got: {content_stripped[:20]}"
+    assert content_stripped.endswith("]"), f"Chrome Trace file should end with ']', got: {content_stripped[-20:]}"
 
     # Parse and validate structure
     data: object = json.loads(content)
-    assert isinstance(data, list), (
-        f"Chrome Trace file should contain a JSON array, got {type(data)}"
-    )
+    assert isinstance(data, list), f"Chrome Trace file should contain a JSON array, got {type(data)}"
 
     # Validate each item is a dict (JSON object)
     for idx, item in enumerate(data):
-        assert isinstance(item, dict), (
-            f"Item {idx} in Chrome Trace file should be a dict, got {type(item)}"
-        )
+        assert isinstance(item, dict), f"Item {idx} in Chrome Trace file should be a dict, got {type(item)}"
 
     # Cast to expected type after validation
     return data  # type: ignore[return-value]
@@ -283,14 +284,15 @@ def assert_is_thread_meta(event: dict, **expected: Any) -> None:
             assert event[key] == value
 
 
-def assert_is_instant_event(event: dict, **expected: Mapping[str, str|int]) -> None:
+def assert_is_instant_event(event: dict, **expected: Mapping[str, str | int]) -> None:
     assert event["ph"] == "I"
     assert event["s"] == "p"
 
     for key, value in expected.items():
         assert event[key] == value
 
-def assert_is_instant_msg(msg: dict[str, Any], **expected: Mapping[str, str|int]) -> None:
+
+def assert_is_instant_msg(msg: dict[str, Any], **expected: Mapping[str, str | int]) -> None:
     assert msg["type"] == "i"
 
     for key, value in expected.items():

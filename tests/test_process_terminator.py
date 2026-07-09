@@ -205,9 +205,7 @@ class TestTerminateProcessCommon:
         mock_process.poll.side_effect = lambda: mock_process.returncode
 
         with patch("gcmon.utils.process_terminator._logger", mock_logger):
-            with patch.object(
-                mock_process, "send_signal", side_effect=ProcessLookupError("Process not found")
-            ):
+            with patch.object(mock_process, "send_signal", side_effect=ProcessLookupError("Process not found")):
                 result = terminate_process(
                     process=mock_process,
                     graceful_timeout=5.0,

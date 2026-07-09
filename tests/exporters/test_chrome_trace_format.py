@@ -60,8 +60,12 @@ class TestBeginEvent:
             "candidates": 20,
         }
         event = begin_event(
-            pid=123, tid=1, name="GC Pause (gen=0)",
-            cat="gc.pause(gen=0)", ts_ns=1_000_000, args=args,
+            pid=123,
+            tid=1,
+            name="GC Pause (gen=0)",
+            cat="gc.pause(gen=0)",
+            ts_ns=1_000_000,
+            args=args,
         )
         assert event.name == "GC Pause (gen=0)"
         assert event.cat == "gc.pause(gen=0)"
@@ -75,8 +79,11 @@ class TestBeginEvent:
 class TestEndEvent:
     def test_returns_end_event(self) -> None:
         event = end_event(
-            pid=123, tid=1, name="GC Pause (gen=0)",
-            cat="gc.pause(gen=0)", ts_ns=2_000_000,
+            pid=123,
+            tid=1,
+            name="GC Pause (gen=0)",
+            cat="gc.pause(gen=0)",
+            ts_ns=2_000_000,
         )
         assert event.name == "GC Pause (gen=0)"
         assert event.cat == "gc.pause(gen=0)"
@@ -89,8 +96,10 @@ class TestEndEvent:
 class TestCounterEvent:
     def test_returns_counter_event(self) -> None:
         args = {
-            "collected": 50, "uncollectable": 1,
-            "candidates": 20, "heap_size": 1024,
+            "collected": 50,
+            "uncollectable": 1,
+            "candidates": 20,
+            "heap_size": 1024,
         }
         event = counter_event(pid=123, tid=1, name="G0", ts_ns=1_000_000, args=args)
         assert event.ph == "C"
@@ -127,11 +136,16 @@ def _make_incremental_item(
 ) -> SimpleNamespace:
     base = create_mock_stats_item(gen=gen, ts_start=ts_start, ts_stop=ts_stop)
     return SimpleNamespace(
-        gen=base.gen, iid=base.iid,
-        ts_start=base.ts_start, ts_stop=base.ts_stop,
-        collections=base.collections, heap_size=base.heap_size,
-        collected=base.collected, uncollectable=base.uncollectable,
-        candidates=base.candidates, duration=base.duration,
+        gen=base.gen,
+        iid=base.iid,
+        ts_start=base.ts_start,
+        ts_stop=base.ts_stop,
+        collections=base.collections,
+        heap_size=base.heap_size,
+        collected=base.collected,
+        uncollectable=base.uncollectable,
+        candidates=base.candidates,
+        duration=base.duration,
         increment_size=increment_size,
         alive_size=alive_size,
         ts_mark_alive_start=ts_start,
@@ -195,10 +209,7 @@ class TestConvertItemToTraceFormat:
     def test_deduce_unreachable_slice_args_has_candidates(self) -> None:
         item = _make_incremental_item(gen=0)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        deduce = next(
-            e for e in events
-            if e.ph == "B" and e.name == "Deduce Unreachable (gen=0)"
-        )
+        deduce = next(e for e in events if e.ph == "B" and e.name == "Deduce Unreachable (gen=0)")
         assert deduce.args["candidates"] == item.candidates
         assert deduce.args["generation"] == 0
 
@@ -229,10 +240,7 @@ class TestConvertItemToTraceFormat:
         # it is exposed on the GC Pause slice's args instead. The
         # consolidated `heap_size` event is also a `C` event — pick the
         # per-gen one by its name prefix.
-        counter = next(
-            e for e in events
-            if e.ph == "C" and e.name.startswith("G")
-        )
+        counter = next(e for e in events if e.ph == "C" and e.name.startswith("G"))
         assert "increment_size" not in counter.args
         assert "collected" in counter.args
         pause = next(e for e in events if e.ph == "B" and "GC Pause" in e.name)
@@ -241,12 +249,18 @@ class TestConvertItemToTraceFormat:
     def test_zero_duration_sub_steps_are_skipped(self) -> None:
         base = _make_incremental_item(gen=0)
         item = SimpleNamespace(
-            gen=base.gen, iid=base.iid,
-            ts_start=base.ts_start, ts_stop=base.ts_stop,
-            collections=base.collections, heap_size=base.heap_size,
-            collected=base.collected, uncollectable=base.uncollectable,
-            candidates=base.candidates, duration=base.duration,
-            increment_size=base.increment_size, alive_size=base.alive_size,
+            gen=base.gen,
+            iid=base.iid,
+            ts_start=base.ts_start,
+            ts_stop=base.ts_stop,
+            collections=base.collections,
+            heap_size=base.heap_size,
+            collected=base.collected,
+            uncollectable=base.uncollectable,
+            candidates=base.candidates,
+            duration=base.duration,
+            increment_size=base.increment_size,
+            alive_size=base.alive_size,
             ts_mark_alive_start=1_500_000_000,
             ts_mark_alive_stop=1_500_000_000,
             ts_fill_increment_start=1_500_000_000,
@@ -280,8 +294,13 @@ class TestConvertItemToTraceFormat:
         events = convert_item_to_trace_format(pid=12345, item=item)
         pause = next(e for e in events if e.ph == "B")
         assert set(pause.args.keys()) == {
-            "generation", "iid", "collections", "heap_size",
-            "collected", "uncollectable", "candidates",
+            "generation",
+            "iid",
+            "collections",
+            "heap_size",
+            "collected",
+            "uncollectable",
+            "candidates",
         }
 
     def test_counter_data_has_all_required_fields(self) -> None:
@@ -289,7 +308,10 @@ class TestConvertItemToTraceFormat:
         events = convert_item_to_trace_format(pid=12345, item=item)
         counter = next(e for e in events if e.ph == "C" and e.name.startswith("G"))
         assert set(counter.args.keys()) == {
-            "collected", "uncollectable", "candidates", "duration",
+            "collected",
+            "uncollectable",
+            "candidates",
+            "duration",
         }
 
     def test_counter_data_omits_uncollectable_when_zero(self) -> None:
@@ -304,21 +326,21 @@ class TestConvertItemToTraceFormat:
     def test_duration_counter_event_emitted(self) -> None:
         item = create_mock_stats_item(duration=0.123)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        counter = next(
-            e for e in events
-            if e.ph == "C" and e.name == "G0"
-        )
+        counter = next(e for e in events if e.ph == "C" and e.name == "G0")
         assert counter.args["duration"] == 0.123
 
     def test_duration_counter_split_by_generation(self) -> None:
         events_g0 = convert_item_to_trace_format(
-            pid=12345, item=create_mock_stats_item(gen=0, iid=7, duration=0.01),
+            pid=12345,
+            item=create_mock_stats_item(gen=0, iid=7, duration=0.01),
         )
         events_g1 = convert_item_to_trace_format(
-            pid=12345, item=create_mock_stats_item(gen=1, iid=7, duration=0.02),
+            pid=12345,
+            item=create_mock_stats_item(gen=1, iid=7, duration=0.02),
         )
         events_g2 = convert_item_to_trace_format(
-            pid=12345, item=create_mock_stats_item(gen=2, iid=7, duration=0.03),
+            pid=12345,
+            item=create_mock_stats_item(gen=2, iid=7, duration=0.03),
         )
         # Each generation produces a per-gen counter event ("G{gen}") with
         # `duration` as one of its args. The three generations' duration
@@ -334,13 +356,16 @@ class TestConvertItemToTraceFormat:
 
     def test_heap_size_counter_event_is_shared_across_generations(self) -> None:
         events_g0 = convert_item_to_trace_format(
-            pid=12345, item=create_mock_stats_item(gen=0, iid=7, heap_size=1000),
+            pid=12345,
+            item=create_mock_stats_item(gen=0, iid=7, heap_size=1000),
         )
         events_g1 = convert_item_to_trace_format(
-            pid=12345, item=create_mock_stats_item(gen=1, iid=7, heap_size=2000),
+            pid=12345,
+            item=create_mock_stats_item(gen=1, iid=7, heap_size=2000),
         )
         events_g2 = convert_item_to_trace_format(
-            pid=12345, item=create_mock_stats_item(gen=2, iid=7, heap_size=3000),
+            pid=12345,
+            item=create_mock_stats_item(gen=2, iid=7, heap_size=3000),
         )
         for events in (events_g0, events_g1, events_g2):
             per_gen = [e for e in events if e.ph == "C" and e.name.startswith("G")]
@@ -349,9 +374,24 @@ class TestConvertItemToTraceFormat:
             assert "heap_size" not in per_gen[0].args
             assert len(heap) == 1
             assert set(heap[0].args.keys()) == {"heap_size"}
-        assert events_g0[next(i for i, e in enumerate(events_g0) if e.ph == "C" and e.name == "heap_size")].args["heap_size"] == 1000
-        assert events_g1[next(i for i, e in enumerate(events_g1) if e.ph == "C" and e.name == "heap_size")].args["heap_size"] == 2000
-        assert events_g2[next(i for i, e in enumerate(events_g2) if e.ph == "C" and e.name == "heap_size")].args["heap_size"] == 3000
+        assert (
+            events_g0[next(i for i, e in enumerate(events_g0) if e.ph == "C" and e.name == "heap_size")].args[
+                "heap_size"
+            ]
+            == 1000
+        )
+        assert (
+            events_g1[next(i for i, e in enumerate(events_g1) if e.ph == "C" and e.name == "heap_size")].args[
+                "heap_size"
+            ]
+            == 2000
+        )
+        assert (
+            events_g2[next(i for i, e in enumerate(events_g2) if e.ph == "C" and e.name == "heap_size")].args[
+                "heap_size"
+            ]
+            == 3000
+        )
 
     def test_pid_is_passed_through(self) -> None:
         item = create_mock_stats_item()
@@ -368,8 +408,10 @@ class TestConvertItemToTraceFormat:
 
     def test_incremental_gen0_pause_data_has_count_fields(self) -> None:
         item = _make_incremental_item(
-            gen=0, finalized_garbage_count=42,
-            deleted_garbage_count=13, clear_weakrefs_count=7,
+            gen=0,
+            finalized_garbage_count=42,
+            deleted_garbage_count=13,
+            clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
         pause = next(e for e in events if e.ph == "B" and "GC Pause" in e.name)
@@ -379,8 +421,10 @@ class TestConvertItemToTraceFormat:
 
     def test_incremental_counter_excludes_size_and_count_fields(self) -> None:
         item = _make_incremental_item(
-            gen=0, finalized_garbage_count=42,
-            deleted_garbage_count=13, clear_weakrefs_count=7,
+            gen=0,
+            finalized_garbage_count=42,
+            deleted_garbage_count=13,
+            clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
         counter = next(e for e in events if e.ph == "C")
@@ -407,42 +451,39 @@ class TestConvertItemToTraceFormat:
 
     def test_finalize_garbage_substep_has_count(self) -> None:
         item = _make_incremental_item(
-            gen=0, finalized_garbage_count=42,
-            deleted_garbage_count=13, clear_weakrefs_count=7,
+            gen=0,
+            finalized_garbage_count=42,
+            deleted_garbage_count=13,
+            clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
-        begin = next(
-            e for e in events
-            if e.ph == "B" and e.name == "Finalize Garbage (gen=0)"
-        )
+        begin = next(e for e in events if e.ph == "B" and e.name == "Finalize Garbage (gen=0)")
         assert begin.args["finalized_garbage_count"] == 42
         assert "deleted_garbage_count" not in begin.args
         assert "clear_weakrefs_count" not in begin.args
 
     def test_clear_weakrefs_substep_has_count(self) -> None:
         item = _make_incremental_item(
-            gen=0, finalized_garbage_count=42,
-            deleted_garbage_count=13, clear_weakrefs_count=7,
+            gen=0,
+            finalized_garbage_count=42,
+            deleted_garbage_count=13,
+            clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
-        begin = next(
-            e for e in events
-            if e.ph == "B" and e.name == "Clear Weakrefs (gen=0)"
-        )
+        begin = next(e for e in events if e.ph == "B" and e.name == "Clear Weakrefs (gen=0)")
         assert begin.args["clear_weakrefs_count"] == 7
         assert "finalized_garbage_count" not in begin.args
         assert "deleted_garbage_count" not in begin.args
 
     def test_delete_garbage_substep_has_count(self) -> None:
         item = _make_incremental_item(
-            gen=0, finalized_garbage_count=42,
-            deleted_garbage_count=13, clear_weakrefs_count=7,
+            gen=0,
+            finalized_garbage_count=42,
+            deleted_garbage_count=13,
+            clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
-        begin = next(
-            e for e in events
-            if e.ph == "B" and e.name == "Delete Garbage (gen=0)"
-        )
+        begin = next(e for e in events if e.ph == "B" and e.name == "Delete Garbage (gen=0)")
         assert begin.args["deleted_garbage_count"] == 13
         assert "finalized_garbage_count" not in begin.args
         assert "clear_weakrefs_count" not in begin.args

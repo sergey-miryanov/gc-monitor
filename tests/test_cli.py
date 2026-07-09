@@ -15,6 +15,7 @@ def gcmon_cli() -> list[str]:
 @pytest.fixture
 def cli_module():
     from gcmon import cli
+
     return cli
 
 
@@ -27,17 +28,22 @@ class TestSetupLogging:
     @pytest.fixture(autouse=True)
     def reset_logging(self):
         import logging
+
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
         logging.getLogger("gcmon").handlers.clear()
 
-    @pytest.mark.parametrize("verbose_count, expected_level", [
-        (1, "INFO"),
-        (0, "WARNING"),
-        (2, "DEBUG"),
-    ])
+    @pytest.mark.parametrize(
+        "verbose_count, expected_level",
+        [
+            (1, "INFO"),
+            (0, "WARNING"),
+            (2, "DEBUG"),
+        ],
+    )
     def test_setup_logging(self, cli_module, verbose_count: int, expected_level: str) -> None:
         import logging
+
         cli_module._setup_logging(verbose_count=verbose_count)
         logger = logging.getLogger("gcmon")
         assert logger.level == getattr(logging, expected_level)
@@ -64,15 +70,23 @@ def test_main_combine_command(tmp_path: Path) -> None:
 
 
 class TestCliHelp:
-    @pytest.mark.parametrize("subcommand, expected_texts", [
-        ("", [
-            "Monitor Python's garbage collector",
-            "monitor", "combine", "run",
-        ]),
-        ("monitor", ["pid", "--output", "--rate", "--duration", "--verbose", "--stats", "--control-name"]),
-        ("combine", ["Combine multiple Chrome Trace Format or JSONL files", "inputs", "--output"]),
-        ("run", ["Run a Python script or module", "--module", "--script", "--stats", "--control-name"]),
-    ])
+    @pytest.mark.parametrize(
+        "subcommand, expected_texts",
+        [
+            (
+                "",
+                [
+                    "Monitor Python's garbage collector",
+                    "monitor",
+                    "combine",
+                    "run",
+                ],
+            ),
+            ("monitor", ["pid", "--output", "--rate", "--duration", "--verbose", "--stats", "--control-name"]),
+            ("combine", ["Combine multiple Chrome Trace Format or JSONL files", "inputs", "--output"]),
+            ("run", ["Run a Python script or module", "--module", "--script", "--stats", "--control-name"]),
+        ],
+    )
     def test_help_subcommand(self, gcmon_cli, subcommand: str, expected_texts: list[str]) -> None:
         cmd = gcmon_cli + ([subcommand] if subcommand else []) + ["--help"]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -93,6 +107,8 @@ class TestCliMonitor:
     def test_explicit_command(self, gcmon_cli) -> None:
         result = subprocess.run(
             gcmon_cli + ["monitor", "12345", "-d", "0.1"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         assert result.returncode == 0

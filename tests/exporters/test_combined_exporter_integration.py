@@ -44,16 +44,20 @@ def _multi_dimensional_items() -> list:
     """Build a deterministic input exercising multiple pids, generations, iids."""
     return [
         create_mock_stats_item(
-            gen=0, iid=_IID_A1,
-            ts_start=_TS_START, ts_stop=_TS_START + _TS_DURATION_NS,
+            gen=0,
+            iid=_IID_A1,
+            ts_start=_TS_START,
+            ts_stop=_TS_START + _TS_DURATION_NS,
         ),
         create_mock_incremental_item(
-            gen=1, iid=_IID_A2,
+            gen=1,
+            iid=_IID_A2,
             ts_start=_TS_START + 100_000_000,
             ts_stop=_TS_START + 100_000_000 + _TS_DURATION_NS,
         ),
         create_mock_stats_item(
-            gen=0, iid=_IID_B1,
+            gen=0,
+            iid=_IID_B1,
             ts_start=_TS_START + 200_000_000,
             ts_stop=_TS_START + 200_000_000 + _TS_DURATION_NS,
         ),
@@ -99,7 +103,8 @@ def _feed_combined(
 @contextmanager
 def _open_trace(path: Path) -> Iterator[TraceProcessor]:
     tp = TraceProcessor(
-        trace=str(path), config=TraceProcessorConfig(load_timeout=300),
+        trace=str(path),
+        config=TraceProcessorConfig(load_timeout=300),
     )
     try:
         yield tp
@@ -139,22 +144,26 @@ class TestCombinedExporterEquivalenceIntegration:
 
         # Standalone exporters.
         standalone_chrome = TraceExporter(
-            standalone_dir / "trace.json", flush_threshold=100,
+            standalone_dir / "trace.json",
+            flush_threshold=100,
         )
         standalone_perfetto = PerfettoExporter(
             standalone_dir / "trace.pftrace",
-            flush_threshold=100, cmdline_provider=_fake_cmdline_provider,
+            flush_threshold=100,
+            cmdline_provider=_fake_cmdline_provider,
         )
         _feed(items, pids, standalone_chrome, standalone_perfetto, instant_pid)
 
         # Combined exporter.
         combined = CombinedTraceExporter(
             chrome=TraceExporter(
-                combined_dir / "trace.json", flush_threshold=100,
+                combined_dir / "trace.json",
+                flush_threshold=100,
             ),
             perfetto=PerfettoExporter(
                 combined_dir / "trace.pftrace",
-                flush_threshold=100, cmdline_provider=_fake_cmdline_provider,
+                flush_threshold=100,
+                cmdline_provider=_fake_cmdline_provider,
             ),
         )
         _feed_combined(items, pids, combined, instant_pid)
@@ -164,10 +173,12 @@ class TestCombinedExporterEquivalenceIntegration:
         combined_chrome_path = tmp_path / "combined" / "trace.json"
         combined_perfetto_path = tmp_path / "combined" / "trace.pftrace"
 
-        with _open_trace(standalone_chrome_path) as tp_sc, \
-             _open_trace(standalone_perfetto_path) as tp_sp, \
-             _open_trace(combined_chrome_path) as tp_cc, \
-             _open_trace(combined_perfetto_path) as tp_cp:
+        with (
+            _open_trace(standalone_chrome_path) as tp_sc,
+            _open_trace(standalone_perfetto_path) as tp_sp,
+            _open_trace(combined_chrome_path) as tp_cc,
+            _open_trace(combined_perfetto_path) as tp_cp,
+        ):
             self._assert_equivalence(tp_sc, tp_sp, tp_cc, tp_cp)
 
     def _assert_equivalence(
@@ -179,52 +190,47 @@ class TestCombinedExporterEquivalenceIntegration:
     ) -> None:
         # 1. Slices: same name set, same ts, same dur.
         slice_query = (
-            "SELECT s.name, s.ts, s.dur FROM slice s "
-            "WHERE s.name != 'thread_sort_index' "
-            "ORDER BY s.ts, s.name"
+            "SELECT s.name, s.ts, s.dur FROM slice s WHERE s.name != 'thread_sort_index' ORDER BY s.ts, s.name"
         )
-        sc_slices = [
-            (r.name, r.ts, r.dur) for r in tp_standalone_chrome.query(slice_query)
-        ]
-        cc_slices = [
-            (r.name, r.ts, r.dur) for r in tp_combined_chrome.query(slice_query)
-        ]
-        sp_slices = [
-            (r.name, r.ts, r.dur) for r in tp_standalone_perfetto.query(slice_query)
-        ]
-        cp_slices = [
-            (r.name, r.ts, r.dur) for r in tp_combined_perfetto.query(slice_query)
-        ]
+        sc_slices = [(r.name, r.ts, r.dur) for r in tp_standalone_chrome.query(slice_query)]
+        cc_slices = [(r.name, r.ts, r.dur) for r in tp_combined_chrome.query(slice_query)]
+        sp_slices = [(r.name, r.ts, r.dur) for r in tp_standalone_perfetto.query(slice_query)]
+        cp_slices = [(r.name, r.ts, r.dur) for r in tp_combined_perfetto.query(slice_query)]
         _assert_row_sets_equal(sc_slices, cc_slices, "chrome slices")
         _assert_row_sets_equal(sp_slices, cp_slices, "perfetto slices")
 
         # 2. Counter track names (whitespace-stripped, since chrome
         # trace processor prepends a space to single-arg counter names).
-        sc_tracks = {r.name.strip() for r in tp_standalone_chrome.query(
-            "SELECT name FROM counter_track",
-        )}
-        cc_tracks = {r.name.strip() for r in tp_combined_chrome.query(
-            "SELECT name FROM counter_track",
-        )}
-        sp_tracks = {r.name for r in tp_standalone_perfetto.query(
-            "SELECT name FROM counter_track",
-        )}
-        cp_tracks = {r.name for r in tp_combined_perfetto.query(
-            "SELECT name FROM counter_track",
-        )}
-        assert sc_tracks == cc_tracks, (
-            f"chrome counter tracks differ: standalone={sc_tracks}, combined={cc_tracks}"
-        )
-        assert sp_tracks == cp_tracks, (
-            f"perfetto counter tracks differ: standalone={sp_tracks}, combined={cp_tracks}"
-        )
+        sc_tracks = {
+            r.name.strip()
+            for r in tp_standalone_chrome.query(
+                "SELECT name FROM counter_track",
+            )
+        }
+        cc_tracks = {
+            r.name.strip()
+            for r in tp_combined_chrome.query(
+                "SELECT name FROM counter_track",
+            )
+        }
+        sp_tracks = {
+            r.name
+            for r in tp_standalone_perfetto.query(
+                "SELECT name FROM counter_track",
+            )
+        }
+        cp_tracks = {
+            r.name
+            for r in tp_combined_perfetto.query(
+                "SELECT name FROM counter_track",
+            )
+        }
+        assert sc_tracks == cc_tracks, f"chrome counter tracks differ: standalone={sc_tracks}, combined={cc_tracks}"
+        assert sp_tracks == cp_tracks, f"perfetto counter tracks differ: standalone={sp_tracks}, combined={cp_tracks}"
 
         # 3. Counter data: (counter_track.name.strip(), ts) -> value.
         def _counter_data(tp: TraceProcessor) -> dict[tuple[str, int], float]:
-            rows = tp.query(
-                "SELECT ct.name, c.ts, c.value "
-                "FROM counter c JOIN counter_track ct ON c.track_id = ct.id"
-            )
+            rows = tp.query("SELECT ct.name, c.ts, c.value FROM counter c JOIN counter_track ct ON c.track_id = ct.id")
             return {(r.name.strip(), r.ts): r.value for r in rows}
 
         sc_data = _counter_data(tp_standalone_chrome)

@@ -21,5 +21,3 @@ class EventsExporter(ABC):
     @abstractmethod
     def close(self) -> None:
         """Close the exporter and write all events to file."""
-
-

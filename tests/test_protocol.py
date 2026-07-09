@@ -131,9 +131,16 @@ class TestHasGuards:
 
 class TestToMappingPartial:
     BASE: ClassVar[dict[str, int | float]] = {
-        "gen": 0, "iid": 1, "ts_start": 1_000_000, "ts_stop": 2_000_000,
-        "heap_size": 1024, "collections": 5, "collected": 50,
-        "uncollectable": 0, "candidates": 10, "duration": 0.005,
+        "gen": 0,
+        "iid": 1,
+        "ts_start": 1_000_000,
+        "ts_stop": 2_000_000,
+        "heap_size": 1024,
+        "collections": 5,
+        "collected": 50,
+        "uncollectable": 0,
+        "candidates": 10,
+        "duration": 0.005,
     }
 
     def _make_item(self, **extra: int | float) -> SimpleNamespace:
@@ -240,10 +247,14 @@ class TestToMappingPartial:
 
     def test_all_partial_phases(self):
         item = self._make_item(
-            increment_size=500, alive_size=300,
-            ts_mark_alive_start=1_000_500, ts_mark_alive_stop=1_001_000,
-            ts_fill_increment_start=1_001_500, ts_fill_increment_stop=1_002_000,
-            ts_deduce_unreachable_start=1_002_500, ts_deduce_unreachable_stop=1_003_000,
+            increment_size=500,
+            alive_size=300,
+            ts_mark_alive_start=1_000_500,
+            ts_mark_alive_stop=1_001_000,
+            ts_fill_increment_start=1_001_500,
+            ts_fill_increment_stop=1_002_000,
+            ts_deduce_unreachable_start=1_002_500,
+            ts_deduce_unreachable_stop=1_003_000,
             ts_handle_weakref_callbacks_start=1_003_000,
             ts_handle_weakref_callbacks_stop=1_004_000,
             ts_finalize_garbage_stop=1_005_000,
@@ -336,5 +347,6 @@ class TestToMapping:
 
     def test_to_mapping_unknown_type_raises(self):
         import pytest
+
         with pytest.raises(NotImplementedError, match="Unknown item type"):
             to_mapping("not a valid item")  # type: ignore[arg-type]

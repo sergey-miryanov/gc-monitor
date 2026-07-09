@@ -101,9 +101,7 @@ class ProtobufEventEncoder:
     ) -> None:
         self._path: Path | None = None
         self._track_state = PerfettoTrackState()
-        self._sequence_id: int = (
-            sequence_id if sequence_id is not None else id(self) & 0x7FFFFFFF
-        )
+        self._sequence_id: int = sequence_id if sequence_id is not None else id(self) & 0x7FFFFFFF
         self._cmdline_provider: Callable[[int], list[str] | None] = (
             cmdline_provider if cmdline_provider is not None else self._default_cmdline_provider
         )
@@ -112,6 +110,7 @@ class ProtobufEventEncoder:
     @staticmethod
     def _default_cmdline_provider(pid: int) -> list[str]:
         import psutil
+
         result = psutil.Process(pid).cmdline()
         logger.debug("Collected cmdline for PID %s: %s", pid, result)
         return result
@@ -142,7 +141,9 @@ class ProtobufEventEncoder:
             if isinstance(event, ProcessMeta) and not self._track_state.has_pid(event.pid):
                 self._ensure_cmdline(event.pid)
         descriptors, packets = convert_trace_events_to_perfetto(
-            list(events), self._track_state, self._sequence_id,
+            list(events),
+            self._track_state,
+            self._sequence_id,
         )
         if not descriptors and not packets:
             return

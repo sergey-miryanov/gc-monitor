@@ -379,7 +379,9 @@ def build_track_descriptor(
     if name:
         result += encode_string_field(TrackDescriptorField.NAME, name)
     if pid is not None and tid is not None:
-        thread_desc = encode_varint_field(ThreadDescriptorField.PID, pid) + encode_varint_field(ThreadDescriptorField.TID, tid)
+        thread_desc = encode_varint_field(ThreadDescriptorField.PID, pid) + encode_varint_field(
+            ThreadDescriptorField.TID, tid
+        )
         if thread_name is not None:
             thread_desc += encode_string_field(ThreadDescriptorField.THREAD_NAME, thread_name)
         result += encode_bytes_field(TrackDescriptorField.THREAD, thread_desc)
@@ -391,7 +393,8 @@ def build_track_descriptor(
         process_desc += encode_string_field(ProcessDescriptorField.PROCESS_NAME, name)
         if start_timestamp_ns is not None:
             process_desc += encode_varint_field(
-                ProcessDescriptorField.START_TIMESTAMP_NS, start_timestamp_ns,
+                ProcessDescriptorField.START_TIMESTAMP_NS,
+                start_timestamp_ns,
             )
         result += encode_bytes_field(TrackDescriptorField.PROCESS, process_desc)
     if parent_uuid is not None:
@@ -403,7 +406,8 @@ def build_track_descriptor(
     if is_counter:
         if y_axis_share_key:
             counter_desc = encode_string_field(
-                CounterDescriptorField.Y_AXIS_SHARE_KEY, y_axis_share_key,
+                CounterDescriptorField.Y_AXIS_SHARE_KEY,
+                y_axis_share_key,
             )
             result += encode_bytes_field(TrackDescriptorField.COUNTER, counter_desc)
         else:
@@ -466,7 +470,8 @@ def build_track_event(
         result += encode_varint_field(TrackEventField.COUNTER_VALUE, counter_value)
     if double_counter_value is not None:
         result += encode_double_field(
-            TrackEventField.DOUBLE_COUNTER_VALUE, double_counter_value,
+            TrackEventField.DOUBLE_COUNTER_VALUE,
+            double_counter_value,
         )
     if debug_annotations:
         for ann in debug_annotations:
@@ -617,13 +622,17 @@ def _emit_start_process_marker(
         return []
     state.mark_start_process_marker(pid)
     proc_uuid = state.get_process_track_uuid(pid)
-    return [build_trace_packet(
-        sequence_id, timestamp=ts_ns, track_event=build_track_event(
-            type=TYPE_INSTANT,
-            track_uuid=proc_uuid,
-            name=_START_PROCESS_INSTANT_NAME,
-        ),
-    )]
+    return [
+        build_trace_packet(
+            sequence_id,
+            timestamp=ts_ns,
+            track_event=build_track_event(
+                type=TYPE_INSTANT,
+                track_uuid=proc_uuid,
+                name=_START_PROCESS_INSTANT_NAME,
+            ),
+        )
+    ]
 
 
 def _emit_process_lifetime_track_descriptor(
@@ -655,14 +664,18 @@ def _emit_process_lifetime_slice_begin(
         debug_annotations.append(
             _build_debug_annotation_string("cmdline", " ".join(cmdline)),
         )
-    return [build_trace_packet(
-        sequence_id, timestamp=ts_ns, track_event=build_track_event(
-            type=TYPE_SLICE_BEGIN,
-            track_uuid=track_uuid,
-            name=f"Process {pid}",
-            debug_annotations=debug_annotations or None,
-        ),
-    )]
+    return [
+        build_trace_packet(
+            sequence_id,
+            timestamp=ts_ns,
+            track_event=build_track_event(
+                type=TYPE_SLICE_BEGIN,
+                track_uuid=track_uuid,
+                name=f"Process {pid}",
+                debug_annotations=debug_annotations or None,
+            ),
+        )
+    ]
 
 
 def _emit_process_lifetime_slice_end(
@@ -677,7 +690,9 @@ def _emit_process_lifetime_slice_end(
     can identify the owning pid without joining to the BEGIN packet."""
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
     return build_trace_packet(
-        sequence_id, timestamp=ts_ns, track_event=build_track_event(
+        sequence_id,
+        timestamp=ts_ns,
+        track_event=build_track_event(
             type=TYPE_SLICE_END,
             track_uuid=track_uuid,
             name=f"Process {pid}",
@@ -837,7 +852,9 @@ def convert_trace_events_to_perfetto(
         if isinstance(event, ProcessMeta):
             descriptors.extend(
                 _emit_process_descriptor(
-                    pid, state, sequence_id,
+                    pid,
+                    state,
+                    sequence_id,
                     sibling_order_rank=ranks.get(pid),
                     start_timestamp_ns=state.get_first_event_ts(pid),
                 )
@@ -848,7 +865,9 @@ def convert_trace_events_to_perfetto(
         elif isinstance(event, ThreadMeta):
             descriptors.extend(
                 _emit_process_descriptor(
-                    pid, state, sequence_id,
+                    pid,
+                    state,
+                    sequence_id,
                     sibling_order_rank=ranks.get(pid),
                     start_timestamp_ns=state.get_first_event_ts(pid),
                 )
@@ -860,35 +879,46 @@ def convert_trace_events_to_perfetto(
             _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
             annotations = _args_to_debug_annotations(event.args)
-            packets.append(build_trace_packet(
-                sequence_id, timestamp=event.ts,
-                track_event=_make_slice_begin(
-                    thread_uuid, event.name, [event.cat],
-                    annotations,
-                ),
-            ))
+            packets.append(
+                build_trace_packet(
+                    sequence_id,
+                    timestamp=event.ts,
+                    track_event=_make_slice_begin(
+                        thread_uuid,
+                        event.name,
+                        [event.cat],
+                        annotations,
+                    ),
+                )
+            )
 
         elif isinstance(event, EndEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
             _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
-            packets.append(build_trace_packet(
-                sequence_id, timestamp=event.ts,
-                track_event=_make_slice_end(thread_uuid),
-            ))
+            packets.append(
+                build_trace_packet(
+                    sequence_id,
+                    timestamp=event.ts,
+                    track_event=_make_slice_end(thread_uuid),
+                )
+            )
 
         elif isinstance(event, InstantEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
             _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
             proc_uuid = state.get_process_track_uuid(pid)
-            packets.append(build_trace_packet(
-                sequence_id, timestamp=event.ts,
-                track_event=build_track_event(
-                    type=TYPE_INSTANT,
-                    track_uuid=proc_uuid,
-                    name=event.name,
-                ),
-            ))
+            packets.append(
+                build_trace_packet(
+                    sequence_id,
+                    timestamp=event.ts,
+                    track_event=build_track_event(
+                        type=TYPE_INSTANT,
+                        track_uuid=proc_uuid,
+                        name=event.name,
+                    ),
+                )
+            )
 
         elif isinstance(event, CounterEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
@@ -897,14 +927,22 @@ def convert_trace_events_to_perfetto(
             for metric, value in event.args.items():
                 display_name = metric if single_arg else f"{event.name} {metric}"
                 ctr_uuid, desc_bytes = _emit_counter_track_descriptor(
-                    pid, event.tid, event.name, metric, state, sequence_id,
+                    pid,
+                    event.tid,
+                    event.name,
+                    metric,
+                    state,
+                    sequence_id,
                     display_name=display_name,
                 )
                 descriptors.extend(desc_bytes)
-                packets.append(build_trace_packet(
-                    sequence_id, timestamp=event.ts,
-                    track_event=_make_counter_event(ctr_uuid, value),
-                ))
+                packets.append(
+                    build_trace_packet(
+                        sequence_id,
+                        timestamp=event.ts,
+                        track_event=_make_counter_event(ctr_uuid, value),
+                    )
+                )
 
     return descriptors, packets
 
@@ -920,9 +958,7 @@ def _maybe_emit_start_process_marker(
     if not state.has_pid(event.pid) or state.has_start_process_marker(event.pid):
         return
     ts = getattr(event, "ts", 0)
-    packets.extend(
-        _emit_start_process_marker(event.pid, ts, state, sequence_id)
-    )
+    packets.extend(_emit_start_process_marker(event.pid, ts, state, sequence_id))
 
 
 def _record_or_open_process_lifetime(
@@ -961,9 +997,7 @@ def _record_or_open_process_lifetime(
             state.update_process_lifetime_end_ts(event.pid, ts)
         return
     state.mark_process_lifetime_opened(event.pid)
-    packets.extend(
-        _emit_process_lifetime_slice_begin(event.pid, ts, state, sequence_id)
-    )
+    packets.extend(_emit_process_lifetime_slice_begin(event.pid, ts, state, sequence_id))
     if not isinstance(event, CounterEvent):
         state.update_process_lifetime_end_ts(event.pid, ts)
 
@@ -1013,7 +1047,5 @@ def finalize_perfetto_packets(
     """
     packets: list[bytes] = []
     for pid, end_ts in state.pop_process_lifetime_ends():
-        packets.append(
-            _emit_process_lifetime_slice_end(pid, end_ts, state, sequence_id)
-        )
+        packets.append(_emit_process_lifetime_slice_end(pid, end_ts, state, sequence_id))
     return packets

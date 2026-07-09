@@ -126,6 +126,7 @@ def make_monitor(exporter, stats):
     def _make(pid: int = 12345, exp=None):
         proc = ExternalProcess(pid=pid)
         return EventsMonitor(proc, exp or exporter, stats)
+
     return _make
 
 
@@ -133,4 +134,5 @@ def make_monitor(exporter, stats):
 def env_module():
     """Provide the _env module for testing."""
     from gcmon import _env
+
     return _env

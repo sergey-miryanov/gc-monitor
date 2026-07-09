@@ -24,14 +24,21 @@ def _print_table(rows: list[list[str] | Any], table_format: TableFormat = TableF
     w_metric = max(len(h) for h in [headers[1]] + [r[1] for r in data])
     w_count = max(len(h) for h in [headers[2]] + [r[2] for r in data])
     w_sum = max(len(h) for h in [headers[3]] + [r[3] for r in data])
-    w_pct = max(
-        len(v) for h in headers[4:]
-        for v in [h] + [r[i] for r in data for i in range(4, 9)]
-    )
+    w_pct = max(len(v) for h in headers[4:] for v in [h] + [r[i] for r in data for i in range(4, 9)])
 
-    sep_full = "|" + "|".join("-" * w for w in [w_type + 2, w_metric + 2, w_count + 2, w_sum + 2] + [w_pct + 2] * 5) + "|"
-    sep_phase = "|" + " " * (w_type + 2) + "|" + "|".join("-" * w for w in [w_metric + 2, w_count + 2, w_sum + 2] + [w_pct + 2] * 5) + "|"
-    sep_blank = "|" + "|".join(" " * w for w in [w_type + 2, w_metric + 2, w_count + 2, w_sum + 2] + [w_pct + 2] * 5) + "|"
+    sep_full = (
+        "|" + "|".join("-" * w for w in [w_type + 2, w_metric + 2, w_count + 2, w_sum + 2] + [w_pct + 2] * 5) + "|"
+    )
+    sep_phase = (
+        "|"
+        + " " * (w_type + 2)
+        + "|"
+        + "|".join("-" * w for w in [w_metric + 2, w_count + 2, w_sum + 2] + [w_pct + 2] * 5)
+        + "|"
+    )
+    sep_blank = (
+        "|" + "|".join(" " * w for w in [w_type + 2, w_metric + 2, w_count + 2, w_sum + 2] + [w_pct + 2] * 5) + "|"
+    )
     use_markdown = table_format == TableFormat.MARKDOWN
     print("")
     print(
@@ -60,16 +67,18 @@ def _build_rows(gen_stats: dict[int, Stats], label: str) -> list[list[str]]:
         s = gen_stats[gen]
         if s.count() == 0:
             continue
-        rows.append([
-            f"{label}({gen})",
-            str(s.count()),
-            f"{s.sum() / 1_000:.3f}",
-            f"{s.average() / 1_000:.3f}",
-            f"{s.percentile(50) / 1_000:.3f}",
-            f"{s.percentile(90) / 1_000:.3f}",
-            f"{s.percentile(95) / 1_000:.3f}",
-            f"{s.percentile(99) / 1_000:.3f}",
-        ])
+        rows.append(
+            [
+                f"{label}({gen})",
+                str(s.count()),
+                f"{s.sum() / 1_000:.3f}",
+                f"{s.average() / 1_000:.3f}",
+                f"{s.percentile(50) / 1_000:.3f}",
+                f"{s.percentile(90) / 1_000:.3f}",
+                f"{s.percentile(95) / 1_000:.3f}",
+                f"{s.percentile(99) / 1_000:.3f}",
+            ]
+        )
     return rows
 
 

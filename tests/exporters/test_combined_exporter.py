@@ -114,14 +114,8 @@ class TestCombinedTraceExporter:
         combined.close()
 
         data = assert_valid_chrome_trace_format(tmp_path / "trace.json")
-        process_metas = [
-            e for e in data
-            if e["ph"] == "M" and e["name"] == "process_name"
-        ]
-        thread_metas = [
-            e for e in data
-            if e["ph"] == "M" and e["name"] == "thread_name"
-        ]
+        process_metas = [e for e in data if e["ph"] == "M" and e["name"] == "process_name"]
+        thread_metas = [e for e in data if e["ph"] == "M" and e["name"] == "thread_name"]
         assert len(process_metas) == 1
         assert process_metas[0]["args"]["name"] == f"Process {DEFAULT_PID}"
         assert len(thread_metas) == 1

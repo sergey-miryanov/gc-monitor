@@ -23,7 +23,9 @@ class TestStdoutExporter:
         """Test StdoutExporter initialization with custom parameters."""
         exporter = StdoutExporter(flush_threshold=50)
 
-    def test_add_event_json_output_format(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_add_event_json_output_format(
+        self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Test that add_event outputs correct JSON format to stdout."""
         exporter = StdoutExporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
@@ -47,7 +49,9 @@ class TestStdoutExporter:
         assert data["heap_size"] == 52428800
         assert data["duration"] == 0.005
 
-    def test_add_event_multiple_events(self, mock_stats_item_batch: list[TGCStatsInfo], capsys: pytest.CaptureFixture[str]) -> None:
+    def test_add_event_multiple_events(
+        self, mock_stats_item_batch: list[TGCStatsInfo], capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Test output with multiple events."""
         exporter = StdoutExporter()
 
@@ -74,7 +78,9 @@ class TestStdoutExporter:
         # Close should flush stdout
         exporter.close()
 
-    def test_add_event_output_to_stdout(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_add_event_output_to_stdout(
+        self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Test that add_event writes to stdout (not stderr)."""
         exporter = StdoutExporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
@@ -87,7 +93,9 @@ class TestStdoutExporter:
         # stderr should be empty
         assert captured.err == ""
 
-    def test_add_event_json_is_single_line(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_add_event_json_is_single_line(
+        self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Test that each event is written as a single JSON line."""
         exporter = StdoutExporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)

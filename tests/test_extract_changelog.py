@@ -279,4 +279,3 @@ class TestMainWritesToGitHubOutput:
         finally:
             extract_changelog.CHANGELOG_PATH = original_changelog
         assert out_file.read_text(encoding="utf-8") == ""
-

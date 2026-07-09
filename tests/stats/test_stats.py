@@ -119,9 +119,7 @@ class TestStatsPercentile:
         stats_with_data.materialize()
         assert stats_with_data.percentile(50) == 300.0
 
-    def test_percentile_unknown_returns_zero_after_materialize(
-        self, stats_with_data: Stats
-    ) -> None:
+    def test_percentile_unknown_returns_zero_after_materialize(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
         assert stats_with_data.percentile(25) == 0.0
 
@@ -147,9 +145,7 @@ class TestStatsPercentile:
         assert stats.percentile(0) == 42.0
         assert stats.percentile(100) == 42.0
 
-    def test_percentile_unknown_returns_zero_for_arbitrary_value(
-        self, stats_with_data: Stats
-    ) -> None:
+    def test_percentile_unknown_returns_zero_for_arbitrary_value(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
         assert stats_with_data.percentile(33) == 0.0
 
@@ -197,7 +193,6 @@ class TestStatsBufferLimit:
 
 
 class TestStatsNonNumbers:
-
     def test_update_nan(self, stats: Stats) -> None:
         stats.update(float("nan"))
         assert stats.count() == 1

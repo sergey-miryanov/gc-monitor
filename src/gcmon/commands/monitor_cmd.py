@@ -46,7 +46,7 @@ def cmd_monitor(args: Namespace) -> int:
     if options is None:
         return 1
 
-    def factory(control_address: str) ->ProcessFactory:
+    def factory(control_address: str) -> ProcessFactory:
         return ExternalProcess(pid)
 
     return run_monitoring_loop(

@@ -42,19 +42,34 @@ def mock_popen_process():
 
 def _make_event(**kwargs: Any) -> GCStatsInfo:
     defaults: dict[str, Any] = dict(
-        gen=0, iid=0, ts_start=1_000_000_000, ts_stop=1_005_000_000,
-        heap_size=20000, collections=5, collected=50,
-        uncollectable=2, candidates=10, duration=0.005,
+        gen=0,
+        iid=0,
+        ts_start=1_000_000_000,
+        ts_stop=1_005_000_000,
+        heap_size=20000,
+        collections=5,
+        collected=50,
+        uncollectable=2,
+        candidates=10,
+        duration=0.005,
     )
     return GCStatsInfo(**{**defaults, **kwargs})
 
 
 def _make_jsonl_event(**kwargs: Any) -> dict[str, Any]:
     defaults: dict[str, Any] = dict(
-        pid=12345, tid=0, gen=0, iid=0,
-        ts_start=1_000_000_000, ts_stop=1_005_000_000,
-        collections=5, collected=50, uncollectable=2,
-        candidates=10, heap_size=20000, duration=0.005,
+        pid=12345,
+        tid=0,
+        gen=0,
+        iid=0,
+        ts_start=1_000_000_000,
+        ts_stop=1_005_000_000,
+        collections=5,
+        collected=50,
+        uncollectable=2,
+        candidates=10,
+        heap_size=20000,
+        duration=0.005,
     )
     return {**defaults, **kwargs}
 
@@ -279,12 +294,21 @@ class TestGCMonitorHookTeardown:
 
         with hook:
             temp_file_1 = hook._temp_files[0]
-            _write_jsonl(temp_file_1, _make_jsonl_event(
-                tid=1, iid=1,
-                ts_start=2_000_000_000, ts_stop=2_005_000_000,
-                collections=3, collected=30, uncollectable=1,
-                candidates=8, heap_size=25000, duration=0.008,
-            ))
+            _write_jsonl(
+                temp_file_1,
+                _make_jsonl_event(
+                    tid=1,
+                    iid=1,
+                    ts_start=2_000_000_000,
+                    ts_stop=2_005_000_000,
+                    collections=3,
+                    collected=30,
+                    uncollectable=1,
+                    candidates=8,
+                    heap_size=25000,
+                    duration=0.008,
+                ),
+            )
 
         metadata: dict[str, Any] = {"name": "test_benchmark"}
 
@@ -329,12 +353,15 @@ class TestAggregateGcStats:
     def test_multiple_events_all_gen0(self) -> None:
         ss = StreamingStats()
         for i in range(3):
-            ss.update(100, _make_event(
-                iid=i,
-                ts_start=1_000_000_000 + i * 100_000_000,
-                ts_stop=1_005_000_000 + i * 100_000_000,
-                heap_size=20000 + i * 5000,
-            ))
+            ss.update(
+                100,
+                _make_event(
+                    iid=i,
+                    ts_start=1_000_000_000 + i * 100_000_000,
+                    ts_stop=1_005_000_000 + i * 100_000_000,
+                    heap_size=20000 + i * 5000,
+                ),
+            )
         result = ss.aggregate()
         assert "pause_gen_0_p99" in result
         assert "pause_gen_1_p99" not in result
@@ -408,11 +435,20 @@ class TestGCMonitorHookSharedOutput:
         hook2._temp_files = [temp_file_2]
 
         # Write test events from second run
-        _write_jsonl(temp_file_2, _make_jsonl_event(
-            tid=1, ts_start=2_000_000_000, ts_stop=2_008_000_000,
-            collections=3, collected=30, uncollectable=1,
-            candidates=8, heap_size=25000, duration=0.008,
-        ))
+        _write_jsonl(
+            temp_file_2,
+            _make_jsonl_event(
+                tid=1,
+                ts_start=2_000_000_000,
+                ts_stop=2_008_000_000,
+                collections=3,
+                collected=30,
+                uncollectable=1,
+                candidates=8,
+                heap_size=25000,
+                duration=0.008,
+            ),
+        )
 
         # Second run also writes to shared output (overwrites)
         with patch(
@@ -441,10 +477,13 @@ class TestGCMonitorHookSharedOutput:
 class TestGCMonitorHookBenchNameSubstitution:
     """Test GCMonitorHook with {bench_name} substitution in output path."""
 
-    @pytest.mark.parametrize("bench_name, pattern, expected", [
-        ("my_benchmark", "gcmon_{bench_name}.json", "gcmon_my_benchmark.json"),
-        ("my-benchmark.with/special:chars", "gc_{bench_name}.json", "gc_my-benchmark_with_special_chars.json"),
-    ])
+    @pytest.mark.parametrize(
+        "bench_name, pattern, expected",
+        [
+            ("my_benchmark", "gcmon_{bench_name}.json", "gcmon_my_benchmark.json"),
+            ("my-benchmark.with/special:chars", "gc_{bench_name}.json", "gc_my-benchmark_with_special_chars.json"),
+        ],
+    )
     def test_bench_name_substitution(
         self,
         bench_name: str,
@@ -493,13 +532,16 @@ class TestGCMonitorHookBenchNameSubstitution:
                 hook._temp_files = [temp_file]
 
                 # Write test events with unique data per benchmark
-                _write_jsonl(temp_file, _make_jsonl_event(
-                    tid=1,
-                    ts_start=1_000_000_000 + (idx * 1_000_000_000),
-                    ts_stop=1_005_000_000 + (idx * 1_000_000_000),
-                    collections=config["collections"],
-                    collected=config["collected"],
-                ))
+                _write_jsonl(
+                    temp_file,
+                    _make_jsonl_event(
+                        tid=1,
+                        ts_start=1_000_000_000 + (idx * 1_000_000_000),
+                        ts_stop=1_005_000_000 + (idx * 1_000_000_000),
+                        collections=config["collections"],
+                        collected=config["collected"],
+                    ),
+                )
 
                 # Call teardown with specific benchmark name
                 metadata: dict[str, Any] = {"name": config["name"]}
@@ -550,11 +592,20 @@ class TestGCMonitorHookBenchNameSubstitution:
             temp_file_2 = tmp_path / "gcmon_12345_1_50.jsonl"
             hook2._temp_files = [temp_file_2]
 
-            _write_jsonl(temp_file_2, _make_jsonl_event(
-                tid=1, ts_start=2_000_000_000, ts_stop=2_008_000_000,
-                collections=3, collected=30, uncollectable=1,
-                candidates=8, heap_size=25000, duration=0.008,
-            ))
+            _write_jsonl(
+                temp_file_2,
+                _make_jsonl_event(
+                    tid=1,
+                    ts_start=2_000_000_000,
+                    ts_stop=2_008_000_000,
+                    collections=3,
+                    collected=30,
+                    uncollectable=1,
+                    candidates=8,
+                    heap_size=25000,
+                    duration=0.008,
+                ),
+            )
 
             metadata2: dict[str, Any] = {"name": "shared_bench"}
             hook2.teardown(metadata2)

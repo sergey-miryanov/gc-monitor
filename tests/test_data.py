@@ -6,7 +6,9 @@ from gcmon.data import GCStatsInfo, InstantMsg, from_mapping, instant_msg
 from gcmon.protocol import has_deduce_unreachable, has_incremental, has_mark_alive, to_mapping
 
 from tests.data_helpers import (  # noqa: F401
-    simple_item, incremental_item, instant_item,
+    simple_item,
+    incremental_item,
+    instant_item,
 )
 
 

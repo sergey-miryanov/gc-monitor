@@ -35,9 +35,7 @@ def _run_threads(threads: list[threading.Thread], timeout: float = 5.0) -> None:
     assert not survivors, f"threads hung: {survivors}"
 
 
-def _wait_for_event_count(
-    exporter: MockExporter, count: int, timeout: float = 2.0
-) -> None:
+def _wait_for_event_count(exporter: MockExporter, count: int, timeout: float = 2.0) -> None:
     """Wait until the exporter has received at least `count` events."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -66,9 +64,7 @@ def _assert_no_messages_loss(
 
 def _assert_no_messages_garbling(exporter: MockExporter) -> None:
     """Assert every sent name appears exactly once in the received set."""
-    expected_names = {
-        f"t{i}-m{n}" for i in range(N_SENDERS) for n in range(N_PER_SENDER)
-    }
+    expected_names = {f"t{i}-m{n}" for i in range(N_SENDERS) for n in range(N_PER_SENDER)}
     actual_names = {msg.name for _, msg in exporter.instant_events}
     missing = expected_names - actual_names
     extra = actual_names - expected_names
@@ -78,14 +74,10 @@ def _assert_no_messages_garbling(exporter: MockExporter) -> None:
 def _assert_send_order_preserved(exporter: MockExporter) -> None:
     """Assert that each sender's messages arrived in send order."""
     for i in range(N_SENDERS):
-        sender_events = [
-            msg.name for _, msg in exporter.instant_events
-            if msg.name.startswith(f"t{i}-")
-        ]
+        sender_events = [msg.name for _, msg in exporter.instant_events if msg.name.startswith(f"t{i}-")]
         expected = [f"t{i}-m{n}" for n in range(N_PER_SENDER)]
         assert sender_events == expected, (
-            f"sender {i}: order broken. got {sender_events[:5]}... "
-            f"expected {expected[:5]}..."
+            f"sender {i}: order broken. got {sender_events[:5]}... expected {expected[:5]}..."
         )
 
 
@@ -117,10 +109,7 @@ def _run_sender_threads(
 ) -> list[BaseException]:
     """Launch one thread per (index, client) pair; return the errors list."""
     errors: list[BaseException] = []
-    threads = [
-        threading.Thread(target=_sender_sends_n, args=(i, client, barrier, errors))
-        for i, client in senders
-    ]
+    threads = [threading.Thread(target=_sender_sends_n, args=(i, client, barrier, errors)) for i, client in senders]
     _run_threads(threads, timeout=timeout)
     return errors
 
@@ -156,7 +145,8 @@ def _run_send_and_close_threads(
             target=_send_and_close_n,
             name=f"thread-{i}",
             args=(client, f"thread-{i}", barrier, loop_count, errors),
-        ) for i in range(n_threads)
+        )
+        for i in range(n_threads)
     ]
     _run_threads(threads, timeout=60)
     return errors

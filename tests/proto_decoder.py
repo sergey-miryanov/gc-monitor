@@ -48,7 +48,7 @@ def decode_message(data: bytes) -> list[ProtoField]:
             fields.append(ProtoField(field_number, wire_type, value))
         elif wire_type == 2:
             length, pos = _read_varint(data, pos)
-            value = data[pos:pos + length]
+            value = data[pos : pos + length]
             pos += length
             fields.append(ProtoField(field_number, wire_type, value))
         elif wire_type == 5:

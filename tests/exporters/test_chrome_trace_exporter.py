@@ -50,8 +50,12 @@ class TestTraceExporter:
         # per-gen metrics.
         for c in per_gen_counters:
             assert "duration" in c["args"]
-        assert_is_process_meta(next(e for e in metas if e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
-        assert_is_thread_meta(next(e for e in metas if e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
+        assert_is_process_meta(
+            next(e for e in metas if e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"}
+        )
+        assert_is_thread_meta(
+            next(e for e in metas if e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"}
+        )
 
     def test_flushes_at_threshold(self, mock_stats_item, trace_exporter) -> None:
         exporter, path = trace_exporter(threshold=10)
@@ -79,9 +83,32 @@ class TestTraceExporter:
         data = assert_valid_chrome_trace_format(path)
         for event in data:
             if event["ph"] == "B":
-                assert_is_begin(event, name="GC Pause (gen=0)", cat="gc.pause(gen=0)", ts=1_500_000, pid=12345, tid=0, args={"generation": 0, "iid": 0, "collections": 50, "heap_size": 52428800, "collected": 200, "uncollectable": 10, "candidates": 40})
+                assert_is_begin(
+                    event,
+                    name="GC Pause (gen=0)",
+                    cat="gc.pause(gen=0)",
+                    ts=1_500_000,
+                    pid=12345,
+                    tid=0,
+                    args={
+                        "generation": 0,
+                        "iid": 0,
+                        "collections": 50,
+                        "heap_size": 52428800,
+                        "collected": 200,
+                        "uncollectable": 10,
+                        "candidates": 40,
+                    },
+                )
             elif event["ph"] == "C" and event["name"] == "G0":
-                assert_is_counter(event, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40, "duration": 0.005})
+                assert_is_counter(
+                    event,
+                    name="G0",
+                    ts=1_500_000,
+                    pid=12345,
+                    tid=0,
+                    args={"collected": 200, "uncollectable": 10, "candidates": 40, "duration": 0.005},
+                )
             elif event["ph"] == "C" and event["name"] == "" and event["args"].keys() == {"heap_size"}:
                 assert_is_counter(event, name="", ts=1_500_000, pid=12345, tid=0, args={"heap_size": 52428800})
             elif event["ph"] == "M" and event["name"] == "process_name":
@@ -114,7 +141,23 @@ class TestTraceExporter:
 
         data = assert_valid_chrome_trace_format(path)
         event = next(e for e in data if e["ph"] == "B")
-        assert_is_begin(event, name="GC Pause (gen=0)", cat="gc.pause(gen=0)", ts=1_500_000, pid=12345, tid=0, args={"generation": 0, "iid": 0, "collections": 50, "heap_size": 52428800, "collected": 200, "uncollectable": 10, "candidates": 40})
+        assert_is_begin(
+            event,
+            name="GC Pause (gen=0)",
+            cat="gc.pause(gen=0)",
+            ts=1_500_000,
+            pid=12345,
+            tid=0,
+            args={
+                "generation": 0,
+                "iid": 0,
+                "collections": 50,
+                "heap_size": 52428800,
+                "collected": 200,
+                "uncollectable": 10,
+                "candidates": 40,
+            },
+        )
 
     def test_counter_event_structure(self, mock_stats_item, trace_exporter) -> None:
         exporter, path = trace_exporter()
@@ -126,7 +169,14 @@ class TestTraceExporter:
         # per-gen counter (with duration folded in) + shared heap_size
         assert len(counters) == 2
         per_gen = next(e for e in counters if e["name"] == "G0")
-        assert_is_counter(per_gen, name="G0", ts=1_500_000, pid=12345, tid=0, args={"collected": 200, "uncollectable": 10, "candidates": 40, "duration": 0.005})
+        assert_is_counter(
+            per_gen,
+            name="G0",
+            ts=1_500_000,
+            pid=12345,
+            tid=0,
+            args={"collected": 200, "uncollectable": 10, "candidates": 40, "duration": 0.005},
+        )
         heap = next(c for c in counters if c["name"] == "" and "heap_size" in c["args"])
         assert_is_counter(heap, name="", ts=1_500_000, pid=12345, tid=0, args={"heap_size": 52428800})
 
@@ -136,8 +186,17 @@ class TestTraceExporter:
         exporter.close()
 
         data = assert_valid_chrome_trace_format(path)
-        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
-        assert_is_thread_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
+        assert_is_process_meta(
+            next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"),
+            pid=12345,
+            args={"name": "Process 12345"},
+        )
+        assert_is_thread_meta(
+            next(e for e in data if e["ph"] == "M" and e["name"] == "thread_name"),
+            pid=12345,
+            tid=0,
+            args={"name": "Thread 0"},
+        )
 
     def test_multiple_close_calls(self, mock_stats_item, trace_exporter) -> None:
         exporter, path = trace_exporter()
@@ -226,14 +285,26 @@ def mock_read_events():
         base_ts = read_count[0] * 100 + 1_500_000_000
         read_count[0] += 1
         item1 = create_mock_stats_item(
-            gen=0, ts_start=base_ts, ts_stop=base_ts + 5_000_000,
-            collections=10, collected=50, uncollectable=1, candidates=20,
-            heap_size=1000000, duration=0.001,
+            gen=0,
+            ts_start=base_ts,
+            ts_stop=base_ts + 5_000_000,
+            collections=10,
+            collected=50,
+            uncollectable=1,
+            candidates=20,
+            heap_size=1000000,
+            duration=0.001,
         )
         item2 = create_mock_stats_item(
-            gen=1, ts_start=base_ts + 1_000_000, ts_stop=base_ts + 6_000_000,
-            collections=20, collected=100, uncollectable=2, candidates=40,
-            heap_size=2000000, duration=0.002,
+            gen=1,
+            ts_start=base_ts + 1_000_000,
+            ts_stop=base_ts + 6_000_000,
+            collections=20,
+            collected=100,
+            uncollectable=2,
+            candidates=40,
+            heap_size=2000000,
+            duration=0.002,
         )
         return [item1, item2]
 
@@ -258,7 +329,11 @@ class TestGCMonitorStreaming:
         monitor.stop()
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
-        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
+        assert_is_process_meta(
+            next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"),
+            pid=12345,
+            args={"name": "Process 12345"},
+        )
         assert any(e["name"] == "GC Pause (gen=1)" for e in data)
         # At least one begin event per poll
         assert len([e for e in data if e["ph"] == "B"]) >= 4
@@ -281,7 +356,11 @@ class TestGCMonitorStreaming:
         monitor.stop()
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
-        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
+        assert_is_process_meta(
+            next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"),
+            pid=12345,
+            args={"name": "Process 12345"},
+        )
         assert next((e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), None) is not None
         assert len([e for e in data if e["ph"] == "B"]) >= 3
         assert len([e for e in data if e["ph"] == "C"]) >= 3
@@ -289,11 +368,18 @@ class TestGCMonitorStreaming:
     def test_handles_read_error_gracefully(self, monitor_with_exporter) -> None:
         monitor, exporter, path = monitor_with_exporter
         item = create_mock_stats_item(
-            gen=0, ts_start=1_500_000_000, ts_stop=1_505_000_000,
-            collections=10, collected=50, uncollectable=1, candidates=20,
-            heap_size=1000000, duration=0.001,
+            gen=0,
+            ts_start=1_500_000_000,
+            ts_stop=1_505_000_000,
+            collections=10,
+            collected=50,
+            uncollectable=1,
+            candidates=20,
+            heap_size=1000000,
+            duration=0.001,
         )
         call_count = [0]
+
         def side_effect(*args, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -302,6 +388,7 @@ class TestGCMonitorStreaming:
 
         with patch("gcmon.monitor.get_gc_stats", side_effect=side_effect):
             from gcmon.poll_status import PollStatus
+
             assert monitor.poll(12345) == PollStatus.OK
             result = monitor.poll(12345)
             assert result in (PollStatus.INVALID_PROCESS, PollStatus.FAIL)
@@ -310,8 +397,17 @@ class TestGCMonitorStreaming:
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
         # 1 successful poll = 1 GC event (B/E + C) + metadata
-        assert_is_process_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"})
-        assert_is_thread_meta(next(e for e in data if e["ph"] == "M" and e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"})
+        assert_is_process_meta(
+            next(e for e in data if e["ph"] == "M" and e["name"] == "process_name"),
+            pid=12345,
+            args={"name": "Process 12345"},
+        )
+        assert_is_thread_meta(
+            next(e for e in data if e["ph"] == "M" and e["name"] == "thread_name"),
+            pid=12345,
+            tid=0,
+            args={"name": "Thread 0"},
+        )
         assert len([e for e in data if e["ph"] == "B"]) == 1
         # per-gen counter (with duration folded in) + shared heap_size
         assert len([e for e in data if e["ph"] == "C"]) == 2

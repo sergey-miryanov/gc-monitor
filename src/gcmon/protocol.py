@@ -61,30 +61,30 @@ class TDeduceUnreachableInfo(Protocol):
 
 class TFinalizeGarbageInfo(Protocol):
     finalized_garbage_count: int
-    ts_handle_weakref_callbacks_stop:int
-    ts_finalize_garbage_stop:int
+    ts_handle_weakref_callbacks_stop: int
+    ts_finalize_garbage_stop: int
 
 
 class TDeleteGarbageInfo(Protocol):
     deleted_garbage_count: int
-    ts_delete_garbage_start:int
-    ts_delete_garbage_stop:int
+    ts_delete_garbage_start: int
+    ts_delete_garbage_stop: int
 
 
 class THandleWeakrefsInfo(Protocol):
-    ts_handle_weakref_callbacks_start:int
-    ts_handle_weakref_callbacks_stop:int
+    ts_handle_weakref_callbacks_start: int
+    ts_handle_weakref_callbacks_stop: int
 
 
 class TClearWeakrefsInfo(Protocol):
     clear_weakrefs_count: int
-    ts_handle_resurrected_stop:int
-    ts_clear_weakrefs_stop:int
+    ts_handle_resurrected_stop: int
+    ts_clear_weakrefs_stop: int
 
 
 class THandleResurrectedInfo(Protocol):
-    ts_finalize_garbage_stop:int
-    ts_handle_resurrected_stop:int
+    ts_finalize_garbage_stop: int
+    ts_handle_resurrected_stop: int
 
 
 class TInstantMsg(Protocol):
@@ -96,35 +96,46 @@ class TInstantMsg(Protocol):
 def has_pause_ts(item: object) -> TypeGuard[TGCStatsInfo]:
     return getattr(item, "ts_start", None) is not None
 
+
 def has_incremental(item: object) -> TypeGuard[TIncrementalInfo]:
     return getattr(item, "increment_size", None) is not None
+
 
 def has_mark_alive(item: object) -> TypeGuard[TMarkAliveInfo]:
     return getattr(item, "alive_size", None) is not None
 
+
 def has_deduce_unreachable(item: object) -> TypeGuard[TDeduceUnreachableInfo]:
     return getattr(item, "ts_deduce_unreachable_start", None) is not None
+
 
 def has_handle_weakrefs(item: object) -> TypeGuard[THandleWeakrefsInfo]:
     return getattr(item, "ts_handle_weakref_callbacks_start", None) is not None
 
+
 def has_finalize_garbage(item: object) -> TypeGuard[TFinalizeGarbageInfo]:
     return getattr(item, "ts_finalize_garbage_stop", None) is not None
+
 
 def has_handle_resurrected(item: object) -> TypeGuard[THandleResurrectedInfo]:
     return getattr(item, "ts_handle_resurrected_stop", None) is not None
 
+
 def has_clear_weakrefs(item: object) -> TypeGuard[TClearWeakrefsInfo]:
     return getattr(item, "ts_clear_weakrefs_stop", None) is not None
+
 
 def has_delete_garbage(item: object) -> TypeGuard[TDeleteGarbageInfo]:
     return getattr(item, "ts_delete_garbage_start", None) is not None
 
+
 def has_gen(item: object) -> TypeGuard[TGCStatsInfo]:
     return hasattr(item, "gen")
 
+
 def is_gc_stats(item: object) -> TypeGuard[TGCStatsInfo]:
     return hasattr(item, "gen")
+
 
 def is_instant(item: object) -> TypeGuard[TInstantMsg]:
     return hasattr(item, "type")

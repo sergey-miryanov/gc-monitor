@@ -18,9 +18,15 @@ class TestJsonlExporter:
     def test_add_event_json_output_format(self, jsonl_exporter, read_jsonl) -> None:
         exporter, path = jsonl_exporter(threshold=1)
         stats_item = create_mock_stats_item(
-            gen=0, ts_start=1_000_000, ts_stop=1_005_000_000,
-            collections=10, collected=5, uncollectable=0, candidates=15,
-            heap_size=1024, duration=0.001,
+            gen=0,
+            ts_start=1_000_000,
+            ts_stop=1_005_000_000,
+            collections=10,
+            collected=5,
+            uncollectable=0,
+            candidates=15,
+            heap_size=1024,
+            duration=0.001,
         )
         exporter.add_event(DEFAULT_PID, stats_item)
         exporter.close()
@@ -216,7 +222,7 @@ class TestJsonlExporterInstantEvents:
             pid=DEFAULT_PID,
             name=instant.name,
             ts=instant.ts,
-            )
+        )
 
     def test_add_instant_event_flushes_at_threshold(self, jsonl_exporter, read_jsonl) -> None:
         exporter, path = jsonl_exporter(threshold=3)

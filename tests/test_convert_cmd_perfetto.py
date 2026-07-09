@@ -36,23 +36,39 @@ _DURATION_NS: int = 5_000_000
 # shared counter per (pid, iid) updated by every generation, not split per
 # gen. `increment_size` is NOT a counter track — it lives on the `GC Pause`
 # slice's args.
-_G0_COUNTERS: frozenset[str] = frozenset({
-    "G0 collected", "G0 uncollectable", "G0 candidates",
-})
-_G1_COUNTERS: frozenset[str] = frozenset({
-    "G1 collected", "G1 uncollectable", "G1 candidates",
-})
-_G2_COUNTERS: frozenset[str] = frozenset({
-    "G2 collected", "G2 uncollectable", "G2 candidates",
-})
-_HEAP_COUNTERS: frozenset[str] = frozenset({
-    "heap_size",
-})
-_DURATION_COUNTERS: frozenset[str] = frozenset({
-    "G0 duration",
-    "G1 duration",
-    "G2 duration",
-})
+_G0_COUNTERS: frozenset[str] = frozenset(
+    {
+        "G0 collected",
+        "G0 uncollectable",
+        "G0 candidates",
+    }
+)
+_G1_COUNTERS: frozenset[str] = frozenset(
+    {
+        "G1 collected",
+        "G1 uncollectable",
+        "G1 candidates",
+    }
+)
+_G2_COUNTERS: frozenset[str] = frozenset(
+    {
+        "G2 collected",
+        "G2 uncollectable",
+        "G2 candidates",
+    }
+)
+_HEAP_COUNTERS: frozenset[str] = frozenset(
+    {
+        "heap_size",
+    }
+)
+_DURATION_COUNTERS: frozenset[str] = frozenset(
+    {
+        "G0 duration",
+        "G1 duration",
+        "G2 duration",
+    }
+)
 
 # Pause slice args exposed via the trace processor.
 _EXPECTED_PAUSE_ARGS: dict[str, int] = {
@@ -78,76 +94,117 @@ def _multi_dimensional_records() -> list[dict[str, int | float]]:
     records: list[dict[str, int | float]] = []
     # pid=1001, iid=0, gen=0 (full collection, basic counters)
     item_g0 = create_mock_stats_item(
-        gen=0, iid=_IID_A1, ts_start=_TS_START, ts_stop=_TS_START + _DURATION_NS,
+        gen=0,
+        iid=_IID_A1,
+        ts_start=_TS_START,
+        ts_stop=_TS_START + _DURATION_NS,
     )
-    records.append({
-        "pid": _PID_A, "tid": _IID_A1,
-        "gen": item_g0.gen, "iid": item_g0.iid,
-        "ts_start": item_g0.ts_start, "ts_stop": item_g0.ts_stop,
-        "heap_size": item_g0.heap_size, "collections": item_g0.collections,
-        "collected": item_g0.collected, "uncollectable": item_g0.uncollectable,
-        "candidates": item_g0.candidates, "duration": item_g0.duration,
-    })
+    records.append(
+        {
+            "pid": _PID_A,
+            "tid": _IID_A1,
+            "gen": item_g0.gen,
+            "iid": item_g0.iid,
+            "ts_start": item_g0.ts_start,
+            "ts_stop": item_g0.ts_stop,
+            "heap_size": item_g0.heap_size,
+            "collections": item_g0.collections,
+            "collected": item_g0.collected,
+            "uncollectable": item_g0.uncollectable,
+            "candidates": item_g0.candidates,
+            "duration": item_g0.duration,
+        }
+    )
     # pid=1001, iid=1, gen=1 (incremental — exercises all sub-slices;
     # only `increment_size` is emitted as a G1 counter, the other
     # incremental fields appear in pause/sub-step args).
     item_g1 = create_mock_incremental_item(
-        gen=1, iid=_IID_A2,
-        ts_start=_TS_START + 100_000_000, ts_stop=_TS_START + 100_000_000 + _DURATION_NS,
+        gen=1,
+        iid=_IID_A2,
+        ts_start=_TS_START + 100_000_000,
+        ts_stop=_TS_START + 100_000_000 + _DURATION_NS,
     )
-    records.append({
-        "pid": _PID_A, "tid": _IID_A2,
-        "gen": item_g1.gen, "iid": item_g1.iid,
-        "ts_start": item_g1.ts_start, "ts_stop": item_g1.ts_stop,
-        "heap_size": item_g1.heap_size, "collections": item_g1.collections,
-        "collected": item_g1.collected, "uncollectable": item_g1.uncollectable,
-        "candidates": item_g1.candidates, "duration": item_g1.duration,
-        # Incremental fields:
-        "increment_size": item_g1.increment_size,
-        "alive_size": item_g1.alive_size,
-        "ts_mark_alive_start": item_g1.ts_mark_alive_start,
-        "ts_mark_alive_stop": item_g1.ts_mark_alive_stop,
-        "ts_fill_increment_start": item_g1.ts_fill_increment_start,
-        "ts_fill_increment_stop": item_g1.ts_fill_increment_stop,
-        "ts_deduce_unreachable_start": item_g1.ts_deduce_unreachable_start,
-        "ts_deduce_unreachable_stop": item_g1.ts_deduce_unreachable_stop,
-        "ts_handle_weakref_callbacks_start": item_g1.ts_handle_weakref_callbacks_start,
-        "ts_handle_weakref_callbacks_stop": item_g1.ts_handle_weakref_callbacks_stop,
-        "ts_finalize_garbage_stop": item_g1.ts_finalize_garbage_stop,
-        "finalized_garbage_count": item_g1.finalized_garbage_count,
-        "ts_handle_resurrected_stop": item_g1.ts_handle_resurrected_stop,
-        "ts_clear_weakrefs_stop": item_g1.ts_clear_weakrefs_stop,
-        "clear_weakrefs_count": item_g1.clear_weakrefs_count,
-        "ts_delete_garbage_start": item_g1.ts_delete_garbage_start,
-        "ts_delete_garbage_stop": item_g1.ts_delete_garbage_stop,
-        "deleted_garbage_count": item_g1.deleted_garbage_count,
-    })
+    records.append(
+        {
+            "pid": _PID_A,
+            "tid": _IID_A2,
+            "gen": item_g1.gen,
+            "iid": item_g1.iid,
+            "ts_start": item_g1.ts_start,
+            "ts_stop": item_g1.ts_stop,
+            "heap_size": item_g1.heap_size,
+            "collections": item_g1.collections,
+            "collected": item_g1.collected,
+            "uncollectable": item_g1.uncollectable,
+            "candidates": item_g1.candidates,
+            "duration": item_g1.duration,
+            # Incremental fields:
+            "increment_size": item_g1.increment_size,
+            "alive_size": item_g1.alive_size,
+            "ts_mark_alive_start": item_g1.ts_mark_alive_start,
+            "ts_mark_alive_stop": item_g1.ts_mark_alive_stop,
+            "ts_fill_increment_start": item_g1.ts_fill_increment_start,
+            "ts_fill_increment_stop": item_g1.ts_fill_increment_stop,
+            "ts_deduce_unreachable_start": item_g1.ts_deduce_unreachable_start,
+            "ts_deduce_unreachable_stop": item_g1.ts_deduce_unreachable_stop,
+            "ts_handle_weakref_callbacks_start": item_g1.ts_handle_weakref_callbacks_start,
+            "ts_handle_weakref_callbacks_stop": item_g1.ts_handle_weakref_callbacks_stop,
+            "ts_finalize_garbage_stop": item_g1.ts_finalize_garbage_stop,
+            "finalized_garbage_count": item_g1.finalized_garbage_count,
+            "ts_handle_resurrected_stop": item_g1.ts_handle_resurrected_stop,
+            "ts_clear_weakrefs_stop": item_g1.ts_clear_weakrefs_stop,
+            "clear_weakrefs_count": item_g1.clear_weakrefs_count,
+            "ts_delete_garbage_start": item_g1.ts_delete_garbage_start,
+            "ts_delete_garbage_stop": item_g1.ts_delete_garbage_stop,
+            "deleted_garbage_count": item_g1.deleted_garbage_count,
+        }
+    )
     # pid=1001, iid=2, gen=2 (full collection, basic counters)
     item_g2 = create_mock_stats_item(
-        gen=2, iid=_IID_A3,
-        ts_start=_TS_START + 200_000_000, ts_stop=_TS_START + 200_000_000 + _DURATION_NS,
+        gen=2,
+        iid=_IID_A3,
+        ts_start=_TS_START + 200_000_000,
+        ts_stop=_TS_START + 200_000_000 + _DURATION_NS,
     )
-    records.append({
-        "pid": _PID_A, "tid": _IID_A3,
-        "gen": item_g2.gen, "iid": item_g2.iid,
-        "ts_start": item_g2.ts_start, "ts_stop": item_g2.ts_stop,
-        "heap_size": item_g2.heap_size, "collections": item_g2.collections,
-        "collected": item_g2.collected, "uncollectable": item_g2.uncollectable,
-        "candidates": item_g2.candidates, "duration": item_g2.duration,
-    })
+    records.append(
+        {
+            "pid": _PID_A,
+            "tid": _IID_A3,
+            "gen": item_g2.gen,
+            "iid": item_g2.iid,
+            "ts_start": item_g2.ts_start,
+            "ts_stop": item_g2.ts_stop,
+            "heap_size": item_g2.heap_size,
+            "collections": item_g2.collections,
+            "collected": item_g2.collected,
+            "uncollectable": item_g2.uncollectable,
+            "candidates": item_g2.candidates,
+            "duration": item_g2.duration,
+        }
+    )
     # pid=2002, iid=10, gen=0 (second process, separate timeline)
     item_b = create_mock_stats_item(
-        gen=0, iid=_IID_B1,
-        ts_start=_TS_START + 300_000_000, ts_stop=_TS_START + 300_000_000 + _DURATION_NS,
+        gen=0,
+        iid=_IID_B1,
+        ts_start=_TS_START + 300_000_000,
+        ts_stop=_TS_START + 300_000_000 + _DURATION_NS,
     )
-    records.append({
-        "pid": _PID_B, "tid": _IID_B1,
-        "gen": item_b.gen, "iid": item_b.iid,
-        "ts_start": item_b.ts_start, "ts_stop": item_b.ts_stop,
-        "heap_size": item_b.heap_size, "collections": item_b.collections,
-        "collected": item_b.collected, "uncollectable": item_b.uncollectable,
-        "candidates": item_b.candidates, "duration": item_b.duration,
-    })
+    records.append(
+        {
+            "pid": _PID_B,
+            "tid": _IID_B1,
+            "gen": item_b.gen,
+            "iid": item_b.iid,
+            "ts_start": item_b.ts_start,
+            "ts_stop": item_b.ts_stop,
+            "heap_size": item_b.heap_size,
+            "collections": item_b.collections,
+            "collected": item_b.collected,
+            "uncollectable": item_b.uncollectable,
+            "candidates": item_b.candidates,
+            "duration": item_b.duration,
+        }
+    )
     return records
 
 
@@ -167,8 +224,7 @@ def _run_combine(
 ) -> subprocess.CompletedProcess[str]:
     cmd = [sys.executable, "-m", "gcmon.cli", "combine"]
     cmd.extend(str(p) for p in inputs)
-    cmd += ["-o", str(output), "--input-format", input_format,
-            "--output-format", output_format]
+    cmd += ["-o", str(output), "--input-format", input_format, "--output-format", output_format]
     if extra_args:
         cmd.extend(extra_args)
     return subprocess.run(cmd, capture_output=True, text=True)
@@ -188,18 +244,18 @@ def multi_pid_jsonl(tmp_path: Path) -> list[Path]:
 
 @pytest.fixture
 def loaded_trace_processor(
-    tmp_path: Path, multi_pid_jsonl: list[Path],
+    tmp_path: Path,
+    multi_pid_jsonl: list[Path],
 ) -> Iterator[TraceProcessor]:
     """Combine two JSONL files into a Perfetto trace and load it."""
     out = tmp_path / "combined.pftrace"
-    result = _run_combine(multi_pid_jsonl, out, input_format="jsonl",
-                          output_format="perfetto")
+    result = _run_combine(multi_pid_jsonl, out, input_format="jsonl", output_format="perfetto")
     assert result.returncode == 0, (
-        f"gcmon combine failed: rc={result.returncode}\n"
-        f"stdout={result.stdout}\nstderr={result.stderr}"
+        f"gcmon combine failed: rc={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
     )
     tp = TraceProcessor(
-        trace=str(out), config=TraceProcessorConfig(load_timeout=300),
+        trace=str(out),
+        config=TraceProcessorConfig(load_timeout=300),
     )
     try:
         yield tp
@@ -232,70 +288,75 @@ class TestCombineChromeToPerfettoIntegration:
     exist for the right generations."""
 
     def test_counter_tracks_present(
-        self, loaded_trace_processor: TraceProcessor,
+        self,
+        loaded_trace_processor: TraceProcessor,
     ) -> None:
-        names = {r.name for r in loaded_trace_processor.query(
-            "SELECT name FROM counter_track",
-        )}
-        expected = (
-            _G0_COUNTERS | _G1_COUNTERS | _G2_COUNTERS
-            | _HEAP_COUNTERS | _DURATION_COUNTERS
-        )
+        names = {
+            r.name
+            for r in loaded_trace_processor.query(
+                "SELECT name FROM counter_track",
+            )
+        }
+        expected = _G0_COUNTERS | _G1_COUNTERS | _G2_COUNTERS | _HEAP_COUNTERS | _DURATION_COUNTERS
         assert names == expected, (
-            f"counter track names mismatch; missing: {expected - names}; "
-            f"unexpected: {names - expected}"
+            f"counter track names mismatch; missing: {expected - names}; unexpected: {names - expected}"
         )
 
     def test_no_increment_size_counter_track(
-        self, loaded_trace_processor: TraceProcessor,
+        self,
+        loaded_trace_processor: TraceProcessor,
     ) -> None:
-        rows = list(loaded_trace_processor.query(
-            "SELECT name FROM counter_track WHERE name LIKE '%increment_size%'",
-        ))
-        assert rows == [], (
-            f"`increment_size` should not be a counter track; "
-            f"got: {[r.name for r in rows]}"
+        rows = list(
+            loaded_trace_processor.query(
+                "SELECT name FROM counter_track WHERE name LIKE '%increment_size%'",
+            )
         )
+        assert rows == [], f"`increment_size` should not be a counter track; got: {[r.name for r in rows]}"
 
     def test_process_tracks_present(
-        self, loaded_trace_processor: TraceProcessor,
+        self,
+        loaded_trace_processor: TraceProcessor,
     ) -> None:
-        rows = sorted(r.name for r in loaded_trace_processor.query(
-            "SELECT name FROM track WHERE name LIKE 'Process %'",
-        ))
+        rows = sorted(
+            r.name
+            for r in loaded_trace_processor.query(
+                "SELECT name FROM track WHERE name LIKE 'Process %'",
+            )
+        )
         assert rows == sorted([f"Process {_PID_A}", f"Process {_PID_B}"]), (
             f"expected process tracks for both PIDs, got {rows}"
         )
 
     def test_thread_tracks_present(
-        self, loaded_trace_processor: TraceProcessor,
+        self,
+        loaded_trace_processor: TraceProcessor,
     ) -> None:
-        rows = sorted(r.name for r in loaded_trace_processor.query(
-            "SELECT th.name FROM thread th "
-            "JOIN process p ON th.upid = p.upid "
-            f"WHERE p.pid = {_PID_A}",
-        ))
-        for iid in (_IID_A1, _IID_A2, _IID_A3):
-            assert f"Thread {iid}" in rows, (
-                f"missing 'Thread {iid}' in pid={_PID_A}'s threads; got {rows}"
+        rows = sorted(
+            r.name
+            for r in loaded_trace_processor.query(
+                f"SELECT th.name FROM thread th JOIN process p ON th.upid = p.upid WHERE p.pid = {_PID_A}",
             )
+        )
+        for iid in (_IID_A1, _IID_A2, _IID_A3):
+            assert f"Thread {iid}" in rows, f"missing 'Thread {iid}' in pid={_PID_A}'s threads; got {rows}"
 
     def test_pause_slice_exists(
-        self, loaded_trace_processor: TraceProcessor,
+        self,
+        loaded_trace_processor: TraceProcessor,
     ) -> None:
         # 3 gen-0/gen-1/gen-2 slices for pid=1001 (iids 0,1,2),
         # 1 gen-0 slice for pid=2002 (iid 10) -> total 4 pause slices.
-        rows = list(loaded_trace_processor.query(
-            f"SELECT s.name FROM slice s "
-            f"{_process_filter(_PID_A)} "
-            f"AND s.name LIKE 'GC Pause (gen=%)'",
-        ))
+        rows = list(
+            loaded_trace_processor.query(
+                f"SELECT s.name FROM slice s {_process_filter(_PID_A)} AND s.name LIKE 'GC Pause (gen=%)'",
+            )
+        )
         assert len(rows) == 3, f"expected 3 pause slices for pid={_PID_A}, got {rows}"
-        rows_b = list(loaded_trace_processor.query(
-            f"SELECT s.name FROM slice s "
-            f"{_process_filter(_PID_B)} "
-            f"AND s.name LIKE 'GC Pause (gen=%)'",
-        ))
+        rows_b = list(
+            loaded_trace_processor.query(
+                f"SELECT s.name FROM slice s {_process_filter(_PID_B)} AND s.name LIKE 'GC Pause (gen=%)'",
+            )
+        )
         assert len(rows_b) == 1, f"expected 1 pause slice for pid={_PID_B}, got {rows_b}"
 
 
@@ -303,7 +364,8 @@ class TestCombineJsonlToPerfettoIntegration:
     """JSONL input path also produces a structurally complete Perfetto trace."""
 
     def test_pause_slice_args(
-        self, loaded_trace_processor: TraceProcessor,
+        self,
+        loaded_trace_processor: TraceProcessor,
     ) -> None:
         rows = {
             r.flat_key: r.int_value
@@ -320,12 +382,11 @@ class TestCombineJsonlToPerfettoIntegration:
         for key, expected in _EXPECTED_PAUSE_ARGS.items():
             qualified = f"{_ARG_PREFIX['perfetto']}.{key}"
             assert qualified in rows, f"missing arg {qualified}; got {sorted(rows)}"
-            assert rows[qualified] == expected, (
-                f"{qualified}: expected {expected}, got {rows[qualified]}"
-            )
+            assert rows[qualified] == expected, f"{qualified}: expected {expected}, got {rows[qualified]}"
 
     def test_full_gen1_sub_slices_present(
-        self, loaded_trace_processor: TraceProcessor,
+        self,
+        loaded_trace_processor: TraceProcessor,
     ) -> None:
         expected_sub_slices = [
             "Mark Alive (gen=1)",
@@ -337,10 +398,12 @@ class TestCombineJsonlToPerfettoIntegration:
             "Clear Weakrefs (gen=1)",
             "Delete Garbage (gen=1)",
         ]
-        slice_names = {r.name for r in loaded_trace_processor.query(
-            f"SELECT DISTINCT s.name FROM slice s "
-            f"{_process_filter(_PID_A)}",
-        )}
+        slice_names = {
+            r.name
+            for r in loaded_trace_processor.query(
+                f"SELECT DISTINCT s.name FROM slice s {_process_filter(_PID_A)}",
+            )
+        }
         missing = set(expected_sub_slices) - slice_names
         assert not missing, f"missing sub-slices for gen=1: {missing}"
 
@@ -349,33 +412,39 @@ class TestCombineNormalizePerfettoIntegration:
     """Per-file normalization zeroes each file's timeline independently."""
 
     def test_normalize_zeroes_per_file_minimum(
-        self, tmp_path: Path, multi_pid_jsonl: list[Path],
+        self,
+        tmp_path: Path,
+        multi_pid_jsonl: list[Path],
     ) -> None:
         out = tmp_path / "combined_normalized.pftrace"
         result = _run_combine(
-            multi_pid_jsonl, out, input_format="jsonl", output_format="perfetto",
+            multi_pid_jsonl,
+            out,
+            input_format="jsonl",
+            output_format="perfetto",
             extra_args=["--normalize"],
         )
         assert result.returncode == 0, result.stderr
         tp = TraceProcessor(
-            trace=str(out), config=TraceProcessorConfig(load_timeout=300),
+            trace=str(out),
+            config=TraceProcessorConfig(load_timeout=300),
         )
         try:
             # pid=1001 records are all in file 1. After per-file normalization
             # the first slice of pid=1001 has ts=0. Without --normalize, the
             # same slice would have ts=1_500_000_000 ns. Assert that the
             # minimum across the pid=1001 slice table is 0 (vs. 1.5B unnormalized).
-            rows = list(tp.query(
-                f"SELECT MIN(ts) AS min_ts FROM slice s "
-                f"JOIN thread_track tt ON s.track_id = tt.id "
-                f"JOIN thread th ON tt.utid = th.utid "
-                f"JOIN process p ON th.upid = p.upid "
-                f"WHERE p.pid = {_PID_A}",
-            ))
-            assert len(rows) == 1
-            assert rows[0].min_ts == 0, (
-                f"expected min_ts=0 after per-file normalize, got {rows[0].min_ts}"
+            rows = list(
+                tp.query(
+                    f"SELECT MIN(ts) AS min_ts FROM slice s "
+                    f"JOIN thread_track tt ON s.track_id = tt.id "
+                    f"JOIN thread th ON tt.utid = th.utid "
+                    f"JOIN process p ON th.upid = p.upid "
+                    f"WHERE p.pid = {_PID_A}",
+                )
             )
+            assert len(rows) == 1
+            assert rows[0].min_ts == 0, f"expected min_ts=0 after per-file normalize, got {rows[0].min_ts}"
         finally:
             tp.close()
 
@@ -388,7 +457,9 @@ class TestCombineChromePerfettoEquivalenceIntegration:
     """
 
     def test_equivalence(
-        self, tmp_path: Path, multi_pid_jsonl: list[Path],
+        self,
+        tmp_path: Path,
+        multi_pid_jsonl: list[Path],
     ) -> None:
         chrome_out = tmp_path / "combined.json"
         perfetto_out = tmp_path / "combined.pftrace"
@@ -397,22 +468,28 @@ class TestCombineChromePerfettoEquivalenceIntegration:
         # This requires the convert path to first parse JSONL to TraceEvents.
         # We rely on gcmon.combine doing this directly (jsonl -> chrome is supported).
         rc_chrome = _run_combine(
-            multi_pid_jsonl, chrome_out,
-            input_format="jsonl", output_format="chrome",
+            multi_pid_jsonl,
+            chrome_out,
+            input_format="jsonl",
+            output_format="chrome",
         )
         assert rc_chrome.returncode == 0, rc_chrome.stderr
 
         rc_perfetto = _run_combine(
-            multi_pid_jsonl, perfetto_out,
-            input_format="jsonl", output_format="perfetto",
+            multi_pid_jsonl,
+            perfetto_out,
+            input_format="jsonl",
+            output_format="perfetto",
         )
         assert rc_perfetto.returncode == 0, rc_perfetto.stderr
 
         tp_chrome = TraceProcessor(
-            trace=str(chrome_out), config=TraceProcessorConfig(load_timeout=300),
+            trace=str(chrome_out),
+            config=TraceProcessorConfig(load_timeout=300),
         )
         tp_perfetto = TraceProcessor(
-            trace=str(perfetto_out), config=TraceProcessorConfig(load_timeout=300),
+            trace=str(perfetto_out),
+            config=TraceProcessorConfig(load_timeout=300),
         )
         try:
             for query in [
@@ -436,11 +513,13 @@ class TestCombineChromePerfettoEquivalenceIntegration:
             ]:
                 rows_chrome = _row_set(tp_chrome.query(query))
                 rows_perfetto = _row_set(tp_perfetto.query(query))
+
                 # Normalize: extract the single string column and strip
                 # whitespace (the leading space in the chrome counter track
                 # name is a chrome-specific naming quirk).
                 def _normalize(rs: set[tuple]) -> set[str]:
                     return {next(iter(t))[1].strip() for t in rs}
+
                 assert _normalize(rows_chrome) == _normalize(rows_perfetto), (
                     f"row set mismatch for query:\n  {query}\n"
                     f"only in chrome: {_normalize(rows_chrome) - _normalize(rows_perfetto)}\n"
@@ -460,15 +539,11 @@ class TestCombineChromePerfettoEquivalenceIntegration:
             # The shared "Processes" track adds one dur-bearing
             # `Process <pid>` slice per pid; chrome has no equivalent,
             # so we filter those out too by joining on track name.
-            chrome_durs = sorted(
-                (r.name, r.dur)
-                for r in tp_chrome.query("SELECT s.name, s.dur FROM slice s")
-            )
+            chrome_durs = sorted((r.name, r.dur) for r in tp_chrome.query("SELECT s.name, s.dur FROM slice s"))
             perfetto_durs = sorted(
                 (r.name, r.dur)
                 for r in tp_perfetto.query(
-                    "SELECT s.name, s.dur, t.name AS track_name FROM slice s "
-                    "JOIN track t ON s.track_id = t.id"
+                    "SELECT s.name, s.dur, t.name AS track_name FROM slice s JOIN track t ON s.track_id = t.id"
                 )
                 if r.name != "Start Process" and r.track_name != "Processes"
             )
@@ -477,9 +552,7 @@ class TestCombineChromePerfettoEquivalenceIntegration:
             )
             for (c_name, c_dur), (p_name, p_dur) in zip(chrome_durs, perfetto_durs, strict=True):
                 assert c_name == p_name
-                assert c_dur == p_dur, (
-                    f"dur mismatch for {c_name}: chrome={c_dur}ns, perfetto={p_dur}ns"
-                )
+                assert c_dur == p_dur, f"dur mismatch for {c_name}: chrome={c_dur}ns, perfetto={p_dur}ns"
 
             # Arg values: same content modulo the args./debug. prefix.
             # The perfetto trace processor exposes a number of synthetic args
@@ -491,8 +564,12 @@ class TestCombineChromePerfettoEquivalenceIntegration:
             # The chrome `name` key (the slice name as an arg) is not
             # emitted as a debug annotation and is also filtered.
             _EXCLUDED_PERFETTO = {
-                "sibling_order_rank", "is_root_in_scope", "source",
-                "child_ordering", "trace_id", "track_uuid",
+                "sibling_order_rank",
+                "is_root_in_scope",
+                "source",
+                "child_ordering",
+                "trace_id",
+                "track_uuid",
                 "cmdline",
             }
             args_chrome = {
