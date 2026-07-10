@@ -25,7 +25,6 @@ repos:
     hooks:
       - id: ruff-check
         args: ["--exit-non-zero-on-fix"]
-        files: ^src/
       - id: ruff-format
 
   - repo: https://github.com/crate-ci/typos
