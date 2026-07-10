@@ -15,7 +15,6 @@ from gcmon.control.control_client import ControlClient
 from gcmon.control.control_server import ControlServer
 from tests.helpers import MockExporter
 
-
 N_SENDERS = 4
 N_PER_SENDER = 10
 N_THREADS = 2

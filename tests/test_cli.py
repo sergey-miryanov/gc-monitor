@@ -1,4 +1,3 @@
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -94,19 +93,19 @@ class TestCliHelp:
             assert text in result.stdout
 
     def test_top_level_no_output_flag(self, gcmon_cli) -> None:
-        result = subprocess.run(gcmon_cli + ["--help"], capture_output=True, text=True, check=True)
+        result = subprocess.run([*gcmon_cli, "--help"], capture_output=True, text=True, check=True)
         assert "--output" not in result.stdout
 
 
 class TestCliMonitor:
     def test_missing_pid(self, gcmon_cli) -> None:
-        result = subprocess.run(gcmon_cli + ["monitor"], capture_output=True, text=True)
+        result = subprocess.run([*gcmon_cli, "monitor"], capture_output=True, text=True)
         assert result.returncode != 0
         assert "the following arguments are required: pid" in result.stderr
 
     def test_explicit_command(self, gcmon_cli) -> None:
         result = subprocess.run(
-            gcmon_cli + ["monitor", "12345", "-d", "0.1"],
+            [*gcmon_cli, "monitor", "12345", "-d", "0.1"],
             capture_output=True,
             text=True,
             timeout=5,

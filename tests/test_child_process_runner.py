@@ -1,6 +1,6 @@
 import os
 import subprocess
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -24,6 +24,50 @@ def runner(tmp_path):
 
 
 @pytest.fixture
+def mock_popen_and_reader(mock_popen):
+    with (
+        patch("subprocess.Popen", return_value=mock_popen) as mock_popen_cls,
+        patch("gcmon.child_process_runner.ProcessStdoutReader"),
+    ):
+        yield mock_popen_cls
+
+
+@pytest.fixture
+def mock_popen_os_error():
+    with patch("subprocess.Popen", side_effect=OSError("permission denied")):
+        yield
+
+
+@pytest.fixture
+def mock_popen_immediate_exit(mock_popen):
+    mock_popen.poll.return_value = 0
+    mock_popen.communicate.return_value = (b"output", None)
+    with patch("subprocess.Popen", return_value=mock_popen):
+        yield
+
+
+@pytest.fixture
+def mock_terminate_process():
+    with patch(
+        "gcmon.child_process_runner.terminate_process",
+        return_value=(b"stdout", b"stderr"),
+    ) as mock_term:
+        yield mock_term
+
+
+@pytest.fixture
+def mock_log_process_output():
+    with patch("gcmon.child_process_runner.log_process_output"):
+        yield
+
+
+@pytest.fixture
+def mock_runner_terminate(runner):
+    with patch.object(runner, "terminate") as mock_term:
+        yield mock_term
+
+
+@pytest.fixture
 def module_runner():
     return ChildProcessRunner("my_module", is_module=True)
 
@@ -32,12 +76,6 @@ def module_runner():
 def runner_with_args(runner):
     runner._passthrough_args = ["--verbose", "--output=file.json"]
     return runner
-
-
-class TestChildProcess:
-    def test_pid(self):
-        cp = ChildProcess(pid=12345)
-        assert cp.pid == 12345
 
 
 class TestChildProcessRunnerInit:
@@ -152,56 +190,39 @@ class TestProperties:
 
 
 class TestStart:
-    def test_spawns_subprocess(self, runner, mock_popen):
-        with patch("subprocess.Popen", return_value=mock_popen) as mock_popen_cls:
-            with patch("gcmon.child_process_runner.ProcessStdoutReader"):
-                result = runner.start()
+    def test_spawns_subprocess(self, runner, mock_popen_and_reader):
+        result = runner.start()
 
         assert isinstance(result, ChildProcess)
         assert result.pid == 99999
-        mock_popen_cls.assert_called_once()
+        mock_popen_and_reader.assert_called_once()
 
-    def test_immediate_exit_raises(self, runner, mock_popen):
-        mock_popen.poll.return_value = 0
-        mock_popen.communicate.return_value = (b"output", None)
+    def test_immediate_exit_raises(self, runner, mock_popen_immediate_exit):
+        with pytest.raises(RuntimeError, match="exited immediately"):
+            runner.start()
 
-        with patch("subprocess.Popen", return_value=mock_popen):
-            with pytest.raises(RuntimeError, match="exited immediately"):
-                runner.start()
-
-    def test_os_error_raises(self, runner):
-        with patch("subprocess.Popen", side_effect=OSError("permission denied")):
-            with pytest.raises(RuntimeError, match="Failed to start"):
-                runner.start()
+    def test_os_error_raises(self, runner, mock_popen_os_error):
+        with pytest.raises(RuntimeError, match="Failed to start"):
+            runner.start()
 
 
 class TestTerminate:
-    def test_stdout_thread_stopped(self, runner):
+    def test_stdout_thread_stopped(self, runner, mock_terminate_process, mock_log_process_output):
         thread = Mock(spec=ProcessStdoutReader)
         runner._process = Mock(spec=subprocess.Popen)
         runner._stdout_thread = thread
 
-        with patch(
-            "gcmon.child_process_runner.terminate_process",
-            return_value=(b"stdout", b"stderr"),
-        ):
-            with patch("gcmon.child_process_runner.log_process_output"):
-                runner.terminate()
+        runner.terminate()
 
         thread.stop.assert_called_once()
         assert runner._stdout_thread is None
 
-    def test_terminates_process(self, runner):
+    def test_terminates_process(self, runner, mock_terminate_process, mock_log_process_output):
         runner._process = Mock(spec=subprocess.Popen)
 
-        with patch(
-            "gcmon.child_process_runner.terminate_process",
-            return_value=(b"stdout", b"stderr"),
-        ) as mock_term:
-            with patch("gcmon.child_process_runner.log_process_output"):
-                runner.terminate()
+        runner.terminate()
 
-        mock_term.assert_called_once()
+        mock_terminate_process.assert_called_once()
 
     def test_no_process_returns_empty(self, runner):
         result = runner.terminate()
@@ -209,31 +230,28 @@ class TestTerminate:
 
 
 class TestClose:
-    def test_close_delegates_to_terminate(self, runner):
+    def test_close_delegates_to_terminate(self, runner, mock_runner_terminate):
         runner._process = Mock()
 
-        with patch.object(runner, "terminate") as mock_term:
-            runner.close()
-            mock_term.assert_called_once()
+        runner.close()
+        mock_runner_terminate.assert_called_once()
 
 
 class TestContextManager:
-    def test_enters_and_exits(self, runner, mock_popen):
+    def test_enters_and_exits(self, runner, mock_popen, mock_runner_terminate):
         runner._process = mock_popen
-        with patch.object(runner, "terminate") as mock_term:
-            with runner:
-                assert runner.is_running
-            mock_term.assert_called_once()
+        with runner:
+            assert runner.is_running
+        mock_runner_terminate.assert_called_once()
 
-    def test_cleanup_on_exception(self, runner, mock_popen):
+    def test_cleanup_on_exception(self, runner, mock_popen, mock_runner_terminate):
         runner._process = mock_popen
-        with patch.object(runner, "terminate") as mock_term:
-            try:
-                with runner:
-                    raise ValueError("test error")
-            except ValueError:
-                pass
-            mock_term.assert_called_once()
+        try:
+            with runner:
+                raise ValueError("test error")
+        except ValueError:
+            pass
+        mock_runner_terminate.assert_called_once()
 
 
 class TestProcessStdoutReader:

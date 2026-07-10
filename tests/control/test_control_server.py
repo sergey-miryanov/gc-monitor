@@ -31,6 +31,25 @@ def mock_conn():
     return m
 
 
+@pytest.fixture
+def mock_wait():
+    with patch("gcmon.control.control_server._wait") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_wait_and_stop(server_not_started):
+    with (
+        patch("gcmon.control.control_server._wait") as mock,
+        patch.object(
+            server_not_started._stop_event,
+            "wait",
+            side_effect=lambda t: server_not_started._stop_event.set(),
+        ),
+    ):
+        yield mock
+
+
 def _send_msg(server: ControlServer, msg: str, pid: int) -> None:
     import time
 
@@ -327,6 +346,7 @@ class TestControlServerInternal:
 
     def test_clear_connections_empty(self, server_not_started) -> None:
         server_not_started._clear_connections()
+        assert server_not_started._connections == set()
 
     def test_close_connections(self, server_not_started) -> None:
         c1, c2 = MagicMock(), MagicMock()
@@ -338,9 +358,7 @@ class TestControlServerInternal:
         bad_conn = MagicMock()
         bad_conn.close.side_effect = OSError("connection broken")
         server_not_started._close_connections([bad_conn])
-
-    def test_close_connections_empty(self, server_not_started) -> None:
-        server_not_started._close_connections([])
+        bad_conn.close.assert_called_once()
 
     def test_recv_returns_control_msg(self, server_not_started, mock_conn) -> None:
         mock_conn.recv.return_value = {"msg": "start", "pid": 42, "ts": 12345}
@@ -390,43 +408,43 @@ class TestControlServerInternal:
         assert other in to_remove
         assert mock_conn in to_remove
 
-    def test_safe_wait_returns_ready(self, server_not_started, mock_conn) -> None:
-        with patch("gcmon.control.control_server._wait", return_value=[mock_conn]):
-            result = server_not_started._safe_wait([mock_conn])
+    def test_safe_wait_returns_ready(self, server_not_started, mock_conn, mock_wait) -> None:
+        mock_wait.return_value = [mock_conn]
+        result = server_not_started._safe_wait([mock_conn])
         assert result == [mock_conn]
 
-    def test_safe_wait_exception_polls_conns(self, server_not_started) -> None:
+    def test_safe_wait_exception_polls_conns(self, server_not_started, mock_wait) -> None:
         c1, c2 = MagicMock(), MagicMock()
         c1.poll.return_value = True
         c2.poll.return_value = True
-        with patch("gcmon.control.control_server._wait", side_effect=Exception("wait failed")):
-            result = server_not_started._safe_wait([c1, c2])
+        mock_wait.side_effect = Exception("wait failed")
+        result = server_not_started._safe_wait([c1, c2])
         assert result == []
         c1.poll.assert_called_once_with(timeout=0)
         c2.poll.assert_called_once_with(timeout=0)
 
-    def test_safe_wait_exception_removes_broken(self, server_not_started) -> None:
+    def test_safe_wait_exception_removes_broken(self, server_not_started, mock_wait) -> None:
         c1, c2 = MagicMock(), MagicMock()
         c1.poll.side_effect = OSError("broken")
         c2.poll.return_value = True
         server_not_started._connections.update([c1, c2])
 
-        with patch("gcmon.control.control_server._wait", side_effect=Exception("wait failed")):
-            result = server_not_started._safe_wait([c1, c2])
+        mock_wait.side_effect = Exception("wait failed")
+        result = server_not_started._safe_wait([c1, c2])
 
         assert result == []
         assert c1 not in server_not_started._connections
         assert c2 in server_not_started._connections
         c1.close.assert_called_once()
 
-    def test_safe_wait_exception_all_bad(self, server_not_started) -> None:
+    def test_safe_wait_exception_all_bad(self, server_not_started, mock_wait) -> None:
         c1, c2 = MagicMock(), MagicMock()
         c1.poll.side_effect = OSError("broken")
         c2.poll.side_effect = ConnectionError("reset")
         server_not_started._connections.update([c1, c2])
 
-        with patch("gcmon.control.control_server._wait", side_effect=Exception("wait failed")):
-            result = server_not_started._safe_wait([c1, c2])
+        mock_wait.side_effect = Exception("wait failed")
+        result = server_not_started._safe_wait([c1, c2])
 
         assert result == []
         assert server_not_started._connections == set()
@@ -443,10 +461,12 @@ class TestControlServerAcceptLoop:
     def test_accept_loop_stops_on_stop_event(self, server_not_started) -> None:
         server_not_started._stop_event.set()
         server_not_started._accept_loop()
+        assert server_not_started._connections == set()
 
     def test_accept_loop_stops_on_listener_none(self, server_not_started) -> None:
         server_not_started._listener = None
         server_not_started._accept_loop()
+        assert server_not_started._connections == set()
 
     def test_accept_loop_accept_exception_breaks(self, server_not_started, caplog) -> None:
         listener_address = server_not_started._listener.address
@@ -474,7 +494,6 @@ class TestControlServerAcceptLoop:
         server_not_started._listener = mock_listener
 
         call_count = [0]
-        mock_conn2 = MagicMock()
 
         def _accept_side(*args):
             call_count[0] += 1
@@ -501,88 +520,60 @@ class TestControlServerReaderLoop:
     def test_reader_loop_stops_on_stop_event(self, server_not_started) -> None:
         server_not_started._stop_event.set()
         server_not_started._reader_loop()
+        assert server_not_started._connections == set()
 
-    def test_reader_loop_processes_start_msg(self, server_not_started, mock_conn) -> None:
+    def test_reader_loop_processes_start_msg(self, server_not_started, mock_conn, mock_wait_and_stop) -> None:
         mock_conn.recv.return_value = {"msg": "start", "pid": 42, "ts": 12345}
         server_not_started._connections.add(mock_conn)
         server_not_started._enabled[42] = False
 
-        with (
-            patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
-            patch.object(
-                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
-            ),
-        ):
-            server_not_started._reader_loop()
+        mock_wait_and_stop.return_value = [mock_conn]
+        server_not_started._reader_loop()
 
         assert 42 not in server_not_started._enabled
 
-    def test_reader_loop_processes_stop_msg(self, server_not_started, mock_conn) -> None:
+    def test_reader_loop_processes_stop_msg(self, server_not_started, mock_conn, mock_wait_and_stop) -> None:
         mock_conn.recv.return_value = {"msg": "stop", "pid": 42, "ts": 12345}
         server_not_started._connections.add(mock_conn)
 
-        with (
-            patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
-            patch.object(
-                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
-            ),
-        ):
-            server_not_started._reader_loop()
+        mock_wait_and_stop.return_value = [mock_conn]
+        server_not_started._reader_loop()
 
         assert server_not_started._enabled.get(42) is False
 
-    def test_reader_loop_removes_bad_connection(self, server_not_started, mock_conn) -> None:
+    def test_reader_loop_removes_bad_connection(self, server_not_started, mock_conn, mock_wait_and_stop) -> None:
         mock_conn.recv.side_effect = EOFError()
         server_not_started._connections.add(mock_conn)
 
-        with (
-            patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
-            patch.object(
-                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
-            ),
-        ):
-            server_not_started._reader_loop()
+        mock_wait_and_stop.return_value = [mock_conn]
+        server_not_started._reader_loop()
 
         assert mock_conn not in server_not_started._connections
         mock_conn.close.assert_called_once()
 
-    def test_reader_loop_handles_malformed_msg(self, server_not_started, mock_conn) -> None:
+    def test_reader_loop_handles_malformed_msg(self, server_not_started, mock_conn, mock_wait_and_stop) -> None:
         mock_conn.recv.return_value = {"bad": "data", "ts": 12345}
         server_not_started._connections.add(mock_conn)
 
-        with (
-            patch("gcmon.control.control_server._wait", return_value=[mock_conn]),
-            patch.object(
-                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
-            ),
-        ):
-            server_not_started._reader_loop()
+        mock_wait_and_stop.return_value = [mock_conn]
+        server_not_started._reader_loop()
 
         assert mock_conn not in server_not_started._connections
         mock_conn.close.assert_called_once()
 
-    def test_reader_loop_no_connections(self, server_not_started) -> None:
-        with (
-            patch("gcmon.control.control_server._wait", return_value=[]),
-            patch.object(
-                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
-            ),
-        ):
-            server_not_started._reader_loop()
+    def test_reader_loop_no_connections(self, server_not_started, mock_wait_and_stop) -> None:
+        mock_wait_and_stop.return_value = []
+        server_not_started._reader_loop()
+        assert server_not_started._connections == set()
 
-    def test_reader_loop_drains_pending_messages(self, server_not_started) -> None:
+    def test_reader_loop_drains_pending_messages(self, server_not_started, mock_wait_and_stop) -> None:
         mock_conn = MagicMock()
         mock_conn.recv.return_value = {"msg": "stop", "pid": 42, "ts": 12345}
         mock_conn.poll.side_effect = [True, False]
         server_not_started._connections.add(mock_conn)
 
-        with (
-            patch("gcmon.control.control_server._wait", return_value=[]),
-            patch.object(
-                server_not_started._stop_event, "wait", side_effect=lambda t: server_not_started._stop_event.set()
-            ),
-        ):
-            server_not_started._reader_loop()
+        mock_wait_and_stop.return_value = []
+        server_not_started._reader_loop()
 
         assert server_not_started._enabled.get(42) is False
 
@@ -595,10 +586,12 @@ class TestControlServerReaderLoop:
 class TestDrainConnections:
     def test_drain_no_connections(self, server_not_started) -> None:
         server_not_started._drain_connections()
+        assert server_not_started._connections == set()
 
     def test_drain_no_data_exits_immediately(self, server_not_started, mock_conn) -> None:
         server_not_started._connections.add(mock_conn)
         server_not_started._drain_connections()
+        mock_conn.close.assert_not_called()
 
     def test_drain_poll_exception_removes_conn(self, server_not_started) -> None:
         mock_conn = MagicMock()
@@ -752,8 +745,9 @@ class TestPlatformWindows:
         assert result == r"\\.\pipe\gcmon-test-name"
 
     def test_tconnection_is_pipe_connection(self) -> None:
-        from gcmon.control.control_server import TConnection
         from multiprocessing.connection import PipeConnection
+
+        from gcmon.control.control_server import TConnection
 
         assert TConnection is PipeConnection
 
@@ -767,8 +761,9 @@ class TestPlatformUnix:
         assert result == "/tmp/gcmon-test-name"
 
     def test_tconnection_is_connection(self) -> None:
-        from gcmon.control.control_server import TConnection
         from multiprocessing.connection import Connection
+
+        from gcmon.control.control_server import TConnection
 
         assert TConnection is Connection
 

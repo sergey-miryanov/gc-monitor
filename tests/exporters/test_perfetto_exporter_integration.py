@@ -1121,14 +1121,14 @@ class TestProcessOrderingIntegration:
         """
         rows = list(
             trace_processor.query(
-                """
+                f"""
             SELECT t.id, p.pid
             FROM track t
             JOIN process_track pt ON t.id = pt.id
             JOIN process p ON pt.upid = p.upid
             WHERE t.type = 'process_track_event'
-              AND p.pid IN ({default}, {second})
-        """.format(default=DEFAULT_PID, second=_SECOND_PID)
+              AND p.pid IN ({DEFAULT_PID}, {_SECOND_PID})
+        """
             )
         )
         pid_to_id = {r.pid: r.id for r in rows}
@@ -1155,12 +1155,12 @@ class TestProcessOrderingIntegration:
         """
         rows = list(
             trace_processor.query(
-                """
+                f"""
             SELECT pid, start_ts
             FROM process
-            WHERE pid IN ({default}, {second})
+            WHERE pid IN ({DEFAULT_PID}, {_SECOND_PID})
             ORDER BY pid
-        """.format(default=DEFAULT_PID, second=_SECOND_PID)
+        """
             )
         )
         pid_to_start_ts = {r.pid: r.start_ts for r in rows}

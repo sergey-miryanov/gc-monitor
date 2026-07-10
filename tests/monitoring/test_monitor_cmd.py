@@ -1,15 +1,20 @@
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from tests.monitoring.conftest import MonitorArgsFactory
 from tests.helpers import assert_valid_chrome_trace_format
+from tests.monitoring.conftest import MonitorArgsFactory
+
+
+@pytest.fixture
+def mock_monitoring_loop():
+    with patch("gcmon.commands.monitor_cmd.run_monitoring_loop") as mock:
+        yield mock
 
 
 # =============================================================================
@@ -17,12 +22,14 @@ from tests.helpers import assert_valid_chrome_trace_format
 # =============================================================================
 
 
-def test_cmd_monitor_connect_failure(caplog: pytest.LogCaptureFixture, monitor_args: MonitorArgsFactory) -> None:
+def test_cmd_monitor_connect_failure(
+    caplog: pytest.LogCaptureFixture, monitor_args: MonitorArgsFactory, mock_monitoring_loop
+) -> None:
     from gcmon.commands import monitor_cmd
 
-    with patch("gcmon.commands.monitor_cmd.run_monitoring_loop", return_value=1):
-        result = monitor_cmd.cmd_monitor(monitor_args())
-        assert result == 1
+    mock_monitoring_loop.return_value = 1
+    result = monitor_cmd.cmd_monitor(monitor_args())
+    assert result == 1
 
 
 class TestCmdMonitorFormat:
@@ -34,13 +41,18 @@ class TestCmdMonitorFormat:
         ],
     )
     def test_cmd_monitor_format(
-        self, caplog: pytest.LogCaptureFixture, monitor_args: MonitorArgsFactory, fmt: str, extra_kwargs: dict
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monitor_args: MonitorArgsFactory,
+        fmt: str,
+        extra_kwargs: dict,
+        mock_monitoring_loop,
     ) -> None:
         from gcmon.commands import monitor_cmd
 
         args = monitor_args(format=fmt, output=Path("test.jsonl"), duration=0.05, **extra_kwargs)
-        with patch("gcmon.commands.monitor_cmd.run_monitoring_loop", return_value=0):
-            result = monitor_cmd.cmd_monitor(args)
+        mock_monitoring_loop.return_value = 0
+        result = monitor_cmd.cmd_monitor(args)
         assert result == 0
         assert f"Format: {fmt}" in caplog.text
 
@@ -65,20 +77,20 @@ class TestCmdMonitorValidation:
         assert expected_msg in caplog.text
 
 
-def test_cmd_monitor_quiet_mode(monitor_args: MonitorArgsFactory) -> None:
+def test_cmd_monitor_quiet_mode(monitor_args: MonitorArgsFactory, mock_monitoring_loop) -> None:
     from gcmon.commands import monitor_cmd
 
-    with patch("gcmon.commands.monitor_cmd.run_monitoring_loop", return_value=0):
-        assert monitor_cmd.cmd_monitor(monitor_args(verbose=0, duration=0.05)) == 0
+    mock_monitoring_loop.return_value = 0
+    assert monitor_cmd.cmd_monitor(monitor_args(verbose=0, duration=0.05)) == 0
 
 
-def test_cmd_monitor_self_pid(monitor_args: MonitorArgsFactory) -> None:
+def test_cmd_monitor_self_pid(monitor_args: MonitorArgsFactory, mock_monitoring_loop) -> None:
     from gcmon.commands import monitor_cmd
 
-    with patch("gcmon.commands.monitor_cmd.run_monitoring_loop", return_value=0) as mock_loop:
-        result = monitor_cmd.cmd_monitor(monitor_args(pid=-1, duration=0.05))
+    mock_monitoring_loop.return_value = 0
+    result = monitor_cmd.cmd_monitor(monitor_args(pid=-1, duration=0.05))
     assert result == 0
-    factory_fn = mock_loop.call_args[1]["factory"]
+    factory_fn = mock_monitoring_loop.call_args[1]["factory"]
     process = factory_fn("dummy-address")
     assert process.pid == os.getpid()
 
@@ -182,7 +194,7 @@ class TestCliJsonlFormat:
         output_file = tmp_path / "test.json"
         env = os.environ.copy()
         env["GCMON_FORMAT"] = "jsonl"
-        result = run_monitor(["--format", "chrome", "-o", str(output_file), "-d", "0.1"], env=env)
+        run_monitor(["--format", "chrome", "-o", str(output_file), "-d", "0.1"], env=env)
         assert output_file.exists()
         assert output_file.read_text().strip().startswith("[")
 
@@ -363,7 +375,7 @@ class TestCliEnvVars:
 class TestCliEnvHelp:
     def test_monitor_help_shows_env_vars(self, gcmon_cmd: list[str]) -> None:
         result = subprocess.run(
-            gcmon_cmd + ["monitor", "--help"],
+            [*gcmon_cmd, "monitor", "--help"],
             capture_output=True,
             text=True,
             check=True,

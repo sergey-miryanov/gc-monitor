@@ -43,9 +43,8 @@ class TestReplaceSignals:
         def handler(signum, frame):
             pass
 
-        with pytest.raises(RuntimeError):
-            with replace_signals(handler):
-                raise RuntimeError("boom")
+        with pytest.raises(RuntimeError), replace_signals(handler):
+            raise RuntimeError("boom")
         assert signal.getsignal(signal.SIGINT) is original_int
         assert signal.getsignal(signal.SIGTERM) is original_term
 
@@ -62,7 +61,7 @@ class TestReplaceSignals:
         assert signal.SIGTERM in received
 
     def test_nested_replacement_restores_outer(self, installed_handlers):
-        original_int, original_term = installed_handlers
+        original_int, _ = installed_handlers
 
         def outer_handler(signum, frame):
             pass

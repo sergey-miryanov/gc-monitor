@@ -9,8 +9,7 @@ import pytest
 
 from gcmon.data import GCStatsInfo
 from gcmon.stats import Stats, StreamingStats
-
-from tests.helpers import create_mock_stats_item, create_mock_incremental_item
+from tests.helpers import create_mock_incremental_item, create_mock_stats_item
 
 
 @pytest.fixture

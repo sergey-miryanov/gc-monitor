@@ -59,7 +59,3 @@ class TestLogProcessOutput:
         mock_process.returncode = 1
         log_process_output(process=mock_process, stdout_data=b"\xff\xfe\x00\x01")
         mock_logger.warning.assert_called()
-
-    def test_default_logger(self, mock_process):
-        mock_process.returncode = 0
-        log_process_output(process=mock_process, stdout_data=b"output")

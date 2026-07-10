@@ -7,17 +7,15 @@ import tempfile
 import threading
 import time
 from argparse import Namespace
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gcmon.exporters.chrome_trace_io import read_jsonl
-
 from tests.helpers import assert_valid_chrome_trace_format
-
 
 # =============================================================================
 # Unit Tests for cmd_run
@@ -193,7 +191,8 @@ def run_script(
         *gc_opts,
         "-s",
         str(script_file.as_posix()),
-    ] + list(script_args)
+        *script_args,
+    ]
     try:
         return _popen_with_timeout(cmd, timeout=30)
     except subprocess.TimeoutExpired as exc:
@@ -214,7 +213,8 @@ def run_module(
         *gc_opts,
         "-m",
         str(module_name),
-    ] + list(script_args)
+        *script_args,
+    ]
     try:
         return _popen_with_timeout(cmd, timeout=30)
     except subprocess.TimeoutExpired as exc:
@@ -224,6 +224,19 @@ def run_module(
 
 class TestCmdRunUnit:
     """Unit tests for cmd_run function."""
+
+    @pytest.fixture
+    def mock_monitoring_loop_and_runner(self):
+
+        with (
+            patch("gcmon.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop,
+            patch("gcmon.commands.run_cmd.ChildProcessRunner") as mock_runner_cls,
+        ):
+            mock_runner = MagicMock()
+            mock_runner.returncode = 0
+            mock_runner_cls.return_value = mock_runner
+            mock_runner.start.return_value = MagicMock(pid=999)
+            yield mock_loop, mock_runner_cls, mock_runner
 
     def _make_run_args(self, **overrides: Any) -> Namespace:
         defaults = {
@@ -264,57 +277,45 @@ class TestCmdRunUnit:
         assert result == 1
         assert "Must specify either" in caplog.text
 
-    def test_cmd_run_module_mode(self) -> None:
+    def test_cmd_run_module_mode(self, mock_monitoring_loop_and_runner) -> None:
         """Test cmd_run passes factory with correct params for module mode."""
+        mock_loop, mock_runner_cls, mock_runner = mock_monitoring_loop_and_runner
         from gcmon.commands import run_cmd
 
         args = self._make_run_args(module_name="timeit", script_args=["-n", "1"])
 
-        with patch("gcmon.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop:
-            with patch("gcmon.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
-                mock_runner = MagicMock()
-                mock_runner.returncode = 0
-                mock_runner_cls.return_value = mock_runner
-                mock_runner.start.return_value = MagicMock(pid=999)
+        run_cmd.cmd_run(args)
 
-                run_cmd.cmd_run(args)
+        factory_fn = mock_loop.call_args[1]["factory"]
+        runner = factory_fn("test-addr")
 
-                factory_fn = mock_loop.call_args[1]["factory"]
-                runner = factory_fn("test-addr")
+        mock_runner_cls.assert_called_once_with(
+            target="timeit",
+            is_module=True,
+            passthrough_args=["-n", "1"],
+            control_address="test-addr",
+        )
+        assert runner is mock_runner
 
-                mock_runner_cls.assert_called_once_with(
-                    target="timeit",
-                    is_module=True,
-                    passthrough_args=["-n", "1"],
-                    control_address="test-addr",
-                )
-                assert runner is mock_runner
-
-    def test_cmd_run_script_mode(self) -> None:
+    def test_cmd_run_script_mode(self, mock_monitoring_loop_and_runner) -> None:
         """Test cmd_run passes factory with correct params for script mode."""
+        mock_loop, mock_runner_cls, mock_runner = mock_monitoring_loop_and_runner
         from gcmon.commands import run_cmd
 
         args = self._make_run_args(script="myscript.py", script_args=["arg1"])
 
-        with patch("gcmon.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop:
-            with patch("gcmon.commands.run_cmd.ChildProcessRunner") as mock_runner_cls:
-                mock_runner = MagicMock()
-                mock_runner.returncode = 0
-                mock_runner_cls.return_value = mock_runner
-                mock_runner.start.return_value = MagicMock(pid=999)
+        run_cmd.cmd_run(args)
 
-                run_cmd.cmd_run(args)
+        factory_fn = mock_loop.call_args[1]["factory"]
+        runner = factory_fn("test-addr")
 
-                factory_fn = mock_loop.call_args[1]["factory"]
-                runner = factory_fn("test-addr")
-
-                mock_runner_cls.assert_called_once_with(
-                    target="myscript.py",
-                    is_module=False,
-                    passthrough_args=["arg1"],
-                    control_address="test-addr",
-                )
-                assert runner is mock_runner
+        mock_runner_cls.assert_called_once_with(
+            target="myscript.py",
+            is_module=False,
+            passthrough_args=["arg1"],
+            control_address="test-addr",
+        )
+        assert runner is mock_runner
 
     def test_cmd_run_subprocess_returncode(self) -> None:
         """Test non-zero subprocess returncode is propagated from run_monitoring_loop."""

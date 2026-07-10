@@ -37,11 +37,14 @@ def disconnected_client():
 
 
 @pytest.fixture
-def patched_client_factory():
-    with (
-        patch("gcmon.control.control_client.Client") as mock_client,
-        patch("gcmon.control.control_client.time.sleep"),
-    ):
+def mock_sleep():
+    with patch("gcmon.control.control_client.time.sleep"):
+        yield
+
+
+@pytest.fixture
+def patched_client_factory(mock_sleep):
+    with patch("gcmon.control.control_client.Client") as mock_client:
         yield mock_client
 
 
@@ -62,9 +65,8 @@ class TestPublicAPI:
     @pytest.mark.parametrize("raises", [False, True])
     def test_pause_monitoring(self, client, mock_conn, raises):
         if raises:
-            with pytest.raises(RuntimeError):
-                with client.pause_monitoring():
-                    raise RuntimeError()
+            with pytest.raises(RuntimeError), client.pause_monitoring():
+                raise RuntimeError()
         else:
             with client.pause_monitoring():
                 pass
@@ -82,6 +84,7 @@ class TestSend:
 
     def test_noop_when_not_connected(self, disconnected_client):
         disconnected_client._send("test")
+        assert disconnected_client._conn is None
 
     def test_clears_stale_connection_on_failure(self, client, mock_conn):
         mock_conn.send.side_effect = OSError("broken pipe")
@@ -133,6 +136,7 @@ class TestConnectionLifecycle:
 
     def test_close_noop_when_not_connected(self, disconnected_client):
         disconnected_client.close()
+        assert disconnected_client._conn is None
 
     def test_context_manager_closes_on_exit(self, client, mock_conn):
         client._ensure_connected()
@@ -168,8 +172,7 @@ class TestConnectWithRetry:
 
 
 class TestDefaultConnect:
-    def test_returns_none_on_connection_failure(self, caplog):
-        with patch("gcmon.control.control_client.time.sleep"):
-            assert _default_connect("/nonexistent/control/socket") is None
+    def test_returns_none_on_connection_failure(self, caplog, mock_sleep):
+        assert _default_connect("/nonexistent/control/socket") is None
         assert "Failed to connect to control plane" in caplog.text
         assert "address='/nonexistent/control/socket'" in caplog.text

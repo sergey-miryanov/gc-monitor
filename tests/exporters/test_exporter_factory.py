@@ -57,13 +57,10 @@ class TestEventsExporterFactory:
         with pytest.raises(ValueError, match="Unknown output format: unknown"):
             factory()
 
-    def test_flush_threshold_passthrough(self, tmp_path: Path) -> None:
-        factory = EventsExporterFactory("jsonl", tmp_path / "out.jsonl", 50)
-        exporter = factory()
-        assert exporter._flush_threshold == 50
-
-    def test_output_path_passthrough(self, tmp_path: Path) -> None:
+    def test_factory_forwards_parameters(self, tmp_path: Path) -> None:
         path = tmp_path / "out.jsonl"
-        factory = EventsExporterFactory("jsonl", path, 100)
+        factory = EventsExporterFactory("jsonl", path, 50)
         exporter = factory()
+        assert isinstance(exporter, JsonlExporter)
+        assert exporter._flush_threshold == 50
         assert exporter._output_path == path

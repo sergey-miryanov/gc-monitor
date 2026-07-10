@@ -3,8 +3,20 @@ from unittest.mock import patch
 import pytest
 
 from gcmon.monitor import EventsMonitor, create_monitor
-from gcmon.poll_status import PollStatus
 from tests.helpers import MockExporter, create_mock_stats_item
+
+
+@pytest.fixture
+def mock_gc_stats():
+    item = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
+    with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
+        yield item
+
+
+@pytest.fixture
+def mock_stats_update(monitor):
+    with patch.object(monitor._stats, "update") as mock:
+        yield mock
 
 
 class TestEventsMonitorExtra:
@@ -33,14 +45,10 @@ class TestEventsMonitorExtra:
         assert not monitor.is_enabled
         assert exporter._close_called
 
-    def test_poll_updates_stats(self, monitor: EventsMonitor) -> None:
-        item = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
+    def test_poll_updates_stats(self, monitor: EventsMonitor, mock_gc_stats, mock_stats_update) -> None:
+        monitor.poll(12345)
 
-        with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
-            with patch.object(monitor._stats, "update") as mock_stats_update:
-                monitor.poll(12345)
-
-        mock_stats_update.assert_called_once_with(12345, item)
+        mock_stats_update.assert_called_once_with(12345, mock_gc_stats)
 
     def test_poll_skips_invalid_timestamp_event(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
         item = create_mock_stats_item(ts_start=2_000, ts_stop=1_000)

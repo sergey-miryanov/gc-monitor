@@ -2,12 +2,6 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import ClassVar
 
-from tests.data_helpers import (  # noqa: F401
-    incremental_item,
-    instant_item,
-    simple_item,
-)
-
 from gcmon.protocol import (
     has_clear_weakrefs,
     has_deduce_unreachable,

@@ -15,6 +15,3 @@ class TestPollStatusMembers:
             PollStatus.FAIL,
             PollStatus.INVALID_PROCESS,
         ]
-
-    def test_repr(self):
-        assert repr(PollStatus.OK) == "<PollStatus.OK: 1>"

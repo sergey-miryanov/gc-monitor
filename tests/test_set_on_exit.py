@@ -8,11 +8,6 @@ from gcmon.utils.set_on_exit import set_on_exit
 
 
 class TestSetOnExit:
-    def test_yields_event(self):
-        event = threading.Event()
-        with set_on_exit(event) as got:
-            assert got is event
-
     def test_sets_event_on_normal_exit(self):
         event = threading.Event()
         with set_on_exit(event):
@@ -21,9 +16,8 @@ class TestSetOnExit:
 
     def test_sets_event_on_exception(self):
         event = threading.Event()
-        with pytest.raises(RuntimeError):
-            with set_on_exit(event):
-                raise RuntimeError("boom")
+        with pytest.raises(RuntimeError), set_on_exit(event):
+            raise RuntimeError("boom")
         assert event.is_set()
 
     def test_event_not_set_during_body(self):

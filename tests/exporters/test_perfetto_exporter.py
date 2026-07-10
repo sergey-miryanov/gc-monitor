@@ -1,17 +1,5 @@
 """Tests for Perfetto binary protobuf exporter."""
 
-from tests.conftest import DEFAULT_PID
-from tests.data_helpers import create_instant_msg
-from tests.helpers import create_mock_incremental_item, create_mock_stats_item
-from tests.proto_decoder import (
-    ProtoField,
-    decode_message,
-    get_field,
-    get_fields,
-    get_string,
-    get_varint,
-)
-
 from gcmon.data import GCStatsInfo
 from gcmon.exporters import PerfettoExporter
 from gcmon.exporters.perfetto_format import (
@@ -24,6 +12,17 @@ from gcmon.exporters.perfetto_format import (
     TracePacketField,
     TrackDescriptorField,
     TrackEventField,
+)
+from tests.conftest import DEFAULT_PID
+from tests.data_helpers import create_instant_msg
+from tests.helpers import create_mock_incremental_item, create_mock_stats_item
+from tests.proto_decoder import (
+    ProtoField,
+    decode_message,
+    get_field,
+    get_fields,
+    get_string,
+    get_varint,
 )
 
 # Name of the synthetic marker emitted on the process track so the
@@ -87,10 +86,16 @@ def _count_descriptors(packet_fields: list[list[ProtoField]]) -> int:
 
 class TestPerfettoExporter:
     def test_init(self, perfetto_exporter) -> None:
-        exporter, _ = perfetto_exporter()
+        exporter, path = perfetto_exporter()
+        assert exporter._flush_threshold == 100
+        assert exporter._buffer == []
+        assert exporter._output_path == path
 
     def test_init_with_flush_threshold(self, perfetto_exporter) -> None:
-        exporter, _ = perfetto_exporter(threshold=500)
+        exporter, path = perfetto_exporter(threshold=500)
+        assert exporter._flush_threshold == 500
+        assert exporter._buffer == []
+        assert exporter._output_path == path
 
     def _verify_event_structure(self, path, num_items: int) -> None:
         packets = _read_trace_packets(path)

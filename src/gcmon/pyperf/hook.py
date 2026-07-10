@@ -108,11 +108,11 @@ class GCMonitorHook:
         pyperf run --hook=gcmon ...
     """
 
-    def __init__(self, temp_dir: tempfile.TemporaryDirectory[str]) -> None:
+    def __init__(self, temp_dir: tempfile.TemporaryDirectory[str], pid: int | None = None) -> None:
         self._process: subprocess.Popen[bytes] | None = None
         self._temp_files: list[Path] = []
         self._temp_dir = temp_dir
-        self._pid: int = os.getpid()
+        self._pid: int = pid or os.getpid()
         self._control_name = f"pyperf-hook-{self._pid}"
         self._control_address = _make_address(self._control_name)
 
@@ -268,13 +268,13 @@ class GCMonitorHook:
 
 
 # Entry point factory function
-def gcmon_hook() -> GCMonitorHook:
+def gcmon_hook(temp_dir: str | Path | None = None, pid: int | None = None) -> GCMonitorHook:
     _setup_logging()
-    temp_dir = tempfile.TemporaryDirectory(dir=_get_env_pyperf_hook_temp_dir())
+    temp_dir_obj = tempfile.TemporaryDirectory(dir=temp_dir or _get_env_pyperf_hook_temp_dir())
     try:
-        return GCMonitorHook(temp_dir=temp_dir)
+        return GCMonitorHook(temp_dir=temp_dir_obj, pid=pid)
     except Exception:
-        temp_dir.cleanup()
+        temp_dir_obj.cleanup()
         raise
 
 

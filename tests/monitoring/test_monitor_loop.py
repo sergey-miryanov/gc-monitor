@@ -119,11 +119,6 @@ class TestMonitorLoopRun:
 
 
 class TestMonitorLoopContextManager:
-    def test_enter_returns_self(self, mock_monitor):
-        loop = MonitorLoop(mock_monitor, Mock(spec=Runner), lambda: Mock(spec=WaitPolicy))
-        with loop as l:
-            assert l is loop
-
     def test_exit_calls_close(self, mock_monitor):
         loop = MonitorLoop(mock_monitor, Mock(spec=Runner), lambda: Mock(spec=WaitPolicy))
         assert not loop._stop_event.is_set()

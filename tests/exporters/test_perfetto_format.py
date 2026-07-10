@@ -1684,7 +1684,7 @@ class TestConvertInstantToPerfettoPacket:
 
     def test_single_arg_counter_uses_metric_name_as_track_name(self) -> None:
         state = PerfettoTrackState()
-        descriptors, packets = convert_trace_events_to_perfetto(
+        descriptors, _ = convert_trace_events_to_perfetto(
             [
                 process_meta(100, "Process 100"),
                 thread_meta(100, 0, "Thread 0"),

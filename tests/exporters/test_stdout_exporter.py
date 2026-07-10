@@ -1,13 +1,13 @@
 """Tests for the StdoutExporter."""
 
 import json
+import sys
 from typing import Any
 
 import pytest
 
-from gcmon.protocol import TGCStatsInfo
 from gcmon.exporters import StdoutExporter
-
+from gcmon.protocol import TGCStatsInfo
 from tests.conftest import DEFAULT_PID
 from tests.helpers import create_mock_stats_item
 
@@ -18,10 +18,14 @@ class TestStdoutExporter:
     def test_init_default_parameters(self) -> None:
         """Test StdoutExporter initialization with default parameters."""
         exporter = StdoutExporter()
+        assert exporter._flush_threshold == 100
+        assert exporter._output is sys.stdout
 
     def test_init_custom_parameters(self) -> None:
         """Test StdoutExporter initialization with custom parameters."""
         exporter = StdoutExporter(flush_threshold=50)
+        assert exporter._flush_threshold == 50
+        assert exporter._output is sys.stdout
 
     def test_add_event_json_output_format(
         self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]
@@ -74,9 +78,9 @@ class TestStdoutExporter:
         """Test close() flushes stdout."""
         exporter = StdoutExporter(flush_threshold=1000)
         exporter.add_event(DEFAULT_PID, mock_stats_item)
-
-        # Close should flush stdout
         exporter.close()
+        captured = capsys.readouterr()
+        assert captured.out != ""
 
     def test_add_event_output_to_stdout(
         self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]

@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from types import SimpleNamespace
 
-import pytest
-
 from gcmon.data import GCStatsInfo
 from gcmon.stats import (
     METRICS,

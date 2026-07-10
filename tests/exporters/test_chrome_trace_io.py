@@ -7,13 +7,6 @@ from types import SimpleNamespace
 import msgspec
 import pytest
 
-from gcmon.trace_event import (
-    begin_event,
-    counter_event,
-    end_event,
-    process_meta,
-    thread_meta,
-)
 from gcmon.exporters.chrome_trace_io import (
     _normalize_jsonl_timestamps,
     _normalize_trace_timestamps,
@@ -25,6 +18,13 @@ from gcmon.exporters.chrome_trace_io import (
     write_jsonl,
 )
 from gcmon.protocol import has_incremental
+from gcmon.trace_event import (
+    begin_event,
+    counter_event,
+    end_event,
+    process_meta,
+    thread_meta,
+)
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_jsonl_record, create_mock_stats_item
 
@@ -119,7 +119,7 @@ class TestJsonToItem:
     def test_pid_as_string(self) -> None:
         data = create_jsonl_record(pid=789)
         data["pid"] = "789"
-        pid, item = json_to_item(data)
+        pid, _ = json_to_item(data)
         assert pid == 789
 
 
@@ -197,7 +197,7 @@ class TestWriteJsonl:
 
         lines = path.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 2
-        pids = {json.loads(l)["pid"] for l in lines}
+        pids = {json.loads(line)["pid"] for line in lines}
         assert pids == {1, 2}
 
     def test_writes_incremental_fields(self, tmp_path: Path) -> None:
@@ -223,7 +223,7 @@ class TestWriteJsonl:
         write_jsonl(path, {1: [item1, item2]})
         lines = path.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 2
-        assert all(json.loads(l)["pid"] == 1 for l in lines)
+        assert all(json.loads(line)["pid"] == 1 for line in lines)
 
     def test_writes_instant_msg(self, tmp_path: Path) -> None:
         path = tmp_path / "out.jsonl"
@@ -631,7 +631,7 @@ class TestCombineFiles:
         ]
         f1.write_bytes(b"\n".join(lines) + b"\n")
         combine_files([f1], out, normalize=True, input_format="jsonl", output_format="jsonl")
-        records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
+        records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert records[0]["ts_start"] == 5_000_000
         assert records[1]["ts_start"] == 0
 
@@ -644,7 +644,7 @@ class TestCombineFiles:
                 msgspec.json.encode(create_jsonl_record(pid=pid)) + b"\n",
             )
         combine_files([f1, f2], out, input_format="jsonl", output_format="jsonl")
-        records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
+        records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert len(records) == 2
         assert {r["pid"] for r in records} == {1, 2}
 
@@ -659,7 +659,7 @@ class TestCombineFiles:
                 b"\n".join(msgspec.json.encode(r) for r in lines) + b"\n",
             )
         combine_files([f1, f2], out, input_format="jsonl", output_format="jsonl")
-        records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
+        records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert len(records) == 2
         assert records[0]["ts_start"] == 1000
         assert records[1]["ts_start"] == 3000
@@ -683,6 +683,6 @@ class TestCombineFiles:
         record = _make_inc_jsonl_record(pid=1, ts_start=1000, ts_stop=5000)
         f1.write_bytes(msgspec.json.encode(record) + b"\n")
         combine_files([f1], out, input_format="jsonl", output_format="jsonl")
-        records = [json.loads(l) for l in out.read_text(encoding="utf-8").strip().split("\n") if l]
+        records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert records[0]["increment_size"] == 500
         assert records[0]["alive_size"] == 300

@@ -1,10 +1,8 @@
 """Tests for the shared monitoring_base module."""
 
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock
 
 import pytest
-
-from gcmon.stats_output import TableFormat
 
 
 class TestRunMonitoringLoop:

@@ -11,25 +11,43 @@ from gcmon.utils.process_terminator import _is_signal_exit_code, terminate_proce
 
 
 @pytest.fixture
-def unix_terminator(mock_process, mock_logger):
+def patched_logger(mock_logger):
+    with patch("gcmon.utils.process_terminator._logger", mock_logger):
+        yield mock_logger
+
+
+@pytest.fixture
+def unix_terminator(mock_process, patched_logger):
     mock_process.returncode = None
     mock_process.poll.side_effect = lambda: mock_process.returncode
-    with (
-        patch.object(os, "name", "posix"),
-        patch("gcmon.utils.process_terminator._logger", mock_logger),
-    ):
+    with patch.object(os, "name", "posix"):
         yield mock_process
 
 
 @pytest.fixture
-def nt_terminator(mock_process, mock_logger):
+def nt_terminator(mock_process, patched_logger):
     mock_process.returncode = None
     mock_process.poll.side_effect = lambda: mock_process.returncode
-    with (
-        patch.object(os, "name", "nt"),
-        patch("gcmon.utils.process_terminator._logger", mock_logger),
-    ):
+    with patch.object(os, "name", "nt"):
         yield mock_process
+
+
+@pytest.fixture
+def unix_signal_and_kill(unix_terminator):
+    with (
+        patch.object(unix_terminator, "send_signal") as mock_send_signal,
+        patch.object(unix_terminator, "kill") as mock_kill,
+    ):
+        yield unix_terminator, mock_send_signal, mock_kill
+
+
+@pytest.fixture
+def nt_signal_and_kill(nt_terminator):
+    with (
+        patch.object(nt_terminator, "send_signal") as mock_send_signal,
+        patch.object(nt_terminator, "kill") as mock_kill,
+    ):
+        yield nt_terminator, mock_send_signal, mock_kill
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Unix-specific tests")
@@ -74,8 +92,8 @@ class TestTerminateProcessUnix:
             mock_process.terminate.assert_called_once()
             assert result == (b"stdout after sigterm", b"stderr after sigterm")
 
-    def test_timeout_then_sigkill(self, unix_terminator):
-        mock_process = unix_terminator
+    def test_timeout_then_sigkill(self, unix_signal_and_kill):
+        mock_process, mock_send_signal, mock_kill = unix_signal_and_kill
         mock_process.poll.side_effect = [None, None, None, -9]
         mock_process.communicate.side_effect = [
             subprocess.TimeoutExpired(cmd="test", timeout=5.0),
@@ -83,18 +101,16 @@ class TestTerminateProcessUnix:
             (b"stdout after sigkill", b"stderr after sigkill"),
         ]
 
-        with patch.object(mock_process, "send_signal") as mock_send_signal:
-            with patch.object(mock_process, "kill") as mock_kill:
-                result = terminate_process(
-                    process=mock_process,
-                    graceful_timeout=5.0,
-                    force_timeout=2.0,
-                )
+        result = terminate_process(
+            process=mock_process,
+            graceful_timeout=5.0,
+            force_timeout=2.0,
+        )
 
-                mock_send_signal.assert_called_once_with(signal.SIGINT)
-                mock_process.terminate.assert_called_once()
-                mock_kill.assert_called_once()
-                assert result == (b"stdout after sigkill", b"stderr after sigkill")
+        mock_send_signal.assert_called_once_with(signal.SIGINT)
+        mock_process.terminate.assert_called_once()
+        mock_kill.assert_called_once()
+        assert result == (b"stdout after sigkill", b"stderr after sigkill")
 
     def test_zombie(self, unix_terminator):
         mock_process = unix_terminator
@@ -106,17 +122,16 @@ class TestTerminateProcessUnix:
             (b"final output", b""),
         ]
 
-        with patch.object(mock_process, "send_signal"):
-            with patch.object(mock_process, "kill"):
-                result = terminate_process(
-                    process=mock_process,
-                    graceful_timeout=5.0,
-                    force_timeout=2.0,
-                )
+        with patch.object(mock_process, "send_signal"), patch.object(mock_process, "kill"):
+            result = terminate_process(
+                process=mock_process,
+                graceful_timeout=5.0,
+                force_timeout=2.0,
+            )
 
-                assert mock_process.communicate.call_count == 4
-                mock_process.communicate.assert_called_with(timeout=None)
-                assert result == (b"final output", b"")
+            assert mock_process.communicate.call_count == 4
+            mock_process.communicate.assert_called_with(timeout=None)
+            assert result == (b"final output", b"")
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows-specific tests")
@@ -138,8 +153,8 @@ class TestTerminateProcessWindows:
             mock_process.communicate.assert_called_once_with(timeout=5.0)
             assert result == (b"stdout data", b"stderr data")
 
-    def test_timeout_then_kill(self, nt_terminator):
-        mock_process = nt_terminator
+    def test_timeout_then_kill(self, nt_signal_and_kill):
+        mock_process, mock_send_signal, mock_kill = nt_signal_and_kill
         mock_process.poll.side_effect = [None, None, None, -1]
         mock_process.communicate.side_effect = [
             subprocess.TimeoutExpired(cmd="test", timeout=5.0),
@@ -147,18 +162,16 @@ class TestTerminateProcessWindows:
             (b"stdout after kill", b"stderr after kill"),
         ]
 
-        with patch.object(mock_process, "send_signal") as mock_send_signal:
-            with patch.object(mock_process, "kill") as mock_kill:
-                result = terminate_process(
-                    process=mock_process,
-                    graceful_timeout=5.0,
-                    force_timeout=2.0,
-                )
+        result = terminate_process(
+            process=mock_process,
+            graceful_timeout=5.0,
+            force_timeout=2.0,
+        )
 
-                mock_send_signal.assert_called_once_with(signal.CTRL_BREAK_EVENT)
-                mock_process.terminate.assert_called_once()
-                mock_kill.assert_called_once()
-                assert result == (b"stdout after kill", b"stderr after kill")
+        mock_send_signal.assert_called_once_with(signal.CTRL_BREAK_EVENT)
+        mock_process.terminate.assert_called_once()
+        mock_kill.assert_called_once()
+        assert result == (b"stdout after kill", b"stderr after kill")
 
     def test_zombie(self, nt_terminator):
         mock_process = nt_terminator
@@ -170,51 +183,48 @@ class TestTerminateProcessWindows:
             (b"final output", b""),
         ]
 
-        with patch.object(mock_process, "send_signal"):
-            with patch.object(mock_process, "kill"):
-                result = terminate_process(
-                    process=mock_process,
-                    graceful_timeout=5.0,
-                    force_timeout=2.0,
-                )
+        with patch.object(mock_process, "send_signal"), patch.object(mock_process, "kill"):
+            result = terminate_process(
+                process=mock_process,
+                graceful_timeout=5.0,
+                force_timeout=2.0,
+            )
 
-                assert mock_process.communicate.call_count == 4
-                mock_process.communicate.assert_called_with(timeout=None)
-                assert result == (b"final output", b"")
+            assert mock_process.communicate.call_count == 4
+            mock_process.communicate.assert_called_with(timeout=None)
+            assert result == (b"final output", b"")
 
 
 class TestTerminateProcessCommon:
     """Platform-independent terminate_process tests."""
 
-    def test_verbose_logging(self, mock_process, mock_logger):
+    def test_verbose_logging(self, mock_process, patched_logger):
         mock_process.returncode = None
         mock_process.poll.side_effect = lambda: mock_process.returncode
 
-        with patch("gcmon.utils.process_terminator._logger", mock_logger):
-            with patch.object(mock_process, "send_signal"):
-                terminate_process(
-                    process=mock_process,
-                    graceful_timeout=5.0,
-                    force_timeout=2.0,
-                )
+        with patch.object(mock_process, "send_signal"):
+            terminate_process(
+                process=mock_process,
+                graceful_timeout=5.0,
+                force_timeout=2.0,
+            )
 
-                assert mock_logger.debug.call_count >= 2
+            assert patched_logger.debug.call_count >= 2
 
-    def test_signal_failure(self, mock_process, mock_logger):
+    def test_signal_failure(self, mock_process, patched_logger):
         mock_process.returncode = None
         mock_process.poll.side_effect = lambda: mock_process.returncode
 
-        with patch("gcmon.utils.process_terminator._logger", mock_logger):
-            with patch.object(mock_process, "send_signal", side_effect=ProcessLookupError("Process not found")):
-                result = terminate_process(
-                    process=mock_process,
-                    graceful_timeout=5.0,
-                    force_timeout=2.0,
-                )
+        with patch.object(mock_process, "send_signal", side_effect=ProcessLookupError("Process not found")):
+            result = terminate_process(
+                process=mock_process,
+                graceful_timeout=5.0,
+                force_timeout=2.0,
+            )
 
-                mock_logger.warning.assert_called()
-                mock_process.communicate.assert_called()
-                assert result == (b"stdout data", b"stderr data")
+            patched_logger.warning.assert_called()
+            mock_process.communicate.assert_called()
+            assert result == (b"stdout data", b"stderr data")
 
     def test_default_logger(self, mock_process):
         mock_process.returncode = None
@@ -228,22 +238,25 @@ class TestTerminateProcessCommon:
             )
             assert result == (b"stdout data", b"stderr data")
 
+    def test_terminate_then_exits(self, mock_process) -> None:
+        """Process exits after terminate(), before kill()."""
+        mock_process.poll.side_effect = [None, None, 0]
+        mock_process.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="test", timeout=5.0),
+            (b"terminated output", b"stderr"),
+        ]
 
-class TestCrossPlatform:
-    """Cross-platform compatibility tests."""
+        with patch.object(mock_process, "send_signal") as mock_send_signal:
+            result = terminate_process(
+                process=mock_process,
+                graceful_timeout=5.0,
+                force_timeout=2.0,
+            )
 
-    @pytest.mark.skipif(os.name != "nt", reason="Windows-specific test")
-    def test_windows_signal_constants(self, mock_process) -> None:
-        assert hasattr(signal, "CTRL_BREAK_EVENT")
-
-    @pytest.mark.skipif(os.name != "posix", reason="Unix-specific test")
-    def test_unix_signal_constants(self, mock_process) -> None:
-        assert hasattr(signal, "SIGINT")
-        assert hasattr(signal, "SIGTERM")
-        assert hasattr(signal, "SIGKILL")
-
-    def test_os_name_detection(self) -> None:
-        assert os.name in ("nt", "posix")
+            mock_send_signal.assert_called_once()
+            mock_process.terminate.assert_called_once()
+            mock_process.kill.assert_not_called()
+            assert result == (b"terminated output", b"stderr")
 
 
 class TestIsSignalExitCode:

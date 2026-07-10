@@ -8,7 +8,7 @@ from argparse import Namespace
 from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,7 +20,7 @@ from gcmon.stats_output import TableFormat
 class MonitorArgsFactory:
     """Factory for creating monitor command Namespace objects."""
 
-    _defaults: dict = {
+    _defaults: ClassVar[dict] = {
         "pid": 12345,
         "output": Path("test.json"),
         "rate": 0.1,

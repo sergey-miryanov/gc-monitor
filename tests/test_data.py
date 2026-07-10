@@ -1,30 +1,8 @@
-# ruff: noqa: F811
 import msgspec
 import pytest
 
 from gcmon.data import GCStatsInfo, InstantMsg, from_mapping, instant_msg
-from gcmon.protocol import has_deduce_unreachable, has_incremental, has_mark_alive, to_mapping
-
-from tests.data_helpers import (  # noqa: F401
-    simple_item,
-    incremental_item,
-    instant_item,
-)
-
-
-@pytest.fixture
-def gc_stats_dict(simple_item):
-    return to_mapping(simple_item)
-
-
-@pytest.fixture
-def incremental_dict(incremental_item):
-    return to_mapping(incremental_item)
-
-
-@pytest.fixture
-def instant_dict(instant_item):
-    return to_mapping(instant_item)
+from gcmon.protocol import has_deduce_unreachable, has_incremental, has_mark_alive
 
 
 class TestGCStatsInfo:

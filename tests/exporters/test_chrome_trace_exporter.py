@@ -8,15 +8,14 @@ from gcmon.data import ts_to_us
 from gcmon.monitor import EventsMonitor
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
-
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.helpers import (
     assert_is_begin,
     assert_is_counter,
+    assert_is_instant_event,
     assert_is_process_meta,
     assert_is_thread_meta,
-    assert_is_instant_event,
     assert_valid_chrome_trace_format,
     create_mock_stats_item,
 )
@@ -25,9 +24,15 @@ from tests.helpers import (
 class TestTraceExporter:
     def test_init(self, trace_exporter) -> None:
         exporter, path = trace_exporter()
+        assert exporter._flush_threshold == 100
+        assert exporter._buffer == []
+        assert exporter._output_path == path
 
     def test_init_with_flush_threshold(self, trace_exporter) -> None:
         exporter, path = trace_exporter(threshold=500)
+        assert exporter._flush_threshold == 500
+        assert exporter._buffer == []
+        assert exporter._output_path == path
 
     def _verify_events(self, data: list[dict], num_items: int) -> None:
         begins = [e for e in data if e["ph"] == "B"]
@@ -317,15 +322,20 @@ def monitor_with_exporter(trace_exporter):
     exporter, path = trace_exporter()
     process = ExternalProcess(pid=12345)
     monitor = EventsMonitor(process, exporter, StreamingStats())
-    return monitor, exporter, path
+    return monitor, path
+
+
+@pytest.fixture
+def mock_gc_stats(mock_read_events):
+    with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
+        yield
 
 
 class TestGCMonitorStreaming:
-    def test_streams_to_exporter(self, mock_read_events, monitor_with_exporter) -> None:
-        monitor, exporter, path = monitor_with_exporter
-        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
-            for _ in range(4):
-                monitor.poll(12345)
+    def test_streams_to_exporter(self, mock_gc_stats, monitor_with_exporter) -> None:
+        monitor, path = monitor_with_exporter
+        for _ in range(4):
+            monitor.poll(12345)
         monitor.stop()
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
@@ -339,20 +349,18 @@ class TestGCMonitorStreaming:
         assert len([e for e in data if e["ph"] == "B"]) >= 4
         assert len([e for e in data if e["ph"] == "C"]) >= 4
 
-    def test_streams_events_individually(self, mock_read_events, monitor_with_exporter) -> None:
-        monitor, exporter, path = monitor_with_exporter
-        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
-            for _ in range(3):
-                monitor.poll(12345)
+    def test_streams_events_individually(self, mock_gc_stats, monitor_with_exporter) -> None:
+        monitor, path = monitor_with_exporter
+        for _ in range(3):
+            monitor.poll(12345)
         monitor.stop()
         data = assert_valid_chrome_trace_format(path)
         assert len([e for e in data if e["ph"] == "B"]) >= 4
 
-    def test_stop_closes_exporter(self, mock_read_events, monitor_with_exporter) -> None:
-        monitor, exporter, path = monitor_with_exporter
-        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
-            for _ in range(3):
-                monitor.poll(12345)
+    def test_stop_closes_exporter(self, mock_gc_stats, monitor_with_exporter) -> None:
+        monitor, path = monitor_with_exporter
+        for _ in range(3):
+            monitor.poll(12345)
         monitor.stop()
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
@@ -366,7 +374,7 @@ class TestGCMonitorStreaming:
         assert len([e for e in data if e["ph"] == "C"]) >= 3
 
     def test_handles_read_error_gracefully(self, monitor_with_exporter) -> None:
-        monitor, exporter, path = monitor_with_exporter
+        monitor, path = monitor_with_exporter
         item = create_mock_stats_item(
             gen=0,
             ts_start=1_500_000_000,
