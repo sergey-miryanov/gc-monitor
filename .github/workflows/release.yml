@@ -18,7 +18,7 @@ on:
         default: "main"
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: false
 
 permissions:
