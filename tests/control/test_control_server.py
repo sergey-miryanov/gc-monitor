@@ -3,7 +3,9 @@
 import sys
 import threading
 import time
+from collections.abc import Generator
 from multiprocessing.connection import Client
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,7 +18,7 @@ from gcmon.control.control_server import (
 
 
 @pytest.fixture
-def server_not_started(mock_exporter) -> ControlServer:
+def server_not_started(mock_exporter: MagicMock) -> Generator[ControlServer]:
     server = ControlServer(mock_exporter)
     try:
         yield server
@@ -25,20 +27,20 @@ def server_not_started(mock_exporter) -> ControlServer:
 
 
 @pytest.fixture
-def mock_conn():
-    m = MagicMock()
+def mock_conn() -> MagicMock:
+    m: MagicMock = MagicMock()
     m.poll.return_value = False
     return m
 
 
 @pytest.fixture
-def mock_wait():
+def mock_wait() -> Generator[MagicMock]:
     with patch("gcmon.control.control_server._wait") as mock:
         yield mock
 
 
 @pytest.fixture
-def mock_wait_and_stop(server_not_started):
+def mock_wait_and_stop(server_not_started: ControlServer) -> Generator[MagicMock]:
     with (
         patch("gcmon.control.control_server._wait") as mock,
         patch.object(
@@ -53,7 +55,7 @@ def mock_wait_and_stop(server_not_started):
 def _send_msg(server: ControlServer, msg: str, pid: int) -> None:
     import time
 
-    address = server.address
+    address: str = server.address
     conn = Client(address)
     try:
         conn.send({"msg": msg, "pid": pid, "ts": time.monotonic_ns()})
@@ -76,11 +78,11 @@ def _wait_msg(control_server: ControlServer, pid: int, expected: bool, timeout: 
 
 
 class TestControlServerInit:
-    def test_address_returns_string(self, control_server) -> None:
+    def test_address_returns_string(self, control_server: ControlServer) -> None:
         addr = control_server.address
         assert isinstance(addr, str)
 
-    def test_is_enabled_defaults_to_true(self, control_server) -> None:
+    def test_is_enabled_defaults_to_true(self, control_server: ControlServer) -> None:
         assert control_server.is_enabled(99999) is True
         assert control_server.is_enabled(0) is True
 
@@ -91,22 +93,22 @@ class TestControlServerInit:
         finally:
             server.close()
 
-    def test_init_listener_not_none(self, server_not_started) -> None:
+    def test_init_listener_not_none(self, server_not_started: ControlServer) -> None:
         assert server_not_started._listener is not None
 
-    def test_init_connections_empty(self, server_not_started) -> None:
+    def test_init_connections_empty(self, server_not_started: ControlServer) -> None:
         assert server_not_started._connections == set()
 
-    def test_init_enabled_empty(self, server_not_started) -> None:
+    def test_init_enabled_empty(self, server_not_started: ControlServer) -> None:
         assert server_not_started._enabled == {}
 
-    def test_init_not_running(self, server_not_started) -> None:
+    def test_init_not_running(self, server_not_started: ControlServer) -> None:
         assert server_not_started._running is False
 
-    def test_init_exporter_set(self, server_not_started) -> None:
-        assert server_not_started._exporter is not None
+    def test_init_exporter_set(self, server_not_started: ControlServer) -> None:
+        assert server_not_started._exporter
 
-    def test_init_threads_not_alive(self, server_not_started) -> None:
+    def test_init_threads_not_alive(self, server_not_started: ControlServer) -> None:
         assert not server_not_started._accept_thread.is_alive()
         assert not server_not_started._reader_thread.is_alive()
 
@@ -119,10 +121,10 @@ class TestControlServerInit:
 class TestControlServerStartFailure:
     """Regression tests for BUG-30: start() must not leak state on failure."""
 
-    def _stub_threads(self, server: ControlServer, fail_on: int) -> None:
-        calls = {"n": 0}
-        accept = MagicMock(name="accept_thread")
-        reader = MagicMock(name="reader_thread")
+    def _stub_threads(self, server: ControlServer, fail_on: int) -> tuple[MagicMock, MagicMock]:
+        calls: dict[str, int] = {"n": 0}
+        accept: MagicMock = MagicMock(name="accept_thread")
+        reader: MagicMock = MagicMock(name="reader_thread")
 
         def start_side_effect() -> None:
             calls["n"] += 1
@@ -133,18 +135,19 @@ class TestControlServerStartFailure:
         reader.start.side_effect = start_side_effect
         server._accept_thread = accept
         server._reader_thread = reader
+        return accept, reader
 
     def test_start_when_accept_thread_fails_does_not_mark_running(
         self,
         server_not_started: ControlServer,
     ) -> None:
-        self._stub_threads(server_not_started, fail_on=1)
+        _, reader_mock = self._stub_threads(server_not_started, fail_on=1)
 
         with pytest.raises(RuntimeError, match="simulated start failure on call 1"):
             server_not_started.start()
 
         assert server_not_started.is_running() is False
-        server_not_started._reader_thread.start.assert_not_called()
+        reader_mock.start.assert_not_called()
         assert server_not_started._listener is not None
         assert server_not_started.address
         server_not_started.close()
@@ -153,16 +156,16 @@ class TestControlServerStartFailure:
         self,
         server_not_started: ControlServer,
     ) -> None:
-        self._stub_threads(server_not_started, fail_on=2)
+        accept_mock, reader_mock = self._stub_threads(server_not_started, fail_on=2)
 
         with pytest.raises(RuntimeError, match="simulated start failure on call 2"):
             server_not_started.start()
 
         assert server_not_started.is_running() is False
-        server_not_started._accept_thread.start.assert_called_once()
-        server_not_started._reader_thread.start.assert_called_once()
-        server_not_started._accept_thread.join.assert_called()
-        server_not_started._reader_thread.join.assert_called()
+        accept_mock.start.assert_called_once()
+        reader_mock.start.assert_called_once()
+        accept_mock.join.assert_called()
+        reader_mock.join.assert_called()
         assert server_not_started._listener is not None
         assert server_not_started.address
         server_not_started.close()
@@ -195,14 +198,14 @@ class TestControlServerStart:
         _send_msg(control_server, msg="stop", pid=42)
         assert _wait_msg(control_server, pid=42, expected=False)
 
-    def test_start_sets_running(self, server_not_started) -> None:
+    def test_start_sets_running(self, server_not_started: ControlServer) -> None:
         server_not_started.start()
         try:
             assert server_not_started.is_running()
         finally:
             server_not_started.close()
 
-    def test_start_clears_stop_event(self, server_not_started) -> None:
+    def test_start_clears_stop_event(self, server_not_started: ControlServer) -> None:
         server_not_started._stop_event.set()
         server_not_started.start()
         try:
@@ -210,7 +213,7 @@ class TestControlServerStart:
         finally:
             server_not_started.close()
 
-    def test_start_twice_raises(self, control_server) -> None:
+    def test_start_twice_raises(self, control_server: ControlServer) -> None:
         with pytest.raises(RuntimeError, match="already running"):
             control_server.start()
 
@@ -252,7 +255,7 @@ class TestControlServerEnabled:
         assert control_server.is_enabled(1) is True
         assert control_server.is_enabled(2) is False
 
-    def test_start_after_stop_removes_pid(self, control_server) -> None:
+    def test_start_after_stop_removes_pid(self, control_server: ControlServer) -> None:
         _send_msg(control_server, "stop", 42)
         assert _wait_msg(control_server, 42, False)
         _send_msg(control_server, "start", 42)
@@ -266,7 +269,7 @@ class TestControlServerEnabled:
 
 
 class TestControlServerExporter:
-    def test_exporter_receives_instant_events(self, mock_exporter) -> None:
+    def test_exporter_receives_instant_events(self, mock_exporter: MagicMock) -> None:
         from tests.helpers import MockExporter
 
         exporter = MockExporter()
@@ -284,7 +287,7 @@ class TestControlServerExporter:
         finally:
             server.close()
 
-    def test_exporter_receives_multiple_events(self, mock_exporter) -> None:
+    def test_exporter_receives_multiple_events(self, mock_exporter: MagicMock) -> None:
         from tests.helpers import MockExporter
 
         exporter = MockExporter()
@@ -309,7 +312,7 @@ class TestControlServerExporter:
 
 
 class TestControlServerInternal:
-    def test_add_event_with_exporter(self, server_not_started, mock_exporter) -> None:
+    def test_add_event_with_exporter(self, server_not_started: ControlServer, mock_exporter: MagicMock) -> None:
         server_not_started._add_event("test event", 42, 12345)
         mock_exporter.add_instant_event.assert_called_once()
         args = mock_exporter.add_instant_event.call_args[0]
@@ -318,51 +321,56 @@ class TestControlServerInternal:
         assert args[1].type == "i"
         assert args[1].ts == 12345
 
-    def test_remove_connections_closes_and_removes(self, server_not_started, mock_conn) -> None:
+    def test_remove_connections_closes_and_removes(
+        self, server_not_started: ControlServer, mock_conn: MagicMock
+    ) -> None:
         server_not_started._connections.add(mock_conn)
         server_not_started._remove_connections([mock_conn])
         assert mock_conn not in server_not_started._connections
         mock_conn.close.assert_called_once()
 
-    def test_remove_connections_multiple(self, server_not_started) -> None:
-        c1, c2 = MagicMock(), MagicMock()
+    def test_remove_connections_multiple(self, server_not_started: ControlServer) -> None:
+        c1: MagicMock = MagicMock()
+        c2: MagicMock = MagicMock()
         server_not_started._connections.update([c1, c2])
         server_not_started._remove_connections([c1, c2])
         assert server_not_started._connections == set()
         c1.close.assert_called_once()
         c2.close.assert_called_once()
 
-    def test_remove_nonexistent_connection(self, server_not_started, mock_conn) -> None:
+    def test_remove_nonexistent_connection(self, server_not_started: ControlServer, mock_conn: MagicMock) -> None:
         server_not_started._remove_connections([mock_conn])
         mock_conn.close.assert_called_once()
 
-    def test_clear_connections_removes_all(self, server_not_started) -> None:
-        c1, c2 = MagicMock(), MagicMock()
+    def test_clear_connections_removes_all(self, server_not_started: ControlServer) -> None:
+        c1: MagicMock = MagicMock()
+        c2: MagicMock = MagicMock()
         server_not_started._connections.update([c1, c2])
         server_not_started._clear_connections()
         assert server_not_started._connections == set()
         c1.close.assert_called_once()
         c2.close.assert_called_once()
 
-    def test_clear_connections_empty(self, server_not_started) -> None:
+    def test_clear_connections_empty(self, server_not_started: ControlServer) -> None:
         server_not_started._clear_connections()
         assert server_not_started._connections == set()
 
-    def test_close_connections(self, server_not_started) -> None:
-        c1, c2 = MagicMock(), MagicMock()
+    def test_close_connections(self, server_not_started: ControlServer) -> None:
+        c1: MagicMock = MagicMock()
+        c2: MagicMock = MagicMock()
         server_not_started._close_connections([c1, c2])
         c1.close.assert_called_once()
         c2.close.assert_called_once()
 
-    def test_close_connections_suppresses_exception(self, server_not_started) -> None:
-        bad_conn = MagicMock()
+    def test_close_connections_suppresses_exception(self, server_not_started: ControlServer) -> None:
+        bad_conn: MagicMock = MagicMock()
         bad_conn.close.side_effect = OSError("connection broken")
         server_not_started._close_connections([bad_conn])
         bad_conn.close.assert_called_once()
 
-    def test_recv_returns_control_msg(self, server_not_started, mock_conn) -> None:
+    def test_recv_returns_control_msg(self, server_not_started: ControlServer, mock_conn: MagicMock) -> None:
         mock_conn.recv.return_value = {"msg": "start", "pid": 42, "ts": 12345}
-        to_remove = []
+        to_remove: list[Any] = []
         result = server_not_started._recv(mock_conn, to_remove)
         assert result is not None
         assert result.msg == "start"
@@ -370,51 +378,54 @@ class TestControlServerInternal:
         assert result.ts == 12345
         assert to_remove == []
 
-    def test_recv_eof_removes_conn(self, server_not_started, mock_conn) -> None:
+    def test_recv_eof_removes_conn(self, server_not_started: ControlServer, mock_conn: MagicMock) -> None:
         mock_conn.recv.side_effect = EOFError()
-        to_remove = []
+        to_remove: list[Any] = []
         result = server_not_started._recv(mock_conn, to_remove)
         assert result is None
         assert mock_conn in to_remove
 
-    def test_recv_oserror_removes_conn(self, server_not_started, mock_conn) -> None:
+    def test_recv_oserror_removes_conn(self, server_not_started: ControlServer, mock_conn: MagicMock) -> None:
         mock_conn.recv.side_effect = OSError("pipe broken")
-        to_remove = []
+        to_remove: list[Any] = []
         result = server_not_started._recv(mock_conn, to_remove)
         assert result is None
         assert mock_conn in to_remove
 
-    def test_recv_connection_error_removes_conn(self, server_not_started, mock_conn) -> None:
+    def test_recv_connection_error_removes_conn(self, server_not_started: ControlServer, mock_conn: MagicMock) -> None:
         mock_conn.recv.side_effect = ConnectionError("connection reset")
-        to_remove = []
+        to_remove: list[Any] = []
         result = server_not_started._recv(mock_conn, to_remove)
         assert result is None
         assert mock_conn in to_remove
 
-    def test_recv_generic_exception_removes_conn(self, server_not_started, mock_conn) -> None:
+    def test_recv_generic_exception_removes_conn(self, server_not_started: ControlServer, mock_conn: MagicMock) -> None:
         mock_conn.recv.side_effect = ValueError("bad data")
-        to_remove = []
+        to_remove: list[Any] = []
         result = server_not_started._recv(mock_conn, to_remove)
         assert result is None
         assert mock_conn in to_remove
 
-    def test_recv_existing_to_remove_appended(self, server_not_started, mock_conn) -> None:
+    def test_recv_existing_to_remove_appended(self, server_not_started: ControlServer, mock_conn: MagicMock) -> None:
         mock_conn.recv.side_effect = EOFError()
-        other = MagicMock()
-        to_remove = [other]
+        other: MagicMock = MagicMock()
+        to_remove: list[Any] = [other]
         result = server_not_started._recv(mock_conn, to_remove)
         assert result is None
         assert len(to_remove) == 2
         assert other in to_remove
         assert mock_conn in to_remove
 
-    def test_safe_wait_returns_ready(self, server_not_started, mock_conn, mock_wait) -> None:
+    def test_safe_wait_returns_ready(
+        self, server_not_started: ControlServer, mock_conn: MagicMock, mock_wait: MagicMock
+    ) -> None:
         mock_wait.return_value = [mock_conn]
         result = server_not_started._safe_wait([mock_conn])
         assert result == [mock_conn]
 
-    def test_safe_wait_exception_polls_conns(self, server_not_started, mock_wait) -> None:
-        c1, c2 = MagicMock(), MagicMock()
+    def test_safe_wait_exception_polls_conns(self, server_not_started: ControlServer, mock_wait: MagicMock) -> None:
+        c1: MagicMock = MagicMock()
+        c2: MagicMock = MagicMock()
         c1.poll.return_value = True
         c2.poll.return_value = True
         mock_wait.side_effect = Exception("wait failed")
@@ -423,8 +434,9 @@ class TestControlServerInternal:
         c1.poll.assert_called_once_with(timeout=0)
         c2.poll.assert_called_once_with(timeout=0)
 
-    def test_safe_wait_exception_removes_broken(self, server_not_started, mock_wait) -> None:
-        c1, c2 = MagicMock(), MagicMock()
+    def test_safe_wait_exception_removes_broken(self, server_not_started: ControlServer, mock_wait: MagicMock) -> None:
+        c1: MagicMock = MagicMock()
+        c2: MagicMock = MagicMock()
         c1.poll.side_effect = OSError("broken")
         c2.poll.return_value = True
         server_not_started._connections.update([c1, c2])
@@ -437,8 +449,9 @@ class TestControlServerInternal:
         assert c2 in server_not_started._connections
         c1.close.assert_called_once()
 
-    def test_safe_wait_exception_all_bad(self, server_not_started, mock_wait) -> None:
-        c1, c2 = MagicMock(), MagicMock()
+    def test_safe_wait_exception_all_bad(self, server_not_started: ControlServer, mock_wait: MagicMock) -> None:
+        c1: MagicMock = MagicMock()
+        c2: MagicMock = MagicMock()
         c1.poll.side_effect = OSError("broken")
         c2.poll.side_effect = ConnectionError("reset")
         server_not_started._connections.update([c1, c2])
@@ -458,17 +471,20 @@ class TestControlServerInternal:
 
 
 class TestControlServerAcceptLoop:
-    def test_accept_loop_stops_on_stop_event(self, server_not_started) -> None:
+    def test_accept_loop_stops_on_stop_event(self, server_not_started: ControlServer) -> None:
         server_not_started._stop_event.set()
         server_not_started._accept_loop()
         assert server_not_started._connections == set()
 
-    def test_accept_loop_stops_on_listener_none(self, server_not_started) -> None:
+    def test_accept_loop_stops_on_listener_none(self, server_not_started: ControlServer) -> None:
         server_not_started._listener = None
         server_not_started._accept_loop()
         assert server_not_started._connections == set()
 
-    def test_accept_loop_accept_exception_breaks(self, server_not_started, caplog) -> None:
+    def test_accept_loop_accept_exception_breaks(
+        self, server_not_started: ControlServer, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        assert server_not_started._listener is not None
         listener_address = server_not_started._listener.address
         with patch("gcmon.control.control_server._accept", side_effect=OSError("accept failed")):
             server_not_started._accept_loop()
@@ -477,7 +493,7 @@ class TestControlServerAcceptLoop:
         assert f"address={listener_address!r}" in caplog.text
         assert "accept failed" in caplog.text
 
-    def test_accept_loop_adds_connection(self, server_not_started, mock_conn) -> None:
+    def test_accept_loop_adds_connection(self, server_not_started: ControlServer, mock_conn: MagicMock) -> None:
         server_not_started._listener = MagicMock()
         with patch("gcmon.control.control_server._accept", return_value=mock_conn):
             t = threading.Thread(target=server_not_started._accept_loop, daemon=True)
@@ -488,7 +504,9 @@ class TestControlServerAcceptLoop:
 
         assert mock_conn in server_not_started._connections
 
-    def test_accept_loop_closes_orphaned_conn_on_exception(self, server_not_started, mock_conn, caplog) -> None:
+    def test_accept_loop_closes_orphaned_conn_on_exception(
+        self, server_not_started: ControlServer, mock_conn: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
         mock_listener = MagicMock()
         mock_listener.address = "/tmp/gcmon-test"
         server_not_started._listener = mock_listener
@@ -517,12 +535,17 @@ class TestControlServerAcceptLoop:
 
 
 class TestControlServerReaderLoop:
-    def test_reader_loop_stops_on_stop_event(self, server_not_started) -> None:
+    def test_reader_loop_stops_on_stop_event(self, server_not_started: ControlServer) -> None:
         server_not_started._stop_event.set()
         server_not_started._reader_loop()
         assert server_not_started._connections == set()
 
-    def test_reader_loop_processes_start_msg(self, server_not_started, mock_conn, mock_wait_and_stop) -> None:
+    def test_reader_loop_processes_start_msg(
+        self,
+        server_not_started: ControlServer,
+        mock_conn: MagicMock,
+        mock_wait_and_stop: MagicMock,
+    ) -> None:
         mock_conn.recv.return_value = {"msg": "start", "pid": 42, "ts": 12345}
         server_not_started._connections.add(mock_conn)
         server_not_started._enabled[42] = False
@@ -532,7 +555,12 @@ class TestControlServerReaderLoop:
 
         assert 42 not in server_not_started._enabled
 
-    def test_reader_loop_processes_stop_msg(self, server_not_started, mock_conn, mock_wait_and_stop) -> None:
+    def test_reader_loop_processes_stop_msg(
+        self,
+        server_not_started: ControlServer,
+        mock_conn: MagicMock,
+        mock_wait_and_stop: MagicMock,
+    ) -> None:
         mock_conn.recv.return_value = {"msg": "stop", "pid": 42, "ts": 12345}
         server_not_started._connections.add(mock_conn)
 
@@ -541,7 +569,12 @@ class TestControlServerReaderLoop:
 
         assert server_not_started._enabled.get(42) is False
 
-    def test_reader_loop_removes_bad_connection(self, server_not_started, mock_conn, mock_wait_and_stop) -> None:
+    def test_reader_loop_removes_bad_connection(
+        self,
+        server_not_started: ControlServer,
+        mock_conn: MagicMock,
+        mock_wait_and_stop: MagicMock,
+    ) -> None:
         mock_conn.recv.side_effect = EOFError()
         server_not_started._connections.add(mock_conn)
 
@@ -551,7 +584,12 @@ class TestControlServerReaderLoop:
         assert mock_conn not in server_not_started._connections
         mock_conn.close.assert_called_once()
 
-    def test_reader_loop_handles_malformed_msg(self, server_not_started, mock_conn, mock_wait_and_stop) -> None:
+    def test_reader_loop_handles_malformed_msg(
+        self,
+        server_not_started: ControlServer,
+        mock_conn: MagicMock,
+        mock_wait_and_stop: MagicMock,
+    ) -> None:
         mock_conn.recv.return_value = {"bad": "data", "ts": 12345}
         server_not_started._connections.add(mock_conn)
 
@@ -561,12 +599,14 @@ class TestControlServerReaderLoop:
         assert mock_conn not in server_not_started._connections
         mock_conn.close.assert_called_once()
 
-    def test_reader_loop_no_connections(self, server_not_started, mock_wait_and_stop) -> None:
+    def test_reader_loop_no_connections(self, server_not_started: ControlServer, mock_wait_and_stop: MagicMock) -> None:
         mock_wait_and_stop.return_value = []
         server_not_started._reader_loop()
         assert server_not_started._connections == set()
 
-    def test_reader_loop_drains_pending_messages(self, server_not_started, mock_wait_and_stop) -> None:
+    def test_reader_loop_drains_pending_messages(
+        self, server_not_started: ControlServer, mock_wait_and_stop: MagicMock
+    ) -> None:
         mock_conn = MagicMock()
         mock_conn.recv.return_value = {"msg": "stop", "pid": 42, "ts": 12345}
         mock_conn.poll.side_effect = [True, False]
@@ -584,17 +624,17 @@ class TestControlServerReaderLoop:
 
 
 class TestDrainConnections:
-    def test_drain_no_connections(self, server_not_started) -> None:
+    def test_drain_no_connections(self, server_not_started: ControlServer) -> None:
         server_not_started._drain_connections()
         assert server_not_started._connections == set()
 
-    def test_drain_no_data_exits_immediately(self, server_not_started, mock_conn) -> None:
+    def test_drain_no_data_exits_immediately(self, server_not_started: ControlServer, mock_conn: MagicMock) -> None:
         server_not_started._connections.add(mock_conn)
         server_not_started._drain_connections()
         mock_conn.close.assert_not_called()
 
-    def test_drain_poll_exception_removes_conn(self, server_not_started) -> None:
-        mock_conn = MagicMock()
+    def test_drain_poll_exception_removes_conn(self, server_not_started: ControlServer) -> None:
+        mock_conn: MagicMock = MagicMock()
         mock_conn.poll.side_effect = OSError("pipe broken")
         mock_conn.recv.return_value = {"msg": "stop", "pid": 1, "ts": 12345}
         server_not_started._connections.add(mock_conn)
@@ -604,8 +644,8 @@ class TestDrainConnections:
         assert mock_conn not in server_not_started._connections
         mock_conn.close.assert_called_once()
 
-    def test_drain_recv_eof_removes_conn(self, server_not_started) -> None:
-        mock_conn = MagicMock()
+    def test_drain_recv_eof_removes_conn(self, server_not_started: ControlServer) -> None:
+        mock_conn: MagicMock = MagicMock()
         mock_conn.poll.return_value = True
         mock_conn.recv.side_effect = EOFError()
         server_not_started._connections.add(mock_conn)
@@ -616,11 +656,11 @@ class TestDrainConnections:
         mock_conn.close.assert_called_once()
 
     def test_drain_handle_msg_error_is_nonfatal(self) -> None:
-        mock_exporter = MagicMock()
+        mock_exporter: MagicMock = MagicMock()
         mock_exporter.add_instant_event.side_effect = ValueError("exporter failure")
-        server_not_started = ControlServer(mock_exporter)
+        server_not_started: ControlServer = ControlServer(mock_exporter)
 
-        mock_conn = MagicMock()
+        mock_conn: MagicMock = MagicMock()
         mock_conn.poll.side_effect = [True, False]
         mock_conn.recv.return_value = {"msg": "stop", "pid": 42, "ts": 12345}
         server_not_started._connections.add(mock_conn)
@@ -630,11 +670,11 @@ class TestDrainConnections:
         assert mock_conn in server_not_started._connections
         mock_conn.close.assert_not_called()
 
-    def test_drain_processes_messages_round_robin(self, server_not_started) -> None:
-        c1 = MagicMock()
+    def test_drain_processes_messages_round_robin(self, server_not_started: ControlServer) -> None:
+        c1: MagicMock = MagicMock()
         c1.poll.side_effect = [True, False]
         c1.recv.return_value = {"msg": "stop", "pid": 1, "ts": 12345}
-        c2 = MagicMock()
+        c2: MagicMock = MagicMock()
         c2.poll.side_effect = [True, False]
         c2.recv.return_value = {"msg": "stop", "pid": 2, "ts": 12346}
         server_not_started._connections.update([c1, c2])
@@ -644,8 +684,8 @@ class TestDrainConnections:
         assert server_not_started._enabled.get(1) is False
         assert server_not_started._enabled.get(2) is False
 
-    def test_drain_timeout_expiry(self, server_not_started) -> None:
-        mock_conn = MagicMock()
+    def test_drain_timeout_expiry(self, server_not_started: ControlServer) -> None:
+        mock_conn: MagicMock = MagicMock()
         mock_conn.poll.return_value = True
         mock_conn.recv.return_value = {"msg": "stop", "pid": 999, "ts": 12345}
         server_not_started._connections.add(mock_conn)
@@ -668,13 +708,13 @@ class TestControlServerClose:
         return ControlServer(MagicMock())
 
     def test_close_stops_accepting(self) -> None:
-        server = self._make_server()
+        server: ControlServer = self._make_server()
         server.start()
         server.close()
         assert not server.is_running()
 
     def test_close_clears_enabled(self) -> None:
-        server = self._make_server()
+        server: ControlServer = self._make_server()
         server.start()
         _send_msg(server, "stop", 42)
         _wait_msg(server, 42, False)
@@ -682,30 +722,30 @@ class TestControlServerClose:
         assert server.is_enabled(42) is True
 
     def test_close_is_idempotent(self) -> None:
-        server = self._make_server()
+        server: ControlServer = self._make_server()
         server.start()
         server.close()
         server.close()
 
     def test_close_not_started(self) -> None:
-        server = self._make_server()
+        server: ControlServer = self._make_server()
         server.close()
         assert not server.is_running()
 
     def test_close_closes_listener(self) -> None:
-        server = self._make_server()
+        server: ControlServer = self._make_server()
         server.start()
         server.close()
         assert server._listener is None
 
     def test_close_clears_connections(self) -> None:
-        server = self._make_server()
+        server: ControlServer = self._make_server()
         server.start()
         server.close()
         assert len(server._connections) == 0
 
     def test_close_twice_not_started(self) -> None:
-        server = self._make_server()
+        server: ControlServer = self._make_server()
         server.close()
         server.close()
 
@@ -765,7 +805,7 @@ class TestPlatformUnix:
 
         from gcmon.control.control_server import TConnection
 
-        assert TConnection is Connection
+        assert TConnection is Connection  # type: ignore[comparison-overlap]
 
 
 # =============================================================================
@@ -774,10 +814,10 @@ class TestPlatformUnix:
 
 
 class TestControlServerThreadSafety:
-    def test_concurrent_is_enabled(self, control_server) -> None:
-        errors = []
+    def test_concurrent_is_enabled(self, control_server: ControlServer) -> None:
+        errors: list[Exception] = []
 
-        def access_enabled():
+        def access_enabled() -> None:
             try:
                 for _ in range(50):
                     control_server.is_enabled(42)
@@ -792,10 +832,10 @@ class TestControlServerThreadSafety:
 
         assert len(errors) == 0
 
-    def test_concurrent_add_event(self, control_server) -> None:
-        errors = []
+    def test_concurrent_add_event(self, control_server: ControlServer) -> None:
+        errors: list[Exception] = []
 
-        def add_event_loop():
+        def add_event_loop() -> None:
             try:
                 for _ in range(20):
                     control_server._add_event("test", 1, 0)
