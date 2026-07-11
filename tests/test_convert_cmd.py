@@ -9,6 +9,7 @@ from typing import Protocol
 import msgspec
 import pytest
 
+from gcmon.exporters.perfetto_format import TraceField, TracePacketField
 from gcmon.trace_event import (
     BeginEvent,
     EndEvent,
@@ -150,7 +151,11 @@ def _packet_bytes(trace_bytes: bytes) -> list[bytes]:
     packet as they appear on the wire.
     """
     trace_fields = decode_message(trace_bytes)
-    return [f.value for f in trace_fields if f.field_number == 1 and f.wire_type == 2 and isinstance(f.value, bytes)]
+    return [
+        f.value
+        for f in trace_fields
+        if f.field_number == TraceField.PACKET and f.wire_type == 2 and isinstance(f.value, bytes)
+    ]
 
 
 def assert_valid_perfetto_format(path: Path) -> list[bytes]:
@@ -185,9 +190,9 @@ def assert_perfetto_has_track_descriptor_and_event(path: Path) -> None:
     has_track_event = False
     for pkt in _packet_bytes(file_bytes):
         for f in decode_message(pkt):
-            if f.field_number == 60 and f.wire_type == 2:
+            if f.field_number == TracePacketField.TRACK_DESCRIPTOR and f.wire_type == 2:
                 has_descriptor = True
-            elif f.field_number == 11 and f.wire_type == 2:
+            elif f.field_number == TracePacketField.TRACK_EVENT and f.wire_type == 2:
                 has_track_event = True
     assert has_descriptor, f"no TrackDescriptor (field 60) in {path}"
     assert has_track_event, f"no TrackEvent (field 11) in {path}"
@@ -1026,7 +1031,7 @@ class TestCliCombineJsonlToPerfetto:
             f.value
             for pkt in packets
             for f in decode_message(pkt)
-            if f.field_number == 60 and f.wire_type == 2 and isinstance(f.value, bytes)
+            if f.field_number == TracePacketField.TRACK_DESCRIPTOR and f.wire_type == 2 and isinstance(f.value, bytes)
         )
         assert b"123" in descriptor_text
         assert b"456" in descriptor_text
@@ -1057,7 +1062,7 @@ class TestCliCombineJsonlToPerfetto:
         timestamps: list[int] = []
         for pkt in packets:
             for f in decode_message(pkt):
-                if f.field_number == 8 and f.wire_type == 0 and isinstance(f.value, int):
+                if f.field_number == TracePacketField.TIMESTAMP and f.wire_type == 0 and isinstance(f.value, int):
                     timestamps.append(f.value)
         assert min(timestamps) == 0
 
@@ -1105,7 +1110,7 @@ class TestCliCombinePerfettoNormalize:
             f.value
             for pkt in packets
             for f in decode_message(pkt)
-            if f.field_number == 8 and f.wire_type == 0 and isinstance(f.value, int)
+            if f.field_number == TracePacketField.TIMESTAMP and f.wire_type == 0 and isinstance(f.value, int)
         ]
         assert min(timestamps) == 0
 
@@ -1156,6 +1161,6 @@ class TestCliCombinePerfettoNormalize:
             f.value
             for pkt in packets
             for f in decode_message(pkt)
-            if f.field_number == 8 and f.wire_type == 0 and isinstance(f.value, int)
+            if f.field_number == TracePacketField.TIMESTAMP and f.wire_type == 0 and isinstance(f.value, int)
         ]
         assert min(timestamps) == 0
