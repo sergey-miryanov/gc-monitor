@@ -9,10 +9,10 @@ __all__ = [
 
 
 class ProtoField:
-    def __init__(self, field_number: int, wire_type: int, value: object) -> None:
+    def __init__(self, field_number: int, wire_type: int, value: int | bytes) -> None:
         self.field_number = field_number
         self.wire_type = wire_type
-        self.value = value
+        self.value: int | bytes = value
 
     def __repr__(self) -> str:
         return f"ProtoField({self.field_number}, wire={self.wire_type}, value={self.value!r})"
@@ -39,22 +39,23 @@ def decode_message(data: bytes) -> list[ProtoField]:
         field_number = key >> 3
         wire_type = key & 0x07
 
+        val: int | bytes
         if wire_type == 0:
-            value, pos = _read_varint(data, pos)
-            fields.append(ProtoField(field_number, wire_type, value))
+            val, pos = _read_varint(data, pos)
+            fields.append(ProtoField(field_number, wire_type, val))
         elif wire_type == 1:
-            value = struct.unpack_from("<Q", data, pos)[0]
+            val = struct.unpack_from("<Q", data, pos)[0]
             pos += 8
-            fields.append(ProtoField(field_number, wire_type, value))
+            fields.append(ProtoField(field_number, wire_type, val))
         elif wire_type == 2:
             length, pos = _read_varint(data, pos)
-            value = data[pos : pos + length]
+            val = data[pos : pos + length]
             pos += length
-            fields.append(ProtoField(field_number, wire_type, value))
+            fields.append(ProtoField(field_number, wire_type, val))
         elif wire_type == 5:
-            value = struct.unpack_from("<I", data, pos)[0]
+            val = struct.unpack_from("<I", data, pos)[0]
             pos += 4
-            fields.append(ProtoField(field_number, wire_type, value))
+            fields.append(ProtoField(field_number, wire_type, val))
         else:
             raise ValueError(f"Unknown wire type {wire_type} at pos {pos}")
 
@@ -75,26 +76,31 @@ def get_fields(fields: list[ProtoField], field_number: int) -> list[ProtoField]:
 def get_varint(fields: list[ProtoField], field_number: int) -> int | None:
     f = get_field(fields, field_number)
     if f is not None and f.wire_type == 0:
-        return f.value  # type: ignore[return-value]
+        assert isinstance(f.value, int)
+        return f.value
     return None
 
 
 def get_string(fields: list[ProtoField], field_number: int) -> str | None:
     f = get_field(fields, field_number)
     if f is not None and f.wire_type == 2:
-        return f.value.decode("utf-8")  # type: ignore[union-attr]
+        assert isinstance(f.value, bytes)
+        return f.value.decode("utf-8")
     return None
 
 
 def get_bytes(fields: list[ProtoField], field_number: int) -> bytes | None:
     f = get_field(fields, field_number)
     if f is not None and f.wire_type == 2:
-        return f.value  # type: ignore[return-value]
+        assert isinstance(f.value, bytes)
+        return f.value
     return None
 
 
 def get_double(fields: list[ProtoField], field_number: int) -> float | None:
     f = get_field(fields, field_number)
     if f is not None and f.wire_type == 1:
-        return struct.unpack("<d", struct.pack("<Q", f.value))[0]  # type: ignore[arg-type]
+        assert isinstance(f.value, int)
+        result: float = struct.unpack("<d", struct.pack("<Q", f.value))[0]
+        return result
     return None
