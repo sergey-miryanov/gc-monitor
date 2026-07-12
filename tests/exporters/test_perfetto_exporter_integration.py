@@ -511,7 +511,7 @@ class TestCounterTracks:
         )
         assert rows, "no G{gen} duration tracks found"
         for r in rows:
-            assert r.parent_id is not None, f"{r.name} track has no parent"
+            assert r.parent_id, f"{r.name} track has no parent"
             parents = list(
                 trace_processor.query(
                     f"SELECT name FROM track WHERE id = {r.parent_id}",
@@ -592,9 +592,7 @@ class TestCounterYAxisShareKey:
         )
         assert len(rows) == 1, f"expected exactly one heap_size row, got {len(rows)}"
         r = rows[0]
-        assert r.y_axis_share_key is None or r.y_axis_share_key == "", (
-            f"heap_size should have no y_axis_share_key, got {r.y_axis_share_key!r}"
-        )
+        assert r.y_axis_share_key == "", f"heap_size should have no y_axis_share_key, got {r.y_axis_share_key!r}"
 
 
 class TestTrackDescriptors:
@@ -891,8 +889,7 @@ class TestProcessesTrack:
             ):
                 rows = trace_processor.query(f"SELECT MIN(s.ts) AS ts FROM slice s {join_clause}")
                 for r in rows:
-                    if r.ts is not None:
-                        candidates.append(r.ts)
+                    candidates.append(r.ts)
             assert candidates, f"no first event found for pid {pid}"
             expected_first = min(candidates)
 
