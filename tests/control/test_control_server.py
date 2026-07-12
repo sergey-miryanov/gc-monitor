@@ -805,7 +805,8 @@ class TestPlatformUnix:
 
         from gcmon.control.control_server import TConnection
 
-        assert TConnection is Connection  # type: ignore[comparison-overlap]
+        if sys.platform != "win32":
+            assert TConnection is Connection
 
 
 # =============================================================================

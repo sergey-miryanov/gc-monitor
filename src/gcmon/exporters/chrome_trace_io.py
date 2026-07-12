@@ -1,6 +1,6 @@
 """File I/O and utility functions for Chrome Trace Event format."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import msgspec
@@ -123,7 +123,7 @@ def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
             e.ts = e.ts - min_ts
 
 
-def _normalize_jsonl_timestamps(items: dict[int, list[TGCStatsInfo | TInstantMsg]]) -> None:
+def _normalize_jsonl_timestamps(items: Mapping[int, Sequence[TGCStatsInfo | TInstantMsg]]) -> None:
     for pid_items in items.values():
         timestamps: list[int] = []
         for item in pid_items:

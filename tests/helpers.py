@@ -4,13 +4,18 @@ import json
 import threading
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
 from gcmon.data import GCStatsInfo
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.protocol import TGCStatsInfo, TInstantMsg
 
+_JsonValue = int | float | str
+ChromeTraceValue = _JsonValue | Mapping[str, _JsonValue]
+JsonlRecord = dict[str, _JsonValue]
+
 __all__ = [
+    "ChromeTraceValue",
+    "JsonlRecord",
     "MockExporter",
     "assert_is_begin",
     "assert_is_counter",
@@ -105,39 +110,66 @@ def create_mock_stats_item(
     )
 
 
-def create_mock_incremental_item(**kwargs: object) -> GCStatsInfo:
-    defaults: dict[str, object] = {
-        "gen": 0,
-        "iid": 0,
-        "ts_start": 1_500_000_000,
-        "ts_stop": 1_505_000_000,
-        "heap_size": 52428800,
-        "collections": 50,
-        "collected": 200,
-        "uncollectable": 10,
-        "candidates": 40,
-        "duration": 0.005,
-        "increment_size": 1000,
-        "alive_size": 800,
-        "ts_mark_alive_start": 1_500_000_000,
-        "ts_mark_alive_stop": 1_501_000_000,
-        "ts_fill_increment_start": 1_501_000_000,
-        "ts_fill_increment_stop": 1_502_000_000,
-        "ts_deduce_unreachable_start": 1_502_000_000,
-        "ts_deduce_unreachable_stop": 1_503_000_000,
-        "ts_handle_weakref_callbacks_start": 1_503_000_000,
-        "ts_handle_weakref_callbacks_stop": 1_504_000_000,
-        "ts_finalize_garbage_stop": 1_505_000_000,
-        "finalized_garbage_count": 42,
-        "ts_handle_resurrected_stop": 1_506_000_000,
-        "ts_clear_weakrefs_stop": 1_507_000_000,
-        "clear_weakrefs_count": 7,
-        "ts_delete_garbage_start": 1_508_000_000,
-        "ts_delete_garbage_stop": 1_509_000_000,
-        "deleted_garbage_count": 13,
-    }
-    defaults.update(kwargs)
-    return GCStatsInfo(**defaults)
+def create_mock_incremental_item(
+    gen: int = 0,
+    iid: int = 0,
+    ts_start: int = 1_500_000_000,
+    ts_stop: int = 1_505_000_000,
+    heap_size: int = 52428800,
+    collections: int = 50,
+    collected: int = 200,
+    uncollectable: int = 10,
+    candidates: int = 40,
+    duration: float = 0.005,
+    increment_size: int | None = 1000,
+    alive_size: int | None = 800,
+    ts_mark_alive_start: int | None = 1_500_000_000,
+    ts_mark_alive_stop: int | None = 1_501_000_000,
+    ts_fill_increment_start: int | None = 1_501_000_000,
+    ts_fill_increment_stop: int | None = 1_502_000_000,
+    ts_deduce_unreachable_start: int | None = 1_502_000_000,
+    ts_deduce_unreachable_stop: int | None = 1_503_000_000,
+    ts_handle_weakref_callbacks_start: int | None = 1_503_000_000,
+    ts_handle_weakref_callbacks_stop: int | None = 1_504_000_000,
+    ts_finalize_garbage_stop: int | None = 1_505_000_000,
+    finalized_garbage_count: int | None = 42,
+    ts_handle_resurrected_stop: int | None = 1_506_000_000,
+    ts_clear_weakrefs_stop: int | None = 1_507_000_000,
+    clear_weakrefs_count: int | None = 7,
+    ts_delete_garbage_start: int | None = 1_508_000_000,
+    ts_delete_garbage_stop: int | None = 1_509_000_000,
+    deleted_garbage_count: int | None = 13,
+) -> GCStatsInfo:
+    return GCStatsInfo(
+        gen=gen,
+        iid=iid,
+        ts_start=ts_start,
+        ts_stop=ts_stop,
+        heap_size=heap_size,
+        collections=collections,
+        collected=collected,
+        uncollectable=uncollectable,
+        candidates=candidates,
+        duration=duration,
+        increment_size=increment_size,
+        alive_size=alive_size,
+        ts_mark_alive_start=ts_mark_alive_start,
+        ts_mark_alive_stop=ts_mark_alive_stop,
+        ts_fill_increment_start=ts_fill_increment_start,
+        ts_fill_increment_stop=ts_fill_increment_stop,
+        ts_deduce_unreachable_start=ts_deduce_unreachable_start,
+        ts_deduce_unreachable_stop=ts_deduce_unreachable_stop,
+        ts_handle_weakref_callbacks_start=ts_handle_weakref_callbacks_start,
+        ts_handle_weakref_callbacks_stop=ts_handle_weakref_callbacks_stop,
+        ts_finalize_garbage_stop=ts_finalize_garbage_stop,
+        finalized_garbage_count=finalized_garbage_count,
+        ts_handle_resurrected_stop=ts_handle_resurrected_stop,
+        ts_clear_weakrefs_stop=ts_clear_weakrefs_stop,
+        clear_weakrefs_count=clear_weakrefs_count,
+        ts_delete_garbage_start=ts_delete_garbage_start,
+        ts_delete_garbage_stop=ts_delete_garbage_stop,
+        deleted_garbage_count=deleted_garbage_count,
+    )
 
 
 def create_jsonl_record(
@@ -170,7 +202,7 @@ def create_jsonl_record(
     }
 
 
-def assert_valid_jsonl_format(file_path: Path) -> list[dict[str, Any]]:
+def assert_valid_jsonl_format(file_path: Path) -> list[JsonlRecord]:
     """Validate that a file contains valid JSONL format (one JSON object per line).
 
     Args:
@@ -184,21 +216,21 @@ def assert_valid_jsonl_format(file_path: Path) -> list[dict[str, Any]]:
     """
     assert file_path.exists(), f"File {file_path} does not exist"
 
-    data: list[dict[str, Any]] = []
+    data: list[JsonlRecord] = []
     with open(file_path, encoding="utf-8") as f:
         for line_no, line in enumerate(f, 1):
             line = line.strip()
             if not line:
                 continue
-            obj: object = json.loads(line)
+            obj = json.loads(line)
             assert isinstance(obj, dict), f"Line {line_no} in JSONL file should be a JSON object, got {type(obj)}"
-            data.append(obj)  # type: ignore[arg-type]
+            data.append(obj)
 
     assert len(data) > 0, f"JSONL file {file_path} is empty"
     return data
 
 
-def assert_valid_chrome_trace_format(file_path: Path) -> list[dict[str, Any]]:
+def assert_valid_chrome_trace_format(file_path: Path) -> list[dict[str, ChromeTraceValue]]:
     """Validate that a file contains valid Chrome Trace format (JSON array of objects).
 
     Args:
@@ -221,70 +253,84 @@ def assert_valid_chrome_trace_format(file_path: Path) -> list[dict[str, Any]]:
     assert content_stripped.endswith("]"), f"Chrome Trace file should end with ']', got: {content_stripped[-20:]}"
 
     # Parse and validate structure
-    data: object = json.loads(content)
+    data = json.loads(content)
     assert isinstance(data, list), f"Chrome Trace file should contain a JSON array, got {type(data)}"
 
     # Validate each item is a dict (JSON object)
     for idx, item in enumerate(data):
         assert isinstance(item, dict), f"Item {idx} in Chrome Trace file should be a dict, got {type(item)}"
 
-    # Cast to expected type after validation
-    return data  # type: ignore[return-value]
+    return data
 
 
-def assert_is_begin(event: dict, **expected: Any) -> None:
+def assert_is_begin(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
     assert event["ph"] == "B"
     for key, value in expected.items():
         if key == "args":
+            assert isinstance(value, Mapping)
+            args = event["args"]
+            assert isinstance(args, Mapping)
             for arg_key, arg_value in value.items():
-                assert event["args"][arg_key] == arg_value
+                assert args[arg_key] == arg_value
         else:
             assert event[key] == value
 
 
-def assert_is_end(event: dict, **expected: Any) -> None:
+def assert_is_end(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
     assert event["ph"] == "E"
     for key, value in expected.items():
         if key == "args":
+            assert isinstance(value, Mapping)
+            args = event["args"]
+            assert isinstance(args, Mapping)
             for arg_key, arg_value in value.items():
-                assert event["args"][arg_key] == arg_value
+                assert args[arg_key] == arg_value
         else:
             assert event[key] == value
 
 
-def assert_is_counter(event: dict, **expected: Any) -> None:
+def assert_is_counter(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
     assert event["ph"] == "C"
     for key, value in expected.items():
         if key == "args":
+            assert isinstance(value, Mapping)
+            args = event["args"]
+            assert isinstance(args, Mapping)
             for arg_key, arg_value in value.items():
-                assert event["args"][arg_key] == arg_value
+                assert args[arg_key] == arg_value
         else:
             assert event[key] == value
 
 
-def assert_is_process_meta(event: dict, **expected: Any) -> None:
+def assert_is_process_meta(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
     assert event["ph"] == "M"
     assert event["name"] == "process_name"
     for key, value in expected.items():
         if key == "args":
+            assert isinstance(value, Mapping)
+            args = event["args"]
+            assert isinstance(args, Mapping)
             for arg_key, arg_value in value.items():
-                assert event["args"][arg_key] == arg_value
+                assert args[arg_key] == arg_value
         else:
             assert event[key] == value
 
 
-def assert_is_thread_meta(event: dict, **expected: Any) -> None:
+def assert_is_thread_meta(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
     assert event["ph"] == "M"
     assert event["name"] == "thread_name"
     for key, value in expected.items():
         if key == "args":
+            assert isinstance(value, Mapping)
+            args = event["args"]
+            assert isinstance(args, Mapping)
             for arg_key, arg_value in value.items():
-                assert event["args"][arg_key] == arg_value
+                assert args[arg_key] == arg_value
         else:
             assert event[key] == value
 
 
-def assert_is_instant_event(event: dict, **expected: Mapping[str, str | int]) -> None:
+def assert_is_instant_event(event: dict[str, ChromeTraceValue], **expected: str | int) -> None:
     assert event["ph"] == "I"
     assert event["s"] == "p"
 
@@ -292,7 +338,7 @@ def assert_is_instant_event(event: dict, **expected: Mapping[str, str | int]) ->
         assert event[key] == value
 
 
-def assert_is_instant_msg(msg: dict[str, Any], **expected: Mapping[str, str | int]) -> None:
+def assert_is_instant_msg(msg: JsonlRecord, **expected: str | int) -> None:
     assert msg["type"] == "i"
 
     for key, value in expected.items():

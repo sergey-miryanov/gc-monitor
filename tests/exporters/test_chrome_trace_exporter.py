@@ -1,16 +1,21 @@
 """Tests for Chrome trace exporter."""
 
+from collections.abc import Callable, Generator
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from gcmon.data import ts_to_us
+from gcmon.data import GCStatsInfo, ts_to_us
+from gcmon.exporters import TraceExporter
 from gcmon.monitor import EventsMonitor
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
+from tests.exporters.conftest import ExporterFactory
 from tests.helpers import (
+    ChromeTraceValue,
     assert_is_begin,
     assert_is_counter,
     assert_is_instant_event,
@@ -22,19 +27,21 @@ from tests.helpers import (
 
 
 class TestTraceExporter:
-    def test_init(self, trace_exporter) -> None:
+    def test_init(self, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
+        assert isinstance(exporter, TraceExporter)
         assert exporter._flush_threshold == 100
         assert exporter._buffer == []
         assert exporter._output_path == path
 
-    def test_init_with_flush_threshold(self, trace_exporter) -> None:
+    def test_init_with_flush_threshold(self, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter(threshold=500)
+        assert isinstance(exporter, TraceExporter)
         assert exporter._flush_threshold == 500
         assert exporter._buffer == []
         assert exporter._output_path == path
 
-    def _verify_events(self, data: list[dict], num_items: int) -> None:
+    def _verify_events(self, data: list[dict[str, ChromeTraceValue]], num_items: int) -> None:
         begins = [e for e in data if e["ph"] == "B"]
         counters = [e for e in data if e["ph"] == "C"]
         metas = [e for e in data if e["ph"] == "M"]
@@ -49,12 +56,14 @@ class TestTraceExporter:
         shared_counters = [e for e in counters if e["name"] == ""]
         assert len(per_gen_counters) == num_items
         assert len(shared_counters) == num_items
-        heap_counters = [c for c in shared_counters if set(c["args"].keys()) == {"heap_size"}]
+        heap_counters = [
+            c for c in shared_counters if isinstance(c["args"], dict) and set(c["args"].keys()) == {"heap_size"}
+        ]
         assert len(heap_counters) == num_items
         # The per-gen counter now includes `duration` alongside the other
         # per-gen metrics.
         for c in per_gen_counters:
-            assert "duration" in c["args"]
+            assert isinstance(c["args"], dict) and "duration" in c["args"]
         assert_is_process_meta(
             next(e for e in metas if e["name"] == "process_name"), pid=12345, args={"name": "Process 12345"}
         )
@@ -62,7 +71,7 @@ class TestTraceExporter:
             next(e for e in metas if e["name"] == "thread_name"), pid=12345, tid=0, args={"name": "Thread 0"}
         )
 
-    def test_flushes_at_threshold(self, mock_stats_item, trace_exporter) -> None:
+    def test_flushes_at_threshold(self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter(threshold=10)
         for _ in range(10):
             exporter.add_event(DEFAULT_PID, mock_stats_item)
@@ -71,7 +80,7 @@ class TestTraceExporter:
         data = assert_valid_chrome_trace_format(path)
         self._verify_events(data, 10)
 
-    def test_flush_multiple_times(self, mock_stats_item, trace_exporter) -> None:
+    def test_flush_multiple_times(self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter(threshold=5)
         for _ in range(15):
             exporter.add_event(DEFAULT_PID, mock_stats_item)
@@ -80,7 +89,7 @@ class TestTraceExporter:
         data = assert_valid_chrome_trace_format(path)
         self._verify_events(data, 15)
 
-    def test_close_writes_file(self, mock_stats_item, trace_exporter) -> None:
+    def test_close_writes_file(self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         exporter.close()
@@ -114,14 +123,19 @@ class TestTraceExporter:
                     tid=0,
                     args={"collected": 200, "uncollectable": 10, "candidates": 40, "duration": 0.005},
                 )
-            elif event["ph"] == "C" and event["name"] == "" and event["args"].keys() == {"heap_size"}:
+            elif (
+                event["ph"] == "C"
+                and event["name"] == ""
+                and isinstance(event["args"], dict)
+                and event["args"].keys() == {"heap_size"}
+            ):
                 assert_is_counter(event, name="", ts=1_500_000, pid=12345, tid=0, args={"heap_size": 52428800})
             elif event["ph"] == "M" and event["name"] == "process_name":
                 assert_is_process_meta(event, pid=12345, args={"name": "Process 12345"})
             elif event["ph"] == "M" and event["name"] == "thread_name":
                 assert_is_thread_meta(event, pid=12345, tid=0, args={"name": "Thread 0"})
 
-    def test_close_writes_all_events(self, mock_stats_item, trace_exporter) -> None:
+    def test_close_writes_all_events(self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter(threshold=5)
         for _ in range(15):
             exporter.add_event(DEFAULT_PID, mock_stats_item)
@@ -129,7 +143,7 @@ class TestTraceExporter:
         data = assert_valid_chrome_trace_format(path)
         self._verify_events(data, 15)
 
-    def test_timestamp_conversion(self, mock_stats_item, trace_exporter) -> None:
+    def test_timestamp_conversion(self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         exporter.close()
@@ -139,7 +153,7 @@ class TestTraceExporter:
         assert events[0]["ts"] == 1_500_000  # begin
         assert events[1]["ts"] == 1_505_000  # end
 
-    def test_complete_event_structure(self, mock_stats_item, trace_exporter) -> None:
+    def test_complete_event_structure(self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         exporter.close()
@@ -164,7 +178,7 @@ class TestTraceExporter:
             },
         )
 
-    def test_counter_event_structure(self, mock_stats_item, trace_exporter) -> None:
+    def test_counter_event_structure(self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         exporter.close()
@@ -182,10 +196,10 @@ class TestTraceExporter:
             tid=0,
             args={"collected": 200, "uncollectable": 10, "candidates": 40, "duration": 0.005},
         )
-        heap = next(c for c in counters if c["name"] == "" and "heap_size" in c["args"])
+        heap = next(c for c in counters if c["name"] == "" and isinstance(c["args"], dict) and "heap_size" in c["args"])
         assert_is_counter(heap, name="", ts=1_500_000, pid=12345, tid=0, args={"heap_size": 52428800})
 
-    def test_close_adds_metadata(self, mock_stats_item, trace_exporter) -> None:
+    def test_close_adds_metadata(self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         exporter.close()
@@ -203,7 +217,7 @@ class TestTraceExporter:
             args={"name": "Thread 0"},
         )
 
-    def test_multiple_close_calls(self, mock_stats_item, trace_exporter) -> None:
+    def test_multiple_close_calls(self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         exporter.close()
@@ -213,7 +227,7 @@ class TestTraceExporter:
         # Second close should not duplicate events
         self._verify_events(data, 1)
 
-    def test_different_generation_events(self, trace_exporter) -> None:
+    def test_different_generation_events(self, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         for gen in range(3):
             item = create_mock_stats_item(gen=gen)
@@ -223,9 +237,9 @@ class TestTraceExporter:
         data = assert_valid_chrome_trace_format(path)
         begin_events = [e for e in data if e["ph"] == "B"]
         assert len(begin_events) == 3
-        assert {e["args"]["generation"] for e in begin_events} == {0, 1, 2}
+        assert {e["args"]["generation"] for e in begin_events if isinstance(e["args"], dict)} == {0, 1, 2}
 
-    def test_add_instant_event_writes_instant_event(self, trace_exporter) -> None:
+    def test_add_instant_event_writes_instant_event(self, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         instant = create_instant_msg(name="start GC monitor", ts=1_500_000_000)
         exporter.add_instant_event(DEFAULT_PID, instant)
@@ -241,7 +255,9 @@ class TestTraceExporter:
             ts=ts_to_us(instant.ts),
         )
 
-    def test_add_instant_event_alongside_add_event(self, mock_stats_item, trace_exporter) -> None:
+    def test_add_instant_event_alongside_add_event(
+        self, mock_stats_item: GCStatsInfo, trace_exporter: ExporterFactory
+    ) -> None:
         exporter, path = trace_exporter()
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         instant = create_instant_msg(name="stop GC monitor", ts=2_000_000_000)
@@ -263,7 +279,7 @@ class TestTraceExporter:
             ts=ts_to_us(instant.ts),
         )
 
-    def test_multiple_add_instant_event(self, trace_exporter) -> None:
+    def test_multiple_add_instant_event(self, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         for name in ("start GC monitor", "stop GC monitor"):
             exporter.add_instant_event(DEFAULT_PID, create_instant_msg(name=name, ts=1_500_000_000))
@@ -274,7 +290,7 @@ class TestTraceExporter:
         assert len(instants) == 2
         assert [e["name"] for e in instants] == ["start GC monitor", "stop GC monitor"]
 
-    def test_close_with_no_events_writes_empty_trace(self, trace_exporter) -> None:
+    def test_close_with_no_events_writes_empty_trace(self, trace_exporter: ExporterFactory) -> None:
         exporter, path = trace_exporter()
         exporter.close()
         assert path.exists()
@@ -282,11 +298,11 @@ class TestTraceExporter:
 
 
 @pytest.fixture
-def mock_read_events():
+def mock_read_events() -> Callable[[int, bool], list[GCStatsInfo]]:
     """Generate incrementing event batches to simulate real GC monitoring data."""
     read_count = [0]
 
-    def side_effect(*args, **kwargs):
+    def side_effect(pid: int, all_interpreters: bool = True) -> list[GCStatsInfo]:
         base_ts = read_count[0] * 100 + 1_500_000_000
         read_count[0] += 1
         item1 = create_mock_stats_item(
@@ -317,22 +333,23 @@ def mock_read_events():
 
 
 @pytest.fixture
-def monitor_with_exporter(trace_exporter):
+def monitor_with_exporter(trace_exporter: ExporterFactory) -> tuple[EventsMonitor, Path]:
     """Create an EventsMonitor wired to a TraceExporter."""
     exporter, path = trace_exporter()
+    assert isinstance(exporter, TraceExporter)
     process = ExternalProcess(pid=12345)
     monitor = EventsMonitor(process, exporter, StreamingStats())
     return monitor, path
 
 
 @pytest.fixture
-def mock_gc_stats(mock_read_events):
+def mock_gc_stats(mock_read_events: Callable[..., list[GCStatsInfo]]) -> Generator[None]:
     with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
         yield
 
 
 class TestGCMonitorStreaming:
-    def test_streams_to_exporter(self, mock_gc_stats, monitor_with_exporter) -> None:
+    def test_streams_to_exporter(self, mock_gc_stats: None, monitor_with_exporter: tuple[EventsMonitor, Path]) -> None:
         monitor, path = monitor_with_exporter
         for _ in range(4):
             monitor.poll(12345)
@@ -349,7 +366,9 @@ class TestGCMonitorStreaming:
         assert len([e for e in data if e["ph"] == "B"]) >= 4
         assert len([e for e in data if e["ph"] == "C"]) >= 4
 
-    def test_streams_events_individually(self, mock_gc_stats, monitor_with_exporter) -> None:
+    def test_streams_events_individually(
+        self, mock_gc_stats: None, monitor_with_exporter: tuple[EventsMonitor, Path]
+    ) -> None:
         monitor, path = monitor_with_exporter
         for _ in range(3):
             monitor.poll(12345)
@@ -357,7 +376,7 @@ class TestGCMonitorStreaming:
         data = assert_valid_chrome_trace_format(path)
         assert len([e for e in data if e["ph"] == "B"]) >= 4
 
-    def test_stop_closes_exporter(self, mock_gc_stats, monitor_with_exporter) -> None:
+    def test_stop_closes_exporter(self, mock_gc_stats: None, monitor_with_exporter: tuple[EventsMonitor, Path]) -> None:
         monitor, path = monitor_with_exporter
         for _ in range(3):
             monitor.poll(12345)
@@ -373,7 +392,7 @@ class TestGCMonitorStreaming:
         assert len([e for e in data if e["ph"] == "B"]) >= 3
         assert len([e for e in data if e["ph"] == "C"]) >= 3
 
-    def test_handles_read_error_gracefully(self, monitor_with_exporter) -> None:
+    def test_handles_read_error_gracefully(self, monitor_with_exporter: tuple[EventsMonitor, Path]) -> None:
         monitor, path = monitor_with_exporter
         item = create_mock_stats_item(
             gen=0,

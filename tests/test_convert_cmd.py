@@ -20,6 +20,7 @@ from gcmon.trace_event import (
     thread_meta,
 )
 from tests.helpers import (
+    JsonlRecord,
     assert_is_begin,
     assert_is_counter,
     assert_is_process_meta,
@@ -606,10 +607,10 @@ def make_jsonl_file(tmp_path: Path) -> JsonlFileFactory:
     return _make
 
 
-def assert_valid_jsonl(path: Path) -> list[dict[str, object]]:
+def assert_valid_jsonl(path: Path) -> list[JsonlRecord]:
     """Validate that a file contains valid JSONL (one JSON object per line)."""
     assert path.exists(), f"File {path} does not exist"
-    records: list[dict[str, object]] = []
+    records: list[JsonlRecord] = []
     with open(path, encoding="utf-8") as f:
         for idx, line in enumerate(f):
             line = line.strip()

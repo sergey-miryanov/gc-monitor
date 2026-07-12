@@ -117,8 +117,10 @@ class TestCombinedTraceExporter:
         process_metas = [e for e in data if e["ph"] == "M" and e["name"] == "process_name"]
         thread_metas = [e for e in data if e["ph"] == "M" and e["name"] == "thread_name"]
         assert len(process_metas) == 1
+        assert isinstance(process_metas[0]["args"], dict)
         assert process_metas[0]["args"]["name"] == f"Process {DEFAULT_PID}"
         assert len(thread_metas) == 1
+        assert isinstance(thread_metas[0]["args"], dict)
         assert thread_metas[0]["args"]["name"] == f"Thread {item.iid}"
 
         pf_bytes = (tmp_path / "trace.pftrace").read_bytes()

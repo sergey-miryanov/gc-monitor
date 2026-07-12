@@ -34,6 +34,7 @@ __all__ = [
     "EventEncoder",
     "JsonEventEncoder",
     "ProtobufEventEncoder",
+    "convert_trace_events_to_perfetto",
 ]
 
 

@@ -28,7 +28,7 @@ from gcmon.exporters.perfetto_format import (
 )
 from gcmon.protocol import TGCStatsInfo, TInstantMsg
 from tests.data_helpers import create_instant_msg
-from tests.helpers import create_mock_stats_item
+from tests.helpers import JsonlRecord, create_mock_stats_item
 from tests.proto_decoder import (
     ProtoField,
     decode_message,
@@ -131,10 +131,10 @@ class JsonlFileCapture(OutputCapture):
     def __init__(self, path: Path) -> None:
         self._path = path
 
-    def _lines(self) -> list[dict[str, object]]:
+    def _lines(self) -> list[JsonlRecord]:
         if not self._path.exists():
             return []
-        out: list[dict[str, object]] = []
+        out: list[JsonlRecord] = []
         for ln in self._path.read_text(encoding="utf-8").splitlines():
             if not ln:
                 continue
@@ -239,8 +239,8 @@ class StdoutCapture(OutputCapture):
     def __init__(self, buffer: _LockingStringIO) -> None:
         self._buffer = buffer
 
-    def _lines(self) -> list[dict[str, object]]:
-        out: list[dict[str, object]] = []
+    def _lines(self) -> list[JsonlRecord]:
+        out: list[JsonlRecord] = []
         for ln in self._buffer.getvalue().splitlines():
             if not ln:
                 continue
@@ -307,7 +307,8 @@ def _all_factories() -> list[ExporterFactory]:
 
 @pytest.fixture(params=_all_factories(), ids=lambda f: f.name)
 def exporter_factory(request: pytest.FixtureRequest) -> ExporterFactory:
-    return request.param  # type: ignore[return-value]
+    param: ExporterFactory = request.param
+    return param
 
 
 @pytest.mark.stress

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -16,7 +17,7 @@ from gcmon.trace_event import process_meta
 
 
 class TestJsonEventEncoder:
-    def test_write_events_empty_no_file_created(self, tmp_path) -> None:
+    def test_write_events_empty_no_file_created(self, tmp_path: Path) -> None:
         enc = JsonEventEncoder()
         path = tmp_path / "out.json"
         enc.open(path)
@@ -26,7 +27,7 @@ class TestJsonEventEncoder:
 
 
 class TestProtobufEventEncoder:
-    def test_write_events_empty_no_file_created(self, tmp_path) -> None:
+    def test_write_events_empty_no_file_created(self, tmp_path: Path) -> None:
         enc = ProtobufEventEncoder()
         path = tmp_path / "out.perfetto"
         enc.open(path)
@@ -46,7 +47,7 @@ class TestProtobufEventEncoder:
         assert provider.call_count == 1
 
     def test_write_events_returns_early_when_converter_produces_no_output(
-        self, tmp_path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         enc = ProtobufEventEncoder()
         path = tmp_path / "out.perfetto"

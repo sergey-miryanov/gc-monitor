@@ -2,11 +2,11 @@
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import msgspec
 import pytest
 
+from gcmon.data import GCStatsInfo
 from gcmon.exporters.chrome_trace_io import (
     _normalize_jsonl_timestamps,
     _normalize_trace_timestamps,
@@ -19,6 +19,7 @@ from gcmon.exporters.chrome_trace_io import (
 )
 from gcmon.protocol import has_incremental
 from gcmon.trace_event import (
+    TraceEvent,
     begin_event,
     counter_event,
     end_event,
@@ -26,7 +27,7 @@ from gcmon.trace_event import (
     thread_meta,
 )
 from tests.data_helpers import create_instant_msg
-from tests.helpers import create_jsonl_record, create_mock_stats_item
+from tests.helpers import JsonlRecord, create_jsonl_record, create_mock_stats_item
 
 
 def _make_inc_item(
@@ -35,8 +36,8 @@ def _make_inc_item(
     ts_stop: int = 2000,
     increment_size: int = 500,
     alive_size: int = 300,
-) -> SimpleNamespace:
-    return SimpleNamespace(
+) -> GCStatsInfo:
+    return GCStatsInfo(
         gen=gen,
         iid=1,
         ts_start=ts_start,
@@ -75,7 +76,7 @@ def _make_inc_jsonl_record(
     ts_stop: int = 2000,
     increment_size: int = 500,
     alive_size: int = 300,
-) -> dict:
+) -> dict[str, int | float]:
     record = create_jsonl_record(pid=pid, gen=gen, ts_start=ts_start, ts_stop=ts_stop)
     record.update(
         {
@@ -107,6 +108,7 @@ class TestJsonToItem:
         data = create_jsonl_record(pid=123, gen=0)
         pid, item = json_to_item(data)
         assert pid == 123
+        assert hasattr(item, "gen")
         assert item.gen == 0
 
     def test_returns_incremental_item(self) -> None:
@@ -117,8 +119,8 @@ class TestJsonToItem:
         assert item.increment_size == 500
 
     def test_pid_as_string(self) -> None:
-        data = create_jsonl_record(pid=789)
-        data["pid"] = "789"
+        record = create_jsonl_record(pid=789)
+        data: JsonlRecord = {**record, "pid": "789"}
         pid, _ = json_to_item(data)
         assert pid == 789
 
@@ -132,6 +134,7 @@ class TestReadJsonl:
         result = read_jsonl(path)
         assert 123 in result
         assert len(result[123]) == 1
+        assert hasattr(result[123][0], "gen")
         assert result[123][0].gen == 0
 
     def test_reads_multiple_pids(self, tmp_path: Path) -> None:
@@ -352,25 +355,24 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        events: list = [
-            begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=5_000_000, args=args),
-            counter_event(
-                pid=1,
-                tid=1,
-                name="c1",
-                ts_ns=3_000_000,
-                args={"collected": 10, "uncollectable": 0, "candidates": 5, "heap_size": 100},
-            ),
-            process_meta(pid=1, name="p"),
-        ]
-        _normalize_trace_timestamps(events)  # type: ignore[arg-type]
-        assert events[0].ts == 2_000_000  # 5_000_000 - 3_000_000
-        assert events[1].ts == 0  # 3_000_000 - 3_000_000
-        assert events[2].name == "process_name"  # metadata preserved
+        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=5_000_000, args=args)
+        e2 = counter_event(
+            pid=1,
+            tid=1,
+            name="c1",
+            ts_ns=3_000_000,
+            args={"collected": 10, "uncollectable": 0, "candidates": 5, "heap_size": 100},
+        )
+        e3 = process_meta(pid=1, name="p")
+        events: list[TraceEvent] = [e1, e2, e3]
+        _normalize_trace_timestamps(events)
+        assert e1.ts == 2_000_000  # 5_000_000 - 3_000_000
+        assert e2.ts == 0  # 3_000_000 - 3_000_000
+        assert e3.name == "process_name"  # metadata preserved
 
     def test_no_timestamp_events_is_noop(self) -> None:
-        events: list = [process_meta(pid=1, name="p")]
-        _normalize_trace_timestamps(events)  # type: ignore[arg-type]
+        events: list[TraceEvent] = [process_meta(pid=1, name="p")]
+        _normalize_trace_timestamps(events)
         assert len(events) == 1
         assert events[0].name == "process_name"
 
@@ -384,15 +386,14 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        events: list = [
-            begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=1_000_000, args=args),
-        ]
-        _normalize_trace_timestamps(events)  # type: ignore[arg-type]
-        assert events[0].ts == 0
+        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=1_000_000, args=args)
+        events: list[TraceEvent] = [e1]
+        _normalize_trace_timestamps(events)
+        assert e1.ts == 0
 
     def test_empty_events_is_noop(self) -> None:
-        events: list = []
-        _normalize_trace_timestamps(events)  # type: ignore[arg-type]
+        events: list[TraceEvent] = []
+        _normalize_trace_timestamps(events)
         assert events == []
 
     def test_per_pid_normalization(self) -> None:
@@ -405,17 +406,16 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        events: list = [
-            begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=10_000_000, args=args),
-            begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=12_000_000, args=args),
-            begin_event(pid=2, tid=1, name="e3", cat="c", ts_ns=5_000_000, args=args),
-            begin_event(pid=2, tid=1, name="e4", cat="c", ts_ns=7_000_000, args=args),
-        ]
-        _normalize_trace_timestamps(events)  # type: ignore[arg-type]
-        assert events[0].ts == 0  # pid=1: 10_000_000 - 10_000_000
-        assert events[1].ts == 2_000_000  # pid=1: 12_000_000 - 10_000_000
-        assert events[2].ts == 0  # pid=2: 5_000_000 - 5_000_000
-        assert events[3].ts == 2_000_000  # pid=2: 7_000_000 - 5_000_000
+        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=10_000_000, args=args)
+        e2 = begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=12_000_000, args=args)
+        e3 = begin_event(pid=2, tid=1, name="e3", cat="c", ts_ns=5_000_000, args=args)
+        e4 = begin_event(pid=2, tid=1, name="e4", cat="c", ts_ns=7_000_000, args=args)
+        events: list[TraceEvent] = [e1, e2, e3, e4]
+        _normalize_trace_timestamps(events)
+        assert e1.ts == 0  # pid=1: 10_000_000 - 10_000_000
+        assert e2.ts == 2_000_000  # pid=1: 12_000_000 - 10_000_000
+        assert e3.ts == 0  # pid=2: 5_000_000 - 5_000_000
+        assert e4.ts == 2_000_000  # pid=2: 7_000_000 - 5_000_000
 
     def test_negative_timestamps(self) -> None:
         args = {
@@ -427,13 +427,12 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        events: list = [
-            begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=-100, args=args),
-            begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=-500, args=args),
-        ]
-        _normalize_trace_timestamps(events)  # type: ignore[arg-type]
-        assert events[0].ts == 400  # -100 - (-500)
-        assert events[1].ts == 0
+        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=-100, args=args)
+        e2 = begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=-500, args=args)
+        events: list[TraceEvent] = [e1, e2]
+        _normalize_trace_timestamps(events)
+        assert e1.ts == 400  # -100 - (-500)
+        assert e2.ts == 0
 
 
 class TestNormalizeJsonlTimestamps:

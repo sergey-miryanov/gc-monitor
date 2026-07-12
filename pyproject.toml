@@ -96,8 +96,9 @@ testpaths = ["tests"]
 tmp_path_retention_policy = "failed"
 markers = [
     "stress: thread-safety stress tests for exporter and control-client pipelines (deselected by default; run with -m stress)",
+    "benchmark: mark a test as a CodSpeed performance benchmark",
 ]
-addopts = "-m 'not stress'"
+addopts = "-m 'not stress and not benchmark'"
 
 # =============================================================================
 # Coverage Configuration

@@ -23,8 +23,9 @@ from gcmon.exporters.perfetto_format import (
     finalize_perfetto_packets,
 )
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
-from gcmon.trace_event import counter_event, instant_event, process_meta, thread_meta
+from gcmon.trace_event import TraceEvent, counter_event, instant_event, process_meta, thread_meta
 from tests.proto_decoder import (
+    ProtoField,
     decode_message,
     get_bytes,
     get_double,
@@ -53,7 +54,7 @@ def _convert_item(
     sequence_id: int = 1,
 ) -> tuple[list[bytes], list[bytes]]:
     gc_events = convert_item_to_trace_format(pid, item)
-    meta = [
+    meta: list[TraceEvent] = [
         process_meta(pid, f"Process {pid}"),
         thread_meta(pid, item.iid, f"Thread {item.iid}"),
     ]
@@ -659,6 +660,8 @@ class TestConvertItemToPerfettoPackets:
                 if counter_bytes is not None:
                     parent_uuid = get_varint(td_fields, TrackDescriptorField.PARENT_UUID)
                     track_name = get_string(td_fields, TrackDescriptorField.NAME)
+                    assert track_name is not None
+                    assert parent_uuid is not None
                     per_metric_parent[track_name] = parent_uuid
                 elif uuid == group_uuid:
                     group_seen = True
@@ -1581,7 +1584,7 @@ class TestConvertItemToPerfettoPackets:
 class TestConvertInstantToPerfettoPacket:
     def test_emits_process_descriptor(self) -> None:
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             instant_event(100, "start", ts_ns=5_000),
         ]
@@ -1592,7 +1595,7 @@ class TestConvertInstantToPerfettoPacket:
 
     def test_emits_instant_event(self) -> None:
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             instant_event(100, "start GC monitor", ts_ns=5_000),
         ]
@@ -1759,7 +1762,7 @@ class TestConvertInstantToPerfettoPacket:
             duration=0.001,
         )
         gc_events = convert_item_to_trace_format(100, item)
-        meta = [
+        meta: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, item.iid, f"Thread {item.iid}"),
         ]
@@ -1837,12 +1840,12 @@ class TestConvertInstantToPerfettoPacket:
             candidates=10,
             duration=0.002,
         )
-        events1 = [
+        events1: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, item1.iid, f"Thread {item1.iid}"),
             *convert_item_to_trace_format(100, item1),
         ]
-        events2 = [
+        events2: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, item2.iid, f"Thread {item2.iid}"),
             *convert_item_to_trace_format(100, item2),
@@ -1920,13 +1923,13 @@ def _track_descriptor_bytes(packet_bytes: bytes) -> bytes | None:
 def _process_descriptor_fields_for_pid(
     descriptors: list[bytes],
     pid: int,
-) -> list:
+) -> list[list[ProtoField]]:
     """Return the ``TrackDescriptor`` proto fields for the process
     descriptor of *pid* (i.e. a TrackDescriptor with a ``process``
     sub-message carrying the matching pid). Returns an empty list if
     no matching descriptor exists.
     """
-    matched: list = []
+    matched: list[list[ProtoField]] = []
     for d in descriptors:
         td_bytes = _track_descriptor_bytes(d)
         if td_bytes is None:
@@ -1941,10 +1944,10 @@ def _process_descriptor_fields_for_pid(
     return matched
 
 
-def _root_descriptor_fields(descriptors: list[bytes]) -> list:
+def _root_descriptor_fields(descriptors: list[bytes]) -> list[list[ProtoField]]:
     """Return the ``TrackDescriptor`` proto fields for the root
     descriptor (the one with ``uuid = 0``)."""
-    matched: list = []
+    matched: list[list[ProtoField]] = []
     for d in descriptors:
         td_bytes = _track_descriptor_bytes(d)
         if td_bytes is None:
@@ -1961,7 +1964,7 @@ class TestProcessOrderingByFirstTs:
 
     def test_root_descriptor_present_with_explicit_ordering(self) -> None:
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             instant_event(100, "start", ts_ns=5_000),
         ]
@@ -1984,11 +1987,11 @@ class TestProcessOrderingByFirstTs:
 
     def test_root_descriptor_emitted_exactly_once_across_calls(self) -> None:
         state = PerfettoTrackState()
-        events1 = [
+        events1: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             instant_event(100, "first", ts_ns=1_000),
         ]
-        events2 = [
+        events2: list[TraceEvent] = [
             process_meta(200, "Process 200"),
             instant_event(200, "second", ts_ns=2_000),
         ]
@@ -2006,7 +2009,7 @@ class TestProcessOrderingByFirstTs:
     def test_process_descriptor_carries_sibling_order_rank_by_first_ts(self) -> None:
         """Pid with earlier first ts gets the smaller rank."""
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(1, "Process 1"),
             instant_event(1, "ev1", ts_ns=2_000),
             process_meta(2, "Process 2"),
@@ -2028,7 +2031,7 @@ class TestProcessOrderingByFirstTs:
         """When two pids share the same first event ts, ranks follow
         ascending pid (deterministic)."""
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(2, "Process 2"),
             instant_event(2, "ev", ts_ns=1_000),
             process_meta(1, "Process 1"),
@@ -2050,7 +2053,7 @@ class TestProcessOrderingByFirstTs:
         """A pid with only ProcessMeta / ThreadMeta (no non-meta events)
         must not carry a ``sibling_order_rank`` on its descriptor."""
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, 0, "Thread 0"),
         ]
@@ -2067,7 +2070,7 @@ class TestProcessOrderingByFirstTs:
         """``ProcessMeta`` / ``ThreadMeta`` must not set the first
         event ts; the rank is driven solely by non-meta events."""
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, 0, "Thread 0"),
             process_meta(200, "Process 200"),
@@ -2103,7 +2106,7 @@ class TestProcessOrderingByFirstTs:
             candidates=5,
             duration=0.001,
         )
-        events = [
+        events: list[TraceEvent] = [
             process_meta(1, "Process 1"),
             process_meta(2, "Process 2"),
             instant_event(2, "ev", ts_ns=2_000),
@@ -2125,7 +2128,7 @@ class TestProcessOrderingByFirstTs:
         """Reordering the input pids (with the same first-ts values)
         must produce identical rank assignments."""
 
-        def _make_events(ordered_pids: list[int]) -> list:
+        def _make_events(ordered_pids: list[int]) -> list[TraceEvent]:
             ts_map = {1: 2_000, 2: 1_000}
             return [
                 ev
@@ -2185,7 +2188,7 @@ class TestProcessOrderingByFirstTs:
         process's actual start time.
         """
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             instant_event(100, "start", ts_ns=5_000),
             process_meta(200, "Process 200"),
@@ -2214,7 +2217,7 @@ class TestProcessOrderingByFirstTs:
         non-meta events) has no recorded first-ts, so
         ``start_timestamp_ns`` must be absent from the descriptor."""
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, 0, "Thread 0"),
         ]
@@ -2249,7 +2252,7 @@ class TestProcessOrderingByFirstTs:
             candidates=5,
             duration=0.001,
         )
-        events = [
+        events: list[TraceEvent] = [
             process_meta(1, "Process 1"),
             process_meta(2, "Process 2"),
             instant_event(2, "ev", ts_ns=2_000),
@@ -2264,6 +2267,7 @@ class TestProcessOrderingByFirstTs:
         for pid in (1, 2):
             tds = _process_descriptor_fields_for_pid(descriptors, pid)
             proc_bytes = get_bytes(tds[0], TrackDescriptorField.PROCESS)
+            assert proc_bytes is not None
             proc_fields = decode_message(proc_bytes)
             start_ts[pid] = get_varint(
                 proc_fields,
@@ -2289,6 +2293,7 @@ class TestProcessOrderingByFirstTs:
         tds_1 = _process_descriptor_fields_for_pid(d1, 1)
         assert len(tds_1) == 1
         proc_bytes_1 = get_bytes(tds_1[0], TrackDescriptorField.PROCESS)
+        assert proc_bytes_1 is not None
         proc_fields_1 = decode_message(proc_bytes_1)
         assert (
             get_varint(
@@ -2300,6 +2305,7 @@ class TestProcessOrderingByFirstTs:
         tds_2 = _process_descriptor_fields_for_pid(d2, 2)
         assert len(tds_2) == 1
         proc_bytes_2 = get_bytes(tds_2[0], TrackDescriptorField.PROCESS)
+        assert proc_bytes_2 is not None
         proc_fields_2 = decode_message(proc_bytes_2)
         assert (
             get_varint(
@@ -2341,7 +2347,7 @@ class TestCounterTrackYAxisShareKey:
 
     def test_grouped_counters_share_y_axis_by_metric(self) -> None:
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, 0, "Thread 0"),
             counter_event(100, 0, "G0", 1_000, {"collected": 100, "candidates": 50, "duration": 0.005}),
@@ -2362,7 +2368,7 @@ class TestCounterTrackYAxisShareKey:
 
     def test_heap_size_has_no_share_key(self) -> None:
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, 0, "Thread 0"),
             counter_event(100, 0, "heap_size", 1_000, {"heap_size": 4096}),
@@ -2376,7 +2382,7 @@ class TestCounterTrackYAxisShareKey:
 
     def test_uncollectable_share_key_emitted_when_nonzero(self) -> None:
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, 0, "Thread 0"),
             counter_event(
@@ -2405,7 +2411,7 @@ class TestCounterTrackYAxisShareKey:
         track by the metric itself, e.g. ``"collected"``).
         """
         state = PerfettoTrackState()
-        events = [
+        events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
             thread_meta(100, 0, "Thread 0"),
             counter_event(

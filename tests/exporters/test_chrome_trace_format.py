@@ -9,7 +9,11 @@ from gcmon.exporters.chrome_trace_format import (
     convert_item_to_trace_format,
     convert_to_trace_format,
 )
+from gcmon.protocol import TGCStatsInfo, TInstantMsg
 from gcmon.trace_event import (
+    BeginEvent,
+    CounterEvent,
+    EndEvent,
     begin_event,
     counter_event,
     end_event,
@@ -95,7 +99,7 @@ class TestEndEvent:
 
 class TestCounterEvent:
     def test_returns_counter_event(self) -> None:
-        args = {
+        args: dict[str, int | float] = {
             "collected": 50,
             "uncollectable": 1,
             "candidates": 20,
@@ -374,24 +378,15 @@ class TestConvertItemToTraceFormat:
             assert "heap_size" not in per_gen[0].args
             assert len(heap) == 1
             assert set(heap[0].args.keys()) == {"heap_size"}
-        assert (
-            events_g0[next(i for i, e in enumerate(events_g0) if e.ph == "C" and e.name == "heap_size")].args[
-                "heap_size"
-            ]
-            == 1000
-        )
-        assert (
-            events_g1[next(i for i, e in enumerate(events_g1) if e.ph == "C" and e.name == "heap_size")].args[
-                "heap_size"
-            ]
-            == 2000
-        )
-        assert (
-            events_g2[next(i for i, e in enumerate(events_g2) if e.ph == "C" and e.name == "heap_size")].args[
-                "heap_size"
-            ]
-            == 3000
-        )
+        heap0 = next(e for e in events_g0 if e.ph == "C" and e.name == "heap_size")
+        assert isinstance(heap0, (BeginEvent, EndEvent, CounterEvent))
+        assert heap0.args["heap_size"] == 1000
+        heap1 = next(e for e in events_g1 if e.ph == "C" and e.name == "heap_size")
+        assert isinstance(heap1, (BeginEvent, EndEvent, CounterEvent))
+        assert heap1.args["heap_size"] == 2000
+        heap2 = next(e for e in events_g2 if e.ph == "C" and e.name == "heap_size")
+        assert isinstance(heap2, (BeginEvent, EndEvent, CounterEvent))
+        assert heap2.args["heap_size"] == 3000
 
     def test_pid_is_passed_through(self) -> None:
         item = create_mock_stats_item()
@@ -404,6 +399,7 @@ class TestConvertItemToTraceFormat:
         events = convert_item_to_trace_format(pid=12345, item=item)
         for event in events:
             if event.ph not in ("M",):
+                assert isinstance(event, (BeginEvent, EndEvent, CounterEvent))
                 assert event.tid == 42
 
     def test_incremental_gen0_pause_data_has_count_fields(self) -> None:
@@ -505,7 +501,7 @@ class TestConvertToTraceFormat:
     def test_multiple_pids(self) -> None:
         item1 = create_mock_stats_item(iid=0)
         item2 = create_mock_stats_item(iid=1)
-        items = {1: [item1], 2: [item2]}
+        items: dict[int, list[TGCStatsInfo | TInstantMsg]] = {1: [item1], 2: [item2]}
         events = convert_to_trace_format(items)
         pids = {e.pid for e in events}
         assert pids == {1, 2}

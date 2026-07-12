@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Protocol
 
 import pytest
 
 from gcmon.exporters import JsonlExporter, PerfettoExporter, TraceExporter
+from tests.helpers import JsonlRecord
+
+
+class ExporterFactory(Protocol):
+    def __call__(self, threshold: int = 100) -> tuple[JsonlExporter | TraceExporter | PerfettoExporter, Path]: ...
+
+
+class JsonlFileReader(Protocol):
+    def __call__(self, path: Path) -> list[JsonlRecord]: ...
 
 
 @pytest.fixture
-def jsonl_exporter(tmp_path: Path) -> Callable[..., tuple[JsonlExporter, Path]]:
+def jsonl_exporter(tmp_path: Path) -> ExporterFactory:
     """Factory fixture for JsonlExporter instances.
 
     Usage:
@@ -29,7 +37,7 @@ def jsonl_exporter(tmp_path: Path) -> Callable[..., tuple[JsonlExporter, Path]]:
 
 
 @pytest.fixture
-def trace_exporter(tmp_path: Path) -> Callable[..., tuple[TraceExporter, Path]]:
+def trace_exporter(tmp_path: Path) -> ExporterFactory:
     """Factory fixture for TraceExporter instances.
 
     Usage:
@@ -45,7 +53,7 @@ def trace_exporter(tmp_path: Path) -> Callable[..., tuple[TraceExporter, Path]]:
 
 
 @pytest.fixture
-def perfetto_exporter(tmp_path: Path) -> Callable[..., tuple[PerfettoExporter, Path]]:
+def perfetto_exporter(tmp_path: Path) -> ExporterFactory:
     """Factory fixture for PerfettoExporter instances.
 
     Usage:
@@ -61,10 +69,10 @@ def perfetto_exporter(tmp_path: Path) -> Callable[..., tuple[PerfettoExporter, P
 
 
 @pytest.fixture
-def read_jsonl() -> Callable[..., list[dict[str, Any]]]:
+def read_jsonl() -> JsonlFileReader:
     """Read a JSONL file and return list of parsed events."""
 
-    def _read(path: Path) -> list[dict[str, Any]]:
+    def _read(path: Path) -> list[JsonlRecord]:
         with open(path, encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()]
 

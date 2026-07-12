@@ -8,12 +8,13 @@ running each sub-exporter independently.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
+from gcmon.data import GCStatsInfo
 from gcmon.exporters import PerfettoExporter, TraceExporter
 from gcmon.exporters.combined_exporter import CombinedTraceExporter
 from tests.conftest import DEFAULT_PID
@@ -40,7 +41,7 @@ def _fake_cmdline_provider(pid: int) -> list[str] | None:
     return None
 
 
-def _multi_dimensional_items() -> list:
+def _multi_dimensional_items() -> list[GCStatsInfo]:
     """Build a deterministic input exercising multiple pids, generations, iids."""
     return [
         create_mock_stats_item(
@@ -65,7 +66,7 @@ def _multi_dimensional_items() -> list:
 
 
 def _feed(
-    items: list,
+    items: list[GCStatsInfo],
     pids: list[int],
     chrome: TraceExporter,
     perfetto: PerfettoExporter,
@@ -83,7 +84,7 @@ def _feed(
 
 
 def _feed_combined(
-    items: list,
+    items: list[GCStatsInfo],
     pids: list[int],
     combined: CombinedTraceExporter,
     instant_pid: int,
@@ -113,8 +114,8 @@ def _open_trace(path: Path) -> Iterator[TraceProcessor]:
 
 
 def _assert_row_sets_equal(
-    standalone: list[tuple],
-    combined: list[tuple],
+    standalone: Sequence[tuple[object, ...]],
+    combined: Sequence[tuple[object, ...]],
     label: str,
 ) -> None:
     assert set(standalone) == set(combined), (

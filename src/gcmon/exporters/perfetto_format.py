@@ -8,6 +8,7 @@ objects (produced by the shared ``trace_converter``) and maps each to
 the corresponding Perfetto protobuf representation.
 """
 
+from collections.abc import Sequence
 from enum import IntEnum
 
 from ..trace_event import (
@@ -801,7 +802,7 @@ def _emit_counter_track_descriptor(
 
 
 def convert_trace_events_to_perfetto(
-    events: list[TraceEvent],
+    events: Sequence[TraceEvent],
     state: PerfettoTrackState,
     sequence_id: int,
 ) -> tuple[list[bytes], list[bytes]]:
