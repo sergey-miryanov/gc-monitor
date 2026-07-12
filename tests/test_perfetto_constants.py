@@ -29,17 +29,22 @@ from gcmon.exporters.perfetto_format import (
 
 class TestPerfettoFormatConstants:
     def test_trace_field(self) -> None:
-        assert Trace.DESCRIPTOR.fields_by_name["packet"].number == TraceField.PACKET
+        desc = Trace.DESCRIPTOR
+        assert desc is not None
+        assert desc.fields_by_name["packet"].number == TraceField.PACKET
 
     def test_trace_packet_field(self) -> None:
-        f = TracePacket.DESCRIPTOR.fields_by_name
-        assert f["timestamp"].number == TracePacketField.TIMESTAMP
-        assert f["trusted_packet_sequence_id"].number == TracePacketField.SEQUENCE_ID
-        assert f["track_event"].number == TracePacketField.TRACK_EVENT
-        assert f["track_descriptor"].number == TracePacketField.TRACK_DESCRIPTOR
+        desc = TracePacket.DESCRIPTOR
+        assert desc is not None
+        assert desc.fields_by_name["timestamp"].number == TracePacketField.TIMESTAMP
+        assert desc.fields_by_name["trusted_packet_sequence_id"].number == TracePacketField.SEQUENCE_ID
+        assert desc.fields_by_name["track_event"].number == TracePacketField.TRACK_EVENT
+        assert desc.fields_by_name["track_descriptor"].number == TracePacketField.TRACK_DESCRIPTOR
 
     def test_track_descriptor_field(self) -> None:
-        f = TrackDescriptor.DESCRIPTOR.fields_by_name
+        desc = TrackDescriptor.DESCRIPTOR
+        assert desc is not None
+        f = desc.fields_by_name
         assert f["uuid"].number == TrackDescriptorField.UUID
         assert f["name"].number == TrackDescriptorField.NAME
         assert f["process"].number == TrackDescriptorField.PROCESS
@@ -53,20 +58,26 @@ class TestPerfettoFormatConstants:
         assert f["thread_ordering"].number == TrackDescriptorField.THREAD_ORDERING
 
     def test_thread_descriptor_field(self) -> None:
-        f = ThreadDescriptor.DESCRIPTOR.fields_by_name
+        desc = ThreadDescriptor.DESCRIPTOR
+        assert desc is not None
+        f = desc.fields_by_name
         assert f["pid"].number == ThreadDescriptorField.PID
         assert f["tid"].number == ThreadDescriptorField.TID
         assert f["thread_name"].number == ThreadDescriptorField.THREAD_NAME
 
     def test_process_descriptor_field(self) -> None:
-        f = ProcessDescriptor.DESCRIPTOR.fields_by_name
+        desc = ProcessDescriptor.DESCRIPTOR
+        assert desc is not None
+        f = desc.fields_by_name
         assert f["pid"].number == ProcessDescriptorField.PID
         assert f["cmdline"].number == ProcessDescriptorField.CMDLINE
         assert f["process_name"].number == ProcessDescriptorField.PROCESS_NAME
         assert f["start_timestamp_ns"].number == ProcessDescriptorField.START_TIMESTAMP_NS
 
     def test_counter_descriptor_field(self) -> None:
-        f = CounterDescriptor.DESCRIPTOR.fields_by_name
+        desc = CounterDescriptor.DESCRIPTOR
+        assert desc is not None
+        f = desc.fields_by_name
         assert f["type"].number == CounterDescriptorField.TYPE
         assert f["categories"].number == CounterDescriptorField.CATEGORIES
         assert f["unit"].number == CounterDescriptorField.UNIT
@@ -76,7 +87,9 @@ class TestPerfettoFormatConstants:
         assert f["y_axis_share_key"].number == CounterDescriptorField.Y_AXIS_SHARE_KEY
 
     def test_track_event_field(self) -> None:
-        f = TrackEvent.DESCRIPTOR.fields_by_name
+        desc = TrackEvent.DESCRIPTOR
+        assert desc is not None
+        f = desc.fields_by_name
         assert f["type"].number == TrackEventField.TYPE
         assert f["track_uuid"].number == TrackEventField.TRACK_UUID
         assert f["debug_annotations"].number == TrackEventField.DEBUG_ANNOTATIONS
@@ -88,7 +101,9 @@ class TestPerfettoFormatConstants:
         assert f["timestamp_absolute_us"].number == TrackEventField.TIMESTAMP_ABSOLUTE_US
 
     def test_debug_annotation_field(self) -> None:
-        f = DebugAnnotation.DESCRIPTOR.fields_by_name
+        desc = DebugAnnotation.DESCRIPTOR
+        assert desc is not None
+        f = desc.fields_by_name
         assert f["name"].number == DebugAnnotationField.NAME
         assert f["bool_value"].number == DebugAnnotationField.BOOL_VALUE
         assert f["int_value"].number == DebugAnnotationField.INT_VALUE
