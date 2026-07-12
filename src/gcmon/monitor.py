@@ -107,6 +107,6 @@ def create_monitor(
         exporter: Events exporter.
 
     Returns:
-        A GCMonitor instance ready to be added to a GCMonitorThread.
+        A GCMonitor instance ready to be polled.
     """
     return EventsMonitor(process, exporter, stats)
