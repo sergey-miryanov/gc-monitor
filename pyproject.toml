@@ -51,7 +51,8 @@ numpy = "^2.0"
 types-psutil = "^7.2"
 twine = "^6.0"
 pytest-repeat = "^0.9.4"
-perfetto = "^0.56.0"
+perfetto = "^0.57.2"
+protobuf = "^7.35"
 pytest-codspeed = "^5.0.3"
 
 [tool.poetry.urls]
