@@ -27,7 +27,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -43,7 +43,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -59,7 +59,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -74,7 +74,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -90,7 +90,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -106,7 +106,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -122,7 +122,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -135,7 +135,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -151,7 +151,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
@@ -168,7 +168,7 @@ class TestRunMonitoringLoop:
         mock_factory: MagicMock,
         mock_wait_policy_factory: MagicMock,
         monitoring_options: MagicMock,
-        mock_monitoring_base_deps: dict,
+        mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
