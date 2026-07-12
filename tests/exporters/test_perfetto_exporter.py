@@ -2,31 +2,23 @@
 
 from pathlib import Path
 
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
+    Trace,
+    TracePacket,
+    TrackEvent,
+)
+
 from gcmon.data import GCStatsInfo
 from gcmon.exporters import PerfettoExporter
 from gcmon.exporters.perfetto_format import (
     TYPE_COUNTER,
-    TYPE_INSTANT,
     TYPE_SLICE_BEGIN,
     TYPE_SLICE_END,
-    ProcessDescriptorField,
-    TraceField,
-    TracePacketField,
-    TrackDescriptorField,
-    TrackEventField,
 )
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
-from tests.proto_decoder import (
-    ProtoField,
-    decode_message,
-    get_field,
-    get_fields,
-    get_string,
-    get_varint,
-)
 
 # Name of the synthetic marker emitted on the process track so the
 # cmdline description is always visible in the Perfetto UI. Must match
@@ -34,57 +26,40 @@ from tests.proto_decoder import (
 _START_PROCESS_MARKER_NAME: str = "Start Process"
 
 
-def _read_trace_packets(path: Path) -> list[list[ProtoField]]:
-    """Read a Perfetto binary trace file and return list of parsed TracePacket fields."""
+def _read_trace_packets(path: Path) -> list[TracePacket]:
     with open(path, "rb") as f:
         data = f.read()
     if not data:
         return []
-    trace_fields = decode_message(data)
-    return [decode_message(f.value) for f in get_fields(trace_fields, TraceField.PACKET) if isinstance(f.value, bytes)]
+    trace = Trace()
+    trace.ParseFromString(data)
+    return list(trace.packet)
 
 
-def _get_track_event(fields: list[ProtoField]) -> list[ProtoField] | None:
-    te_bytes = get_bytes_at(fields, TracePacketField.TRACK_EVENT)
-    if te_bytes:
-        return decode_message(te_bytes)
+def _get_track_event(packet: TracePacket) -> TrackEvent | None:
+    if packet.HasField("track_event"):
+        return packet.track_event
     return None
 
 
-def _is_track_event(fields: list[ProtoField], event_type: int) -> bool:
-    track_event = _get_track_event(fields)
+def _is_track_event(packet: TracePacket, event_type: int) -> bool:
+    track_event = _get_track_event(packet)
     if track_event is not None:
-        return any(f.field_number == TrackEventField.TYPE and f.value == event_type for f in track_event)
+        return track_event.type == event_type
     return False
 
 
-def get_bytes_at(fields: list[ProtoField], field_number: int) -> bytes | None:
-    for f in fields:
-        if f.field_number == field_number and isinstance(f.value, bytes):
-            return f.value
-    return None
-
-
-def get_int_at(fields: list[ProtoField], field_number: int) -> int | None:
-    for f in fields:
-        if f.field_number == field_number and isinstance(f.value, int):
-            return f.value
-    return None
-
-
-def _count_event_type(packet_fields: list[list[ProtoField]], event_type: int) -> int:
+def _count_event_type(packet_fields: list[TracePacket], event_type: int) -> int:
     count = 0
     for pf in packet_fields:
         track_event = _get_track_event(pf)
-        if track_event:
-            for f in track_event:
-                if f.field_number == TrackEventField.TYPE and f.value == event_type:
-                    count += 1
+        if track_event is not None and track_event.type == event_type:
+            count += 1
     return count
 
 
-def _count_descriptors(packet_fields: list[list[ProtoField]]) -> int:
-    return sum(1 for pf in packet_fields if get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR) is not None)
+def _count_descriptors(packet_fields: list[TracePacket]) -> int:
+    return sum(1 for pf in packet_fields if pf.HasField("track_descriptor"))
 
 
 class TestPerfettoExporter:
@@ -142,10 +117,10 @@ class TestPerfettoExporter:
 
         # Verify pause slice
         hit = False
-        for pf in packets:
-            track_event = _get_track_event(pf)
-            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
-                name = get_string(track_event, TrackEventField.NAME)
+        for packet in packets:
+            track_event = _get_track_event(packet)
+            if track_event and track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
+                name = track_event.name
                 if name == "GC Pause (gen=0)":
                     hit = True
                     break
@@ -168,10 +143,10 @@ class TestPerfettoExporter:
 
         packets = _read_trace_packets(path)
         pause_ts = None
-        for pf in packets:
-            track_event = _get_track_event(pf)
-            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
-                pause_ts = get_int_at(pf, TracePacketField.TIMESTAMP)
+        for packet in packets:
+            track_event = _get_track_event(packet)
+            if track_event and track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
+                pause_ts = packet.timestamp
                 break
         assert pause_ts == 1_500_000_000
 
@@ -195,10 +170,10 @@ class TestPerfettoExporter:
 
         packets = _read_trace_packets(path)
         names = set()
-        for pf in packets:
-            track_event = _get_track_event(pf)
-            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
-                name = get_string(track_event, TrackEventField.NAME)
+        for packet in packets:
+            track_event = _get_track_event(packet)
+            if track_event and track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
+                name = track_event.name
                 if name and "GC Pause" in name:
                     names.add(name)
         assert names == {"GC Pause (gen=0)", "GC Pause (gen=1)", "GC Pause (gen=2)"}
@@ -211,10 +186,10 @@ class TestPerfettoExporter:
 
         packets = _read_trace_packets(path)
         names: list[str] = []
-        for pf in packets:
-            track_event = _get_track_event(pf)
-            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_INSTANT:
-                name = get_string(track_event, TrackEventField.NAME)
+        for packet in packets:
+            track_event = _get_track_event(packet)
+            if track_event and track_event.type == TrackEvent.Type.TYPE_INSTANT:
+                name = track_event.name
                 if name:
                     names.append(name)
         # First the synthetic "Start Process" marker (emitted on the
@@ -230,10 +205,10 @@ class TestPerfettoExporter:
 
         packets = _read_trace_packets(path)
         names: list[str] = []
-        for pf in packets:
-            track_event = _get_track_event(pf)
-            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_INSTANT:
-                event_name = get_string(track_event, TrackEventField.NAME)
+        for packet in packets:
+            track_event = _get_track_event(packet)
+            if track_event and track_event.type == TrackEvent.Type.TYPE_INSTANT:
+                event_name = track_event.name
                 if event_name:
                     names.append(event_name)
         # The marker is emitted only on the first event for the pid.
@@ -251,9 +226,9 @@ class TestPerfettoExporter:
         exporter.close()
 
         packets = _read_trace_packets(path)
-        for pf in packets:
-            ts = get_int_at(pf, TracePacketField.TIMESTAMP)
-            if ts is not None:
+        for packet in packets:
+            ts = packet.timestamp
+            if ts:
                 assert ts >= 1_500_000
 
     def test_close_with_no_events(self, perfetto_exporter: ExporterFactory) -> None:
@@ -267,7 +242,7 @@ class TestPerfettoExporter:
         exporter.close()
 
         packets = _read_trace_packets(path)
-        assert get_bytes_at(packets[0], TracePacketField.TRACK_DESCRIPTOR) is not None
+        assert packets[0].HasField("track_descriptor")
 
     def test_multiple_processes(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
@@ -277,7 +252,7 @@ class TestPerfettoExporter:
         exporter.close()
 
         packets = _read_trace_packets(path)
-        descriptors = sum(1 for pf in packets if get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR) is not None)
+        descriptors = sum(1 for p in packets if p.HasField("track_descriptor"))
         assert descriptors >= 4
 
     def test_incremental_item_emits_subphases(self, perfetto_exporter: ExporterFactory) -> None:
@@ -288,10 +263,10 @@ class TestPerfettoExporter:
 
         packets = _read_trace_packets(path)
         begin_names = set()
-        for pf in packets:
-            track_event = _get_track_event(pf)
-            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
-                name = get_string(track_event, TrackEventField.NAME)
+        for packet in packets:
+            track_event = _get_track_event(packet)
+            if track_event and track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
+                name = track_event.name
                 if name:
                     begin_names.add(name)
         expected = {
@@ -314,11 +289,11 @@ class TestPerfettoExporter:
 
         packets = _read_trace_packets(path)
         counter_tracks = set()
-        for pf in packets:
-            track_event = _get_track_event(pf)
-            if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_COUNTER:
-                uuid = get_varint(track_event, TrackEventField.TRACK_UUID)
-                if uuid is not None:
+        for packet in packets:
+            track_event = _get_track_event(packet)
+            if track_event and track_event.type == TrackEvent.Type.TYPE_COUNTER:
+                uuid = track_event.track_uuid
+                if uuid:
                     counter_tracks.add(uuid)
         # collected, uncollectable, candidates, heap_size, duration.
         assert len(counter_tracks) == 5
@@ -356,20 +331,17 @@ class TestPerfettoExporter:
         packets = _read_trace_packets(tmp_path / "test.pb")
         found_cmdline = False
         found_description = False
-        for pf in packets:
-            td_bytes = get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR)
-            if td_bytes:
-                td_fields = decode_message(td_bytes)
-                if get_string(td_fields, TrackDescriptorField.DESCRIPTION) == "python -u my_script.py":
+        for packet in packets:
+            if packet.HasField("track_descriptor"):
+                td = packet.track_descriptor
+                if td.description == "python -u my_script.py":
                     found_description = True
-                proc_bytes = get_bytes_at(td_fields, TrackDescriptorField.PROCESS)
-                if proc_bytes:
-                    proc_fields = decode_message(proc_bytes)
-                    cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
-                    if cmdline_entries:
-                        assert cmdline_entries[0].value == b"python"
-                        assert cmdline_entries[1].value == b"-u"
-                        assert cmdline_entries[2].value == b"my_script.py"
+                if td.HasField("process"):
+                    proc = td.process
+                    if proc.cmdline:
+                        assert proc.cmdline[0] == "python"
+                        assert proc.cmdline[1] == "-u"
+                        assert proc.cmdline[2] == "my_script.py"
                         found_cmdline = True
         assert found_cmdline, "cmdline not found in trace"
         assert found_description, "track description should be set when cmdline is present"
@@ -398,18 +370,13 @@ class TestPerfettoExporter:
         assert len(trace_data) > 0
 
         packets = _read_trace_packets(tmp_path / "test.pb")
-        for pf in packets:
-            td_bytes = get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR)
-            if td_bytes:
-                td_fields = decode_message(td_bytes)
-                assert get_field(td_fields, TrackDescriptorField.DESCRIPTION) is None, (
-                    "description should be absent when cmdline is unavailable"
-                )
-                proc_bytes = get_bytes_at(td_fields, TrackDescriptorField.PROCESS)
-                if proc_bytes:
-                    proc_fields = decode_message(proc_bytes)
-                    cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
-                    assert cmdline_entries == [], "cmdline should be absent when psutil is unavailable"
+        for packet in packets:
+            if packet.HasField("track_descriptor"):
+                td = packet.track_descriptor
+                assert not td.HasField("description"), "description should be absent when cmdline is unavailable"
+                if td.HasField("process"):
+                    proc = td.process
+                    assert len(proc.cmdline) == 0, "cmdline should be absent when psutil is unavailable"
 
     def test_slice_begin_end_matched(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()

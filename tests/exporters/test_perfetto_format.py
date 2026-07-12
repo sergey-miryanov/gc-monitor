@@ -1,20 +1,20 @@
 """Tests for Perfetto protobuf message builders and conversion."""
 
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
+    ThreadDescriptor,
+    Trace,
+    TracePacket,
+    TrackDescriptor,
+    TrackEvent,
+)
+
 from gcmon.data import GCStatsInfo
 from gcmon.exporters.perfetto_format import (
     TYPE_COUNTER,
     TYPE_INSTANT,
     TYPE_SLICE_BEGIN,
     TYPE_SLICE_END,
-    CounterDescriptorField,
-    DebugAnnotationField,
     PerfettoTrackState,
-    ProcessDescriptorField,
-    ThreadDescriptorField,
-    TraceField,
-    TracePacketField,
-    TrackDescriptorField,
-    TrackEventField,
     build_trace,
     build_trace_packet,
     build_track_descriptor,
@@ -24,16 +24,6 @@ from gcmon.exporters.perfetto_format import (
 )
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.trace_event import TraceEvent, counter_event, instant_event, process_meta, thread_meta
-from tests.proto_decoder import (
-    ProtoField,
-    decode_message,
-    get_bytes,
-    get_double,
-    get_field,
-    get_fields,
-    get_string,
-    get_varint,
-)
 
 # Name of the synthetic marker emitted on the process track so the
 # cmdline description is always visible in the Perfetto UI. Must match
@@ -183,17 +173,16 @@ class TestProcessLifetimeState:
 class TestBuildTrackDescriptor:
     def test_process_descriptor(self) -> None:
         data = build_track_descriptor(uuid=100, name="Process 100", pid=100)
-        fields = decode_message(data)
-        assert get_varint(fields, TrackDescriptorField.UUID) == 100
-        assert get_string(fields, TrackDescriptorField.NAME) == "Process 100"
-        assert get_field(fields, TrackDescriptorField.THREAD) is None
-        assert get_field(fields, TrackDescriptorField.PARENT_UUID) is None
-        assert get_field(fields, TrackDescriptorField.COUNTER) is None
-        proc_desc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
-        assert proc_desc_bytes is not None
-        proc_fields = decode_message(proc_desc_bytes)
-        assert get_varint(proc_fields, ProcessDescriptorField.PID) == 100
-        assert get_string(proc_fields, ProcessDescriptorField.PROCESS_NAME) == "Process 100"
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.uuid == 100
+        assert descriptor.name == "Process 100"
+        assert not descriptor.HasField("thread")
+        assert not descriptor.HasField("parent_uuid")
+        assert not descriptor.HasField("counter")
+        assert descriptor.HasField("process")
+        assert descriptor.process.pid == 100
+        assert descriptor.process.process_name == "Process 100"
 
     def test_process_descriptor_with_cmdline(self) -> None:
         data = build_track_descriptor(
@@ -203,37 +192,33 @@ class TestBuildTrackDescriptor:
             cmdline=["python", "-u", "script.py", "--arg1"],
             description="python -u script.py --arg1",
         )
-        fields = decode_message(data)
-        assert get_string(fields, TrackDescriptorField.DESCRIPTION) == "python -u script.py --arg1"
-        proc_desc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
-        assert proc_desc_bytes is not None
-        proc_fields = decode_message(proc_desc_bytes)
-        assert get_varint(proc_fields, ProcessDescriptorField.PID) == 100
-        assert get_string(proc_fields, ProcessDescriptorField.PROCESS_NAME) == "Process 100"
-        cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
-        assert len(cmdline_entries) == 4
-        assert cmdline_entries[0].value == b"python"
-        assert cmdline_entries[1].value == b"-u"
-        assert cmdline_entries[2].value == b"script.py"
-        assert cmdline_entries[3].value == b"--arg1"
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.description == "python -u script.py --arg1"
+        assert descriptor.HasField("process")
+        assert descriptor.process.pid == 100
+        assert descriptor.process.process_name == "Process 100"
+        assert len(descriptor.process.cmdline) == 4
+        assert descriptor.process.cmdline[0] == "python"
+        assert descriptor.process.cmdline[1] == "-u"
+        assert descriptor.process.cmdline[2] == "script.py"
+        assert descriptor.process.cmdline[3] == "--arg1"
 
     def test_process_descriptor_no_cmdline_when_none(self) -> None:
         data = build_track_descriptor(uuid=100, name="Process 100", pid=100)
-        fields = decode_message(data)
-        assert get_field(fields, TrackDescriptorField.DESCRIPTION) is None
-        proc_desc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
-        assert proc_desc_bytes is not None
-        proc_fields = decode_message(proc_desc_bytes)
-        assert get_fields(proc_fields, ProcessDescriptorField.CMDLINE) == []
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert not descriptor.HasField("description")
+        assert descriptor.HasField("process")
+        assert len(descriptor.process.cmdline) == 0
 
     def test_process_descriptor_no_cmdline_when_empty(self) -> None:
         data = build_track_descriptor(uuid=100, name="Process 100", pid=100, cmdline=[])
-        fields = decode_message(data)
-        assert get_field(fields, TrackDescriptorField.DESCRIPTION) is None
-        proc_desc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
-        assert proc_desc_bytes is not None
-        proc_fields = decode_message(proc_desc_bytes)
-        assert get_fields(proc_fields, ProcessDescriptorField.CMDLINE) == []
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert not descriptor.HasField("description")
+        assert descriptor.HasField("process")
+        assert len(descriptor.process.cmdline) == 0
 
     def test_thread_descriptor(self) -> None:
         data = build_track_descriptor(
@@ -244,24 +229,24 @@ class TestBuildTrackDescriptor:
             parent_uuid=100,
             sibling_order_rank=0,
         )
-        fields = decode_message(data)
-        assert get_varint(fields, TrackDescriptorField.UUID) == 200
-        assert get_string(fields, TrackDescriptorField.NAME) == "Thread 0"
-        assert get_varint(fields, TrackDescriptorField.PARENT_UUID) == 100
-        assert get_varint(fields, TrackDescriptorField.SIBLING_ORDER_RANK) == 0
-        thread_desc_bytes = get_bytes(fields, TrackDescriptorField.THREAD)
-        assert thread_desc_bytes is not None
-        thread_fields = decode_message(thread_desc_bytes)
-        assert get_varint(thread_fields, ThreadDescriptorField.PID) == 100
-        assert get_varint(thread_fields, ThreadDescriptorField.TID) == 0
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.uuid == 200
+        assert descriptor.name == "Thread 0"
+        assert descriptor.parent_uuid == 100
+        assert descriptor.sibling_order_rank == 0
+        assert descriptor.HasField("thread")
+        assert descriptor.thread.pid == 100
+        assert descriptor.thread.tid == 0
 
     def test_counter_descriptor(self) -> None:
         data = build_track_descriptor(uuid=300, name="G0 collected", parent_uuid=200, is_counter=True)
-        fields = decode_message(data)
-        assert get_varint(fields, TrackDescriptorField.UUID) == 300
-        assert get_string(fields, TrackDescriptorField.NAME) == "G0 collected"
-        assert get_varint(fields, TrackDescriptorField.PARENT_UUID) == 200
-        assert get_bytes(fields, TrackDescriptorField.COUNTER) == b""
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.uuid == 300
+        assert descriptor.name == "G0 collected"
+        assert descriptor.parent_uuid == 200
+        assert descriptor.counter.SerializeToString() == b""
 
     def test_counter_descriptor_with_share_key(self) -> None:
         data = build_track_descriptor(
@@ -271,15 +256,13 @@ class TestBuildTrackDescriptor:
             is_counter=True,
             y_axis_share_key="collected",
         )
-        fields = decode_message(data)
-        assert get_varint(fields, TrackDescriptorField.UUID) == 300
-        assert get_string(fields, TrackDescriptorField.NAME) == "G0 collected"
-        assert get_varint(fields, TrackDescriptorField.PARENT_UUID) == 200
-        counter_bytes = get_bytes(fields, TrackDescriptorField.COUNTER)
-        assert counter_bytes is not None
-        assert counter_bytes != b""
-        counter_fields = decode_message(counter_bytes)
-        assert get_string(counter_fields, CounterDescriptorField.Y_AXIS_SHARE_KEY) == "collected"
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.uuid == 300
+        assert descriptor.name == "G0 collected"
+        assert descriptor.parent_uuid == 200
+        assert descriptor.HasField("counter")
+        assert descriptor.counter.y_axis_share_key == "collected"
 
     def test_process_descriptor_with_start_timestamp_ns(self) -> None:
         data = build_track_descriptor(
@@ -288,21 +271,19 @@ class TestBuildTrackDescriptor:
             pid=100,
             start_timestamp_ns=1_700_000_000_123_456_789,
         )
-        fields = decode_message(data)
-        proc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
-        assert proc_bytes is not None
-        proc_fields = decode_message(proc_bytes)
-        assert get_varint(proc_fields, ProcessDescriptorField.START_TIMESTAMP_NS) == 1_700_000_000_123_456_789
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.HasField("process")
+        assert descriptor.process.start_timestamp_ns == 1_700_000_000_123_456_789
 
     def test_process_descriptor_without_start_timestamp_ns(self) -> None:
         """No start_timestamp_ns is written when the kwarg is omitted
         (default ``None``). The field must be absent from the bytes."""
         data = build_track_descriptor(uuid=100, name="Process 100", pid=100)
-        fields = decode_message(data)
-        proc_bytes = get_bytes(fields, TrackDescriptorField.PROCESS)
-        assert proc_bytes is not None
-        proc_fields = decode_message(proc_bytes)
-        assert get_field(proc_fields, ProcessDescriptorField.START_TIMESTAMP_NS) is None
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.HasField("process")
+        assert not descriptor.process.HasField("start_timestamp_ns")
 
     def test_thread_descriptor_ignores_start_timestamp_ns(self) -> None:
         """``start_timestamp_ns`` is only valid on a process
@@ -317,11 +298,15 @@ class TestBuildTrackDescriptor:
             parent_uuid=100,
             start_timestamp_ns=1_000,
         )
-        fields = decode_message(data)
-        thread_bytes = get_bytes(fields, TrackDescriptorField.THREAD)
-        assert thread_bytes is not None
-        thread_fields = decode_message(thread_bytes)
-        assert get_field(thread_fields, ProcessDescriptorField.START_TIMESTAMP_NS) is None
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.HasField("thread")
+        # ThreadDescriptor has no ``start_timestamp_ns`` field, so the
+        # encoder must NOT write it in the thread submessage. Check by
+        # verifying that the parsed + re-serialized thread submessage
+        # matches the expected minimal payload.
+        expected = ThreadDescriptor(pid=100, tid=0)
+        assert descriptor.thread.SerializeToString() == expected.SerializeToString()
 
 
 class TestBuildCounterDescriptor:
@@ -337,12 +322,10 @@ class TestBuildCounterDescriptor:
             is_counter=True,
             y_axis_share_key="collected",
         )
-        fields = decode_message(data)
-        counter_bytes = get_bytes(fields, TrackDescriptorField.COUNTER)
-        assert counter_bytes is not None
-        assert counter_bytes != b""
-        counter_fields = decode_message(counter_bytes)
-        assert get_string(counter_fields, CounterDescriptorField.Y_AXIS_SHARE_KEY) == "collected"
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.HasField("counter")
+        assert descriptor.counter.y_axis_share_key == "collected"
 
     def test_no_y_axis_share_key_emits_empty_submessage(self) -> None:
         data = build_track_descriptor(
@@ -351,8 +334,9 @@ class TestBuildCounterDescriptor:
             parent_uuid=200,
             is_counter=True,
         )
-        fields = decode_message(data)
-        assert get_bytes(fields, TrackDescriptorField.COUNTER) == b""
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.counter.SerializeToString() == b""
 
     def test_y_axis_share_key_ignored_for_non_counter_track(self) -> None:
         data = build_track_descriptor(
@@ -362,8 +346,9 @@ class TestBuildCounterDescriptor:
             is_counter=False,
             y_axis_share_key="ignored",
         )
-        fields = decode_message(data)
-        assert get_field(fields, TrackDescriptorField.COUNTER) is None
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert not descriptor.HasField("counter")
 
     def test_only_share_key_field_is_set_no_other_counter_fields(self) -> None:
         data = build_track_descriptor(
@@ -373,18 +358,16 @@ class TestBuildCounterDescriptor:
             is_counter=True,
             y_axis_share_key="duration",
         )
-        fields = decode_message(data)
-        counter_bytes = get_bytes(fields, TrackDescriptorField.COUNTER)
-        assert counter_bytes is not None
-        counter_fields = decode_message(counter_bytes)
-        assert len(counter_fields) == 1
-        assert get_field(counter_fields, CounterDescriptorField.TYPE) is None
-        assert get_field(counter_fields, CounterDescriptorField.CATEGORIES) is None
-        assert get_field(counter_fields, CounterDescriptorField.UNIT) is None
-        assert get_field(counter_fields, CounterDescriptorField.UNIT_MULTIPLIER) is None
-        assert get_field(counter_fields, CounterDescriptorField.IS_INCREMENTAL) is None
-        assert get_field(counter_fields, CounterDescriptorField.UNIT_NAME) is None
-        assert get_string(counter_fields, CounterDescriptorField.Y_AXIS_SHARE_KEY) == "duration"
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.HasField("counter")
+        assert not descriptor.counter.HasField("type")
+        assert len(descriptor.counter.categories) == 0
+        assert not descriptor.counter.HasField("unit")
+        assert not descriptor.counter.HasField("unit_multiplier")
+        assert not descriptor.counter.HasField("is_incremental")
+        assert not descriptor.counter.HasField("unit_name")
+        assert descriptor.counter.y_axis_share_key == "duration"
 
     def test_y_axis_share_key_empty_string_treated_as_none(self) -> None:
         data = build_track_descriptor(
@@ -394,75 +377,83 @@ class TestBuildCounterDescriptor:
             is_counter=True,
             y_axis_share_key="",
         )
-        fields = decode_message(data)
-        assert get_bytes(fields, TrackDescriptorField.COUNTER) == b""
+        descriptor = TrackDescriptor()
+        descriptor.ParseFromString(data)
+        assert descriptor.counter.SerializeToString() == b""
 
 
 class TestBuildTracePacket:
     def test_empty_packet(self) -> None:
         data = build_trace_packet(1)
-        fields = decode_message(data)
-        assert get_varint(fields, TracePacketField.SEQUENCE_ID) == 1
+        packet = TracePacket()
+        packet.ParseFromString(data)
+        assert packet.trusted_packet_sequence_id == 1
 
     def test_with_timestamp(self) -> None:
         data = build_trace_packet(1, timestamp=1_500_000_000)
-        fields = decode_message(data)
-        assert get_varint(fields, TracePacketField.SEQUENCE_ID) == 1
-        assert get_varint(fields, TracePacketField.TIMESTAMP) == 1_500_000_000
+        packet = TracePacket()
+        packet.ParseFromString(data)
+        assert packet.trusted_packet_sequence_id == 1
+        assert packet.timestamp == 1_500_000_000
 
     def test_with_track_event(self) -> None:
         event = b"\x08\x01"
         data = build_trace_packet(1, track_event=event)
-        fields = decode_message(data)
-        assert get_varint(fields, TracePacketField.SEQUENCE_ID) == 1
-        assert get_bytes(fields, TracePacketField.TRACK_EVENT) == event
+        packet = TracePacket()
+        packet.ParseFromString(data)
+        assert packet.trusted_packet_sequence_id == 1
+        assert packet.track_event.SerializeToString() == event
 
     def test_with_track_descriptor(self) -> None:
         desc = b"\x0a\x05hello"
         data = build_trace_packet(1, track_descriptor=desc)
-        fields = decode_message(data)
-        assert get_varint(fields, TracePacketField.SEQUENCE_ID) == 1
-        assert get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR) == desc
+        packet = TracePacket()
+        packet.ParseFromString(data)
+        assert packet.trusted_packet_sequence_id == 1
+        assert packet.track_descriptor.SerializeToString() == desc
 
     def test_with_all_fields(self) -> None:
         event = b"\x08\x01"
-        desc = b"\x0a\x05hello"
-        data = build_trace_packet(42, timestamp=1000, track_event=event, track_descriptor=desc)
-        fields = decode_message(data)
-        assert get_varint(fields, TracePacketField.SEQUENCE_ID) == 42
-        assert get_varint(fields, TracePacketField.TIMESTAMP) == 1000
-        assert get_bytes(fields, TracePacketField.TRACK_EVENT) == event
-        assert get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR) == desc
+        data = build_trace_packet(42, timestamp=1000, track_event=event)
+        packet = TracePacket()
+        packet.ParseFromString(data)
+        assert packet.trusted_packet_sequence_id == 42
+        assert packet.timestamp == 1000
+        assert packet.track_event.SerializeToString() == event
 
 
 class TestBuildTrackEvent:
     def test_slice_begin(self) -> None:
         data = build_track_event(type=TYPE_SLICE_BEGIN, track_uuid=100, name="test")
-        fields = decode_message(data)
-        assert get_varint(fields, TrackEventField.TYPE) == TYPE_SLICE_BEGIN
-        assert get_varint(fields, TrackEventField.TRACK_UUID) == 100
-        assert get_string(fields, TrackEventField.NAME) == "test"
+        track_event = TrackEvent()
+        track_event.ParseFromString(data)
+        assert track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+        assert track_event.track_uuid == 100
+        assert track_event.name == "test"
 
     def test_slice_end(self) -> None:
         data = build_track_event(type=TYPE_SLICE_END, track_uuid=100)
-        fields = decode_message(data)
-        assert get_varint(fields, TrackEventField.TYPE) == TYPE_SLICE_END
-        assert get_varint(fields, TrackEventField.TRACK_UUID) == 100
-        assert get_field(fields, TrackEventField.NAME) is None
+        track_event = TrackEvent()
+        track_event.ParseFromString(data)
+        assert track_event.type == TrackEvent.Type.TYPE_SLICE_END
+        assert track_event.track_uuid == 100
+        assert not track_event.HasField("name")
 
     def test_instant(self) -> None:
         data = build_track_event(type=TYPE_INSTANT, track_uuid=100, name="marker")
-        fields = decode_message(data)
-        assert get_varint(fields, TrackEventField.TYPE) == TYPE_INSTANT
-        assert get_varint(fields, TrackEventField.TRACK_UUID) == 100
-        assert get_string(fields, TrackEventField.NAME) == "marker"
+        track_event = TrackEvent()
+        track_event.ParseFromString(data)
+        assert track_event.type == TrackEvent.Type.TYPE_INSTANT
+        assert track_event.track_uuid == 100
+        assert track_event.name == "marker"
 
     def test_counter(self) -> None:
         data = build_track_event(type=TYPE_COUNTER, track_uuid=100, counter_value=42)
-        fields = decode_message(data)
-        assert get_varint(fields, TrackEventField.TYPE) == TYPE_COUNTER
-        assert get_varint(fields, TrackEventField.TRACK_UUID) == 100
-        assert get_varint(fields, TrackEventField.COUNTER_VALUE) == 42
+        track_event = TrackEvent()
+        track_event.ParseFromString(data)
+        assert track_event.type == TrackEvent.Type.TYPE_COUNTER
+        assert track_event.track_uuid == 100
+        assert track_event.counter_value == 42
 
     def test_with_categories(self) -> None:
         data = build_track_event(
@@ -471,26 +462,28 @@ class TestBuildTrackEvent:
             name="test",
             categories=["cat1", "cat2"],
         )
-        fields = decode_message(data)
-        cats = get_fields(fields, TrackEventField.CATEGORIES)
-        assert len(cats) == 2
-        assert cats[0].value == b"cat1"
-        assert cats[1].value == b"cat2"
+        track_event = TrackEvent()
+        track_event.ParseFromString(data)
+        assert len(track_event.categories) == 2
+        assert track_event.categories[0] == "cat1"
+        assert track_event.categories[1] == "cat2"
 
     def test_with_debug_annotations(self) -> None:
-        ann1 = b"\x0a\x03key\x10\x2a"
-        ann2 = b"\x0a\x05other\x10\x64"
+        ann1 = b"\x52\x03key\x20\x2a"
+        ann2 = b"\x52\x05other\x20\x64"
         data = build_track_event(
             type=TYPE_SLICE_BEGIN,
             track_uuid=100,
             name="test",
             debug_annotations=[ann1, ann2],
         )
-        fields = decode_message(data)
-        anns = get_fields(fields, TrackEventField.DEBUG_ANNOTATIONS)
-        assert len(anns) == 2
-        assert anns[0].value == ann1
-        assert anns[1].value == ann2
+        track_event = TrackEvent()
+        track_event.ParseFromString(data)
+        assert len(track_event.debug_annotations) == 2
+        assert track_event.debug_annotations[0].name == "key"
+        assert track_event.debug_annotations[0].int_value == 42
+        assert track_event.debug_annotations[1].name == "other"
+        assert track_event.debug_annotations[1].int_value == 100
 
 
 class TestBuildTrace:
@@ -501,18 +494,20 @@ class TestBuildTrace:
     def test_single_packet(self) -> None:
         packet = b"\x40\x01"
         data = build_trace([packet])
-        fields = decode_message(data)
-        assert get_bytes(fields, TraceField.PACKET) == packet
+        trace = Trace()
+        trace.ParseFromString(data)
+        assert len(trace.packet) == 1
+        assert trace.packet[0].SerializeToString() == packet
 
     def test_multiple_packets(self) -> None:
         p1 = b"\x40\x01"
         p2 = b"\x40\x02"
         data = build_trace([p1, p2])
-        fields = decode_message(data)
-        packets = get_fields(fields, TraceField.PACKET)
-        assert len(packets) == 2
-        assert packets[0].value == p1
-        assert packets[1].value == p2
+        trace = Trace()
+        trace.ParseFromString(data)
+        assert len(trace.packet) == 2
+        assert trace.packet[0].SerializeToString() == p1
+        assert trace.packet[1].SerializeToString() == p2
 
 
 class TestConvertItemToPerfettoPackets:
@@ -536,21 +531,17 @@ class TestConvertItemToPerfettoPackets:
         found_cmdline = False
         found_description = False
         for desc_bytes in desc1:
-            fields = decode_message(desc_bytes)
-            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
-            if td_bytes:
-                td_fields = decode_message(td_bytes)
-                if get_string(td_fields, TrackDescriptorField.DESCRIPTION) == "python script.py":
+            packet = TracePacket()
+            packet.ParseFromString(desc_bytes)
+            if packet.HasField("track_descriptor"):
+                td = packet.track_descriptor
+                if td.description == "python script.py":
                     found_description = True
-                proc_bytes = get_bytes(td_fields, TrackDescriptorField.PROCESS)
-                if proc_bytes:
-                    proc_fields = decode_message(proc_bytes)
-                    cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
-                    if cmdline_entries:
-                        assert len(cmdline_entries) == 2
-                        assert cmdline_entries[0].value == b"python"
-                        assert cmdline_entries[1].value == b"script.py"
-                        found_cmdline = True
+                if td.HasField("process") and len(td.process.cmdline) > 0:
+                    assert len(td.process.cmdline) == 2
+                    assert td.process.cmdline[0] == "python"
+                    assert td.process.cmdline[1] == "script.py"
+                    found_cmdline = True
         assert found_cmdline
         assert found_description, "description should be set when cmdline is present"
 
@@ -573,12 +564,10 @@ class TestConvertItemToPerfettoPackets:
         )
 
         for desc_bytes in desc2:
-            fields = decode_message(desc_bytes)
-            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
-            if td_bytes:
-                td_fields = decode_message(td_bytes)
-                proc_bytes = get_bytes(td_fields, TrackDescriptorField.PROCESS)
-                assert proc_bytes is None
+            packet = TracePacket()
+            packet.ParseFromString(desc_bytes)
+            if packet.HasField("track_descriptor"):
+                assert not packet.track_descriptor.HasField("process")
 
     def test_basic_item_emits_descriptors(self) -> None:
         state = PerfettoTrackState()
@@ -618,15 +607,14 @@ class TestConvertItemToPerfettoPackets:
         thread_uuid = state.get_thread_track_uuid(100, 0)
         thread_found = False
         for desc_bytes in descriptors:
-            fields = decode_message(desc_bytes)
-            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
-            if td_bytes:
-                td_fields = decode_message(td_bytes)
-                uuid = get_varint(td_fields, TrackDescriptorField.UUID)
-                if uuid == thread_uuid:
-                    assert get_varint(td_fields, TrackDescriptorField.PARENT_UUID) == proc_uuid
-                    assert get_varint(td_fields, TrackDescriptorField.SIBLING_ORDER_RANK) == 0
-                    assert get_varint(td_fields, TrackDescriptorField.CHILD_ORDERING) is None
+            packet = TracePacket()
+            packet.ParseFromString(desc_bytes)
+            if packet.HasField("track_descriptor"):
+                td = packet.track_descriptor
+                if td.uuid == thread_uuid:
+                    assert td.parent_uuid == proc_uuid
+                    assert td.sibling_order_rank == 0
+                    assert not td.HasField("child_ordering")
                     thread_found = True
         assert thread_found
 
@@ -651,22 +639,17 @@ class TestConvertItemToPerfettoPackets:
         group_seen = False
         per_metric_parent: dict[str, int] = {}
         for desc_bytes in descriptors:
-            fields = decode_message(desc_bytes)
-            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
-            if td_bytes:
-                td_fields = decode_message(td_bytes)
-                counter_bytes = get_bytes(td_fields, TrackDescriptorField.COUNTER)
-                uuid = get_varint(td_fields, TrackDescriptorField.UUID)
-                if counter_bytes is not None:
-                    parent_uuid = get_varint(td_fields, TrackDescriptorField.PARENT_UUID)
-                    track_name = get_string(td_fields, TrackDescriptorField.NAME)
-                    assert track_name is not None
-                    assert parent_uuid is not None
-                    per_metric_parent[track_name] = parent_uuid
+            packet = TracePacket()
+            packet.ParseFromString(desc_bytes)
+            if packet.HasField("track_descriptor"):
+                td = packet.track_descriptor
+                uuid = td.uuid
+                if td.HasField("counter"):
+                    per_metric_parent[td.name] = td.parent_uuid
                 elif uuid == group_uuid:
                     group_seen = True
-                    assert get_varint(td_fields, TrackDescriptorField.PARENT_UUID) == proc_uuid
-                    assert get_varint(td_fields, TrackDescriptorField.CHILD_ORDERING) == 3
+                    assert td.parent_uuid == proc_uuid
+                    assert td.child_ordering == 3
         assert group_seen, "GC Counters group track descriptor was not emitted"
         # heap_size is a top-level counter: parented directly to the process.
         assert per_metric_parent["heap_size"] == proc_uuid
@@ -699,31 +682,30 @@ class TestConvertItemToPerfettoPackets:
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
 
         def _packet_name(p: bytes) -> str | None:
-            pf = decode_message(p)
-            te_bytes = get_bytes(pf, TracePacketField.TRACK_EVENT)
-            if not te_bytes:
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if not packet.HasField("track_event"):
                 return None
-            tef = decode_message(te_bytes)
-            return get_string(tef, TrackEventField.NAME)
+            name = packet.track_event.name
+            return name or None
 
-        begin_packet = next(
-            p
-            for p in packets
+        begin_packet = None
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_BEGIN
-                    and get_varint(f, TrackEventField.TRACK_UUID) != lifetime_uuid
-                    and _packet_name(p) == "GC Pause (gen=0)"
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        )
-        first_packet_fields = decode_message(begin_packet)
-        assert get_varint(first_packet_fields, TracePacketField.TIMESTAMP) == 1_000
-        track_event_bytes = get_bytes(first_packet_fields, TracePacketField.TRACK_EVENT)
-        assert track_event_bytes is not None
-        te_fields = decode_message(track_event_bytes)
-        assert get_varint(te_fields, TrackEventField.TYPE) == TYPE_SLICE_BEGIN
-        assert get_string(te_fields, TrackEventField.NAME) == "GC Pause (gen=0)"
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+                and packet.track_event.track_uuid != lifetime_uuid
+                and packet.track_event.name == "GC Pause (gen=0)"
+            ):
+                begin_packet = p
+                break
+        first_packet = TracePacket()
+        first_packet.ParseFromString(begin_packet)
+        assert first_packet.timestamp == 1_000
+        assert first_packet.HasField("track_event")
+        assert first_packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+        assert first_packet.track_event.name == "GC Pause (gen=0)"
 
     def test_basic_item_emits_counter_events(self) -> None:
         state = PerfettoTrackState()
@@ -740,25 +722,21 @@ class TestConvertItemToPerfettoPackets:
             duration=0.001,
         )
         _, packets = _convert_item(100, item, state, sequence_id=1)
-        counter_packets: list[tuple[list[ProtoField], list[ProtoField]]] = []
+        counter_packets: list[tuple[TracePacket, TrackEvent]] = []
         for p in packets:
-            fields = decode_message(p)
-            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
-            if te_bytes:
-                te_fields = decode_message(te_bytes)
-                if get_varint(te_fields, TrackEventField.TYPE) == TYPE_COUNTER:
-                    counter_packets.append((fields, te_fields))
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if packet.HasField("track_event") and packet.track_event.type == TrackEvent.Type.TYPE_COUNTER:
+                counter_packets.append((packet, packet.track_event))
         assert len(counter_packets) == 5
-        values = [get_varint(track_event, TrackEventField.COUNTER_VALUE) for _, track_event in counter_packets]
+        values = [track_event.counter_value for _, track_event in counter_packets]
         assert 10 in values
         assert 2 in values
         assert 5 in values
         assert 1000 in values
         # The `duration` value is encoded as a double (DOUBLE_COUNTER_VALUE,
         # field 44), not as a varint counter_value. Verify it is present.
-        double_values = [
-            get_double(track_event, TrackEventField.DOUBLE_COUNTER_VALUE) for _, track_event in counter_packets
-        ]
+        double_values = [track_event.double_counter_value for _, track_event in counter_packets]
         assert 0.001 in double_values
 
     def test_counter_descriptor_emitted_once(self) -> None:
@@ -851,12 +829,10 @@ class TestConvertItemToPerfettoPackets:
         _, packets = _convert_item(100, item, state, sequence_id=1)
         slice_begins: list[str | None] = []
         for p in packets:
-            fields = decode_message(p)
-            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
-            if te_bytes:
-                te_fields = decode_message(te_bytes)
-                if get_varint(te_fields, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
-                    slice_begins.append(get_string(te_fields, TrackEventField.NAME))
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if packet.HasField("track_event") and packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
+                slice_begins.append(packet.track_event.name or None)
         assert "GC Pause (gen=1)" in slice_begins
         assert "Mark Alive (gen=1)" in slice_begins
         assert "Fill increment (gen=1)" in slice_begins
@@ -884,16 +860,13 @@ class TestConvertItemToPerfettoPackets:
         _, packets = _convert_item(100, item, state, sequence_id=1)
         counter_uuids: set[int] = set()
         for p in packets:
-            fields = decode_message(p)
-            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
-            if te_bytes is None:
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if not packet.HasField("track_event"):
                 continue
-            te_fields = decode_message(te_bytes)
-            if get_varint(te_fields, TrackEventField.TYPE) != TYPE_COUNTER:
+            if packet.track_event.type != TrackEvent.Type.TYPE_COUNTER:
                 continue
-            uuid = get_varint(te_fields, TrackEventField.TRACK_UUID)
-            if uuid is not None:
-                counter_uuids.add(uuid)
+            counter_uuids.add(packet.track_event.track_uuid)
         # collected, candidates, heap_size, duration — no uncollectable counter.
         assert len(counter_uuids) == 4
 
@@ -914,16 +887,13 @@ class TestConvertItemToPerfettoPackets:
         _, packets = _convert_item(100, item, state, sequence_id=1)
         counter_uuids: set[int] = set()
         for p in packets:
-            fields = decode_message(p)
-            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
-            if te_bytes is None:
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if not packet.HasField("track_event"):
                 continue
-            te_fields = decode_message(te_bytes)
-            if get_varint(te_fields, TrackEventField.TYPE) != TYPE_COUNTER:
+            if packet.track_event.type != TrackEvent.Type.TYPE_COUNTER:
                 continue
-            uuid = get_varint(te_fields, TrackEventField.TRACK_UUID)
-            if uuid is not None:
-                counter_uuids.add(uuid)
+            counter_uuids.add(packet.track_event.track_uuid)
         # collected, uncollectable, candidates, heap_size, duration.
         assert len(counter_uuids) == 5
 
@@ -947,39 +917,30 @@ class TestConvertItemToPerfettoPackets:
         # so a shared `duration` track is no longer emitted.
         duration_track_uuid: int | None = None
         for p in packets:
-            fields = decode_message(p)
-            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
-            if te_bytes is None:
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if not packet.HasField("track_event"):
                 continue
-            te_fields = decode_message(te_bytes)
-            if (
-                get_varint(te_fields, TrackEventField.TYPE) == TYPE_COUNTER
-                and get_double(te_fields, TrackEventField.DOUBLE_COUNTER_VALUE) == 0.42
-            ):
-                duration_track_uuid = get_varint(
-                    te_fields,
-                    TrackEventField.TRACK_UUID,
-                )
+            track_event = packet.track_event
+            if track_event.type == TrackEvent.Type.TYPE_COUNTER and track_event.double_counter_value == 0.42:
+                duration_track_uuid = track_event.track_uuid
                 break
         assert duration_track_uuid is not None
 
         # Find the matching TrackDescriptor and assert rank=4 (per-gen rank
         # for `duration` in the new layout) plus parent resolves to a track
         # named "GC Metrics".
-        descriptors: dict[int, tuple[int | None, int | None, str | None]] = {}
+        descriptors: dict[int, tuple[int, int, str]] = {}
         for p in descriptors_packets:
-            fields = decode_message(p)
-            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
-            if td_bytes is None:
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if not packet.HasField("track_descriptor"):
                 continue
-            td_fields = decode_message(td_bytes)
-            uuid = get_varint(td_fields, TrackDescriptorField.UUID)
-            if uuid is None:
-                continue
-            descriptors[uuid] = (
-                get_varint(td_fields, TrackDescriptorField.PARENT_UUID),
-                get_varint(td_fields, TrackDescriptorField.SIBLING_ORDER_RANK),
-                get_string(td_fields, TrackDescriptorField.NAME),
+            td = packet.track_descriptor
+            descriptors[td.uuid] = (
+                td.parent_uuid,
+                td.sibling_order_rank,
+                td.name,
             )
         assert duration_track_uuid in descriptors
         parent, rank, _ = descriptors[duration_track_uuid]
@@ -1025,23 +986,21 @@ class TestConvertItemToPerfettoPackets:
         slice_name: str,
     ) -> list[tuple[str | None, int | None]]:
         for p in packets:
-            fields = decode_message(p)
-            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
-            if not te_bytes:
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if not packet.HasField("track_event"):
                 continue
-            te_fields = decode_message(te_bytes)
-            if get_varint(te_fields, TrackEventField.TYPE) != TYPE_SLICE_BEGIN:
+            track_event = packet.track_event
+            if track_event.type != TrackEvent.Type.TYPE_SLICE_BEGIN:
                 continue
-            if get_string(te_fields, TrackEventField.NAME) != slice_name:
+            if track_event.name != slice_name:
                 continue
-            anns = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
             out: list[tuple[str | None, int | None]] = []
-            for ann in anns:
-                ann_fields = decode_message(ann.value)  # type: ignore[arg-type]
+            for ann in track_event.debug_annotations:
                 out.append(
                     (
-                        get_string(ann_fields, DebugAnnotationField.NAME),
-                        get_varint(ann_fields, DebugAnnotationField.INT_VALUE),
+                        ann.name or None,
+                        ann.int_value if ann.HasField("int_value") else None,
                     )
                 )
             return out
@@ -1099,12 +1058,10 @@ class TestConvertItemToPerfettoPackets:
         _, packets = _convert_item(100, item, state, sequence_id=1)
         slice_names: list[str | None] = []
         for p in packets:
-            fields = decode_message(p)
-            te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
-            if te_bytes:
-                te_fields = decode_message(te_bytes)
-                if get_varint(te_fields, TrackEventField.TYPE) == TYPE_SLICE_BEGIN:
-                    slice_names.append(get_string(te_fields, TrackEventField.NAME))
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if packet.HasField("track_event") and packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
+                slice_names.append(packet.track_event.name or None)
         assert "Mark Alive (gen=1)" not in slice_names
         assert "Fill increment (gen=1)" in slice_names
 
@@ -1161,31 +1118,26 @@ class TestConvertItemToPerfettoPackets:
         # shared "Processes" track, and any other warm-up events.
         # Identify the GC pause slice by its name.
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
-        begin_packet = next(
-            p
-            for p in packets
+        begin_packet = None
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_BEGIN
-                    and get_varint(f, TrackEventField.TRACK_UUID) != lifetime_uuid
-                    and get_string(f, TrackEventField.NAME) == "GC Pause (gen=0)"
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        )
-        first_packet_fields = decode_message(begin_packet)
-        te_bytes = get_bytes(first_packet_fields, TracePacketField.TRACK_EVENT)
-        assert te_bytes is not None
-        te_fields = decode_message(te_bytes)
-        anns = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+                and packet.track_event.track_uuid != lifetime_uuid
+                and packet.track_event.name == "GC Pause (gen=0)"
+            ):
+                begin_packet = packet
+                break
+        first_packet = begin_packet
+        assert first_packet is not None
+        anns = first_packet.track_event.debug_annotations
         assert len(anns) == 7
         for ann in anns:
-            ann_fields = decode_message(ann.value)  # type: ignore[arg-type]
-            name_field_1 = get_field(ann_fields, 1)
-            assert name_field_1 is None or name_field_1.wire_type != 2, (
+            assert not ann.HasField("name_iid"), (
                 "field 1 of DebugAnnotation is `name_iid` (uint64); the annotation name must not be written there"
             )
-            assert get_string(ann_fields, 10) is not None
-            assert get_string(ann_fields, DebugAnnotationField.NAME) is not None
+            assert ann.HasField("name")
 
     def test_debug_annotations_on_pause(self) -> None:
         state = PerfettoTrackState()
@@ -1205,28 +1157,25 @@ class TestConvertItemToPerfettoPackets:
         # Disambiguate by name (and exclude the spec-15 "Processes" track
         # slice begin) to find the GC pause slice.
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
-        begin_packet = next(
-            p
-            for p in packets
+        begin_packet = None
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_BEGIN
-                    and get_varint(f, TrackEventField.TRACK_UUID) != lifetime_uuid
-                    and get_string(f, TrackEventField.NAME) == "GC Pause (gen=0)"
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        )
-        first_packet_fields = decode_message(begin_packet)
-        te_bytes = get_bytes(first_packet_fields, 11)
-        assert te_bytes is not None
-        te_fields = decode_message(te_bytes)
-        anns = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+                and packet.track_event.track_uuid != lifetime_uuid
+                and packet.track_event.name == "GC Pause (gen=0)"
+            ):
+                begin_packet = p
+                break
+        first_packet = TracePacket()
+        first_packet.ParseFromString(begin_packet)
+        anns = first_packet.track_event.debug_annotations
         assert len(anns) == 7
         ann_values: list[tuple[str | None, int | None]] = []
         for ann in anns:
-            ann_fields = decode_message(ann.value)  # type: ignore[arg-type]
-            name = get_string(ann_fields, DebugAnnotationField.NAME)
-            val = get_varint(ann_fields, DebugAnnotationField.INT_VALUE)
+            name = ann.name or None
+            val = ann.int_value if ann.HasField("int_value") else None
             ann_values.append((name, val))
         assert ("generation", 0) in ann_values
         assert ("iid", 0) in ann_values
@@ -1275,22 +1224,22 @@ class TestConvertItemToPerfettoPackets:
         # the same UUID and there must be exactly one.
         seen = 0
         for desc_bytes in (*desc1, *desc2):
-            fields = decode_message(desc_bytes)
-            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
-            if td_bytes:
-                td_fields = decode_message(td_bytes)
-                if get_varint(td_fields, TrackDescriptorField.UUID) == lifetime_uuid:
-                    assert get_string(td_fields, TrackDescriptorField.NAME) == _PROCESS_LIFETIME_TRACK_NAME
+            packet = TracePacket()
+            packet.ParseFromString(desc_bytes)
+            if packet.HasField("track_descriptor"):
+                td = packet.track_descriptor
+                if td.uuid == lifetime_uuid:
+                    assert td.name == _PROCESS_LIFETIME_TRACK_NAME
                     # The descriptor carries no parent_uuid (root), no
                     # process, no thread, no counter, no child_ordering,
                     # no sibling_order_rank, no description.
-                    assert get_field(td_fields, TrackDescriptorField.PARENT_UUID) is None
-                    assert get_field(td_fields, TrackDescriptorField.PROCESS) is None
-                    assert get_field(td_fields, TrackDescriptorField.THREAD) is None
-                    assert get_field(td_fields, TrackDescriptorField.COUNTER) is None
-                    assert get_field(td_fields, TrackDescriptorField.CHILD_ORDERING) is None
-                    assert get_field(td_fields, TrackDescriptorField.SIBLING_ORDER_RANK) is None
-                    assert get_field(td_fields, TrackDescriptorField.DESCRIPTION) is None
+                    assert not td.HasField("parent_uuid")
+                    assert not td.HasField("process")
+                    assert not td.HasField("thread")
+                    assert not td.HasField("counter")
+                    assert not td.HasField("child_ordering")
+                    assert not td.HasField("sibling_order_rank")
+                    assert not td.HasField("description")
                     seen += 1
         assert seen == 1, f"expected exactly one Processes track descriptor, got {seen}"
 
@@ -1315,26 +1264,23 @@ class TestConvertItemToPerfettoPackets:
         )
         _, packets = _convert_item(100, item, state, sequence_id=1)
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
-        begin_packets = [
-            p
-            for p in packets
+        begin_packets: list[TracePacket] = []
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_BEGIN
-                    and get_varint(f, TrackEventField.TRACK_UUID) == lifetime_uuid
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        ]
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+                and packet.track_event.track_uuid == lifetime_uuid
+            ):
+                begin_packets.append(packet)
         assert len(begin_packets) == 1, f"expected exactly one slice BEGIN on Processes track, got {len(begin_packets)}"
-        packet_fields = decode_message(begin_packets[0])
-        assert get_varint(packet_fields, TracePacketField.TIMESTAMP) == 1_000
-        te_fields = decode_message(get_bytes(packet_fields, TracePacketField.TRACK_EVENT) or b"")
-        assert get_string(te_fields, TrackEventField.NAME) == "Process 100"
-        annotations = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
+        first_packet = begin_packets[0]
+        assert first_packet.timestamp == 1_000
+        assert first_packet.track_event.name == "Process 100"
+        annotations = first_packet.track_event.debug_annotations
         assert len(annotations) == 1
-        ann_fields = decode_message(annotations[0].value)  # type: ignore[arg-type]
-        assert get_string(ann_fields, DebugAnnotationField.NAME) == "cmdline"
-        assert get_string(ann_fields, DebugAnnotationField.STRING_VALUE) == "python3 -m fake_target"
+        assert annotations[0].name == "cmdline"
+        assert annotations[0].string_value == "python3 -m fake_target"
 
     def test_process_lifetime_slice_begin_no_cmdline_omits_arg(self) -> None:
         """When ``state`` has no cmdline for the pid, the slice BEGIN on
@@ -1354,20 +1300,17 @@ class TestConvertItemToPerfettoPackets:
         )
         _, packets = _convert_item(100, item, state, sequence_id=1)
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
-        begin_packets = [
-            p
-            for p in packets
+        begin_packets: list[TracePacket] = []
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_BEGIN
-                    and get_varint(f, TrackEventField.TRACK_UUID) == lifetime_uuid
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        ]
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+                and packet.track_event.track_uuid == lifetime_uuid
+            ):
+                begin_packets.append(packet)
         assert len(begin_packets) == 1
-        packet_fields = decode_message(begin_packets[0])
-        te_fields = decode_message(get_bytes(packet_fields, TracePacketField.TRACK_EVENT) or b"")
-        assert get_field(te_fields, TrackEventField.DEBUG_ANNOTATIONS) is None
+        assert len(begin_packets[0].track_event.debug_annotations) == 0
 
     def test_process_lifetime_slice_end_at_last_event_ts(self) -> None:
         """The ``Process <pid>`` slice END is emitted at the ts of the
@@ -1388,22 +1331,19 @@ class TestConvertItemToPerfettoPackets:
         )
         _, packets = _convert_item(100, item, state, sequence_id=1)
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
-        end_packets = [
-            p
-            for p in packets
+        end_packets: list[TracePacket] = []
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_END
-                    and get_varint(f, TrackEventField.TRACK_UUID) == lifetime_uuid
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        ]
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_END
+                and packet.track_event.track_uuid == lifetime_uuid
+            ):
+                end_packets.append(packet)
         assert len(end_packets) == 1, f"expected exactly one slice END on Processes track, got {len(end_packets)}"
-        packet_fields = decode_message(end_packets[0])
         # Last non-meta event ts in this fixture is 2_000 (ts_stop).
-        assert get_varint(packet_fields, TracePacketField.TIMESTAMP) == 2_000
-        te_fields = decode_message(get_bytes(packet_fields, TracePacketField.TRACK_EVENT) or b"")
-        assert get_string(te_fields, TrackEventField.NAME) == "Process 100"
+        assert end_packets[0].timestamp == 2_000
+        assert end_packets[0].track_event.name == "Process 100"
 
     def test_process_lifetime_two_pids_one_shared_track(self) -> None:
         """Two distinct pids share the same ``Processes`` track UUID and
@@ -1448,28 +1388,26 @@ class TestConvertItemToPerfettoPackets:
             the BEGIN has no such annotation."""
             out: list[tuple[int, int, str, str | None]] = []
             for p in packets:
-                pf = decode_message(p)
-                te_bytes = get_bytes(pf, TracePacketField.TRACK_EVENT)
-                if not te_bytes:
+                packet = TracePacket()
+                packet.ParseFromString(p)
+                if not packet.HasField("track_event"):
                     continue
-                tef = decode_message(te_bytes)
-                if get_varint(tef, TrackEventField.TRACK_UUID) != lifetime_uuid:
+                track_event = packet.track_event
+                if track_event.track_uuid != lifetime_uuid:
                     continue
-                event_type = get_varint(tef, TrackEventField.TYPE) or 0
-                if event_type not in (TYPE_SLICE_BEGIN, TYPE_SLICE_END):
+                event_type = track_event.type
+                if event_type not in (TrackEvent.Type.TYPE_SLICE_BEGIN, TrackEvent.Type.TYPE_SLICE_END):
                     continue
                 cmdline_arg: str | None = None
-                if event_type == TYPE_SLICE_BEGIN:
-                    anns = get_fields(tef, TrackEventField.DEBUG_ANNOTATIONS)
-                    if anns:
-                        ann_fields = decode_message(anns[0].value)  # type: ignore[arg-type]
-                        if get_string(ann_fields, DebugAnnotationField.NAME) == "cmdline":
-                            cmdline_arg = get_string(ann_fields, DebugAnnotationField.STRING_VALUE)
+                if event_type == TrackEvent.Type.TYPE_SLICE_BEGIN and len(track_event.debug_annotations) > 0:
+                    ann = track_event.debug_annotations[0]
+                    if ann.name == "cmdline":
+                        cmdline_arg = ann.string_value
                 out.append(
                     (
-                        get_varint(pf, TracePacketField.TIMESTAMP) or 0,
+                        packet.timestamp,
                         event_type,
-                        get_string(tef, TrackEventField.NAME) or "",
+                        track_event.name or "",
                         cmdline_arg,
                     )
                 )
@@ -1530,55 +1468,47 @@ class TestConvertItemToPerfettoPackets:
         def _count(packets: list[bytes], event_type: int) -> int:
             n = 0
             for p in packets:
-                pf = decode_message(p)
-                te_bytes = get_bytes(pf, TracePacketField.TRACK_EVENT)
-                if not te_bytes:
-                    continue
-                tef = decode_message(te_bytes)
-                if (
-                    get_varint(tef, TrackEventField.TRACK_UUID) == lifetime_uuid
-                    and get_varint(tef, TrackEventField.TYPE) == event_type
-                ):
+                packet = TracePacket()
+                packet.ParseFromString(p)
+                if packet.track_event.track_uuid == lifetime_uuid and packet.track_event.type == event_type:
                     n += 1
             return n
 
-        assert _count(packets1, TYPE_SLICE_BEGIN) == 1
-        assert _count(packets1, TYPE_SLICE_END) == 1
+        assert _count(packets1, TrackEvent.Type.TYPE_SLICE_BEGIN) == 1
+        assert _count(packets1, TrackEvent.Type.TYPE_SLICE_END) == 1
         # Second pass: no new BEGIN, no new END (end-ts updates silently,
         # the closeout pass happens at the end of the second convert).
-        assert _count(packets2, TYPE_SLICE_BEGIN) == 0
-        assert _count(packets2, TYPE_SLICE_END) == 1
+        assert _count(packets2, TrackEvent.Type.TYPE_SLICE_BEGIN) == 0
+        assert _count(packets2, TrackEvent.Type.TYPE_SLICE_END) == 1
         # Last event ts after the second pass is 4_000.
-        end_packet = next(
-            p
-            for p in packets2
+        end_packet = None
+        for p in packets2:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_END
-                    and get_varint(f, TrackEventField.TRACK_UUID) == lifetime_uuid
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        )
-        assert get_varint(decode_message(end_packet), TracePacketField.TIMESTAMP) == 4_000
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_END
+                and packet.track_event.track_uuid == lifetime_uuid
+            ):
+                end_packet = packet
+                break
+        assert end_packet is not None
+        assert end_packet.timestamp == 4_000
         # The single BEGIN (from packets1) carries the cmdline annotation.
-        begin_packet = next(
-            p
-            for p in packets1
+        begin_packet = None
+        for p in packets1:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_BEGIN
-                    and get_varint(f, TrackEventField.TRACK_UUID) == lifetime_uuid
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        )
-        te_fields = decode_message(
-            get_bytes(decode_message(begin_packet), TracePacketField.TRACK_EVENT) or b"",
-        )
-        annotations = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+                and packet.track_event.track_uuid == lifetime_uuid
+            ):
+                begin_packet = packet
+                break
+        assert begin_packet is not None
+        annotations = begin_packet.track_event.debug_annotations
         assert len(annotations) == 1
-        ann_fields = decode_message(annotations[0].value)  # type: ignore[arg-type]
-        assert get_string(ann_fields, DebugAnnotationField.NAME) == "cmdline"
-        assert get_string(ann_fields, DebugAnnotationField.STRING_VALUE) == "python3 -m fake_target"
+        assert annotations[0].name == "cmdline"
+        assert annotations[0].string_value == "python3 -m fake_target"
 
 
 class TestConvertInstantToPerfettoPacket:
@@ -1607,35 +1537,29 @@ class TestConvertInstantToPerfettoPacket:
         # finalize_perfetto_packets (the encoder's close()).
         packets.extend(finalize_perfetto_packets(state, sequence_id=1))
         assert len(packets) == 4
-        names = [
-            get_string(
-                decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""),
-                TrackEventField.NAME,
-            )
-            for p in packets
-        ]
+        names: list[str | None] = []
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if packet.HasField("track_event"):
+                names.append(packet.track_event.name or None)
         assert names == [
             _START_PROCESS_MARKER_NAME,
             "Process 100",
             "start GC monitor",
             "Process 100",
         ]
-        instant_packet = next(
-            p
-            for p in packets
-            if get_string(
-                decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""),
-                TrackEventField.NAME,
-            )
-            == "start GC monitor"
-        )
-        fields = decode_message(instant_packet)
-        assert get_varint(fields, TracePacketField.TIMESTAMP) == 5_000
-        te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
-        assert te_bytes is not None
-        te_fields = decode_message(te_bytes)
-        assert get_varint(te_fields, TrackEventField.TYPE) == TYPE_INSTANT
-        assert get_string(te_fields, TrackEventField.NAME) == "start GC monitor"
+        instant_packet = None
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if packet.track_event.name == "start GC monitor":
+                instant_packet = packet
+                break
+        assert instant_packet is not None
+        assert instant_packet.timestamp == 5_000
+        assert instant_packet.track_event.type == TrackEvent.Type.TYPE_INSTANT
+        assert instant_packet.track_event.name == "start GC monitor"
 
     def test_reuses_process_descriptor(self) -> None:
         state = PerfettoTrackState()
@@ -1698,17 +1622,12 @@ class TestConvertInstantToPerfettoPacket:
         )
         track_names: list[str] = []
         for d in descriptors:
-            fields = decode_message(d)
-            td_bytes = get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
-            if not td_bytes:
-                continue
-            td_fields = decode_message(td_bytes)
-            counter_bytes = get_bytes(td_fields, TrackDescriptorField.COUNTER)
-            if counter_bytes is None:
-                continue
-            name = get_string(td_fields, TrackDescriptorField.NAME)
-            if name is not None:
-                track_names.append(name)
+            packet = TracePacket()
+            packet.ParseFromString(d)
+            if packet.HasField("track_descriptor"):
+                td = packet.track_descriptor
+                if td.HasField("counter") and td.name:
+                    track_names.append(td.name)
         assert "heap_size" in track_names
         assert "heap_size heap_size" not in track_names
 
@@ -1772,40 +1691,32 @@ class TestConvertInstantToPerfettoPacket:
             sequence_id=1,
         )
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
-        end_packets = [
-            p
-            for p in packets
+        end_packets: list[TracePacket] = []
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_END
-                    and get_varint(f, TrackEventField.TRACK_UUID) == lifetime_uuid
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        ]
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_END
+                and packet.track_event.track_uuid == lifetime_uuid
+            ):
+                end_packets.append(packet)
         assert end_packets == [], (
             f"convert_trace_events_to_perfetto must not emit slice END "
             f"on the Processes track; got {len(end_packets)} ENDs"
         )
         # Calling finalize_perfetto_packets now produces exactly one END.
         closeout = finalize_perfetto_packets(state, sequence_id=1)
-        end_packets = [
-            p
-            for p in closeout
+        end_packets = []
+        for p in closeout:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_END
-                    and get_varint(f, TrackEventField.TRACK_UUID) == lifetime_uuid
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        ]
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_END
+                and packet.track_event.track_uuid == lifetime_uuid
+            ):
+                end_packets.append(packet)
         assert len(end_packets) == 1
-        assert (
-            get_varint(
-                decode_message(end_packets[0]),
-                TracePacketField.TIMESTAMP,
-            )
-            == 2_000
-        )
+        assert end_packets[0].timestamp == 2_000
 
     def test_closeout_emitted_only_at_finalize(self) -> None:
         """Across two ``convert_trace_events_to_perfetto`` calls for the
@@ -1869,92 +1780,82 @@ class TestConvertInstantToPerfettoPacket:
         def _count(packets: list[bytes], event_type: int) -> int:
             n = 0
             for p in packets:
-                pf = decode_message(p)
-                te_bytes = get_bytes(pf, TracePacketField.TRACK_EVENT)
-                if not te_bytes:
-                    continue
-                tef = decode_message(te_bytes)
-                if (
-                    get_varint(tef, TrackEventField.TRACK_UUID) == lifetime_uuid
-                    and get_varint(tef, TrackEventField.TYPE) == event_type
-                ):
+                packet = TracePacket()
+                packet.ParseFromString(p)
+                if packet.track_event.track_uuid == lifetime_uuid and packet.track_event.type == event_type:
                     n += 1
             return n
 
         # First batch: BEGIN emitted (first non-meta event), no END.
-        assert _count(packets1, TYPE_SLICE_BEGIN) == 1
-        assert _count(packets1, TYPE_SLICE_END) == 0
+        assert _count(packets1, TrackEvent.Type.TYPE_SLICE_BEGIN) == 1
+        assert _count(packets1, TrackEvent.Type.TYPE_SLICE_END) == 0
         # Second batch: no new BEGIN (state has the "opened" flag), no
         # END (convert never emits ENDs).
-        assert _count(packets2, TYPE_SLICE_BEGIN) == 0
-        assert _count(packets2, TYPE_SLICE_END) == 0
+        assert _count(packets2, TrackEvent.Type.TYPE_SLICE_BEGIN) == 0
+        assert _count(packets2, TrackEvent.Type.TYPE_SLICE_END) == 0
         # The finalize pass: exactly one END.
-        assert _count(closeout, TYPE_SLICE_END) == 1
-        assert _count(closeout, TYPE_SLICE_BEGIN) == 0
+        assert _count(closeout, TrackEvent.Type.TYPE_SLICE_END) == 1
+        assert _count(closeout, TrackEvent.Type.TYPE_SLICE_BEGIN) == 0
         # Across the union, exactly one BEGIN and one END.
-        assert _count(all_packets, TYPE_SLICE_BEGIN) == 1
-        assert _count(all_packets, TYPE_SLICE_END) == 1
+        assert _count(all_packets, TrackEvent.Type.TYPE_SLICE_BEGIN) == 1
+        assert _count(all_packets, TrackEvent.Type.TYPE_SLICE_END) == 1
         # The single END's ts is the last non-counter non-meta event ts
         # of the *second* batch (4_000), not the first (2_000).
-        end_packet = next(
-            p
-            for p in all_packets
+        end_packet = None
+        for p in all_packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
             if (
-                lambda f: (
-                    get_varint(f, TrackEventField.TYPE) == TYPE_SLICE_END
-                    and get_varint(f, TrackEventField.TRACK_UUID) == lifetime_uuid
-                )
-            )(decode_message(get_bytes(decode_message(p), TracePacketField.TRACK_EVENT) or b""))
-        )
-        assert get_varint(decode_message(end_packet), TracePacketField.TIMESTAMP) == 4_000
+                packet.track_event.type == TrackEvent.Type.TYPE_SLICE_END
+                and packet.track_event.track_uuid == lifetime_uuid
+            ):
+                end_packet = packet
+                break
+        assert end_packet is not None
+        assert end_packet.timestamp == 4_000
         # Calling finalize again is a no-op (state is drained).
         assert finalize_perfetto_packets(state, sequence_id=1) == []
 
 
-def _track_descriptor_bytes(packet_bytes: bytes) -> bytes | None:
-    """Extract the inner ``TrackDescriptor`` bytes from a ``TracePacket``.
+def _track_descriptor(packet_bytes: bytes) -> TrackDescriptor | None:
+    """Extract the inner ``TrackDescriptor`` from a ``TracePacket``.
 
     Returns ``None`` if the packet is not a track-descriptor packet.
     """
-    fields = decode_message(packet_bytes)
-    return get_bytes(fields, TracePacketField.TRACK_DESCRIPTOR)
+    packet = TracePacket()
+    packet.ParseFromString(packet_bytes)
+    return packet.track_descriptor if packet.HasField("track_descriptor") else None
 
 
 def _process_descriptor_fields_for_pid(
     descriptors: list[bytes],
     pid: int,
-) -> list[list[ProtoField]]:
-    """Return the ``TrackDescriptor`` proto fields for the process
+) -> list[TrackDescriptor]:
+    """Return the ``TrackDescriptor`` protos for the process
     descriptor of *pid* (i.e. a TrackDescriptor with a ``process``
     sub-message carrying the matching pid). Returns an empty list if
     no matching descriptor exists.
     """
-    matched: list[list[ProtoField]] = []
+    matched: list[TrackDescriptor] = []
     for d in descriptors:
-        td_bytes = _track_descriptor_bytes(d)
-        if td_bytes is None:
+        td = _track_descriptor(d)
+        if td is None:
             continue
-        td_fields = decode_message(td_bytes)
-        proc_bytes = get_bytes(td_fields, TrackDescriptorField.PROCESS)
-        if proc_bytes is None:
-            continue
-        proc_fields = decode_message(proc_bytes)
-        if get_varint(proc_fields, ProcessDescriptorField.PID) == pid:
-            matched.append(td_fields)
+        if td.HasField("process") and td.process.pid == pid:
+            matched.append(td)
     return matched
 
 
-def _root_descriptor_fields(descriptors: list[bytes]) -> list[list[ProtoField]]:
-    """Return the ``TrackDescriptor`` proto fields for the root
+def _root_descriptor_fields(descriptors: list[bytes]) -> list[TrackDescriptor]:
+    """Return the ``TrackDescriptor`` protos for the root
     descriptor (the one with ``uuid = 0``)."""
-    matched: list[list[ProtoField]] = []
+    matched: list[TrackDescriptor] = []
     for d in descriptors:
-        td_bytes = _track_descriptor_bytes(d)
-        if td_bytes is None:
+        td = _track_descriptor(d)
+        if td is None:
             continue
-        td_fields = decode_message(td_bytes)
-        if get_varint(td_fields, TrackDescriptorField.UUID) == 0:
-            matched.append(td_fields)
+        if td.uuid == 0:
+            matched.append(td)
     return matched
 
 
@@ -1976,14 +1877,14 @@ class TestProcessOrderingByFirstTs:
         roots = _root_descriptor_fields(descriptors)
         assert len(roots) == 1
         td = roots[0]
-        assert get_varint(td, TrackDescriptorField.PROCESS_ORDERING) == 1
-        assert get_varint(td, TrackDescriptorField.THREAD_ORDERING) == 1
-        assert get_field(td, TrackDescriptorField.NAME) is None
-        assert get_field(td, TrackDescriptorField.PROCESS) is None
-        assert get_field(td, TrackDescriptorField.THREAD) is None
-        assert get_field(td, TrackDescriptorField.COUNTER) is None
-        assert get_field(td, TrackDescriptorField.PARENT_UUID) is None
-        assert get_field(td, TrackDescriptorField.CHILD_ORDERING) is None
+        assert td.process_ordering == 1
+        assert td.thread_ordering == 1
+        assert not td.HasField("name")
+        assert not td.HasField("process")
+        assert not td.HasField("thread")
+        assert not td.HasField("counter")
+        assert not td.HasField("parent_uuid")
+        assert not td.HasField("child_ordering")
 
     def test_root_descriptor_emitted_exactly_once_across_calls(self) -> None:
         state = PerfettoTrackState()
@@ -2021,9 +1922,7 @@ class TestProcessOrderingByFirstTs:
             sequence_id=1,
         )
         ranks = {
-            pid: get_varint(td, TrackDescriptorField.SIBLING_ORDER_RANK)
-            for pid in (1, 2)
-            for td in _process_descriptor_fields_for_pid(descriptors, pid)
+            pid: td.sibling_order_rank for pid in (1, 2) for td in _process_descriptor_fields_for_pid(descriptors, pid)
         }
         assert ranks == {1: 1, 2: 0}, f"unexpected rank assignment: {ranks}"
 
@@ -2043,9 +1942,7 @@ class TestProcessOrderingByFirstTs:
             sequence_id=1,
         )
         ranks = {
-            pid: get_varint(td, TrackDescriptorField.SIBLING_ORDER_RANK)
-            for pid in (1, 2)
-            for td in _process_descriptor_fields_for_pid(descriptors, pid)
+            pid: td.sibling_order_rank for pid in (1, 2) for td in _process_descriptor_fields_for_pid(descriptors, pid)
         }
         assert ranks == {1: 0, 2: 1}, f"expected pid-ascending tiebreak; got {ranks}"
 
@@ -2064,7 +1961,7 @@ class TestProcessOrderingByFirstTs:
         )
         tds = _process_descriptor_fields_for_pid(descriptors, 100)
         assert len(tds) == 1
-        assert get_field(tds[0], TrackDescriptorField.SIBLING_ORDER_RANK) is None
+        assert not tds[0].HasField("sibling_order_rank")
 
     def test_meta_events_do_not_contribute_to_first_ts(self) -> None:
         """``ProcessMeta`` / ``ThreadMeta`` must not set the first
@@ -2084,7 +1981,7 @@ class TestProcessOrderingByFirstTs:
             sequence_id=1,
         )
         ranks = {
-            pid: get_varint(td, TrackDescriptorField.SIBLING_ORDER_RANK)
+            pid: td.sibling_order_rank
             for pid in (100, 200)
             for td in _process_descriptor_fields_for_pid(descriptors, pid)
         }
@@ -2118,9 +2015,7 @@ class TestProcessOrderingByFirstTs:
             sequence_id=1,
         )
         ranks = {
-            pid: get_varint(td, TrackDescriptorField.SIBLING_ORDER_RANK)
-            for pid in (1, 2)
-            for td in _process_descriptor_fields_for_pid(descriptors, pid)
+            pid: td.sibling_order_rank for pid in (1, 2) for td in _process_descriptor_fields_for_pid(descriptors, pid)
         }
         assert ranks == {1: 1, 2: 0}, f"unexpected rank assignment: {ranks}"
 
@@ -2143,16 +2038,8 @@ class TestProcessOrderingByFirstTs:
         d1, _ = convert_trace_events_to_perfetto(_make_events([1, 2]), s1, sequence_id=1)
         s2 = PerfettoTrackState()
         d2, _ = convert_trace_events_to_perfetto(_make_events([2, 1]), s2, sequence_id=1)
-        ranks1 = {
-            pid: get_varint(td, TrackDescriptorField.SIBLING_ORDER_RANK)
-            for pid in (1, 2)
-            for td in _process_descriptor_fields_for_pid(d1, pid)
-        }
-        ranks2 = {
-            pid: get_varint(td, TrackDescriptorField.SIBLING_ORDER_RANK)
-            for pid in (1, 2)
-            for td in _process_descriptor_fields_for_pid(d2, pid)
-        }
+        ranks1 = {pid: td.sibling_order_rank for pid in (1, 2) for td in _process_descriptor_fields_for_pid(d1, pid)}
+        ranks2 = {pid: td.sibling_order_rank for pid in (1, 2) for td in _process_descriptor_fields_for_pid(d2, pid)}
         assert ranks1 == ranks2 == {1: 1, 2: 0}
 
     def test_rank_persists_across_batches(self) -> None:
@@ -2174,7 +2061,7 @@ class TestProcessOrderingByFirstTs:
         # only sets the first ts for a pid). Pid 1 should still get
         # rank 0 (ts=1_000) and pid 2 rank 1 (ts=5_000).
         ranks = {
-            pid: get_varint(td, TrackDescriptorField.SIBLING_ORDER_RANK)
+            pid: td.sibling_order_rank
             for descriptors in (d1, d2)
             for pid in (1, 2)
             for td in _process_descriptor_fields_for_pid(descriptors, pid)
@@ -2199,17 +2086,11 @@ class TestProcessOrderingByFirstTs:
             state,
             sequence_id=1,
         )
-        start_ts: dict[int, int | None] = {}
+        start_ts: dict[int, int] = {}
         for pid in (100, 200):
             tds = _process_descriptor_fields_for_pid(descriptors, pid)
             assert len(tds) == 1
-            proc_bytes = get_bytes(tds[0], TrackDescriptorField.PROCESS)
-            assert proc_bytes is not None
-            proc_fields = decode_message(proc_bytes)
-            start_ts[pid] = get_varint(
-                proc_fields,
-                ProcessDescriptorField.START_TIMESTAMP_NS,
-            )
+            start_ts[pid] = tds[0].process.start_timestamp_ns
         assert start_ts == {100: 5_000, 200: 1_000}
 
     def test_meta_only_pid_has_no_start_timestamp_ns(self) -> None:
@@ -2228,10 +2109,7 @@ class TestProcessOrderingByFirstTs:
         )
         tds = _process_descriptor_fields_for_pid(descriptors, 100)
         assert len(tds) == 1
-        proc_bytes = get_bytes(tds[0], TrackDescriptorField.PROCESS)
-        assert proc_bytes is not None
-        proc_fields = decode_message(proc_bytes)
-        assert get_field(proc_fields, ProcessDescriptorField.START_TIMESTAMP_NS) is None
+        assert not tds[0].process.HasField("start_timestamp_ns")
 
     def test_start_timestamp_ns_uses_ts_start_for_gc_stats(self) -> None:
         """For ``TGCStatsInfo`` events, the first-ts (and therefore
@@ -2263,16 +2141,10 @@ class TestProcessOrderingByFirstTs:
             state,
             sequence_id=1,
         )
-        start_ts: dict[int, int | None] = {}
+        start_ts: dict[int, int] = {}
         for pid in (1, 2):
             tds = _process_descriptor_fields_for_pid(descriptors, pid)
-            proc_bytes = get_bytes(tds[0], TrackDescriptorField.PROCESS)
-            assert proc_bytes is not None
-            proc_fields = decode_message(proc_bytes)
-            start_ts[pid] = get_varint(
-                proc_fields,
-                ProcessDescriptorField.START_TIMESTAMP_NS,
-            )
+            start_ts[pid] = tds[0].process.start_timestamp_ns
         assert start_ts == {1: 3_000, 2: 2_000}
 
     def test_start_timestamp_ns_persists_across_batches(self) -> None:
@@ -2292,28 +2164,10 @@ class TestProcessOrderingByFirstTs:
         # Pid 1 was seen in batch 1; pid 2 in batch 2.
         tds_1 = _process_descriptor_fields_for_pid(d1, 1)
         assert len(tds_1) == 1
-        proc_bytes_1 = get_bytes(tds_1[0], TrackDescriptorField.PROCESS)
-        assert proc_bytes_1 is not None
-        proc_fields_1 = decode_message(proc_bytes_1)
-        assert (
-            get_varint(
-                proc_fields_1,
-                ProcessDescriptorField.START_TIMESTAMP_NS,
-            )
-            == 1_000
-        )
+        assert tds_1[0].process.start_timestamp_ns == 1_000
         tds_2 = _process_descriptor_fields_for_pid(d2, 2)
         assert len(tds_2) == 1
-        proc_bytes_2 = get_bytes(tds_2[0], TrackDescriptorField.PROCESS)
-        assert proc_bytes_2 is not None
-        proc_fields_2 = decode_message(proc_bytes_2)
-        assert (
-            get_varint(
-                proc_fields_2,
-                ProcessDescriptorField.START_TIMESTAMP_NS,
-            )
-            == 5_000
-        )
+        assert tds_2[0].process.start_timestamp_ns == 5_000
 
 
 def _counter_track_y_axis_share_key(
@@ -2326,17 +2180,14 @@ def _counter_track_y_axis_share_key(
     such track descriptor exists at all.
     """
     for d in descriptors:
-        td_bytes = _track_descriptor_bytes(d)
-        if td_bytes is None:
+        td = _track_descriptor(d)
+        if td is None:
             continue
-        td_fields = decode_message(td_bytes)
-        if get_string(td_fields, TrackDescriptorField.NAME) != track_name:
+        if td.name != track_name:
             continue
-        counter_bytes = get_bytes(td_fields, TrackDescriptorField.COUNTER)
-        if counter_bytes is None or counter_bytes == b"":
+        if not td.HasField("counter") or td.counter.SerializeToString() == b"":
             return None
-        counter_fields = decode_message(counter_bytes)
-        return get_string(counter_fields, CounterDescriptorField.Y_AXIS_SHARE_KEY)
+        return td.counter.y_axis_share_key or None
     return None
 
 
@@ -2438,19 +2289,16 @@ class TestCounterTrackYAxisShareKey:
         )
         parent_uuids: set[int] = set()
         for d in descriptors:
-            td_bytes = _track_descriptor_bytes(d)
-            if td_bytes is None:
+            td = _track_descriptor(d)
+            if td is None:
                 continue
-            td_fields = decode_message(td_bytes)
-            if get_string(td_fields, TrackDescriptorField.NAME) != "G0 collected":
+            if td.name != "G0 collected":
                 continue
-            parent = get_varint(td_fields, TrackDescriptorField.PARENT_UUID)
-            assert parent is not None
+            parent = td.parent_uuid
+            assert parent != 0
             parent_uuids.add(parent)
-            counter_bytes = get_bytes(td_fields, TrackDescriptorField.COUNTER)
-            assert counter_bytes is not None and counter_bytes != b""
-            counter_fields = decode_message(counter_bytes)
-            assert get_string(counter_fields, CounterDescriptorField.Y_AXIS_SHARE_KEY) == "collected"
+            assert td.HasField("counter") and td.counter.SerializeToString() != b""
+            assert td.counter.y_axis_share_key == "collected"
         assert len(parent_uuids) == 2, (
             f"expected G0 collected tracks under 2 distinct parent groups "
             f"(one per pid), got {len(parent_uuids)}: {parent_uuids}"

@@ -8,8 +8,8 @@ from typing import Protocol
 
 import msgspec
 import pytest
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket
 
-from gcmon.exporters.perfetto_format import TraceField, TracePacketField
 from gcmon.trace_event import (
     BeginEvent,
     EndEvent,
@@ -28,7 +28,6 @@ from tests.helpers import (
     assert_valid_chrome_trace_format,
     create_jsonl_record,
 )
-from tests.proto_decoder import decode_message
 
 
 class Combiner(Protocol):
@@ -144,30 +143,13 @@ def make_perfetto_output(tmp_path: Path) -> Path:
 # =============================================================================
 
 
-def _packet_bytes(trace_bytes: bytes) -> list[bytes]:
-    """Extract the inner bytes of every top-level ``Trace.PACKET`` field.
-
-    The top-level ``Trace`` message has a single repeated ``packet`` field
-    (field 1, wire-type 2 length-delimited). Returns the raw bytes of each
-    packet as they appear on the wire.
-    """
-    trace_fields = decode_message(trace_bytes)
-    return [
-        f.value
-        for f in trace_fields
-        if f.field_number == TraceField.PACKET and f.wire_type == 2 and isinstance(f.value, bytes)
-    ]
+def _packet_bytes(trace_bytes: bytes) -> list[TracePacket]:
+    trace = Trace()
+    trace.ParseFromString(trace_bytes)
+    return list(trace.packet)
 
 
-def assert_valid_perfetto_format(path: Path) -> list[bytes]:
-    """Validate that *path* is a non-empty Perfetto ``Trace`` protobuf.
-
-    Decodes in two levels: (1) the top-level ``Trace`` message, asserting at
-    least one ``PACKET`` field (field 1, wire-type 2) is present; (2) for each
-    inner packet, asserts it can be decoded as a ``TracePacket`` message
-    (i.e. it has at least one of the known top-level packet fields). Returns
-    the list of inner packet byte-buffers for further inspection.
-    """
+def assert_valid_perfetto_format(path: Path) -> list[TracePacket]:
     assert path.exists(), f"File {path} does not exist"
     file_bytes = path.read_bytes()
     assert len(file_bytes) > 0, f"File {path} is empty"
@@ -175,26 +157,20 @@ def assert_valid_perfetto_format(path: Path) -> list[bytes]:
     packets = _packet_bytes(file_bytes)
     assert len(packets) > 0, f"no Trace.PACKET fields in {path}"
 
-    decoded_packets: list[bytes] = []
     for pkt in packets:
-        pkt_fields = decode_message(pkt)
-        assert pkt_fields, f"empty TracePacket: {pkt!r}"
-        decoded_packets.append(pkt)
-    return decoded_packets
+        assert pkt.SerializeToString(), f"empty TracePacket: {pkt!r}"
+    return packets
 
 
 def assert_perfetto_has_track_descriptor_and_event(path: Path) -> None:
-    """Assert the trace contains at least one ``TrackDescriptor`` (packet
-    field 60) and one ``TrackEvent`` (packet field 11)."""
     file_bytes = path.read_bytes()
     has_descriptor = False
     has_track_event = False
     for pkt in _packet_bytes(file_bytes):
-        for f in decode_message(pkt):
-            if f.field_number == TracePacketField.TRACK_DESCRIPTOR and f.wire_type == 2:
-                has_descriptor = True
-            elif f.field_number == TracePacketField.TRACK_EVENT and f.wire_type == 2:
-                has_track_event = True
+        if pkt.HasField("track_descriptor"):
+            has_descriptor = True
+        if pkt.HasField("track_event"):
+            has_track_event = True
     assert has_descriptor, f"no TrackDescriptor (field 60) in {path}"
     assert has_track_event, f"no TrackEvent (field 11) in {path}"
 
@@ -1029,10 +1005,7 @@ class TestCliCombineJsonlToPerfetto:
         # Both pids' descriptors are present.
         packets = assert_valid_perfetto_format(make_perfetto_output)
         descriptor_text = b"".join(
-            f.value
-            for pkt in packets
-            for f in decode_message(pkt)
-            if f.field_number == TracePacketField.TRACK_DESCRIPTOR and f.wire_type == 2 and isinstance(f.value, bytes)
+            pkt.track_descriptor.SerializeToString() for pkt in packets if pkt.HasField("track_descriptor")
         )
         assert b"123" in descriptor_text
         assert b"456" in descriptor_text
@@ -1060,11 +1033,7 @@ class TestCliCombineJsonlToPerfetto:
         # Per-file normalization with 1 file: min ts is 5_000_000 (5 seconds).
         # TIMESTAMP is encoded as absolute_us. We assert the minimum is 0.
         packets = assert_valid_perfetto_format(make_perfetto_output)
-        timestamps: list[int] = []
-        for pkt in packets:
-            for f in decode_message(pkt):
-                if f.field_number == TracePacketField.TIMESTAMP and f.wire_type == 0 and isinstance(f.value, int):
-                    timestamps.append(f.value)
+        timestamps = [pkt.timestamp for pkt in packets if pkt.HasField("timestamp")]
         assert min(timestamps) == 0
 
 
@@ -1107,12 +1076,7 @@ class TestCliCombinePerfettoNormalize:
         assert result.returncode == 0, result.stderr
         assert "Normalizing timestamps: yes" in result.stderr
         packets = assert_valid_perfetto_format(make_perfetto_output)
-        timestamps: list[int] = [
-            f.value
-            for pkt in packets
-            for f in decode_message(pkt)
-            if f.field_number == TracePacketField.TIMESTAMP and f.wire_type == 0 and isinstance(f.value, int)
-        ]
+        timestamps = [pkt.timestamp for pkt in packets if pkt.HasField("timestamp")]
         assert min(timestamps) == 0
 
     def test_with_metadata(
@@ -1158,10 +1122,5 @@ class TestCliCombinePerfettoNormalize:
         )
         assert result.returncode == 0, result.stderr
         packets = assert_valid_perfetto_format(make_perfetto_output)
-        timestamps: list[int] = [
-            f.value
-            for pkt in packets
-            for f in decode_message(pkt)
-            if f.field_number == TracePacketField.TIMESTAMP and f.wire_type == 0 and isinstance(f.value, int)
-        ]
+        timestamps = [pkt.timestamp for pkt in packets if pkt.HasField("timestamp")]
         assert min(timestamps) == 0

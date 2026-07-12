@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Protocol, override
 
 import pytest
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
+    Trace,
+    TracePacket,
+    TrackEvent,
+)
 
 from gcmon.exporters import (
     EventsExporter,
@@ -21,20 +26,10 @@ from gcmon.exporters import (
 from gcmon.exporters.perfetto_format import (
     TYPE_INSTANT,
     TYPE_SLICE_BEGIN,
-    ProcessDescriptorField,
-    TracePacketField,
-    TrackDescriptorField,
-    TrackEventField,
 )
 from gcmon.protocol import TGCStatsInfo, TInstantMsg
 from tests.data_helpers import create_instant_msg
 from tests.helpers import JsonlRecord, create_mock_stats_item
-from tests.proto_decoder import (
-    ProtoField,
-    decode_message,
-    get_fields,
-    get_varint,
-)
 
 N_GC = 100
 N_INSTANT = 100
@@ -171,35 +166,33 @@ class ChromeTraceFileCapture(OutputCapture):
         return self._text().count('"ph":"I"')
 
 
+def _get_track_event(packet: TracePacket) -> TrackEvent | None:
+    if packet.HasField("track_event"):
+        return packet.track_event
+    return None
+
+
 class PerfettoFileCapture(OutputCapture):
     """Captures Perfetto protobuf output."""
 
     def __init__(self, path: Path) -> None:
         self._path = path
 
-    def _packets(self) -> list[list[ProtoField]]:
+    def _packets(self) -> list[TracePacket]:
         if not self._path.exists():
             return []
         data = self._path.read_bytes()
         if not data:
             return []
-        top = decode_message(data)
-        return [decode_message(f.value) for f in get_fields(top, 1)]  # type: ignore[arg-type]  # PACKET field
-
-    def _get_bytes_at(self, fields: list[ProtoField], field_number: int) -> bytes | None:
-        for f in fields:
-            if f.field_number == field_number and f.wire_type == 2:
-                return f.value  # type: ignore[return-value]
-        return None
+        trace = Trace()
+        trace.ParseFromString(data)
+        return list(trace.packet)
 
     def _count_event_type(self, event_type: int) -> int:
         n = 0
         for pf in self._packets():
-            te_bytes = self._get_bytes_at(pf, TracePacketField.TRACK_EVENT)
-            if not te_bytes:
-                continue
-            track_event = decode_message(te_bytes)
-            if get_varint(track_event, TrackEventField.TYPE) == event_type:
+            track_event = _get_track_event(pf)
+            if track_event is not None and track_event.type == event_type:
                 n += 1
         return n
 
@@ -218,11 +211,7 @@ class PerfettoFileCapture(OutputCapture):
         when two threads race on the same new PID."""
         n = 0
         for pf in self._packets():
-            td_bytes = self._get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR)
-            if not td_bytes:
-                continue
-            td_fields = decode_message(td_bytes)
-            if self._get_bytes_at(td_fields, TrackDescriptorField.PROCESS) is not None:
+            if pf.HasField("track_descriptor") and pf.track_descriptor.HasField("process"):
                 n += 1
         return n
 
@@ -552,17 +541,13 @@ class TestPerfettoExporterCmdlinePath:
         # The process descriptor must have NO cmdline entries. The
         # process track itself does NOT carry the joined description in
         # this case (cmdline_provider returned None for every pid).
-        for pf in capture._packets():
-            td = capture._get_bytes_at(pf, TracePacketField.TRACK_DESCRIPTOR)
-            if not td:
+        for packet in capture._packets():
+            if not packet.HasField("track_descriptor"):
                 continue
-            td_fields = decode_message(td)
-            proc = capture._get_bytes_at(td_fields, TrackDescriptorField.PROCESS)
-            if proc is None:
+            td = packet.track_descriptor
+            if not td.HasField("process"):
                 continue
-            proc_fields = decode_message(proc)
-            cmdline_entries = get_fields(proc_fields, ProcessDescriptorField.CMDLINE)
-            assert cmdline_entries == [], f"expected no cmdline entries, got {len(cmdline_entries)}"
+            assert len(td.process.cmdline) == 0, f"expected no cmdline entries, got {len(td.process.cmdline)}"
 
     def test_concurrent_same_pid_cmdline_provider_raises(self, tmp_path: Path) -> None:
         """Two threads race on the same new PID when the cmdline
