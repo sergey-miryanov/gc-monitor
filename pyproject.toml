@@ -42,7 +42,7 @@ psutil = { version = ">=7.2", optional = true }
 pytest = "^8.0.0"
 pytest-cov = "^6.0.0"
 pyperf = "^2.10.0"
-pyrefly = "^1.0"
+pyrefly = "^1.1"
 mypy = "^2.1"
 typing-extensions = "^4.15.0"
 ruff = "^0.15.0"
