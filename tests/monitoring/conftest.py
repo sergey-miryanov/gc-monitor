@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from argparse import Namespace
-from collections.abc import Callable
+from collections.abc import Callable, Generator, Mapping
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, ClassVar
@@ -15,12 +15,13 @@ import pytest
 
 from gcmon.commands.monitoring_options import MonitoringOptions
 from gcmon.stats_output import TableFormat
+from tests.helpers import DefaultsValue
 
 
 class MonitorArgsFactory:
     """Factory for creating monitor command Namespace objects."""
 
-    _defaults: ClassVar[dict] = {
+    _defaults: ClassVar[dict[str, DefaultsValue]] = {
         "pid": 12345,
         "output": Path("test.json"),
         "rate": 0.1,
@@ -82,9 +83,15 @@ def run_monitor(gcmon_cmd: list[str]) -> Callable[..., subprocess.CompletedProce
         result = run_monitor(["-d", "0.1"], timeout=5)
     """
 
-    def _run(extra_args: list[str] | None = None, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    def _run(
+        extra_args: list[str] | None = None,
+        *,
+        timeout: float | None = None,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         cmd = gcmon_cmd + ["monitor", "12345"] + (extra_args or [])
-        return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env)
 
     return _run
 
@@ -97,9 +104,15 @@ def run_monitor_self(gcmon_cmd: list[str]) -> Callable[..., subprocess.Completed
         result = run_monitor(["-d", "0.1"], timeout=5)
     """
 
-    def _run(extra_args: list[str] | None = None, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    def _run(
+        extra_args: list[str] | None = None,
+        *,
+        timeout: float | None = None,
+        cwd: str | Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         cmd = gcmon_cmd + ["monitor", "-1"] + (extra_args or [])
-        return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd, env=env)
 
     return _run
 
@@ -129,7 +142,7 @@ def monitoring_options() -> Callable[..., MonitoringOptions]:
 
 
 @pytest.fixture
-def mock_monitoring_base_deps() -> dict[str, Any]:
+def mock_monitoring_base_deps() -> Generator[dict[str, MagicMock]]:
     """Patch all dependencies for run_monitoring_loop.
 
     Returns dict of mocks that tests can customize (e.g. deps["StreamingStats"].return_value.count.return_value = 0).

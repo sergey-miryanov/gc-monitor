@@ -12,9 +12,11 @@ from gcmon.protocol import TGCStatsInfo, TInstantMsg
 _JsonValue = int | float | str
 ChromeTraceValue = _JsonValue | Mapping[str, _JsonValue]
 JsonlRecord = dict[str, _JsonValue]
+DefaultsValue = Path | float | None | int | str | bool
 
 __all__ = [
     "ChromeTraceValue",
+    "DefaultsValue",
     "JsonlRecord",
     "MockExporter",
     "assert_is_begin",

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-_EnvDefault = Path | float | None | int | str | bool
+from tests.helpers import DefaultsValue
 
 
 class TestEnvVarDefaults:
@@ -27,7 +27,7 @@ class TestEnvVarDefaults:
         env_module: types.ModuleType,
         env_var: str,
         getter_suffix: str,
-        default: _EnvDefault,
+        default: DefaultsValue,
     ) -> None:
         getter = getattr(env_module, f"get_env_{getter_suffix}")
         actual_env_name = getattr(env_module, env_var)
@@ -57,7 +57,7 @@ class TestEnvVarCustom:
         env_var: str,
         getter_suffix: str,
         custom_val: str,
-        expected: _EnvDefault,
+        expected: DefaultsValue,
     ) -> None:
         getter = getattr(env_module, f"get_env_{getter_suffix}")
         actual_env_name = getattr(env_module, env_var)
@@ -84,7 +84,7 @@ class TestEnvVarInvalidValues:
         env_module: types.ModuleType,
         env_var: str,
         getter_suffix: str,
-        default: _EnvDefault,
+        default: DefaultsValue,
     ) -> None:
         getter = getattr(env_module, f"get_env_{getter_suffix}")
         actual_env_name = getattr(env_module, env_var)
@@ -201,7 +201,7 @@ class TestEnvVarEmpty:
         env_module: types.ModuleType,
         env_var: str,
         getter_suffix: str,
-        default: _EnvDefault,
+        default: DefaultsValue,
     ) -> None:
         getter = getattr(env_module, f"get_env_{getter_suffix}")
         actual_env_name = getattr(env_module, env_var)

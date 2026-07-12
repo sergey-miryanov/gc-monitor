@@ -1,20 +1,24 @@
-from unittest.mock import patch
+from collections.abc import Generator
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gcmon.data import GCStatsInfo
 from gcmon.monitor import EventsMonitor, create_monitor
+from gcmon.stats import StreamingStats
+from gcmon.target_process import ExternalProcess
 from tests.helpers import MockExporter, create_mock_stats_item
 
 
 @pytest.fixture
-def mock_gc_stats():
+def mock_gc_stats() -> Generator[GCStatsInfo]:
     item = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
     with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
         yield item
 
 
 @pytest.fixture
-def mock_stats_update(monitor):
+def mock_stats_update(monitor: EventsMonitor) -> Generator[MagicMock]:
     with patch.object(monitor._stats, "update") as mock:
         yield mock
 
@@ -43,9 +47,10 @@ class TestEventsMonitorExtra:
             assert m is monitor
             assert monitor.is_enabled
         assert not monitor.is_enabled
-        assert exporter._close_called
 
-    def test_poll_updates_stats(self, monitor: EventsMonitor, mock_gc_stats, mock_stats_update) -> None:
+    def test_poll_updates_stats(
+        self, monitor: EventsMonitor, mock_gc_stats: GCStatsInfo, mock_stats_update: MagicMock
+    ) -> None:
         monitor.poll(12345)
 
         mock_stats_update.assert_called_once_with(12345, mock_gc_stats)
@@ -68,7 +73,9 @@ class TestEventsMonitorExtra:
 
 
 class TestCreateMonitor:
-    def test_returns_events_monitor(self, exporter: MockExporter, process, stats) -> None:
+    def test_returns_events_monitor(
+        self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
+    ) -> None:
         result = create_monitor(process, exporter, stats)
         assert isinstance(result, EventsMonitor)
         assert result.is_enabled

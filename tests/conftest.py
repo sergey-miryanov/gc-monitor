@@ -118,7 +118,7 @@ def stats() -> StreamingStats:
 
 
 @pytest.fixture
-def monitor(exporter, process: ExternalProcess, stats: StreamingStats) -> EventsMonitor:
+def monitor(exporter: MockExporter, process: ExternalProcess, stats: StreamingStats) -> EventsMonitor:
     return EventsMonitor(process, exporter, stats)
 
 
