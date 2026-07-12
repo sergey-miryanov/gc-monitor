@@ -1,6 +1,9 @@
+import types
 from pathlib import Path
 
 import pytest
+
+_EnvDefault = Path | float | None | int | str | bool
 
 
 class TestEnvVarDefaults:
@@ -19,7 +22,12 @@ class TestEnvVarDefaults:
         ],
     )
     def test_default(
-        self, monkeypatch: pytest.MonkeyPatch, env_module, env_var: str, getter_suffix: str, default
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        env_module: types.ModuleType,
+        env_var: str,
+        getter_suffix: str,
+        default: _EnvDefault,
     ) -> None:
         getter = getattr(env_module, f"get_env_{getter_suffix}")
         actual_env_name = getattr(env_module, env_var)
@@ -43,7 +51,13 @@ class TestEnvVarCustom:
         ],
     )
     def test_custom(
-        self, monkeypatch: pytest.MonkeyPatch, env_module, env_var: str, getter_suffix: str, custom_val: str, expected
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        env_module: types.ModuleType,
+        env_var: str,
+        getter_suffix: str,
+        custom_val: str,
+        expected: _EnvDefault,
     ) -> None:
         getter = getattr(env_module, f"get_env_{getter_suffix}")
         actual_env_name = getattr(env_module, env_var)
@@ -65,7 +79,12 @@ class TestEnvVarInvalidValues:
         ],
     )
     def test_invalid_value_returns_default(
-        self, monkeypatch: pytest.MonkeyPatch, env_module, env_var: str, getter_suffix: str, default
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        env_module: types.ModuleType,
+        env_var: str,
+        getter_suffix: str,
+        default: _EnvDefault,
     ) -> None:
         getter = getattr(env_module, f"get_env_{getter_suffix}")
         actual_env_name = getattr(env_module, env_var)
@@ -76,16 +95,16 @@ class TestEnvVarInvalidValues:
 class TestEnvVerbose:
     """Tests for GCMON_VERBOSE parsing."""
 
-    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.delenv(env_module.ENV_VERBOSE, raising=False)
         assert env_module.get_env_verbose() == 0
 
-    def test_numeric(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_numeric(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.setenv(env_module.ENV_VERBOSE, "2")
         assert env_module.get_env_verbose() == 2
 
     @pytest.mark.parametrize("value", ["true", "yes", "on", "1"])
-    def test_truthy_values(self, monkeypatch: pytest.MonkeyPatch, env_module, value: str) -> None:
+    def test_truthy_values(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str) -> None:
         monkeypatch.setenv(env_module.ENV_VERBOSE, value)
         assert env_module.get_env_verbose() == 1
 
@@ -93,16 +112,18 @@ class TestEnvVerbose:
 class TestEnvFormat:
     """Tests for GCMON_FORMAT parsing."""
 
-    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.delenv(env_module.ENV_FORMAT, raising=False)
         assert env_module.get_env_format() == "chrome"
 
     @pytest.mark.parametrize("value, expected", [("stdout", "stdout"), ("jsonl", "jsonl")])
-    def test_valid_values(self, monkeypatch: pytest.MonkeyPatch, env_module, value: str, expected: str) -> None:
+    def test_valid_values(
+        self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str, expected: str
+    ) -> None:
         monkeypatch.setenv(env_module.ENV_FORMAT, value)
         assert env_module.get_env_format() == expected
 
-    def test_invalid_value_returns_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_invalid_value_returns_default(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.setenv(env_module.ENV_FORMAT, "invalid_format")
         assert env_module.get_env_format() == "chrome"
 
@@ -110,7 +131,7 @@ class TestEnvFormat:
 class TestEnvOutputSpecialCases:
     """Tests for GCMON_OUTPUT special behavior."""
 
-    def test_default_format_jsonl(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_default_format_jsonl(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.setenv(env_module.ENV_FORMAT, "jsonl")
         monkeypatch.delenv(env_module.ENV_OUTPUT, raising=False)
         assert env_module.get_env_output() == Path("gcmon.jsonl")
@@ -119,20 +140,20 @@ class TestEnvOutputSpecialCases:
 class TestEnvStats:
     """Tests for GCMON_STATS parsing."""
 
-    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.delenv(env_module.ENV_STATS, raising=False)
         assert env_module.get_env_stats() is False
 
     @pytest.mark.parametrize("value", ["1", "true", "yes", "on"])
-    def test_truthy_values(self, monkeypatch: pytest.MonkeyPatch, env_module, value: str) -> None:
+    def test_truthy_values(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str) -> None:
         monkeypatch.setenv(env_module.ENV_STATS, value)
         assert env_module.get_env_stats() is True
 
-    def test_false_value(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_false_value(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.setenv(env_module.ENV_STATS, "0")
         assert env_module.get_env_stats() is False
 
-    def test_random_string(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_random_string(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.setenv(env_module.ENV_STATS, "nope")
         assert env_module.get_env_stats() is False
 
@@ -140,16 +161,16 @@ class TestEnvStats:
 class TestEnvTableFormat:
     """Tests for GCMON_TABLE_FORMAT parsing."""
 
-    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.delenv(env_module.ENV_TABLE_FORMAT, raising=False)
         assert env_module.get_env_table_format() == env_module.TableFormat.PLAIN
 
     @pytest.mark.parametrize("value", ["md", "markdown", "MD", "Markdown"])
-    def test_markdown_values(self, monkeypatch: pytest.MonkeyPatch, env_module, value: str) -> None:
+    def test_markdown_values(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str) -> None:
         monkeypatch.setenv(env_module.ENV_TABLE_FORMAT, value)
         assert env_module.get_env_table_format() == env_module.TableFormat.MARKDOWN
 
-    def test_invalid_value_returns_default(self, monkeypatch: pytest.MonkeyPatch, env_module) -> None:
+    def test_invalid_value_returns_default(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.setenv(env_module.ENV_TABLE_FORMAT, "html")
         assert env_module.get_env_table_format() == env_module.TableFormat.PLAIN
 
@@ -175,7 +196,12 @@ class TestEnvVarEmpty:
         ],
     )
     def test_empty_string_returns_default(
-        self, monkeypatch: pytest.MonkeyPatch, env_module, env_var: str, getter_suffix: str, default
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        env_module: types.ModuleType,
+        env_var: str,
+        getter_suffix: str,
+        default: _EnvDefault,
     ) -> None:
         getter = getattr(env_module, f"get_env_{getter_suffix}")
         actual_env_name = getattr(env_module, env_var)
