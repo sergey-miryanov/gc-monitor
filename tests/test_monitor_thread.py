@@ -1,9 +1,11 @@
 """Tests for GCMonitorThread and GCMonitor."""
 
-from unittest.mock import patch
+from collections.abc import Callable
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from gcmon.data import GCStatsInfo
 from gcmon.monitor import EventsMonitor
 from gcmon.monitor_thread import MonitorThread
 from gcmon.poll_status import PollStatus
@@ -39,7 +41,7 @@ class TestGCMonitor:
         assert monitor.is_enabled
         assert monitor.pid == 12345
 
-    def test_poll(self, exporter: MockExporter, monitor: EventsMonitor, mock_gc_stats) -> None:
+    def test_poll(self, exporter: MockExporter, monitor: EventsMonitor, mock_gc_stats: MagicMock) -> None:
         item = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
 
         mock_gc_stats.return_value = [item]
@@ -48,7 +50,9 @@ class TestGCMonitor:
         assert result == PollStatus.OK
         assert len(exporter.events) == 1
 
-    def test_poll_duplicate_timestamps(self, exporter: MockExporter, monitor: EventsMonitor, mock_gc_stats) -> None:
+    def test_poll_duplicate_timestamps(
+        self, exporter: MockExporter, monitor: EventsMonitor, mock_gc_stats: MagicMock
+    ) -> None:
         item1 = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
         item2 = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_006_000_000)
         item3 = create_mock_stats_item(ts_start=2_000_000_000, ts_stop=2_005_000_000)
@@ -71,14 +75,14 @@ class TestGCMonitor:
         ],
     )
     def test_poll_runtime_error(
-        self, monitor: EventsMonitor, expected_status: PollStatus, error_msg: str, mock_gc_stats
+        self, monitor: EventsMonitor, expected_status: PollStatus, error_msg: str, mock_gc_stats: MagicMock
     ) -> None:
         mock_gc_stats.side_effect = RuntimeError(error_msg)
         result = monitor.poll(12345)
 
         assert result == expected_status
 
-    def test_poll_general_exception(self, monitor: EventsMonitor, mock_gc_stats) -> None:
+    def test_poll_general_exception(self, monitor: EventsMonitor, mock_gc_stats: MagicMock) -> None:
         mock_gc_stats.side_effect = ValueError("Unexpected error")
         result = monitor.poll(12345)
 
@@ -105,28 +109,35 @@ class TestGCMonitor:
 
 
 class TestGCMonitorThread:
-    def test_init(self, thread_factory) -> None:
+    def test_init(self, thread_factory: Callable[..., MonitorThread]) -> None:
         thread = thread_factory()
         assert not thread.is_running
         assert thread.monitor_count == 0
 
-    def test_add_monitor(self, thread_factory, monitor: EventsMonitor) -> None:
+    def test_add_monitor(self, thread_factory: Callable[..., MonitorThread], monitor: EventsMonitor) -> None:
         thread = thread_factory()
         thread.add_monitor(monitor)
         assert thread.monitor_count == 1
 
-    def test_remove_monitor(self, thread_factory, monitor: EventsMonitor) -> None:
+    def test_remove_monitor(self, thread_factory: Callable[..., MonitorThread], monitor: EventsMonitor) -> None:
         thread = thread_factory()
         thread.add_monitor(monitor)
         assert thread.remove_monitor(monitor) is True
         assert thread.monitor_count == 0
         assert not monitor.is_enabled
 
-    def test_remove_nonexistent_monitor(self, thread_factory, monitor: EventsMonitor) -> None:
+    def test_remove_nonexistent_monitor(
+        self, thread_factory: Callable[..., MonitorThread], monitor: EventsMonitor
+    ) -> None:
         thread = thread_factory()
         assert thread.remove_monitor(monitor) is False
 
-    def test_start_stop(self, thread_factory, make_monitor, mock_gc_stats) -> None:
+    def test_start_stop(
+        self,
+        thread_factory: Callable[..., MonitorThread],
+        make_monitor: Callable[..., EventsMonitor],
+        mock_gc_stats: MagicMock,
+    ) -> None:
         thread = thread_factory()
         item = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
         mock_gc_stats.return_value = [item]
@@ -141,7 +152,9 @@ class TestGCMonitorThread:
         assert not thread.is_running
         assert not monitor.is_enabled
 
-    def test_start_twice_raises_error(self, thread_factory, make_monitor) -> None:
+    def test_start_twice_raises_error(
+        self, thread_factory: Callable[..., MonitorThread], make_monitor: Callable[..., EventsMonitor]
+    ) -> None:
         thread = thread_factory()
         exporter = MockExporter()
         monitor = make_monitor(exp=exporter)
@@ -152,13 +165,18 @@ class TestGCMonitorThread:
             thread.start()
         thread.stop()
 
-    def test_multiple_monitors(self, thread_factory, make_monitor, mock_gc_stats) -> None:
+    def test_multiple_monitors(
+        self,
+        thread_factory: Callable[..., MonitorThread],
+        make_monitor: Callable[..., EventsMonitor],
+        mock_gc_stats: MagicMock,
+    ) -> None:
         thread = thread_factory(rate=0.05)
 
         item1 = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
         item2 = create_mock_stats_item(ts_start=2_000_000_000, ts_stop=2_005_000_000)
 
-        def side_effect(pid: int, all_interpreters: bool = False):
+        def side_effect(pid: int, all_interpreters: bool = False) -> list[GCStatsInfo]:
             return [item1] if pid == 12345 else [item2]
 
         mock_gc_stats.side_effect = side_effect
@@ -180,7 +198,12 @@ class TestGCMonitorThread:
         assert len(exporter1.events) >= 1
         assert len(exporter2.events) >= 1
 
-    def test_dynamic_add_during_runtime(self, thread_factory, make_monitor, mock_gc_stats) -> None:
+    def test_dynamic_add_during_runtime(
+        self,
+        thread_factory: Callable[..., MonitorThread],
+        make_monitor: Callable[..., EventsMonitor],
+        mock_gc_stats: MagicMock,
+    ) -> None:
         thread = thread_factory(rate=0.05)
 
         item1 = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
@@ -205,14 +228,19 @@ class TestGCMonitorThread:
         assert len(exporter1.events) >= 1
         assert len(exporter2.events) >= 1
 
-    def test_empty_monitor_list(self, thread_factory) -> None:
+    def test_empty_monitor_list(self, thread_factory: Callable[..., MonitorThread]) -> None:
         thread = thread_factory(rate=0.05)
         thread.start()
         assert thread.is_running
         thread.stop()
         assert not thread.is_running
 
-    def test_monitor_error_handling(self, thread_factory, make_monitor, mock_gc_stats) -> None:
+    def test_monitor_error_handling(
+        self,
+        thread_factory: Callable[..., MonitorThread],
+        make_monitor: Callable[..., EventsMonitor],
+        mock_gc_stats: MagicMock,
+    ) -> None:
         thread = thread_factory(rate=0.05)
 
         item2 = create_mock_stats_item(ts_start=2_000_000_000, ts_stop=2_005_000_000)
@@ -239,7 +267,12 @@ class TestGCMonitorThread:
         assert len(exporter2.events) >= 1
         assert not monitor1.is_enabled
 
-    def test_close(self, thread_factory, make_monitor, mock_gc_stats) -> None:
+    def test_close(
+        self,
+        thread_factory: Callable[..., MonitorThread],
+        make_monitor: Callable[..., EventsMonitor],
+        mock_gc_stats: MagicMock,
+    ) -> None:
         thread = thread_factory()
         item = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
         mock_gc_stats.return_value = [item]
