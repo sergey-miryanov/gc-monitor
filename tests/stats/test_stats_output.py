@@ -173,7 +173,7 @@ class TestBuildRows:
         assert float(row[3]) > 0
 
     def test_sorted_by_generation(self) -> None:
-        stats_dict = {}
+        stats_dict: dict[int, Stats] = {}
         for gen in [2, 0, 1]:
             s = Stats()
             s.update(1000.0)

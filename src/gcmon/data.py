@@ -1,6 +1,6 @@
-from collections.abc import Mapping
-
 import msgspec
+
+from gcmon.protocol import TMapping
 
 
 class GCStatsInfo(msgspec.Struct):
@@ -40,7 +40,7 @@ class InstantMsg(msgspec.Struct):
     ts: int
 
 
-def from_mapping(data: Mapping[str, str | int | float]) -> GCStatsInfo | InstantMsg:
+def from_mapping(data: TMapping) -> GCStatsInfo | InstantMsg:
     if data.get("type") == "i":
         return msgspec.convert(data, InstantMsg)
     return msgspec.convert(data, GCStatsInfo)

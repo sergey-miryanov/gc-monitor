@@ -1,10 +1,9 @@
 """Tests for Chrome Trace Event format types and conversion utilities."""
 
-from types import SimpleNamespace
-
 import msgspec
 from msgspec import structs
 
+from gcmon.data import GCStatsInfo
 from gcmon.exporters.chrome_trace_format import (
     convert_item_to_trace_format,
     convert_to_trace_format,
@@ -137,19 +136,18 @@ def _make_incremental_item(
     finalized_garbage_count: int = 42,
     deleted_garbage_count: int = 13,
     clear_weakrefs_count: int = 7,
-) -> SimpleNamespace:
-    base = create_mock_stats_item(gen=gen, ts_start=ts_start, ts_stop=ts_stop)
-    return SimpleNamespace(
-        gen=base.gen,
-        iid=base.iid,
-        ts_start=base.ts_start,
-        ts_stop=base.ts_stop,
-        collections=base.collections,
-        heap_size=base.heap_size,
-        collected=base.collected,
-        uncollectable=base.uncollectable,
-        candidates=base.candidates,
-        duration=base.duration,
+) -> GCStatsInfo:
+    return GCStatsInfo(
+        gen=gen,
+        iid=0,
+        ts_start=ts_start,
+        ts_stop=ts_stop,
+        collections=50,
+        collected=200,
+        uncollectable=10,
+        candidates=40,
+        heap_size=52428800,
+        duration=0.005,
         increment_size=increment_size,
         alive_size=alive_size,
         ts_mark_alive_start=ts_start,
@@ -252,7 +250,7 @@ class TestConvertItemToTraceFormat:
 
     def test_zero_duration_sub_steps_are_skipped(self) -> None:
         base = _make_incremental_item(gen=0)
-        item = SimpleNamespace(
+        item = GCStatsInfo(
             gen=base.gen,
             iid=base.iid,
             ts_start=base.ts_start,

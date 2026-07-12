@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from types import SimpleNamespace
-from typing import ClassVar
 
+from gcmon.data import GCStatsInfo, InstantMsg
 from gcmon.protocol import (
     has_clear_weakrefs,
     has_deduce_unreachable,
@@ -17,130 +17,222 @@ from gcmon.protocol import (
     is_instant,
     to_mapping,
 )
+from tests.helpers import create_mock_stats_item
 
 
 class TestIsGC:
-    def test_regular_returns_true(self, simple_item):
+    def test_regular_returns_true(self, simple_item: GCStatsInfo) -> None:
         assert is_gc_stats(simple_item) is True
 
-    def test_incremental_returns_true(self, incremental_item):
+    def test_incremental_returns_true(self, incremental_item: GCStatsInfo) -> None:
         assert is_gc_stats(incremental_item) is True
 
-    def test_instant_returns_false(self, instant_item):
+    def test_instant_returns_false(self, instant_item: InstantMsg) -> None:
         assert is_gc_stats(instant_item) is False
 
 
 class TestIsInstant:
-    def test_instant_returns_true(self, instant_item):
+    def test_instant_returns_true(self, instant_item: InstantMsg) -> None:
         assert is_instant(instant_item) is True
 
-    def test_gc_stats_returns_false(self, simple_item):
+    def test_gc_stats_returns_false(self, simple_item: GCStatsInfo) -> None:
         assert is_instant(simple_item) is False
 
-    def test_incremental_returns_false(self, incremental_item):
+    def test_incremental_returns_false(self, incremental_item: GCStatsInfo) -> None:
         assert is_instant(incremental_item) is False
 
 
 class TestHasGuards:
-    def test_has_pause_ts_true(self):
-        item = SimpleNamespace(ts_start=100)
-        assert has_pause_ts(item)
+    def test_has_pause_ts_true(self) -> None:
+        assert has_pause_ts(create_mock_stats_item())
 
-    def test_has_pause_ts_false(self):
-        item = SimpleNamespace(gen=0)
-        assert not has_pause_ts(item)
+    def test_has_pause_ts_false(self) -> None:
+        assert not has_pause_ts(SimpleNamespace(gen=0))
 
-    def test_has_incremental_true(self):
-        item = SimpleNamespace(increment_size=500)
-        assert has_incremental(item)
+    def test_has_incremental_true(self) -> None:
+        assert has_incremental(
+            GCStatsInfo(
+                gen=0,
+                iid=0,
+                ts_start=0,
+                ts_stop=0,
+                heap_size=0,
+                collections=0,
+                collected=0,
+                uncollectable=0,
+                candidates=0,
+                duration=0.0,
+                increment_size=500,
+            )
+        )
 
-    def test_has_incremental_false(self):
-        item = SimpleNamespace(gen=0)
-        assert not has_incremental(item)
+    def test_has_incremental_false(self) -> None:
+        assert not has_incremental(create_mock_stats_item())
 
-    def test_has_mark_alive_true(self):
-        item = SimpleNamespace(alive_size=300)
-        assert has_mark_alive(item)
+    def test_has_mark_alive_true(self) -> None:
+        assert has_mark_alive(
+            GCStatsInfo(
+                gen=0,
+                iid=0,
+                ts_start=0,
+                ts_stop=0,
+                heap_size=0,
+                collections=0,
+                collected=0,
+                uncollectable=0,
+                candidates=0,
+                duration=0.0,
+                alive_size=300,
+            )
+        )
 
-    def test_has_mark_alive_false(self):
-        item = SimpleNamespace(gen=0)
-        assert not has_mark_alive(item)
+    def test_has_mark_alive_false(self) -> None:
+        assert not has_mark_alive(create_mock_stats_item())
 
-    def test_has_deduce_unreachable_true(self):
-        item = SimpleNamespace(ts_deduce_unreachable_start=100)
-        assert has_deduce_unreachable(item)
+    def test_has_deduce_unreachable_true(self) -> None:
+        assert has_deduce_unreachable(
+            GCStatsInfo(
+                gen=0,
+                iid=0,
+                ts_start=0,
+                ts_stop=0,
+                heap_size=0,
+                collections=0,
+                collected=0,
+                uncollectable=0,
+                candidates=0,
+                duration=0.0,
+                ts_deduce_unreachable_start=100,
+            )
+        )
 
-    def test_has_deduce_unreachable_false(self):
-        item = SimpleNamespace(gen=0)
-        assert not has_deduce_unreachable(item)
+    def test_has_deduce_unreachable_false(self) -> None:
+        assert not has_deduce_unreachable(create_mock_stats_item())
 
-    def test_has_handle_weakrefs_true(self):
-        item = SimpleNamespace(ts_handle_weakref_callbacks_start=100)
-        assert has_handle_weakrefs(item)
+    def test_has_handle_weakrefs_true(self) -> None:
+        assert has_handle_weakrefs(
+            GCStatsInfo(
+                gen=0,
+                iid=0,
+                ts_start=0,
+                ts_stop=0,
+                heap_size=0,
+                collections=0,
+                collected=0,
+                uncollectable=0,
+                candidates=0,
+                duration=0.0,
+                ts_handle_weakref_callbacks_start=100,
+            )
+        )
 
-    def test_has_handle_weakrefs_false(self):
-        item = SimpleNamespace(gen=0)
-        assert not has_handle_weakrefs(item)
+    def test_has_handle_weakrefs_false(self) -> None:
+        assert not has_handle_weakrefs(create_mock_stats_item())
 
-    def test_has_finalize_garbage_true(self):
-        item = SimpleNamespace(ts_finalize_garbage_stop=100)
-        assert has_finalize_garbage(item)
+    def test_has_finalize_garbage_true(self) -> None:
+        assert has_finalize_garbage(
+            GCStatsInfo(
+                gen=0,
+                iid=0,
+                ts_start=0,
+                ts_stop=0,
+                heap_size=0,
+                collections=0,
+                collected=0,
+                uncollectable=0,
+                candidates=0,
+                duration=0.0,
+                ts_finalize_garbage_stop=100,
+            )
+        )
 
-    def test_has_finalize_garbage_false(self):
-        item = SimpleNamespace(gen=0)
-        assert not has_finalize_garbage(item)
+    def test_has_finalize_garbage_false(self) -> None:
+        assert not has_finalize_garbage(create_mock_stats_item())
 
-    def test_has_handle_resurrected_true(self):
-        item = SimpleNamespace(ts_handle_resurrected_stop=100)
-        assert has_handle_resurrected(item)
+    def test_has_handle_resurrected_true(self) -> None:
+        assert has_handle_resurrected(
+            GCStatsInfo(
+                gen=0,
+                iid=0,
+                ts_start=0,
+                ts_stop=0,
+                heap_size=0,
+                collections=0,
+                collected=0,
+                uncollectable=0,
+                candidates=0,
+                duration=0.0,
+                ts_handle_resurrected_stop=100,
+            )
+        )
 
-    def test_has_handle_resurrected_false(self):
-        item = SimpleNamespace(gen=0)
-        assert not has_handle_resurrected(item)
+    def test_has_handle_resurrected_false(self) -> None:
+        assert not has_handle_resurrected(create_mock_stats_item())
 
-    def test_has_clear_weakrefs_true(self):
-        item = SimpleNamespace(ts_clear_weakrefs_stop=100)
-        assert has_clear_weakrefs(item)
+    def test_has_clear_weakrefs_true(self) -> None:
+        assert has_clear_weakrefs(
+            GCStatsInfo(
+                gen=0,
+                iid=0,
+                ts_start=0,
+                ts_stop=0,
+                heap_size=0,
+                collections=0,
+                collected=0,
+                uncollectable=0,
+                candidates=0,
+                duration=0.0,
+                ts_clear_weakrefs_stop=100,
+            )
+        )
 
-    def test_has_clear_weakrefs_false(self):
-        item = SimpleNamespace(gen=0)
-        assert not has_clear_weakrefs(item)
+    def test_has_clear_weakrefs_false(self) -> None:
+        assert not has_clear_weakrefs(create_mock_stats_item())
 
-    def test_has_delete_garbage_true(self):
-        item = SimpleNamespace(ts_delete_garbage_start=100)
-        assert has_delete_garbage(item)
+    def test_has_delete_garbage_true(self) -> None:
+        assert has_delete_garbage(
+            GCStatsInfo(
+                gen=0,
+                iid=0,
+                ts_start=0,
+                ts_stop=0,
+                heap_size=0,
+                collections=0,
+                collected=0,
+                uncollectable=0,
+                candidates=0,
+                duration=0.0,
+                ts_delete_garbage_start=100,
+            )
+        )
 
-    def test_has_delete_garbage_false(self):
-        item = SimpleNamespace(gen=0)
-        assert not has_delete_garbage(item)
+    def test_has_delete_garbage_false(self) -> None:
+        assert not has_delete_garbage(create_mock_stats_item())
 
-    def test_has_gen_true(self):
-        item = SimpleNamespace(gen=1)
-        assert has_gen(item)
+    def test_has_gen_true(self) -> None:
+        assert has_gen(create_mock_stats_item())
 
-    def test_has_gen_false(self):
-        item = SimpleNamespace(other=42)
-        assert not has_gen(item)
+    def test_has_gen_false(self) -> None:
+        assert not has_gen(SimpleNamespace(other=42))
 
 
 class TestToMappingPartial:
-    BASE: ClassVar[dict[str, int | float]] = {
-        "gen": 0,
-        "iid": 1,
-        "ts_start": 1_000_000,
-        "ts_stop": 2_000_000,
-        "heap_size": 1024,
-        "collections": 5,
-        "collected": 50,
-        "uncollectable": 0,
-        "candidates": 10,
-        "duration": 0.005,
-    }
+    def _make_item(self, **extra: int) -> GCStatsInfo:
+        return GCStatsInfo(
+            gen=0,
+            iid=1,
+            ts_start=1_000_000,
+            ts_stop=2_000_000,
+            heap_size=1024,
+            collections=5,
+            collected=50,
+            uncollectable=0,
+            candidates=10,
+            duration=0.005,
+            **extra,
+        )
 
-    def _make_item(self, **extra: int | float) -> SimpleNamespace:
-        return SimpleNamespace(**self.BASE, **extra)
-
-    def test_fill_increment_only(self):
+    def test_fill_increment_only(self) -> None:
         item = self._make_item(
             increment_size=500,
             ts_fill_increment_start=1_000_500,
@@ -162,7 +254,7 @@ class TestToMappingPartial:
         assert "deleted_garbage_count" not in result
         assert "clear_weakrefs_count" not in result
 
-    def test_mark_alive_only(self):
+    def test_mark_alive_only(self) -> None:
         item = self._make_item(
             alive_size=300,
             ts_mark_alive_start=1_000_500,
@@ -184,7 +276,7 @@ class TestToMappingPartial:
         assert "deleted_garbage_count" not in result
         assert "clear_weakrefs_count" not in result
 
-    def test_deduce_unreachable_only(self):
+    def test_deduce_unreachable_only(self) -> None:
         item = self._make_item(
             ts_deduce_unreachable_start=1_000_500,
             ts_deduce_unreachable_stop=1_001_000,
@@ -204,7 +296,7 @@ class TestToMappingPartial:
         assert "deleted_garbage_count" not in result
         assert "clear_weakrefs_count" not in result
 
-    def test_finalize_garbage_only(self):
+    def test_finalize_garbage_only(self) -> None:
         item = self._make_item(
             ts_finalize_garbage_stop=1_005_000,
             finalized_garbage_count=42,
@@ -215,7 +307,7 @@ class TestToMappingPartial:
         assert "deleted_garbage_count" not in result
         assert "clear_weakrefs_count" not in result
 
-    def test_delete_garbage_only(self):
+    def test_delete_garbage_only(self) -> None:
         item = self._make_item(
             ts_delete_garbage_start=1_008_000,
             ts_delete_garbage_stop=1_009_000,
@@ -228,7 +320,7 @@ class TestToMappingPartial:
         assert "finalized_garbage_count" not in result
         assert "clear_weakrefs_count" not in result
 
-    def test_clear_weakrefs_only(self):
+    def test_clear_weakrefs_only(self) -> None:
         item = self._make_item(
             ts_clear_weakrefs_stop=1_007_000,
             clear_weakrefs_count=7,
@@ -239,7 +331,7 @@ class TestToMappingPartial:
         assert "finalized_garbage_count" not in result
         assert "deleted_garbage_count" not in result
 
-    def test_all_partial_phases(self):
+    def test_all_partial_phases(self) -> None:
         item = self._make_item(
             increment_size=500,
             alive_size=300,
@@ -282,7 +374,7 @@ class TestToMappingPartial:
 
 
 class TestToMapping:
-    def test_regular_item(self, simple_item):
+    def test_regular_item(self, simple_item: GCStatsInfo) -> None:
         result = to_mapping(simple_item)
 
         assert isinstance(result, Mapping)
@@ -298,7 +390,7 @@ class TestToMapping:
         assert result["duration"] == 0.005
         assert "increment_size" not in result
 
-    def test_incremental_item(self, incremental_item):
+    def test_incremental_item(self, incremental_item: GCStatsInfo) -> None:
         result = to_mapping(incremental_item)
 
         assert isinstance(result, Mapping)
@@ -331,7 +423,7 @@ class TestToMapping:
         assert result["ts_delete_garbage_stop"] == 3_009_000
         assert result["deleted_garbage_count"] == 13
 
-    def test_instant_item(self, instant_item):
+    def test_instant_item(self, instant_item: InstantMsg) -> None:
         result = to_mapping(instant_item)
 
         assert isinstance(result, Mapping)
@@ -339,7 +431,7 @@ class TestToMapping:
         assert result["name"] == "start GC monitor"
         assert result["ts"] == 5_000_000
 
-    def test_to_mapping_unknown_type_raises(self):
+    def test_to_mapping_unknown_type_raises(self) -> None:
         import pytest
 
         with pytest.raises(NotImplementedError, match="Unknown item type"):

@@ -13,7 +13,7 @@ def gcmon_cli() -> list[str]:
 
 
 @pytest.fixture
-def cli_module():
+def cli_module() -> types.ModuleType:
     from gcmon import cli
 
     return cli
@@ -26,7 +26,7 @@ def cli_module():
 
 class TestSetupLogging:
     @pytest.fixture(autouse=True)
-    def reset_logging(self):
+    def reset_logging(self) -> None:
         import logging
 
         for handler in logging.root.handlers[:]:

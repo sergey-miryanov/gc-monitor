@@ -210,7 +210,7 @@ class TestPerfettoExporter:
         exporter.close()
 
         packets = _read_trace_packets(path)
-        names = []
+        names: list[str] = []
         for pf in packets:
             track_event = _get_track_event(pf)
             if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_INSTANT:
@@ -229,7 +229,7 @@ class TestPerfettoExporter:
         exporter.close()
 
         packets = _read_trace_packets(path)
-        names = []
+        names: list[str] = []
         for pf in packets:
             track_event = _get_track_event(pf)
             if track_event and get_varint(track_event, TrackEventField.TYPE) == TYPE_INSTANT:

@@ -2,11 +2,11 @@ import msgspec
 import pytest
 
 from gcmon.data import GCStatsInfo, InstantMsg, from_mapping, instant_msg
-from gcmon.protocol import has_deduce_unreachable, has_incremental, has_mark_alive
+from gcmon.protocol import TMapping, has_deduce_unreachable, has_incremental, has_mark_alive
 
 
 class TestGCStatsInfo:
-    def test_struct_creation(self, simple_item):
+    def test_struct_creation(self, simple_item: GCStatsInfo) -> None:
         assert simple_item.gen == 0
         assert simple_item.iid == 1
         assert simple_item.ts_start == 1_000_000
@@ -20,12 +20,12 @@ class TestGCStatsInfo:
 
 
 class TestInstantMsg:
-    def test_instant_msg_creation(self, instant_item):
+    def test_instant_msg_creation(self, instant_item: InstantMsg) -> None:
         assert instant_item.type == "i"
         assert instant_item.name == "start GC monitor"
         assert instant_item.ts == 5_000_000
 
-    def test_instant_msg_with_explicit_ts(self):
+    def test_instant_msg_with_explicit_ts(self) -> None:
         msg = instant_msg("test event", 12345)
         assert isinstance(msg, InstantMsg)
         assert msg.type == "i"
@@ -34,7 +34,7 @@ class TestInstantMsg:
 
 
 class TestFromMapping:
-    def test_regular_item(self, gc_stats_dict):
+    def test_regular_item(self, gc_stats_dict: TMapping) -> None:
         result = from_mapping(gc_stats_dict)
         assert isinstance(result, GCStatsInfo)
         assert not has_incremental(result)
@@ -49,7 +49,7 @@ class TestFromMapping:
         assert result.candidates == 10
         assert result.duration == 0.005
 
-    def test_incremental_item(self, incremental_dict):
+    def test_incremental_item(self, incremental_dict: TMapping) -> None:
         result = from_mapping(incremental_dict)
         assert isinstance(result, GCStatsInfo)
         # Common fields (always present)
@@ -81,13 +81,13 @@ class TestFromMapping:
         assert result.ts_deduce_unreachable_start == 3_002_500
         assert result.ts_deduce_unreachable_stop == 3_003_000
 
-    def test_from_mapping_returns_instant_msg(self, instant_dict):
+    def test_from_mapping_returns_instant_msg(self, instant_dict: TMapping) -> None:
         result = from_mapping(instant_dict)
         assert isinstance(result, InstantMsg)
         assert result.type == "i"
         assert result.name == "start GC monitor"
         assert result.ts == 5_000_000
 
-    def test_from_mapping_empty_raises(self):
+    def test_from_mapping_empty_raises(self) -> None:
         with pytest.raises(msgspec.ValidationError):
             from_mapping({})

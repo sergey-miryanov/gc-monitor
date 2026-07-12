@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from types import SimpleNamespace
 
 from gcmon.data import GCStatsInfo
 from gcmon.stats import (
@@ -37,9 +36,12 @@ class TestPauseMetric:
         assert ts_start == 1000
         assert ts_stop == 5000
 
-    def test_get_values_without_pause_ts(self) -> None:
+    def test_get_values_without_pause_ts(
+        self,
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
         metric = PauseMetric()
-        item = SimpleNamespace(gen=0)
+        item = gc_stats_item_factory(ts_start=0, ts_stop=0)
         ts_start, ts_stop = metric.get_values(item)
         assert ts_start == 0
         assert ts_stop == 0

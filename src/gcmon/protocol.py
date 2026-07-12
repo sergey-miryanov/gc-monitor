@@ -11,6 +11,7 @@ __all__ = [
     "THandleWeakrefsInfo",
     "TIncrementalInfo",
     "TInstantMsg",
+    "TMapping",
     "TMarkAliveInfo",
     "has_clear_weakrefs",
     "has_deduce_unreachable",
@@ -93,6 +94,9 @@ class TInstantMsg(Protocol):
     ts: int
 
 
+TMapping = Mapping[str, str | int | float]
+
+
 def has_pause_ts(item: object) -> TypeGuard[TGCStatsInfo]:
     return getattr(item, "ts_start", None) is not None
 
@@ -141,7 +145,7 @@ def is_instant(item: object) -> TypeGuard[TInstantMsg]:
     return hasattr(item, "type")
 
 
-def to_mapping(item: TGCStatsInfo | TInstantMsg) -> Mapping[str, str | int | float]:
+def to_mapping(item: TGCStatsInfo | TInstantMsg) -> TMapping:
     if is_instant(item):
         return {
             "type": item.type,

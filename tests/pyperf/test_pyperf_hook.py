@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -17,14 +18,14 @@ from tests.helpers import assert_valid_jsonl_format
 
 
 @pytest.fixture(autouse=True)
-def _mock_control_connect():
+def _mock_control_connect() -> Generator[None]:
     """Prevent real control plane connection attempts in hook tests."""
     with patch("gcmon.pyperf.hook.connect_with_retry", return_value=None):
         yield
 
 
 @pytest.fixture
-def mock_popen_process():
+def mock_popen_process() -> Generator[tuple[Mock, Mock]]:
     """Patches Popen. Yields (mock_popen, mock_process)."""
     with patch("gcmon.pyperf.hook.subprocess.Popen") as mock_popen:
         mock_process = Mock()
@@ -36,7 +37,7 @@ def mock_popen_process():
 
 
 @pytest.fixture
-def mock_env_output(monkeypatch, tmp_path):
+def mock_env_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("GCMON_PYPERF_HOOK_OUTPUT", str(tmp_path / "out.jsonl"))
 
 
@@ -626,14 +627,14 @@ class TestGCMonitorHookBenchNameSubstitution:
 
 
 class TestGetEnvControlTimeout:
-    def test_default_value(self):
+    def test_default_value(self) -> None:
         with patch.dict(os.environ, clear=True):
             assert _get_env_pyperf_hook_control_timeout() == 10.0
 
-    def test_custom_value(self):
+    def test_custom_value(self) -> None:
         with patch.dict(os.environ, {"GCMON_PYPERF_HOOK_CONTROL_TIMEOUT": "30"}):
             assert _get_env_pyperf_hook_control_timeout() == 30.0
 
-    def test_invalid_value_returns_default(self):
+    def test_invalid_value_returns_default(self) -> None:
         with patch.dict(os.environ, {"GCMON_PYPERF_HOOK_CONTROL_TIMEOUT": "not-a-number"}):
             assert _get_env_pyperf_hook_control_timeout() == 10.0

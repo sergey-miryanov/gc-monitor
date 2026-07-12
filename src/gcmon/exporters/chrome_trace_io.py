@@ -9,6 +9,7 @@ from ..data import from_mapping
 from ..protocol import (
     TGCStatsInfo,
     TInstantMsg,
+    TMapping,
     has_clear_weakrefs,
     has_deduce_unreachable,
     has_delete_garbage,
@@ -40,7 +41,7 @@ __all__ = [
 ]
 
 
-def json_to_item(data: Mapping[str, str | int | float]) -> tuple[int, TGCStatsInfo | TInstantMsg]:
+def json_to_item(data: TMapping) -> tuple[int, TGCStatsInfo | TInstantMsg]:
     pid = int(data["pid"])
     item = from_mapping(data)
     return pid, item

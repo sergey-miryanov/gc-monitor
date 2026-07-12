@@ -4,6 +4,7 @@ import os
 import signal
 import subprocess
 import sys
+from collections.abc import Generator
 from unittest.mock import Mock, patch
 
 import pytest
@@ -12,13 +13,13 @@ from gcmon.utils.process_terminator import _is_signal_exit_code, terminate_proce
 
 
 @pytest.fixture
-def patched_logger(mock_logger):
+def patched_logger(mock_logger: Mock) -> Generator[Mock]:
     with patch("gcmon.utils.process_terminator._logger", mock_logger):
         yield mock_logger
 
 
 @pytest.fixture
-def unix_terminator(mock_process, patched_logger):
+def unix_terminator(mock_process: Mock, patched_logger: Mock) -> Generator[Mock]:
     mock_process.returncode = None
     mock_process.poll.side_effect = lambda: mock_process.returncode
     with patch.object(os, "name", "posix"):
@@ -26,7 +27,7 @@ def unix_terminator(mock_process, patched_logger):
 
 
 @pytest.fixture
-def nt_terminator(mock_process, patched_logger):
+def nt_terminator(mock_process: Mock, patched_logger: Mock) -> Generator[Mock]:
     mock_process.returncode = None
     mock_process.poll.side_effect = lambda: mock_process.returncode
     with patch.object(os, "name", "nt"):
@@ -34,7 +35,7 @@ def nt_terminator(mock_process, patched_logger):
 
 
 @pytest.fixture
-def unix_signal_and_kill(unix_terminator):
+def unix_signal_and_kill(unix_terminator: Mock) -> Generator[tuple[Mock, Mock, Mock]]:
     with (
         patch.object(unix_terminator, "send_signal") as mock_send_signal,
         patch.object(unix_terminator, "kill") as mock_kill,
@@ -43,7 +44,7 @@ def unix_signal_and_kill(unix_terminator):
 
 
 @pytest.fixture
-def nt_signal_and_kill(nt_terminator):
+def nt_signal_and_kill(nt_terminator: Mock) -> Generator[tuple[Mock, Mock, Mock]]:
     with (
         patch.object(nt_terminator, "send_signal") as mock_send_signal,
         patch.object(nt_terminator, "kill") as mock_kill,
@@ -55,7 +56,7 @@ def nt_signal_and_kill(nt_terminator):
 class TestTerminateProcessUnix:
     """Unix-specific terminate_process tests."""
 
-    def test_graceful_exit(self, unix_terminator):
+    def test_graceful_exit(self, unix_terminator: Mock) -> None:
         mock_process = unix_terminator
         mock_process.poll.side_effect = [None, 0]
 
@@ -70,11 +71,11 @@ class TestTerminateProcessUnix:
             mock_process.communicate.assert_called_once_with(timeout=5.0)
             assert result == (b"stdout data", b"stderr data")
 
-    def test_timeout_then_sigterm(self, unix_terminator):
+    def test_timeout_then_sigterm(self, unix_terminator: Mock) -> None:
         mock_process = unix_terminator
         mock_process.poll.side_effect = [None, None, 0]
 
-        def _communicate_side_effect(timeout=None):
+        def _communicate_side_effect(timeout: float | None = None) -> tuple[bytes, bytes]:
             if timeout == 5.0:
                 raise subprocess.TimeoutExpired(cmd="test", timeout=5.0)
             mock_process.returncode = 0
@@ -93,7 +94,7 @@ class TestTerminateProcessUnix:
             mock_process.terminate.assert_called_once()
             assert result == (b"stdout after sigterm", b"stderr after sigterm")
 
-    def test_timeout_then_sigkill(self, unix_signal_and_kill):
+    def test_timeout_then_sigkill(self, unix_signal_and_kill: tuple[Mock, Mock, Mock]) -> None:
         mock_process, mock_send_signal, mock_kill = unix_signal_and_kill
         mock_process.poll.side_effect = [None, None, None, -9]
         mock_process.communicate.side_effect = [
@@ -113,7 +114,7 @@ class TestTerminateProcessUnix:
         mock_kill.assert_called_once()
         assert result == (b"stdout after sigkill", b"stderr after sigkill")
 
-    def test_zombie(self, unix_terminator):
+    def test_zombie(self, unix_terminator: Mock) -> None:
         mock_process = unix_terminator
         mock_process.poll.side_effect = [None, None, None, None]
         mock_process.communicate.side_effect = [
@@ -139,7 +140,7 @@ class TestTerminateProcessUnix:
 class TestTerminateProcessWindows:
     """Windows-specific terminate_process tests."""
 
-    def test_graceful_exit(self, nt_terminator):
+    def test_graceful_exit(self, nt_terminator: Mock) -> None:
         if sys.platform == "win32":  # fix mypy errors
             mock_process = nt_terminator
             mock_process.poll.side_effect = [None, 0]
@@ -155,7 +156,7 @@ class TestTerminateProcessWindows:
                 mock_process.communicate.assert_called_once_with(timeout=5.0)
                 assert result == (b"stdout data", b"stderr data")
 
-    def test_timeout_then_kill(self, nt_signal_and_kill):
+    def test_timeout_then_kill(self, nt_signal_and_kill: tuple[Mock, Mock, Mock]) -> None:
         if sys.platform == "win32":  # fix mypy errors
             mock_process, mock_send_signal, mock_kill = nt_signal_and_kill
             mock_process.poll.side_effect = [None, None, None, -1]
@@ -176,7 +177,7 @@ class TestTerminateProcessWindows:
             mock_kill.assert_called_once()
             assert result == (b"stdout after kill", b"stderr after kill")
 
-    def test_zombie(self, nt_terminator):
+    def test_zombie(self, nt_terminator: Mock) -> None:
         mock_process = nt_terminator
         mock_process.poll.side_effect = [None, None, None, None]
         mock_process.communicate.side_effect = [
@@ -201,7 +202,7 @@ class TestTerminateProcessWindows:
 class TestTerminateProcessCommon:
     """Platform-independent terminate_process tests."""
 
-    def test_verbose_logging(self, mock_process, patched_logger):
+    def test_verbose_logging(self, mock_process: Mock, patched_logger: Mock) -> None:
         mock_process.returncode = None
         mock_process.poll.side_effect = lambda: mock_process.returncode
 
@@ -214,7 +215,7 @@ class TestTerminateProcessCommon:
 
             assert patched_logger.debug.call_count >= 2
 
-    def test_signal_failure(self, mock_process, patched_logger):
+    def test_signal_failure(self, mock_process: Mock, patched_logger: Mock) -> None:
         mock_process.returncode = None
         mock_process.poll.side_effect = lambda: mock_process.returncode
 
@@ -229,7 +230,7 @@ class TestTerminateProcessCommon:
             mock_process.communicate.assert_called()
             assert result == (b"stdout data", b"stderr data")
 
-    def test_default_logger(self, mock_process):
+    def test_default_logger(self, mock_process: Mock) -> None:
         mock_process.returncode = None
         mock_process.poll.side_effect = lambda: mock_process.returncode
 

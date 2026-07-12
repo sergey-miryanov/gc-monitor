@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import types
 from collections.abc import Callable, Generator
 from unittest.mock import Mock
 
 import pytest
 
-from gcmon.data import GCStatsInfo
+from gcmon.data import GCStatsInfo, InstantMsg
 from gcmon.monitor import EventsMonitor
-from gcmon.protocol import TGCStatsInfo, to_mapping
+from gcmon.protocol import TGCStatsInfo, TMapping, to_mapping
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from tests.data_helpers import create_instant_msg
@@ -133,7 +134,7 @@ def make_monitor(exporter: MockExporter, stats: StreamingStats) -> Callable[...,
 
 
 @pytest.fixture
-def env_module():
+def env_module() -> types.ModuleType:
     """Provide the _env module for testing."""
     from gcmon import _env
 
@@ -141,7 +142,7 @@ def env_module():
 
 
 @pytest.fixture
-def simple_item():
+def simple_item() -> GCStatsInfo:
     return GCStatsInfo(
         gen=0,
         iid=1,
@@ -157,7 +158,7 @@ def simple_item():
 
 
 @pytest.fixture
-def incremental_item():
+def incremental_item() -> GCStatsInfo:
     return GCStatsInfo(
         gen=1,
         iid=2,
@@ -191,20 +192,20 @@ def incremental_item():
 
 
 @pytest.fixture
-def instant_item():
+def instant_item() -> InstantMsg:
     return create_instant_msg()
 
 
 @pytest.fixture
-def gc_stats_dict(simple_item):
+def gc_stats_dict(simple_item: GCStatsInfo) -> TMapping:
     return to_mapping(simple_item)
 
 
 @pytest.fixture
-def incremental_dict(incremental_item):
+def incremental_dict(incremental_item: GCStatsInfo) -> TMapping:
     return to_mapping(incremental_item)
 
 
 @pytest.fixture
-def instant_dict(instant_item):
+def instant_dict(instant_item: InstantMsg) -> TMapping:
     return to_mapping(instant_item)

@@ -7,7 +7,7 @@ import tempfile
 import threading
 import time
 from argparse import Namespace
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -47,7 +47,7 @@ import sys
 import time
 gc.collect()
 n = 1000
-d = {}
+d: dict[tuple[int, int], int] = {}
 t1 = time.monotonic()
 for i in range(n):
     for j in range(n):
@@ -228,7 +228,7 @@ class TestCmdRunUnit:
     """Unit tests for cmd_run function."""
 
     @pytest.fixture
-    def mock_monitoring_loop_and_runner(self):
+    def mock_monitoring_loop_and_runner(self) -> Generator[tuple[MagicMock, MagicMock, MagicMock]]:
 
         with (
             patch("gcmon.commands.run_cmd.run_monitoring_loop", return_value=0) as mock_loop,

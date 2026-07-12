@@ -7,7 +7,7 @@ import json
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, override
 
 import pytest
 
@@ -141,10 +141,12 @@ class JsonlFileCapture(OutputCapture):
             out.append(json.loads(ln))
         return out
 
+    @override
     def count_completes(self) -> int:
         # GC events: no 'type' field. Instant events: type == 'i'.
         return sum(1 for e in self._lines() if e.get("type") != "i")
 
+    @override
     def count_instants(self) -> int:
         return sum(1 for e in self._lines() if e.get("type") == "i")
 
@@ -160,9 +162,11 @@ class ChromeTraceFileCapture(OutputCapture):
             return ""
         return self._path.read_text(encoding="utf-8")
 
+    @override
     def count_completes(self) -> int:
         return self._text().count('"ph":"B"')
 
+    @override
     def count_instants(self) -> int:
         return self._text().count('"ph":"I"')
 
@@ -199,9 +203,11 @@ class PerfettoFileCapture(OutputCapture):
                 n += 1
         return n
 
+    @override
     def count_completes(self) -> int:
         return self._count_event_type(TYPE_SLICE_BEGIN)
 
+    @override
     def count_instants(self) -> int:
         return self._count_event_type(TYPE_INSTANT)
 
@@ -228,6 +234,7 @@ class _LockingStringIO(io.StringIO):
         super().__init__()
         self._lock = threading.Lock()
 
+    @override
     def write(self, s: str) -> int:
         with self._lock:
             return super().write(s)
@@ -247,9 +254,11 @@ class StdoutCapture(OutputCapture):
             out.append(json.loads(ln))
         return out
 
+    @override
     def count_completes(self) -> int:
         return sum(1 for e in self._lines() if e.get("type") != "i")
 
+    @override
     def count_instants(self) -> int:
         return sum(1 for e in self._lines() if e.get("type") == "i")
 

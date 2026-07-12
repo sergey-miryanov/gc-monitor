@@ -4,6 +4,7 @@ import json
 import threading
 from collections.abc import Mapping
 from pathlib import Path
+from typing import override
 
 from gcmon.data import GCStatsInfo
 from gcmon.exporters.exporter import EventsExporter
@@ -48,6 +49,7 @@ class MockExporter(EventsExporter):
         self._close_called = False
         self._event_added = threading.Event()
 
+    @override
     def add_event(self, pid: int, item: TGCStatsInfo) -> None:
         """Add an event to the exporter.
 
@@ -58,6 +60,7 @@ class MockExporter(EventsExporter):
         self.events.append(item)
         self._event_added.set()  # Signal that event was added
 
+    @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
         """Add an instant event to the exporter.
 
@@ -68,6 +71,7 @@ class MockExporter(EventsExporter):
         self.instant_events.append((pid, item))
         self._event_added.set()
 
+    @override
     def close(self) -> None:
         """Close the exporter."""
         self._close_called = True

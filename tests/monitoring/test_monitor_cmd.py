@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -12,7 +13,7 @@ from tests.monitoring.conftest import MonitorArgsFactory
 
 
 @pytest.fixture
-def mock_monitoring_loop():
+def mock_monitoring_loop() -> Generator[MagicMock]:
     with patch("gcmon.commands.monitor_cmd.run_monitoring_loop") as mock:
         yield mock
 

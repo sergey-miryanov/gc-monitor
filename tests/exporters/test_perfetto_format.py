@@ -740,7 +740,7 @@ class TestConvertItemToPerfettoPackets:
             duration=0.001,
         )
         _, packets = _convert_item(100, item, state, sequence_id=1)
-        counter_packets = []
+        counter_packets: list[tuple[list[ProtoField], list[ProtoField]]] = []
         for p in packets:
             fields = decode_message(p)
             te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
@@ -849,7 +849,7 @@ class TestConvertItemToPerfettoPackets:
             deleted_garbage_count=13,
         )
         _, packets = _convert_item(100, item, state, sequence_id=1)
-        slice_begins = []
+        slice_begins: list[str | None] = []
         for p in packets:
             fields = decode_message(p)
             te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
@@ -1097,7 +1097,7 @@ class TestConvertItemToPerfettoPackets:
             ts_fill_increment_stop=3_200,
         )
         _, packets = _convert_item(100, item, state, sequence_id=1)
-        slice_names = []
+        slice_names: list[str | None] = []
         for p in packets:
             fields = decode_message(p)
             te_bytes = get_bytes(fields, TracePacketField.TRACK_EVENT)
@@ -1222,7 +1222,7 @@ class TestConvertItemToPerfettoPackets:
         te_fields = decode_message(te_bytes)
         anns = get_fields(te_fields, TrackEventField.DEBUG_ANNOTATIONS)
         assert len(anns) == 7
-        ann_values = []
+        ann_values: list[tuple[str | None, int | None]] = []
         for ann in anns:
             ann_fields = decode_message(ann.value)  # type: ignore[arg-type]
             name = get_string(ann_fields, DebugAnnotationField.NAME)

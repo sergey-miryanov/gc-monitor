@@ -1,6 +1,7 @@
 """Tests for child-side control plane API."""
 
 import os
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -17,33 +18,33 @@ def assert_payload(mock_conn: MagicMock, expected_msg: str, *, call_index: int =
 
 
 @pytest.fixture
-def mock_conn():
+def mock_conn() -> MagicMock:
     return MagicMock()
 
 
 @pytest.fixture
-def mock_connection_factory(mock_conn):
+def mock_connection_factory(mock_conn: MagicMock) -> MagicMock:
     return MagicMock(return_value=mock_conn)
 
 
 @pytest.fixture
-def client(mock_connection_factory):
+def client(mock_connection_factory: MagicMock) -> ControlClient:
     return ControlClient("test-address", connection_factory=mock_connection_factory)
 
 
 @pytest.fixture
-def disconnected_client():
+def disconnected_client() -> ControlClient:
     return ControlClient("addr", connection_factory=MagicMock(return_value=None))
 
 
 @pytest.fixture
-def mock_sleep():
+def mock_sleep() -> Generator[None]:
     with patch("gcmon.control.control_client.time.sleep"):
         yield
 
 
 @pytest.fixture
-def patched_client_factory(mock_sleep):
+def patched_client_factory(mock_sleep: Generator[None]) -> Generator[MagicMock]:
     with patch("gcmon.control.control_client.Client") as mock_client:
         yield mock_client
 
@@ -78,23 +79,25 @@ class TestPublicAPI:
 
 
 class TestSend:
-    def test_uses_monotonic_ns(self, client, mock_conn):
+    def test_uses_monotonic_ns(self, client: ControlClient, mock_conn: MagicMock) -> None:
         with patch("gcmon.control.control_client.time.monotonic_ns", return_value=98765):
             client._send("test")
         mock_conn.send.assert_called_once()
         assert mock_conn.send.call_args[0][0]["ts"] == 98765
 
-    def test_noop_when_not_connected(self, disconnected_client):
+    def test_noop_when_not_connected(self, disconnected_client: ControlClient) -> None:
         disconnected_client._send("test")
         assert disconnected_client._conn is None
 
-    def test_clears_stale_connection_on_failure(self, client, mock_conn):
+    def test_clears_stale_connection_on_failure(self, client: ControlClient, mock_conn: MagicMock) -> None:
         mock_conn.send.side_effect = OSError("broken pipe")
         client._send("test")
         assert client._conn is None
         mock_conn.close.assert_called_once()
 
-    def test_reconnects_after_cleared_connection(self, mock_connection_factory, mock_conn):
+    def test_reconnects_after_cleared_connection(
+        self, mock_connection_factory: MagicMock, mock_conn: MagicMock
+    ) -> None:
         mock_conn.send.side_effect = OSError("broken pipe")
         client = ControlClient("test-address", connection_factory=mock_connection_factory)
         client._send("test")
@@ -105,7 +108,7 @@ class TestSend:
 
 
 class TestConnectionLifecycle:
-    def test_ensure_connected_creates_once(self, mock_connection_factory, mock_conn):
+    def test_ensure_connected_creates_once(self, mock_connection_factory: MagicMock, mock_conn: MagicMock) -> None:
         client = ControlClient("test-address", connection_factory=mock_connection_factory)
         result1 = client._ensure_connected()
         result2 = client._ensure_connected()
@@ -113,34 +116,36 @@ class TestConnectionLifecycle:
         assert result2 is mock_conn
         mock_connection_factory.assert_called_once_with("test-address")
 
-    def test_ensure_connected_returns_none_without_address(self, monkeypatch):
+    def test_ensure_connected_returns_none_without_address(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("GCMON_CONTROL_ADDRESS", raising=False)
         client = ControlClient(connection_factory=MagicMock())
         assert client._ensure_connected() is None
 
-    def test_ensure_connected_falls_back_to_env_var(self, monkeypatch, mock_connection_factory, mock_conn):
+    def test_ensure_connected_falls_back_to_env_var(
+        self, monkeypatch: pytest.MonkeyPatch, mock_connection_factory: MagicMock, mock_conn: MagicMock
+    ) -> None:
         monkeypatch.setenv("GCMON_CONTROL_ADDRESS", "env-address")
         client = ControlClient(connection_factory=mock_connection_factory)
         assert client._ensure_connected() is mock_conn
         mock_connection_factory.assert_called_once_with("env-address")
 
-    def test_close_closes_connection(self, client, mock_conn):
+    def test_close_closes_connection(self, client: ControlClient, mock_conn: MagicMock) -> None:
         client._ensure_connected()
         client.close()
         mock_conn.close.assert_called_once()
         assert client._conn is None
 
-    def test_close_safe_to_call_multiple_times(self, client, mock_conn):
+    def test_close_safe_to_call_multiple_times(self, client: ControlClient, mock_conn: MagicMock) -> None:
         client._ensure_connected()
         client.close()
         client.close()
         mock_conn.close.assert_called_once()
 
-    def test_close_noop_when_not_connected(self, disconnected_client):
+    def test_close_noop_when_not_connected(self, disconnected_client: ControlClient) -> None:
         disconnected_client.close()
         assert disconnected_client._conn is None
 
-    def test_context_manager_closes_on_exit(self, client, mock_conn):
+    def test_context_manager_closes_on_exit(self, client: ControlClient, mock_conn: MagicMock) -> None:
         client._ensure_connected()
         with client:
             pass
@@ -149,14 +154,16 @@ class TestConnectionLifecycle:
 
 
 class TestConnectWithRetry:
-    def test_connects_on_first_attempt(self, patched_client_factory):
+    def test_connects_on_first_attempt(self, patched_client_factory: MagicMock) -> None:
         mock_conn = MagicMock()
         patched_client_factory.return_value = mock_conn
         result = connect_with_retry("test-address")
         assert result is mock_conn
         patched_client_factory.assert_called_once_with("test-address")
 
-    def test_retries_on_failure_and_succeeds(self, patched_client_factory, caplog):
+    def test_retries_on_failure_and_succeeds(
+        self, patched_client_factory: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
         mock_conn = MagicMock()
         patched_client_factory.side_effect = [OSError("conn refused"), mock_conn]
         result = connect_with_retry("test-address")
@@ -164,7 +171,9 @@ class TestConnectWithRetry:
         assert patched_client_factory.call_count == 2
         assert "Failed to connect to control plane" not in caplog.text
 
-    def test_returns_none_after_timeout(self, patched_client_factory, caplog):
+    def test_returns_none_after_timeout(
+        self, patched_client_factory: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
         patched_client_factory.side_effect = OSError("conn refused")
         result = connect_with_retry("test-address", timeout=0.1)
         assert result is None
@@ -174,7 +183,9 @@ class TestConnectWithRetry:
 
 
 class TestDefaultConnect:
-    def test_returns_none_on_connection_failure(self, caplog, mock_sleep):
+    def test_returns_none_on_connection_failure(
+        self, caplog: pytest.LogCaptureFixture, mock_sleep: Generator[None]
+    ) -> None:
         assert _default_connect("/nonexistent/control/socket") is None
         assert "Failed to connect to control plane" in caplog.text
         assert "address='/nonexistent/control/socket'" in caplog.text

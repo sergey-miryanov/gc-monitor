@@ -407,7 +407,7 @@ class TestGCMonitorStreaming:
         )
         call_count = [0]
 
-        def side_effect(*args, **kwargs):
+        def side_effect(pid: int, all_interpreters: bool = False) -> list[GCStatsInfo]:
             call_count[0] += 1
             if call_count[0] == 1:
                 return [item]

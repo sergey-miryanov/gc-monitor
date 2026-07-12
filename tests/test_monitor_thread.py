@@ -1,6 +1,6 @@
 """Tests for GCMonitorThread and GCMonitor."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,13 +18,13 @@ from tests.helpers import MockExporter, create_mock_stats_item
 
 
 @pytest.fixture
-def mock_gc_stats():
+def mock_gc_stats() -> Generator[MagicMock]:
     with patch("gcmon.monitor.get_gc_stats") as mock:
         yield mock
 
 
 @pytest.fixture
-def thread_factory():
+def thread_factory() -> Callable[..., MonitorThread]:
     def _make(rate: float = 0.1) -> MonitorThread:
         return MonitorThread(lambda: StartupTimeoutPolicy(5), rate=rate)
 
@@ -245,7 +245,7 @@ class TestGCMonitorThread:
 
         item2 = create_mock_stats_item(ts_start=2_000_000_000, ts_stop=2_005_000_000)
 
-        def _mock_gc_stats(pid, all_interpreters=False):
+        def _mock_gc_stats(pid: int, all_interpreters: bool = False) -> list[GCStatsInfo]:
             if pid == 12345:
                 raise RuntimeError("Failed to initialize process handle")
             return [item2]

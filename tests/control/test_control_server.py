@@ -4,9 +4,9 @@ import sys
 import threading
 import time
 from collections.abc import Generator
-from multiprocessing.connection import Client
+from multiprocessing.connection import Client, Connection, Listener
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -513,7 +513,7 @@ class TestControlServerAcceptLoop:
 
         call_count = [0]
 
-        def _accept_side(*args):
+        def _accept_side(listener: Listener) -> Mock | None:
             call_count[0] += 1
             if call_count[0] == 1:
                 return mock_conn
@@ -600,7 +600,7 @@ class TestControlServerReaderLoop:
         mock_conn.close.assert_called_once()
 
     def test_reader_loop_no_connections(self, server_not_started: ControlServer, mock_wait_and_stop: MagicMock) -> None:
-        mock_wait_and_stop.return_value = []
+        mock_wait_and_stop.return_value = list[Connection]()
         server_not_started._reader_loop()
         assert server_not_started._connections == set()
 
@@ -612,7 +612,7 @@ class TestControlServerReaderLoop:
         mock_conn.poll.side_effect = [True, False]
         server_not_started._connections.add(mock_conn)
 
-        mock_wait_and_stop.return_value = []
+        mock_wait_and_stop.return_value = list[Connection]()
         server_not_started._reader_loop()
 
         assert server_not_started._enabled.get(42) is False

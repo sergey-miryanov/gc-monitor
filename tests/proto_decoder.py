@@ -1,6 +1,7 @@
 """Minimal protobuf decoder for test assertions."""
 
 import struct
+from typing import override
 
 __all__ = [
     "ProtoField",
@@ -14,6 +15,7 @@ class ProtoField:
         self.wire_type = wire_type
         self.value: int | bytes = value
 
+    @override
     def __repr__(self) -> str:
         return f"ProtoField({self.field_number}, wire={self.wire_type}, value={self.value!r})"
 
