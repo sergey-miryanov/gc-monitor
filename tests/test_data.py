@@ -52,9 +52,7 @@ class TestFromMapping:
     def test_incremental_item(self, incremental_dict):
         result = from_mapping(incremental_dict)
         assert isinstance(result, GCStatsInfo)
-        assert has_incremental(result)
-        assert has_mark_alive(result)
-        assert has_deduce_unreachable(result)
+        # Common fields (always present)
         assert result.gen == 1
         assert result.iid == 2
         assert result.ts_start == 3_000_000
@@ -65,17 +63,23 @@ class TestFromMapping:
         assert result.uncollectable == 1
         assert result.candidates == 20
         assert result.duration == 0.01
-        assert result.increment_size == 500
-        assert result.alive_size == 300
-        assert result.ts_mark_alive_start == 3_000_500
-        assert result.ts_mark_alive_stop == 3_001_000
-        assert result.ts_fill_increment_start == 3_001_500
-        assert result.ts_fill_increment_stop == 3_002_000
-        assert result.ts_deduce_unreachable_start == 3_002_500
-        assert result.ts_deduce_unreachable_stop == 3_003_000
         assert result.finalized_garbage_count == 42
         assert result.clear_weakrefs_count == 7
         assert result.deleted_garbage_count == 13
+        # Incremental fields
+        assert has_incremental(result)
+        assert result.increment_size == 500
+        assert result.ts_fill_increment_start == 3_001_500
+        assert result.ts_fill_increment_stop == 3_002_000
+        # Mark-alive fields
+        assert has_mark_alive(result)
+        assert result.alive_size == 300
+        assert result.ts_mark_alive_start == 3_000_500
+        assert result.ts_mark_alive_stop == 3_001_000
+        # Deduce-unreachable fields
+        assert has_deduce_unreachable(result)
+        assert result.ts_deduce_unreachable_start == 3_002_500
+        assert result.ts_deduce_unreachable_stop == 3_003_000
 
     def test_from_mapping_returns_instant_msg(self, instant_dict):
         result = from_mapping(instant_dict)
