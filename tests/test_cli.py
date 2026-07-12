@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import msgspec
@@ -40,7 +41,7 @@ class TestSetupLogging:
             (2, "DEBUG"),
         ],
     )
-    def test_setup_logging(self, cli_module, verbose_count: int, expected_level: str) -> None:
+    def test_setup_logging(self, cli_module: types.ModuleType, verbose_count: int, expected_level: str) -> None:
         import logging
 
         cli_module._setup_logging(verbose_count=verbose_count)
@@ -86,24 +87,24 @@ class TestCliHelp:
             ("run", ["Run a Python script or module", "--module", "--script", "--stats", "--control-name"]),
         ],
     )
-    def test_help_subcommand(self, gcmon_cli, subcommand: str, expected_texts: list[str]) -> None:
+    def test_help_subcommand(self, gcmon_cli: list[str], subcommand: str, expected_texts: list[str]) -> None:
         cmd = gcmon_cli + ([subcommand] if subcommand else []) + ["--help"]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         for text in expected_texts:
             assert text in result.stdout
 
-    def test_top_level_no_output_flag(self, gcmon_cli) -> None:
+    def test_top_level_no_output_flag(self, gcmon_cli: list[str]) -> None:
         result = subprocess.run([*gcmon_cli, "--help"], capture_output=True, text=True, check=True)
         assert "--output" not in result.stdout
 
 
 class TestCliMonitor:
-    def test_missing_pid(self, gcmon_cli) -> None:
+    def test_missing_pid(self, gcmon_cli: list[str]) -> None:
         result = subprocess.run([*gcmon_cli, "monitor"], capture_output=True, text=True)
         assert result.returncode != 0
         assert "the following arguments are required: pid" in result.stderr
 
-    def test_explicit_command(self, gcmon_cli) -> None:
+    def test_explicit_command(self, gcmon_cli: list[str]) -> None:
         result = subprocess.run(
             [*gcmon_cli, "monitor", "12345", "-d", "0.1"],
             capture_output=True,
