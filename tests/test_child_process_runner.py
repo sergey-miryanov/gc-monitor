@@ -238,6 +238,27 @@ class TestTerminate:
         assert result == b""
 
 
+class TestWait:
+    def test_wait_no_process(self, runner: ChildProcessRunner) -> None:
+        runner.wait(timeout=1.0)
+        assert runner.returncode is None
+
+    def test_wait_exits_normally(self, runner: ChildProcessRunner, mock_popen: Mock) -> None:
+        runner._process = mock_popen
+        runner.wait(timeout=1.0)
+        mock_popen.wait.assert_called_once_with(timeout=1.0)
+
+    def test_wait_timeout_logs_warning(
+        self, runner: ChildProcessRunner, mock_popen: Mock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        mock_popen.wait.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=0.1)
+
+        runner._process = mock_popen
+        runner.wait(timeout=0.1)
+
+        assert "Timed out waiting for subprocess (PID 99999) to exit after 0.1 seconds" in caplog.text
+
+
 class TestClose:
     def test_close_delegates_to_terminate(self, runner: ChildProcessRunner, mock_runner_terminate: Mock) -> None:
         runner._process = Mock()

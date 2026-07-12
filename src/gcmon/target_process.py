@@ -19,6 +19,8 @@ class ProcessFactory(Protocol):
     @property
     def returncode(self) -> int | None: ...
 
+    def wait(self, timeout: float | None = None) -> None: ...
+
 
 class ExternalProcess(TargetProcess):
     def __init__(self, pid: int):
@@ -35,6 +37,9 @@ class ExternalProcess(TargetProcess):
     @property
     def returncode(self) -> int | None:
         return None
+
+    def wait(self, timeout: float | None = None) -> None:
+        """No-op for external processes."""
 
     def __enter__(self) -> Self:
         return self

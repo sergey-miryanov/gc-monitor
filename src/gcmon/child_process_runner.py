@@ -166,6 +166,23 @@ class ChildProcessRunner:
 
         return None
 
+    def wait(self, timeout: float | None = None) -> None:
+        """Wait for the subprocess to terminate.
+
+        Args:
+            timeout: Maximum time to wait in seconds, or None to wait indefinitely.
+        """
+        if self._process is None:
+            return
+        try:
+            self._process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "Timed out waiting for subprocess (PID %s) to exit after %s seconds",
+                self._process.pid,
+                timeout,
+            )
+
     def terminate(
         self,
         graceful_timeout: float = 5.0,

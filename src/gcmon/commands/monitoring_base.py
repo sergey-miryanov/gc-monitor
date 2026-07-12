@@ -61,6 +61,12 @@ def run_monitoring_loop(
             stack.enter_context(replace_signals(_signal_handler))
 
             loop.run()
+
+            # Wait for the subprocess to fully exit before reading return code.
+            # The monitoring loop may break before the process has fully terminated
+            # (e.g. GC state becomes NULL during interpreter shutdown while the
+            # process is still cleaning up after sys.exit()).
+            runner.wait(timeout=2.0)
             returncode = runner.returncode or 0
 
         logger.info("Monitoring complete.")
