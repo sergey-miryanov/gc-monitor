@@ -1832,4 +1832,4 @@ stats = ["ddsketch"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.15"
-content-hash = "8fa4c42a81de664bfc7b1a3a5393320284d7d18a8a4a70395f9bc9ab5499f405"
+content-hash = "c7988c62aded8c3fb552b09476a8d138e2f3b5e1e70a17579509868f8a04b7a2"
