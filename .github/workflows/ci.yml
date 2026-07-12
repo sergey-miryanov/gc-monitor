@@ -51,7 +51,7 @@ jobs:
 
       - name: Type check with mypy
         run: |
-          poetry run mypy src
+          poetry run mypy src tests
 
   pyrefly:
     runs-on: ubuntu-latest
