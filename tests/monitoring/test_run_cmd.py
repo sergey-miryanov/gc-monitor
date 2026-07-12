@@ -7,9 +7,9 @@ import tempfile
 import threading
 import time
 from argparse import Namespace
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,7 +40,7 @@ def assert_stdout_format(output: str) -> None:
     assert "duration" in output
 
 
-def get_long_running_script(*args: list[Any]) -> str:
+def get_long_running_script(*args: str) -> str:
     script: str = """
 import gc
 import sys
@@ -76,7 +76,7 @@ def _print_output(tool: str, pid: int, result: subprocess.CompletedProcess[str] 
 
 
 @contextmanager
-def print_on_failure(result: subprocess.CompletedProcess[str]) -> None:
+def print_on_failure(result: subprocess.CompletedProcess[str]) -> Iterator[None]:
     try:
         yield
     except AssertionError:
@@ -89,6 +89,7 @@ def _check_process_alive(pid: int) -> bool:
         result = subprocess.run(
             ["kill", "-0", str(pid)],
             capture_output=True,
+            text=True,
             timeout=3,
         )
         if result.returncode != 0:
@@ -120,28 +121,26 @@ def _check_process_alive(pid: int) -> bool:
 
 
 def _sample_process(pid: int) -> None:
-    if sys.platform != "darwin":
-        return
+    if sys.platform == "darwin":
+        if not _check_process_alive(pid):
+            return
 
-    if not _check_process_alive(pid):
-        return
-
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            spindump_path = os.path.join(tmpdir, "spindump.txt")
-            subprocess.run(
-                ["sudo", "spindump", str(pid), "1", "-file", spindump_path],
-                timeout=15,
-            )
-            if os.path.exists(spindump_path):
-                with open(spindump_path) as f:
-                    print(f"--- spindump PID {pid} ---")
-                    print(f.read())
-                    print("--- end spindump ---")
-    except subprocess.TimeoutExpired as exc:
-        _print_output("spindump", pid, exc)
-    except Exception as e:
-        print(f"spindump PID {pid} failed: {e}")
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                spindump_path = os.path.join(tmpdir, "spindump.txt")
+                subprocess.run(
+                    ["sudo", "spindump", str(pid), "1", "-file", spindump_path],
+                    timeout=15,
+                )
+                if os.path.exists(spindump_path):
+                    with open(spindump_path) as f:
+                        print(f"--- spindump PID {pid} ---")
+                        print(f.read())
+                        print("--- end spindump ---")
+        except subprocess.TimeoutExpired as exc:
+            _print_output("spindump", pid, exc)
+        except Exception as e:
+            print(f"spindump PID {pid} failed: {e}")
 
 
 def _popen_with_timeout(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
@@ -154,8 +153,11 @@ def _popen_with_timeout(cmd: list[str], timeout: float) -> subprocess.CompletedP
 
     buf: list[str] = []
 
+    stdout = proc.stdout
+    assert stdout is not None
+
     def reader() -> None:
-        for line in iter(proc.stdout.readline, ""):
+        for line in iter(stdout.readline, ""):
             buf.append(line)
 
     reader_thread = threading.Thread(target=reader, daemon=True)
@@ -238,8 +240,8 @@ class TestCmdRunUnit:
             mock_runner.start.return_value = MagicMock(pid=999)
             yield mock_loop, mock_runner_cls, mock_runner
 
-    def _make_run_args(self, **overrides: Any) -> Namespace:
-        defaults = {
+    def _make_run_args(self, **overrides: object) -> Namespace:
+        defaults: dict[str, str | Path | float | int | bool | None | list[str]] = {
             "module_name": None,
             "script": None,
             "script_args": [],
@@ -277,7 +279,7 @@ class TestCmdRunUnit:
         assert result == 1
         assert "Must specify either" in caplog.text
 
-    def test_cmd_run_module_mode(self, mock_monitoring_loop_and_runner) -> None:
+    def test_cmd_run_module_mode(self, mock_monitoring_loop_and_runner: tuple[MagicMock, MagicMock, MagicMock]) -> None:
         """Test cmd_run passes factory with correct params for module mode."""
         mock_loop, mock_runner_cls, mock_runner = mock_monitoring_loop_and_runner
         from gcmon.commands import run_cmd
@@ -297,7 +299,7 @@ class TestCmdRunUnit:
         )
         assert runner is mock_runner
 
-    def test_cmd_run_script_mode(self, mock_monitoring_loop_and_runner) -> None:
+    def test_cmd_run_script_mode(self, mock_monitoring_loop_and_runner: tuple[MagicMock, MagicMock, MagicMock]) -> None:
         """Test cmd_run passes factory with correct params for script mode."""
         mock_loop, mock_runner_cls, mock_runner = mock_monitoring_loop_and_runner
         from gcmon.commands import run_cmd
