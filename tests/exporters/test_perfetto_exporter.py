@@ -11,9 +11,7 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
 from gcmon.data import GCStatsInfo
 from gcmon.exporters import PerfettoExporter
 from gcmon.exporters.perfetto_format import (
-    TYPE_COUNTER,
-    TYPE_SLICE_BEGIN,
-    TYPE_SLICE_END,
+    TrackEventType,
 )
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
@@ -81,9 +79,9 @@ class TestPerfettoExporter:
         packets = _read_trace_packets(path)
         assert len(packets) > 0
 
-        slice_begins = _count_event_type(packets, TYPE_SLICE_BEGIN)
-        slice_ends = _count_event_type(packets, TYPE_SLICE_END)
-        counters = _count_event_type(packets, TYPE_COUNTER)
+        slice_begins = _count_event_type(packets, TrackEventType.SLICE_BEGIN)
+        slice_ends = _count_event_type(packets, TrackEventType.SLICE_END)
+        counters = _count_event_type(packets, TrackEventType.COUNTER)
 
         assert slice_begins >= num_items
         assert slice_ends >= num_items
@@ -159,7 +157,7 @@ class TestPerfettoExporter:
         packets = _read_trace_packets(path)
         # 1 GC pause slice begin + 1 Processes-track lifetime begin
         # for the single pid.
-        assert _count_event_type(packets, TYPE_SLICE_BEGIN) == 2
+        assert _count_event_type(packets, TrackEventType.SLICE_BEGIN) == 2
 
     def test_different_generation_events(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
@@ -385,6 +383,6 @@ class TestPerfettoExporter:
         exporter.close()
 
         packets = _read_trace_packets(path)
-        begins = _count_event_type(packets, TYPE_SLICE_BEGIN)
-        ends = _count_event_type(packets, TYPE_SLICE_END)
+        begins = _count_event_type(packets, TrackEventType.SLICE_BEGIN)
+        ends = _count_event_type(packets, TrackEventType.SLICE_END)
         assert begins == ends

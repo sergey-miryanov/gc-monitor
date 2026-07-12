@@ -24,8 +24,7 @@ from gcmon.exporters import (
     TraceExporter,
 )
 from gcmon.exporters.perfetto_format import (
-    TYPE_INSTANT,
-    TYPE_SLICE_BEGIN,
+    TrackEventType,
 )
 from gcmon.protocol import TGCStatsInfo, TInstantMsg
 from tests.data_helpers import create_instant_msg
@@ -198,11 +197,11 @@ class PerfettoFileCapture(OutputCapture):
 
     @override
     def count_completes(self) -> int:
-        return self._count_event_type(TYPE_SLICE_BEGIN)
+        return self._count_event_type(TrackEventType.SLICE_BEGIN)
 
     @override
     def count_instants(self) -> int:
-        return self._count_event_type(TYPE_INSTANT)
+        return self._count_event_type(TrackEventType.INSTANT)
 
     def count_process_descriptors(self) -> int:
         """Count TRACK_DESCRIPTOR packets whose body contains a

@@ -118,11 +118,14 @@ class DebugAnnotationField(IntEnum):
     STRING_VALUE = 6
 
 
+class TrackEventType(IntEnum):
+    SLICE_BEGIN = 1
+    SLICE_END = 2
+    INSTANT = 3
+    COUNTER = 4
+
+
 __all__ = [
-    "TYPE_COUNTER",
-    "TYPE_INSTANT",
-    "TYPE_SLICE_BEGIN",
-    "TYPE_SLICE_END",
     "ChildTracksOrdering",
     "CounterDescriptorField",
     "DebugAnnotationField",
@@ -135,6 +138,7 @@ __all__ = [
     "TracePacketField",
     "TrackDescriptorField",
     "TrackEventField",
+    "TrackEventType",
     "build_trace",
     "build_trace_packet",
     "build_track_descriptor",
@@ -142,10 +146,6 @@ __all__ = [
     "convert_trace_events_to_perfetto",
 ]
 
-TYPE_SLICE_BEGIN = 1
-TYPE_SLICE_END = 2
-TYPE_INSTANT = 3
-TYPE_COUNTER = 4
 
 _COUNTER_RANKS: dict[str, int] = {
     "heap_size": 0,
@@ -494,7 +494,7 @@ def _make_slice_begin(
     annotations: list[bytes],
 ) -> bytes:
     return build_track_event(
-        type=TYPE_SLICE_BEGIN,
+        type=TrackEventType.SLICE_BEGIN,
         track_uuid=track_uuid,
         name=name,
         categories=categories,
@@ -504,7 +504,7 @@ def _make_slice_begin(
 
 def _make_slice_end(track_uuid: int) -> bytes:
     return build_track_event(
-        type=TYPE_SLICE_END,
+        type=TrackEventType.SLICE_END,
         track_uuid=track_uuid,
     )
 
@@ -512,12 +512,12 @@ def _make_slice_end(track_uuid: int) -> bytes:
 def _make_counter_event(track_uuid: int, value: int | float) -> bytes:
     if isinstance(value, float):
         return build_track_event(
-            type=TYPE_COUNTER,
+            type=TrackEventType.COUNTER,
             track_uuid=track_uuid,
             double_counter_value=value,
         )
     return build_track_event(
-        type=TYPE_COUNTER,
+        type=TrackEventType.COUNTER,
         track_uuid=track_uuid,
         counter_value=value,
     )
@@ -628,7 +628,7 @@ def _emit_start_process_marker(
             sequence_id,
             timestamp=ts_ns,
             track_event=build_track_event(
-                type=TYPE_INSTANT,
+                type=TrackEventType.INSTANT,
                 track_uuid=proc_uuid,
                 name=_START_PROCESS_INSTANT_NAME,
             ),
@@ -670,7 +670,7 @@ def _emit_process_lifetime_slice_begin(
             sequence_id,
             timestamp=ts_ns,
             track_event=build_track_event(
-                type=TYPE_SLICE_BEGIN,
+                type=TrackEventType.SLICE_BEGIN,
                 track_uuid=track_uuid,
                 name=f"Process {pid}",
                 debug_annotations=debug_annotations or None,
@@ -694,7 +694,7 @@ def _emit_process_lifetime_slice_end(
         sequence_id,
         timestamp=ts_ns,
         track_event=build_track_event(
-            type=TYPE_SLICE_END,
+            type=TrackEventType.SLICE_END,
             track_uuid=track_uuid,
             name=f"Process {pid}",
         ),
@@ -914,7 +914,7 @@ def convert_trace_events_to_perfetto(
                     sequence_id,
                     timestamp=event.ts,
                     track_event=build_track_event(
-                        type=TYPE_INSTANT,
+                        type=TrackEventType.INSTANT,
                         track_uuid=proc_uuid,
                         name=event.name,
                     ),

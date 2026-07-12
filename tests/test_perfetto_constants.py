@@ -12,10 +12,6 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
 )
 
 from gcmon.exporters.perfetto_format import (
-    TYPE_COUNTER,
-    TYPE_INSTANT,
-    TYPE_SLICE_BEGIN,
-    TYPE_SLICE_END,
     ChildTracksOrdering,
     CounterDescriptorField,
     DebugAnnotationField,
@@ -27,6 +23,7 @@ from gcmon.exporters.perfetto_format import (
     TracePacketField,
     TrackDescriptorField,
     TrackEventField,
+    TrackEventType,
 )
 
 
@@ -98,10 +95,10 @@ class TestPerfettoFormatConstants:
         assert f["string_value"].number == DebugAnnotationField.STRING_VALUE
 
     def test_type_constants(self) -> None:
-        assert int(TrackEvent.Type.TYPE_SLICE_BEGIN) == TYPE_SLICE_BEGIN
-        assert int(TrackEvent.Type.TYPE_SLICE_END) == TYPE_SLICE_END
-        assert int(TrackEvent.Type.TYPE_INSTANT) == TYPE_INSTANT
-        assert int(TrackEvent.Type.TYPE_COUNTER) == TYPE_COUNTER
+        assert int(TrackEvent.Type.TYPE_SLICE_BEGIN) == int(TrackEventType.SLICE_BEGIN)
+        assert int(TrackEvent.Type.TYPE_SLICE_END) == int(TrackEventType.SLICE_END)
+        assert int(TrackEvent.Type.TYPE_INSTANT) == int(TrackEventType.INSTANT)
+        assert int(TrackEvent.Type.TYPE_COUNTER) == int(TrackEventType.COUNTER)
 
     def test_child_tracks_ordering(self) -> None:
         v = TrackDescriptor.ChildTracksOrdering

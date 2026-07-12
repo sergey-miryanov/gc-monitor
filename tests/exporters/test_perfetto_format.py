@@ -10,11 +10,8 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
 
 from gcmon.data import GCStatsInfo
 from gcmon.exporters.perfetto_format import (
-    TYPE_COUNTER,
-    TYPE_INSTANT,
-    TYPE_SLICE_BEGIN,
-    TYPE_SLICE_END,
     PerfettoTrackState,
+    TrackEventType,
     build_trace,
     build_trace_packet,
     build_track_descriptor,
@@ -424,7 +421,7 @@ class TestBuildTracePacket:
 
 class TestBuildTrackEvent:
     def test_slice_begin(self) -> None:
-        data = build_track_event(type=TYPE_SLICE_BEGIN, track_uuid=100, name="test")
+        data = build_track_event(type=TrackEventType.SLICE_BEGIN, track_uuid=100, name="test")
         track_event = TrackEvent()
         track_event.ParseFromString(data)
         assert track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
@@ -432,7 +429,7 @@ class TestBuildTrackEvent:
         assert track_event.name == "test"
 
     def test_slice_end(self) -> None:
-        data = build_track_event(type=TYPE_SLICE_END, track_uuid=100)
+        data = build_track_event(type=TrackEventType.SLICE_END, track_uuid=100)
         track_event = TrackEvent()
         track_event.ParseFromString(data)
         assert track_event.type == TrackEvent.Type.TYPE_SLICE_END
@@ -440,7 +437,7 @@ class TestBuildTrackEvent:
         assert not track_event.HasField("name")
 
     def test_instant(self) -> None:
-        data = build_track_event(type=TYPE_INSTANT, track_uuid=100, name="marker")
+        data = build_track_event(type=TrackEventType.INSTANT, track_uuid=100, name="marker")
         track_event = TrackEvent()
         track_event.ParseFromString(data)
         assert track_event.type == TrackEvent.Type.TYPE_INSTANT
@@ -448,7 +445,7 @@ class TestBuildTrackEvent:
         assert track_event.name == "marker"
 
     def test_counter(self) -> None:
-        data = build_track_event(type=TYPE_COUNTER, track_uuid=100, counter_value=42)
+        data = build_track_event(type=TrackEventType.COUNTER, track_uuid=100, counter_value=42)
         track_event = TrackEvent()
         track_event.ParseFromString(data)
         assert track_event.type == TrackEvent.Type.TYPE_COUNTER
@@ -457,7 +454,7 @@ class TestBuildTrackEvent:
 
     def test_with_categories(self) -> None:
         data = build_track_event(
-            type=TYPE_SLICE_BEGIN,
+            type=TrackEventType.SLICE_BEGIN,
             track_uuid=100,
             name="test",
             categories=["cat1", "cat2"],
@@ -472,7 +469,7 @@ class TestBuildTrackEvent:
         ann1 = b"\x52\x03key\x20\x2a"
         ann2 = b"\x52\x05other\x20\x64"
         data = build_track_event(
-            type=TYPE_SLICE_BEGIN,
+            type=TrackEventType.SLICE_BEGIN,
             track_uuid=100,
             name="test",
             debug_annotations=[ann1, ann2],
@@ -1419,16 +1416,16 @@ class TestConvertItemToPerfettoPackets:
         #   and END(pid 200) at ts=5000.
         # - packets_early (pid 100) contains BEGIN(pid 100) at ts=500
         #   and END(pid 100) at ts=1500.
-        begins = [p for p in all_pairs if p[1] == TYPE_SLICE_BEGIN]
-        ends = [p for p in all_pairs if p[1] == TYPE_SLICE_END]
+        begins = [p for p in all_pairs if p[1] == TrackEventType.SLICE_BEGIN]
+        ends = [p for p in all_pairs if p[1] == TrackEventType.SLICE_END]
         assert begins == [
-            (1_000, TYPE_SLICE_BEGIN, "Process 200", "python3 -m late_target"),
-            (500, TYPE_SLICE_BEGIN, "Process 100", "python3 -m early_target"),
+            (1_000, TrackEventType.SLICE_BEGIN, "Process 200", "python3 -m late_target"),
+            (500, TrackEventType.SLICE_BEGIN, "Process 100", "python3 -m early_target"),
         ]
         # END packets carry no annotations.
         assert ends == [
-            (5_000, TYPE_SLICE_END, "Process 200", None),
-            (1_500, TYPE_SLICE_END, "Process 100", None),
+            (5_000, TrackEventType.SLICE_END, "Process 200", None),
+            (1_500, TrackEventType.SLICE_END, "Process 100", None),
         ]
 
     def test_process_lifetime_idempotent_across_converts(self) -> None:
