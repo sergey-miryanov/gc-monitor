@@ -3,6 +3,7 @@
 import os
 import signal
 import subprocess
+import sys
 from unittest.mock import Mock, patch
 
 import pytest
@@ -134,15 +135,36 @@ class TestTerminateProcessUnix:
             assert result == (b"final output", b"")
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows-specific tests")
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific tests")
 class TestTerminateProcessWindows:
     """Windows-specific terminate_process tests."""
 
     def test_graceful_exit(self, nt_terminator):
-        mock_process = nt_terminator
-        mock_process.poll.side_effect = [None, 0]
+        if sys.platform == "win32":  # fix mypy errors
+            mock_process = nt_terminator
+            mock_process.poll.side_effect = [None, 0]
 
-        with patch.object(mock_process, "send_signal") as mock_send_signal:
+            with patch.object(mock_process, "send_signal") as mock_send_signal:
+                result = terminate_process(
+                    process=mock_process,
+                    graceful_timeout=5.0,
+                    force_timeout=2.0,
+                )
+
+                mock_send_signal.assert_called_once_with(signal.CTRL_BREAK_EVENT)
+                mock_process.communicate.assert_called_once_with(timeout=5.0)
+                assert result == (b"stdout data", b"stderr data")
+
+    def test_timeout_then_kill(self, nt_signal_and_kill):
+        if sys.platform == "win32":  # fix mypy errors
+            mock_process, mock_send_signal, mock_kill = nt_signal_and_kill
+            mock_process.poll.side_effect = [None, None, None, -1]
+            mock_process.communicate.side_effect = [
+                subprocess.TimeoutExpired(cmd="test", timeout=5.0),
+                subprocess.TimeoutExpired(cmd="test", timeout=2.0),
+                (b"stdout after kill", b"stderr after kill"),
+            ]
+
             result = terminate_process(
                 process=mock_process,
                 graceful_timeout=5.0,
@@ -150,28 +172,9 @@ class TestTerminateProcessWindows:
             )
 
             mock_send_signal.assert_called_once_with(signal.CTRL_BREAK_EVENT)
-            mock_process.communicate.assert_called_once_with(timeout=5.0)
-            assert result == (b"stdout data", b"stderr data")
-
-    def test_timeout_then_kill(self, nt_signal_and_kill):
-        mock_process, mock_send_signal, mock_kill = nt_signal_and_kill
-        mock_process.poll.side_effect = [None, None, None, -1]
-        mock_process.communicate.side_effect = [
-            subprocess.TimeoutExpired(cmd="test", timeout=5.0),
-            subprocess.TimeoutExpired(cmd="test", timeout=2.0),
-            (b"stdout after kill", b"stderr after kill"),
-        ]
-
-        result = terminate_process(
-            process=mock_process,
-            graceful_timeout=5.0,
-            force_timeout=2.0,
-        )
-
-        mock_send_signal.assert_called_once_with(signal.CTRL_BREAK_EVENT)
-        mock_process.terminate.assert_called_once()
-        mock_kill.assert_called_once()
-        assert result == (b"stdout after kill", b"stderr after kill")
+            mock_process.terminate.assert_called_once()
+            mock_kill.assert_called_once()
+            assert result == (b"stdout after kill", b"stderr after kill")
 
     def test_zombie(self, nt_terminator):
         mock_process = nt_terminator

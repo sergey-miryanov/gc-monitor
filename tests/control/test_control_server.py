@@ -785,11 +785,12 @@ class TestPlatformWindows:
         assert result == r"\\.\pipe\gcmon-test-name"
 
     def test_tconnection_is_pipe_connection(self) -> None:
-        from multiprocessing.connection import PipeConnection
+        if sys.platform == "win32":  # fix mypy errors
+            from multiprocessing.connection import PipeConnection
 
-        from gcmon.control.control_server import TConnection
+            from gcmon.control.control_server import TConnection
 
-        assert TConnection is PipeConnection
+            assert TConnection is PipeConnection
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
