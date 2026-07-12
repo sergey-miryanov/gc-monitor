@@ -1,0 +1,121 @@
+"""Validate ``perfetto_format`` constants match the actual protobuf schema."""
+
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
+    CounterDescriptor,
+    DebugAnnotation,
+    ProcessDescriptor,
+    ThreadDescriptor,
+    Trace,
+    TracePacket,
+    TrackDescriptor,
+    TrackEvent,
+)
+
+from gcmon.exporters.perfetto_format import (
+    TYPE_COUNTER,
+    TYPE_INSTANT,
+    TYPE_SLICE_BEGIN,
+    TYPE_SLICE_END,
+    ChildTracksOrdering,
+    CounterDescriptorField,
+    DebugAnnotationField,
+    ProcessDescriptorField,
+    ProcessOrdering,
+    ThreadDescriptorField,
+    ThreadOrdering,
+    TraceField,
+    TracePacketField,
+    TrackDescriptorField,
+    TrackEventField,
+)
+
+
+class TestPerfettoFormatConstants:
+    def test_trace_field(self) -> None:
+        assert Trace.DESCRIPTOR.fields_by_name["packet"].number == TraceField.PACKET
+
+    def test_trace_packet_field(self) -> None:
+        f = TracePacket.DESCRIPTOR.fields_by_name
+        assert f["timestamp"].number == TracePacketField.TIMESTAMP
+        assert f["trusted_packet_sequence_id"].number == TracePacketField.SEQUENCE_ID
+        assert f["track_event"].number == TracePacketField.TRACK_EVENT
+        assert f["track_descriptor"].number == TracePacketField.TRACK_DESCRIPTOR
+
+    def test_track_descriptor_field(self) -> None:
+        f = TrackDescriptor.DESCRIPTOR.fields_by_name
+        assert f["uuid"].number == TrackDescriptorField.UUID
+        assert f["name"].number == TrackDescriptorField.NAME
+        assert f["process"].number == TrackDescriptorField.PROCESS
+        assert f["thread"].number == TrackDescriptorField.THREAD
+        assert f["parent_uuid"].number == TrackDescriptorField.PARENT_UUID
+        assert f["counter"].number == TrackDescriptorField.COUNTER
+        assert f["child_ordering"].number == TrackDescriptorField.CHILD_ORDERING
+        assert f["sibling_order_rank"].number == TrackDescriptorField.SIBLING_ORDER_RANK
+        assert f["description"].number == TrackDescriptorField.DESCRIPTION
+        assert f["process_ordering"].number == TrackDescriptorField.PROCESS_ORDERING
+        assert f["thread_ordering"].number == TrackDescriptorField.THREAD_ORDERING
+
+    def test_thread_descriptor_field(self) -> None:
+        f = ThreadDescriptor.DESCRIPTOR.fields_by_name
+        assert f["pid"].number == ThreadDescriptorField.PID
+        assert f["tid"].number == ThreadDescriptorField.TID
+        assert f["thread_name"].number == ThreadDescriptorField.THREAD_NAME
+
+    def test_process_descriptor_field(self) -> None:
+        f = ProcessDescriptor.DESCRIPTOR.fields_by_name
+        assert f["pid"].number == ProcessDescriptorField.PID
+        assert f["cmdline"].number == ProcessDescriptorField.CMDLINE
+        assert f["process_name"].number == ProcessDescriptorField.PROCESS_NAME
+        assert f["start_timestamp_ns"].number == ProcessDescriptorField.START_TIMESTAMP_NS
+
+    def test_counter_descriptor_field(self) -> None:
+        f = CounterDescriptor.DESCRIPTOR.fields_by_name
+        assert f["type"].number == CounterDescriptorField.TYPE
+        assert f["categories"].number == CounterDescriptorField.CATEGORIES
+        assert f["unit"].number == CounterDescriptorField.UNIT
+        assert f["unit_multiplier"].number == CounterDescriptorField.UNIT_MULTIPLIER
+        assert f["is_incremental"].number == CounterDescriptorField.IS_INCREMENTAL
+        assert f["unit_name"].number == CounterDescriptorField.UNIT_NAME
+        assert f["y_axis_share_key"].number == CounterDescriptorField.Y_AXIS_SHARE_KEY
+
+    def test_track_event_field(self) -> None:
+        f = TrackEvent.DESCRIPTOR.fields_by_name
+        assert f["type"].number == TrackEventField.TYPE
+        assert f["track_uuid"].number == TrackEventField.TRACK_UUID
+        assert f["debug_annotations"].number == TrackEventField.DEBUG_ANNOTATIONS
+        assert f["categories"].number == TrackEventField.CATEGORIES
+        assert f["name"].number == TrackEventField.NAME
+        assert f["counter_value"].number == TrackEventField.COUNTER_VALUE
+        assert f["double_counter_value"].number == TrackEventField.DOUBLE_COUNTER_VALUE
+        assert f["timestamp_delta_us"].number == TrackEventField.TIMESTAMP_DELTA_US
+        assert f["timestamp_absolute_us"].number == TrackEventField.TIMESTAMP_ABSOLUTE_US
+
+    def test_debug_annotation_field(self) -> None:
+        f = DebugAnnotation.DESCRIPTOR.fields_by_name
+        assert f["name"].number == DebugAnnotationField.NAME
+        assert f["bool_value"].number == DebugAnnotationField.BOOL_VALUE
+        assert f["int_value"].number == DebugAnnotationField.INT_VALUE
+        assert f["string_value"].number == DebugAnnotationField.STRING_VALUE
+
+    def test_type_constants(self) -> None:
+        assert int(TrackEvent.Type.TYPE_SLICE_BEGIN) == TYPE_SLICE_BEGIN
+        assert int(TrackEvent.Type.TYPE_SLICE_END) == TYPE_SLICE_END
+        assert int(TrackEvent.Type.TYPE_INSTANT) == TYPE_INSTANT
+        assert int(TrackEvent.Type.TYPE_COUNTER) == TYPE_COUNTER
+
+    def test_child_tracks_ordering(self) -> None:
+        v = TrackDescriptor.ChildTracksOrdering
+        assert int(v.UNKNOWN) == ChildTracksOrdering.UNKNOWN
+        assert int(v.LEXICOGRAPHIC) == ChildTracksOrdering.LEXICOGRAPHIC
+        assert int(v.CHRONOLOGICAL) == ChildTracksOrdering.CHRONOLOGICAL
+        assert int(v.EXPLICIT) == ChildTracksOrdering.EXPLICIT
+
+    def test_process_ordering(self) -> None:
+        v = TrackDescriptor.ProcessOrdering
+        assert int(v.PROCESS_ORDERING_UNSPECIFIED) == ProcessOrdering.UNSPECIFIED
+        assert int(v.PROCESS_ORDERING_EXPLICIT) == ProcessOrdering.EXPLICIT
+
+    def test_thread_ordering(self) -> None:
+        v = TrackDescriptor.ThreadOrdering
+        assert int(v.THREAD_ORDERING_UNSPECIFIED) == ThreadOrdering.UNSPECIFIED
+        assert int(v.THREAD_ORDERING_EXPLICIT) == ThreadOrdering.EXPLICIT
