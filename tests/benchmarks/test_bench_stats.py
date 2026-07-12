@@ -8,6 +8,7 @@ computation, and the final aggregation step.
 from __future__ import annotations
 
 import pytest
+from pytest_codspeed import BenchmarkFixture
 
 from gcmon.stats import Stats, StreamingStats, get_quantile_value
 
@@ -17,7 +18,7 @@ EVENT_COUNT = 5_000
 
 
 @pytest.mark.benchmark
-def test_streaming_stats_update_single_pid(benchmark) -> None:
+def test_streaming_stats_update_single_pid(benchmark: BenchmarkFixture) -> None:
     events = [make_gc_event(i) for i in range(EVENT_COUNT)]
 
     def run() -> StreamingStats:
@@ -31,7 +32,7 @@ def test_streaming_stats_update_single_pid(benchmark) -> None:
 
 
 @pytest.mark.benchmark
-def test_streaming_stats_update_many_pids(benchmark) -> None:
+def test_streaming_stats_update_many_pids(benchmark: BenchmarkFixture) -> None:
     # Spread events across more pids than MAX_ACTIVE_PIDS to exercise the
     # eviction + materialize path.
     events = [(1000 + (i % 128), make_gc_event(i, pid=1000 + (i % 128))) for i in range(EVENT_COUNT)]
@@ -47,7 +48,7 @@ def test_streaming_stats_update_many_pids(benchmark) -> None:
 
 
 @pytest.mark.benchmark
-def test_streaming_stats_aggregate(benchmark) -> None:
+def test_streaming_stats_aggregate(benchmark: BenchmarkFixture) -> None:
     stats = StreamingStats()
     for i in range(EVENT_COUNT):
         stats.update(12345, make_gc_event(i, gen=i % 3))
@@ -57,7 +58,7 @@ def test_streaming_stats_aggregate(benchmark) -> None:
 
 
 @pytest.mark.benchmark
-def test_stats_update_and_percentiles(benchmark) -> None:
+def test_stats_update_and_percentiles(benchmark: BenchmarkFixture) -> None:
     values = [float((i * 7919) % 100_003) for i in range(EVENT_COUNT)]
 
     def run() -> tuple[float, float]:
@@ -71,7 +72,7 @@ def test_stats_update_and_percentiles(benchmark) -> None:
 
 
 @pytest.mark.benchmark
-def test_get_quantile_value(benchmark) -> None:
+def test_get_quantile_value(benchmark: BenchmarkFixture) -> None:
     buffer = sorted(float((i * 7919) % 100_003) for i in range(EVENT_COUNT))
 
     def run() -> float:

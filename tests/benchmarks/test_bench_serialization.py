@@ -11,6 +11,7 @@ from pathlib import Path
 
 import msgspec
 import pytest
+from pytest_codspeed import BenchmarkFixture
 
 from gcmon.data import from_mapping
 from gcmon.exporters.chrome_trace_io import (
@@ -18,7 +19,7 @@ from gcmon.exporters.chrome_trace_io import (
     read_jsonl,
     write_jsonl,
 )
-from gcmon.protocol import to_mapping
+from gcmon.protocol import TGCStatsInfo, TInstantMsg, to_mapping
 
 from .conftest import make_gc_event, make_jsonl_record
 
@@ -26,7 +27,7 @@ EVENT_COUNT = 5_000
 
 
 @pytest.mark.benchmark
-def test_from_mapping_decode(benchmark) -> None:
+def test_from_mapping_decode(benchmark: BenchmarkFixture) -> None:
     records = [make_jsonl_record(i) for i in range(EVENT_COUNT)]
 
     def run() -> int:
@@ -40,7 +41,7 @@ def test_from_mapping_decode(benchmark) -> None:
 
 
 @pytest.mark.benchmark
-def test_to_mapping_encode(benchmark) -> None:
+def test_to_mapping_encode(benchmark: BenchmarkFixture) -> None:
     events = [make_gc_event(i, gen=i % 3) for i in range(EVENT_COUNT)]
 
     def run() -> int:
@@ -54,7 +55,7 @@ def test_to_mapping_encode(benchmark) -> None:
 
 
 @pytest.mark.benchmark
-def test_json_decode_and_from_mapping(benchmark) -> None:
+def test_json_decode_and_from_mapping(benchmark: BenchmarkFixture) -> None:
     lines = [msgspec.json.encode(make_jsonl_record(i)) for i in range(EVENT_COUNT)]
 
     def run() -> int:
@@ -68,9 +69,11 @@ def test_json_decode_and_from_mapping(benchmark) -> None:
 
 
 @pytest.mark.benchmark
-def test_read_jsonl(benchmark, tmp_path: Path) -> None:
+def test_read_jsonl(benchmark: BenchmarkFixture, tmp_path: Path) -> None:
     path = tmp_path / "events.jsonl"
-    items = {12345: [make_gc_event(i, gen=i % 3) for i in range(EVENT_COUNT)]}
+    items: dict[int, list[TGCStatsInfo | TInstantMsg]] = {
+        12345: [make_gc_event(i, gen=i % 3) for i in range(EVENT_COUNT)]
+    }
     write_jsonl(path, items)
 
     result = benchmark(read_jsonl, path)
@@ -78,9 +81,11 @@ def test_read_jsonl(benchmark, tmp_path: Path) -> None:
 
 
 @pytest.mark.benchmark
-def test_convert_jsonl_to_trace_format(benchmark, tmp_path: Path) -> None:
+def test_convert_jsonl_to_trace_format(benchmark: BenchmarkFixture, tmp_path: Path) -> None:
     path = tmp_path / "events.jsonl"
-    items = {12345: [make_gc_event(i, gen=i % 3) for i in range(EVENT_COUNT)]}
+    items: dict[int, list[TGCStatsInfo | TInstantMsg]] = {
+        12345: [make_gc_event(i, gen=i % 3) for i in range(EVENT_COUNT)]
+    }
     write_jsonl(path, items)
 
     result = benchmark(convert_jsonl_to_trace_format, path)
