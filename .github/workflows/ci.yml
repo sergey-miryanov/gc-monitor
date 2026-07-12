@@ -70,7 +70,7 @@ jobs:
 
       - name: Type check with pyrefly
         run: |
-          poetry run pyrefly check src
+          poetry run pyrefly check src tests
 
   test:
     runs-on: ${{ matrix.os }}
