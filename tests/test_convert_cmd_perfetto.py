@@ -12,13 +12,24 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
+from typing import Protocol
 
 import pytest
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
+
+
+def _int(v: int | None) -> int:
+    assert v is not None
+    return v
+
+
+class _NameRow(Protocol):
+    name: str
+
 
 # Multiple processes, multiple generations, multiple tids/iids per process.
 # Counter-track-name coverage and thread-track coverage depend on these.
@@ -139,24 +150,24 @@ def _multi_dimensional_records() -> list[dict[str, int | float]]:
             "candidates": item_g1.candidates,
             "duration": item_g1.duration,
             # Incremental fields:
-            "increment_size": item_g1.increment_size,
-            "alive_size": item_g1.alive_size,
-            "ts_mark_alive_start": item_g1.ts_mark_alive_start,
-            "ts_mark_alive_stop": item_g1.ts_mark_alive_stop,
-            "ts_fill_increment_start": item_g1.ts_fill_increment_start,
-            "ts_fill_increment_stop": item_g1.ts_fill_increment_stop,
-            "ts_deduce_unreachable_start": item_g1.ts_deduce_unreachable_start,
-            "ts_deduce_unreachable_stop": item_g1.ts_deduce_unreachable_stop,
-            "ts_handle_weakref_callbacks_start": item_g1.ts_handle_weakref_callbacks_start,
-            "ts_handle_weakref_callbacks_stop": item_g1.ts_handle_weakref_callbacks_stop,
-            "ts_finalize_garbage_stop": item_g1.ts_finalize_garbage_stop,
-            "finalized_garbage_count": item_g1.finalized_garbage_count,
-            "ts_handle_resurrected_stop": item_g1.ts_handle_resurrected_stop,
-            "ts_clear_weakrefs_stop": item_g1.ts_clear_weakrefs_stop,
-            "clear_weakrefs_count": item_g1.clear_weakrefs_count,
-            "ts_delete_garbage_start": item_g1.ts_delete_garbage_start,
-            "ts_delete_garbage_stop": item_g1.ts_delete_garbage_stop,
-            "deleted_garbage_count": item_g1.deleted_garbage_count,
+            "increment_size": _int(item_g1.increment_size),
+            "alive_size": _int(item_g1.alive_size),
+            "ts_mark_alive_start": _int(item_g1.ts_mark_alive_start),
+            "ts_mark_alive_stop": _int(item_g1.ts_mark_alive_stop),
+            "ts_fill_increment_start": _int(item_g1.ts_fill_increment_start),
+            "ts_fill_increment_stop": _int(item_g1.ts_fill_increment_stop),
+            "ts_deduce_unreachable_start": _int(item_g1.ts_deduce_unreachable_start),
+            "ts_deduce_unreachable_stop": _int(item_g1.ts_deduce_unreachable_stop),
+            "ts_handle_weakref_callbacks_start": _int(item_g1.ts_handle_weakref_callbacks_start),
+            "ts_handle_weakref_callbacks_stop": _int(item_g1.ts_handle_weakref_callbacks_stop),
+            "ts_finalize_garbage_stop": _int(item_g1.ts_finalize_garbage_stop),
+            "finalized_garbage_count": _int(item_g1.finalized_garbage_count),
+            "ts_handle_resurrected_stop": _int(item_g1.ts_handle_resurrected_stop),
+            "ts_clear_weakrefs_stop": _int(item_g1.ts_clear_weakrefs_stop),
+            "clear_weakrefs_count": _int(item_g1.clear_weakrefs_count),
+            "ts_delete_garbage_start": _int(item_g1.ts_delete_garbage_start),
+            "ts_delete_garbage_stop": _int(item_g1.ts_delete_garbage_stop),
+            "deleted_garbage_count": _int(item_g1.deleted_garbage_count),
         }
     )
     # pid=1001, iid=2, gen=2 (full collection, basic counters)
@@ -272,9 +283,9 @@ def _process_filter(pid: int) -> str:
     )
 
 
-def _row_set(rows) -> set[tuple]:
-    """Convert a query result into a hashable set of tuples."""
-    return {tuple(dict(r.__dict__).items()) for r in rows}
+def _row_set(rows: Iterable[_NameRow]) -> set[str]:
+    """Extract the ``name`` column from a query result into a set of strings."""
+    return {r.name for r in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -517,8 +528,8 @@ class TestCombineChromePerfettoEquivalenceIntegration:
                 # Normalize: extract the single string column and strip
                 # whitespace (the leading space in the chrome counter track
                 # name is a chrome-specific naming quirk).
-                def _normalize(rs: set[tuple]) -> set[str]:
-                    return {next(iter(t))[1].strip() for t in rs}
+                def _normalize(rs: set[str]) -> set[str]:
+                    return {s.strip() for s in rs}
 
                 assert _normalize(rows_chrome) == _normalize(rows_perfetto), (
                     f"row set mismatch for query:\n  {query}\n"
