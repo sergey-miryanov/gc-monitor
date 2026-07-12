@@ -697,6 +697,7 @@ class TestConvertItemToPerfettoPackets:
             ):
                 begin_packet = p
                 break
+        assert begin_packet is not None
         first_packet = TracePacket()
         first_packet.ParseFromString(begin_packet)
         assert first_packet.timestamp == 1_000
@@ -942,7 +943,7 @@ class TestConvertItemToPerfettoPackets:
         assert duration_track_uuid in descriptors
         parent, rank, _ = descriptors[duration_track_uuid]
         assert rank == 4
-        assert parent is not None
+        assert parent != 0
         assert descriptors[parent][2] == "GC Metrics"
 
     def _make_full_incremental_item(self) -> GCStatsInfo:
@@ -1165,6 +1166,7 @@ class TestConvertItemToPerfettoPackets:
             ):
                 begin_packet = p
                 break
+        assert begin_packet is not None
         first_packet = TracePacket()
         first_packet.ParseFromString(begin_packet)
         anns = first_packet.track_event.debug_annotations

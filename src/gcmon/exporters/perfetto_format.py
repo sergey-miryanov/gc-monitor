@@ -452,7 +452,7 @@ def _build_debug_annotation_string(name: str, value: str) -> bytes:
 
 
 def build_track_event(
-    type: int,
+    type: TrackEventType,
     track_uuid: int,
     name: str | None = None,
     categories: list[str] | None = None,

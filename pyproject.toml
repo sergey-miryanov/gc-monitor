@@ -88,6 +88,10 @@ check_untyped_defs = true
 # TODO: remove after 3.15 native support:
 mypy_path = "./stubs"
 
+[[tool.mypy.overrides]]
+module = "perfetto.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 tmp_path_retention_policy = "failed"

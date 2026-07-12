@@ -43,7 +43,7 @@ def _get_track_event(packet: TracePacket) -> TrackEvent | None:
 def _is_track_event(packet: TracePacket, event_type: int) -> bool:
     track_event = _get_track_event(packet)
     if track_event is not None:
-        return track_event.type == event_type
+        return bool(track_event.type == event_type)
     return False
 
 
