@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -128,7 +129,7 @@ class TestValidateTarget:
 class TestBuildCommand:
     def test_script_mode(self, runner, tmp_path):
         cmd = runner._build_command()
-        assert cmd[0] == subprocess.sys.executable
+        assert cmd[0] == sys.executable
         assert "-u" in cmd
         script_path = str((tmp_path / "test_script.py").resolve())
         assert script_path in cmd

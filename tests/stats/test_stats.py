@@ -85,6 +85,7 @@ class TestStatsMaterialize:
 
     def test_materialize_called_twice_is_noop(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
+        assert stats_with_data.percentiles is not None
         first_percentiles = stats_with_data.percentiles.copy()
         stats_with_data.materialize()
         assert stats_with_data.percentiles == first_percentiles

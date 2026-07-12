@@ -8,8 +8,8 @@ import pytest
 from gcmon.control.control_client import ControlClient, _default_connect, connect_with_retry
 
 
-def assert_payload(mock_conn, expected_msg, *, call_index=0):
-    payload = mock_conn.send.call_args_list[call_index][0][0]
+def assert_payload(mock_conn: MagicMock, expected_msg: str, *, call_index: int = 0) -> dict[str, int | str]:
+    payload: dict[str, int | str] = mock_conn.send.call_args_list[call_index][0][0]
     assert payload["msg"] == expected_msg
     assert payload["pid"] == os.getpid()
     assert isinstance(payload["ts"], int)
@@ -57,13 +57,15 @@ class TestPublicAPI:
             ("instant_msg", ("custom event",), "custom event"),
         ],
     )
-    def test_sends_payload(self, client, mock_conn, method, args, expected_msg):
+    def test_sends_payload(
+        self, client: ControlClient, mock_conn: MagicMock, method: str, args: tuple[str, ...], expected_msg: str
+    ) -> None:
         getattr(client, method)(*args)
         mock_conn.send.assert_called_once()
         assert_payload(mock_conn, expected_msg)
 
     @pytest.mark.parametrize("raises", [False, True])
-    def test_pause_monitoring(self, client, mock_conn, raises):
+    def test_pause_monitoring(self, client: ControlClient, mock_conn: MagicMock, raises: bool) -> None:
         if raises:
             with pytest.raises(RuntimeError), client.pause_monitoring():
                 raise RuntimeError()

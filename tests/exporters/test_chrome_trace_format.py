@@ -525,7 +525,7 @@ class TestConvertToTraceFormat:
 
 class TestConvertToTraceFormatWithInstant:
     def test_instant_msg_only(self) -> None:
-        items = [create_instant_msg(name="start GC monitor", ts=1_500_000_000)]
+        items: list[TGCStatsInfo | TInstantMsg] = [create_instant_msg(name="start GC monitor", ts=1_500_000_000)]
         events = convert_to_trace_format({1: items})
         instants = [e for e in events if e.ph == "I"]
         assert len(instants) == 1
@@ -536,14 +536,14 @@ class TestConvertToTraceFormatWithInstant:
     def test_mixed_gc_stats_and_instant_msg(self) -> None:
         item = create_mock_stats_item()
         instant = create_instant_msg(name="stop GC monitor", ts=2_000_000_000)
-        items = {12345: [item, instant]}
+        items: dict[int, list[TGCStatsInfo | TInstantMsg]] = {12345: [item, instant]}
         events = convert_to_trace_format(items)
         assert any(e.ph == "I" for e in events)
         assert any(e.ph == "B" for e in events)
         assert any(e.ph == "C" for e in events)
 
     def test_multiple_instant_messages(self) -> None:
-        items = [
+        items: list[TGCStatsInfo | TInstantMsg] = [
             create_instant_msg(name="start GC monitor", ts=1_000_000_000),
             create_instant_msg(name="stop GC monitor", ts=2_000_000_000),
         ]

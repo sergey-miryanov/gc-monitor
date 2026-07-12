@@ -3,7 +3,7 @@
 import os
 import signal
 import subprocess
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -238,7 +238,7 @@ class TestTerminateProcessCommon:
             )
             assert result == (b"stdout data", b"stderr data")
 
-    def test_terminate_then_exits(self, mock_process) -> None:
+    def test_terminate_then_exits(self, mock_process: Mock) -> None:
         """Process exits after terminate(), before kill()."""
         mock_process.poll.side_effect = [None, None, 0]
         mock_process.communicate.side_effect = [

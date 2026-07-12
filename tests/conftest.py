@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Callable, Generator
 from unittest.mock import Mock
 
 import pytest
@@ -18,7 +19,7 @@ DEFAULT_PID: int = 12345
 
 
 @pytest.fixture(autouse=True)
-def _caplog_gcmon(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
+def _caplog_gcmon(caplog: pytest.LogCaptureFixture) -> Generator[pytest.LogCaptureFixture]:
     """Auto-configure gcmon logger to INFO level for caplog.
 
     Also snapshots and restores ``logging.getLogger("gcmon")``'s handlers and
@@ -123,8 +124,8 @@ def monitor(exporter: MockExporter, process: ExternalProcess, stats: StreamingSt
 
 
 @pytest.fixture
-def make_monitor(exporter, stats):
-    def _make(pid: int = 12345, exp=None):
+def make_monitor(exporter: MockExporter, stats: StreamingStats) -> Callable[..., EventsMonitor]:
+    def _make(pid: int = 12345, exp: MockExporter | None = None) -> EventsMonitor:
         proc = ExternalProcess(pid=pid)
         return EventsMonitor(proc, exp or exporter, stats)
 
