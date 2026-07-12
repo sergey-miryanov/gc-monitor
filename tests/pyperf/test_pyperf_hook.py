@@ -105,8 +105,8 @@ class TestGCMonitorHookEnter:
 
         hook = gcmon_hook(temp_dir=tmp_path, pid=12345)
 
-        assert hook._pid == 12345  # type: ignore[reportPrivateUsage]
-        assert hook._process is not None  # type: ignore[reportPrivateUsage]
+        assert hook._pid == 12345
+        assert hook._process is not None
 
         # Verify subprocess.Popen was called with correct args
         mock_popen.assert_called_once()
@@ -146,8 +146,8 @@ class TestGCMonitorHookEnter:
 
         hook = gcmon_hook(temp_dir=tmp_path, pid=12345)
         with hook:
-            assert len(hook._temp_files) == 1  # type: ignore[reportPrivateUsage]
-            assert "gcmon_12345_" in str(hook._temp_files[0])  # type: ignore[reportPrivateUsage]
+            assert len(hook._temp_files) == 1
+            assert "gcmon_12345_" in str(hook._temp_files[0])
 
     def test_enter_accumulates_temp_files(
         self,
@@ -161,7 +161,7 @@ class TestGCMonitorHookEnter:
 
         # First enter
         with hook:
-            assert "gcmon_12345_" in str(hook._temp_files[0])  # type: ignore[reportPrivateUsage]
+            assert "gcmon_12345_" in str(hook._temp_files[0])
 
         # Second enter (simulating multiple benchmark runs)
         with hook:
@@ -176,7 +176,7 @@ class TestGCMonitorHookExit:
         self,
         mock_popen_process: tuple[Mock, Mock],
         tmp_path: Path,
-        mock_env_output,
+        mock_env_output: None,
     ) -> None:
         """__exit__ calls terminate_process with correct arguments."""
         _mock_popen, mock_process = mock_popen_process
@@ -201,7 +201,7 @@ class TestGCMonitorHookTeardown:
     def test_teardown_reads_json_and_adds_metadata(
         self,
         tmp_path: Path,
-        mock_env_output,
+        mock_env_output: None,
     ) -> None:
         """teardown reads JSONL files and adds metrics to metadata."""
         hook = gcmon_hook(temp_dir=tmp_path, pid=12345)
@@ -221,7 +221,7 @@ class TestGCMonitorHookTeardown:
     def test_teardown_handles_missing_file(
         self,
         tmp_path: Path,
-        mock_env_output,
+        mock_env_output: None,
     ) -> None:
         """teardown handles missing temp file gracefully."""
         hook = gcmon_hook(temp_dir=tmp_path, pid=12345)
@@ -235,15 +235,14 @@ class TestGCMonitorHookTeardown:
         self,
         mock_popen_process: tuple[Mock, Mock],
         tmp_path: Path,
-        mock_env_output,
+        mock_env_output: None,
     ) -> None:
         """teardown removes temp files after reading."""
         _mock_popen, _mock_process = mock_popen_process
 
         hook = gcmon_hook(temp_dir=tmp_path, pid=12345)
         with hook:
-            temp_file = hook._temp_files[0]  # type: ignore[reportPrivateUsage]
-            assert temp_file is not None
+            temp_file = hook._temp_files[0]
 
             _write_jsonl(temp_file, _make_jsonl_event())
 
@@ -259,7 +258,7 @@ class TestGCMonitorHookTeardown:
         self,
         mock_popen_process: tuple[Mock, Mock],
         tmp_path: Path,
-        mock_env_output,
+        mock_env_output: None,
     ) -> None:
         """teardown closes the control plane connection."""
         _mock_popen, _mock_process = mock_popen_process
@@ -277,7 +276,7 @@ class TestGCMonitorHookTeardown:
         self,
         mock_popen_process: tuple[Mock, Mock],
         tmp_path: Path,
-        mock_env_output,
+        mock_env_output: None,
     ) -> None:
         """teardown combines events from multiple temp files."""
         _mock_popen, _mock_process = mock_popen_process
@@ -407,7 +406,7 @@ class TestGCMonitorHookSharedOutput:
     def test_multiple_runs_write_to_shared_output_file(
         self,
         tmp_path: Path,
-        mock_env_output,
+        mock_env_output: None,
     ) -> None:
         """Test multiple pyperf runs writing to same output file via env var.
 
