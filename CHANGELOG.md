@@ -10,6 +10,8 @@
 ### Features
 
 - Add `TrackEventType` enum (`SLICE_BEGIN`, `SLICE_END`, `INSTANT`, `COUNTER`) to `gcmon.exporters.perfetto_format`
+- Track RSS (Resident Set Size) of monitored processes in Perfetto traces (#55)
+- Add `--rss` / `--rss-interval` CLI flags and `GCMON_RSS` / `GCMON_RSS_INTERVAL` env vars (#55)
 
 ### Bugfixes
 
