@@ -2,9 +2,9 @@
 
 [![PyPI](https://img.shields.io/pypi/v/gcmon.svg)](https://pypi.org/project/gcmon/)
 [![CI](https://github.com/sergey-miryanov/gcmon/actions/workflows/ci.yml/badge.svg)](https://github.com/sergey-miryanov/gcmon/actions/workflows/ci.yml)
-[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/sergey-miryanov/gcmon?utm_source=badge)
 [![Python Version](https://img.shields.io/badge/python-3.15+-blue.svg)](https://pypi.org/project/gcmon/)
 [![codecov](https://codecov.io/gh/sergey-miryanov/gcmon/branch/main/graph/badge.svg?token=ZHH7R72OC0)](https://codecov.io/gh/sergey-miryanov/gcmon)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/sergey-miryanov/gcmon?utm_source=badge)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/gcmon?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/gcmon)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/sergey-miryanov/gcmon)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -41,6 +41,7 @@ metrics into benchmarks.
   without in-process overhead
 - **Multiple export formats** - Chrome Trace Event, Perfetto binary protobuf, JSONL file, and JSONL to stdout ([examples](#example-chrome-trace-output))
 - **CLI** - Monitor processes or run scripts with GC monitoring ([usage](#cli-usage))
+- **RSS tracking** - Track Resident Set Size of monitored processes in Perfetto traces ([details](#rss-tracking))
 - **Pyperf hook integration** - Seamlessly integrate with pyperf benchmarks ([pyperf hook](#pyperf-hook-integration))
 
 ## When to Use
@@ -131,17 +132,19 @@ pip install gcmon[stats]
 
 Without this extra, statistics use a fixed 1024-sample buffer. With it, all samples are tracked with 0.1% relative accuracy. See [Statistics](#statistics) for details.
 
-### `[cmdline]` — Process Command Line in Perfetto
+### `[cmdline]` — Process Command Line & RSS Tracking
 
-Install [psutil](https://github.com/giampaolo/psutil) to populate the `cmdline` field in Perfetto traces:
+Install [psutil](https://github.com/giampaolo/psutil) to populate the `cmdline` field in Perfetto traces and enable RSS tracking:
 
 ```bash
 pip install gcmon[cmdline]
 ```
 
-When this extra is installed, the Perfetto exporter reads the command line of each monitored process and includes it in the trace. This appears as a tooltip in the Perfetto UI, making it easier to identify processes in multi-process traces.
+When this extra is installed:
+- The Perfetto exporter reads the command line of each monitored process and includes it in the trace. This appears as a tooltip in the Perfetto UI.
+- RSS tracking (`--rss`) can sample Resident Set Size via `psutil.Process(pid).memory_info().rss`.
 
-Without this extra, the `cmdline` field is omitted, but all other trace data is unaffected.
+Without this extra, the `cmdline` field is omitted and `--rss` is silently ignored (an info log is emitted at startup). All other trace data is unaffected.
 
 ## Quick Start
 
@@ -155,8 +158,8 @@ gcmon run -s my_script.py
 # Monitor with custom output and statistics output
 gcmon 12345 -o trace.json --stats
 
-# Perfetto binary output
-gcmon 12345 --format perfetto -o trace.pftrace
+# Perfetto binary output with RSS tracking
+gcmon 12345 --format perfetto -o trace.pftrace --rss
 
 # Combine multiple traces (e.g. different runs or builds) into a single file
 gcmon combine trace1.json trace2.json -o combined.json -n
@@ -191,11 +194,13 @@ below.
 - *Per-gen `G{gen}` counter tracks (`collected`, `candidates`, `duration`, `uncollectable`)*
 - *Shared `heap_size` top-level counter*
 - *`Processes` lifetime track showing the duration of each monitored process*
+- *`rss` counter track (when `--rss` is enabled) showing Resident Set Size per PID*
 
 Perfetto features:
 - **Counter Y-axis sharing**: Same metric names share Y-axis across generations (e.g., `G0 collected`, `G1 collected`, `G2 collected` all on one axis).
 - **Process ordering**: Tracks are ordered by first event timestamp, so the earliest-starting process appears at the top.
 - **Command line tooltips**: Install the `[cmdline]` extra to populate process command lines, visible as tooltips in the UI.
+- **RSS counter track**: A process-level `rss` counter track appears for each PID when `--rss` is enabled, showing Resident Set Size in bytes. Sampled at the configured `--rss-interval` (default 1s).
 
 This visualization helps you:
 - **Identify GC pause patterns** - See when and how long GC pauses occur
@@ -300,6 +305,8 @@ You must specify exactly one of `-s`/`--script` or `-m`/`--module`.
 | `--flush-threshold` | both | Number of events to buffer before flushing | `100` |
 | `--stats` | both | Show statistics table at end of monitoring (see [Statistics](#statistics)) | `False` |
 | `--table-format` | both | Table format: `plain` or `markdown`/`md` | `plain` |
+| `--rss` | both | Track RSS (Resident Set Size) of monitored process (Perfetto-only; requires `[cmdline]` extra) | `False` |
+| `--rss-interval` | both | RSS sampling interval in seconds | `1.0` |
 
 ### Environment Variables
 
@@ -315,6 +322,8 @@ All CLI options can be overridden via environment variables. CLI flags take prec
 | `GCMON_FLUSH_THRESHOLD` | `--flush-threshold` | Number of events to buffer before flushing | `100` |
 | `GCMON_STATS` | `--stats` | Enable statistics table (`1`, `true`, `yes`, `on`) | `False` |
 | `GCMON_TABLE_FORMAT` | `--table-format` | Table format: `plain`, `md`, or `markdown` | `plain` |
+| `GCMON_RSS` | `--rss` | Enable RSS tracking (`1`, `true`, `yes`, `on`) | `False` |
+| `GCMON_RSS_INTERVAL` | `--rss-interval` | RSS sampling interval in seconds | `1.0` |
 
 ### combine
 
@@ -570,6 +579,24 @@ This query:
 - Calculates count, sum, average, and percentiles (p50, p90, p95, p99)
 - Groups results by metric name
 
+#### Example: Querying RSS Values
+
+When `--rss` is enabled, RSS samples are stored in the `counter` table with track name `"rss"`. You can query memory usage over time per PID:
+
+```sql
+-- RSS values per PID (requires --rss)
+SELECT
+    p.pid,
+    (c.ts - p.start_ts) / 1e9 AS sec_from_start,
+    ROUND(c.value / 1e6, 2) AS rss_mb
+FROM counter c
+JOIN counter_track ct ON c.track_id = ct.id
+JOIN process_counter_track pt on ct.id = pt.id
+JOIN process p ON pt.upid = p.upid
+WHERE ct.name like 'rss%'
+ORDER BY p.start_ts, c.ts
+```
+
 #### Tips for Writing Queries
 
 - **Timestamps are in nanoseconds:** Divide by `1e6` for milliseconds, `1e9` for seconds
@@ -582,6 +609,34 @@ This query:
 
 - [Perfetto SQL Getting Started](https://perfetto.dev/docs/analysis/perfetto-sql-getting-started)
 - [Perfetto SQL documentation](https://perfetto.dev/docs/analysis/perfetto-sql-syntax)
+
+## RSS Tracking
+
+RSS (Resident Set Size) tracking is a Perfetto-only feature that samples the physical memory usage of each monitored process and emits it as a process-level counter track.
+
+### How to Use
+
+```bash
+# Enable RSS tracking with Perfetto output (default 1s interval)
+gcmon 12345 --format perfetto -o trace.pftrace --rss
+
+# Custom sampling interval
+gcmon 12345 --format perfetto --rss --rss-interval 0.5
+```
+
+Requires the `[cmdline]` extra (which installs `psutil`). Without psutil, `--rss` is silently ignored and an info log is emitted.
+
+### How It Works
+
+- RSS sampling runs inside the GC poll loop, so its effective rate is capped by `--rate`. If `--rss-interval` is shorter than `--rate`, a warning is logged and RSS is sampled at the poll rate.
+- Only PIDs that returned a successful GC poll status are sampled — no stale data for dead processes.
+- The counter track is process-level (`tid=-1`), parented directly to the process track outside the `GC Metrics` group.
+- The `rss` counter track displays in the Perfetto UI with the name `"rss"` and the value in bytes.
+- Graceful degradation: if `psutil` is not installed, `--rss` is ignored without crashing.
+
+### SQL Query Example
+
+See [Example: Querying RSS Values](#example-querying-rss-values).
 
 ## See Also
 
