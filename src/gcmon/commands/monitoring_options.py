@@ -176,6 +176,13 @@ def get_monitoring_options(
         logger.info("Duration: %s", duration_label)
     if rss_enabled:
         logger.info("RSS tracking: enabled (interval: %ss)", rss_interval)
+        if rss_interval < rate:
+            logger.warning(
+                "RSS interval (%ss) is shorter than poll rate (%ss); "
+                "RSS will be sampled at the poll rate, not the RSS interval.",
+                rss_interval,
+                rate,
+            )
 
     if rate <= 0:
         logger.error("Rate must be positive, got %s", rate)

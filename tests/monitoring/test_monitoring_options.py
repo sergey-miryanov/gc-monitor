@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from argparse import Namespace
 from pathlib import Path
 
@@ -72,3 +73,35 @@ class TestOutputPathValidation:
         args = _make_args(output=Path("../trace.json"))
         result = get_monitoring_options(args)
         assert result is not None
+
+
+class TestRssIntervalWarning:
+    def test_rss_interval_shorter_than_rate_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.WARNING)
+        args = _make_args(rss=True, rss_interval=0.05, rate=0.1)
+        result = get_monitoring_options(args)
+        assert result is not None
+        assert result.rss_enabled
+        assert "shorter than poll rate" in caplog.text
+
+    def test_rss_interval_equal_to_rate_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.WARNING)
+        args = _make_args(rss=True, rss_interval=0.1, rate=0.1)
+        result = get_monitoring_options(args)
+        assert result is not None
+        assert "shorter than poll rate" not in caplog.text
+
+    def test_rss_interval_longer_than_rate_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.WARNING)
+        args = _make_args(rss=True, rss_interval=2.0, rate=0.1)
+        result = get_monitoring_options(args)
+        assert result is not None
+        assert "shorter than poll rate" not in caplog.text
+
+    def test_rss_disabled_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level(logging.WARNING)
+        args = _make_args(rss=False, rss_interval=0.05, rate=0.1)
+        result = get_monitoring_options(args)
+        assert result is not None
+        assert not result.rss_enabled
+        assert "shorter than poll rate" not in caplog.text
