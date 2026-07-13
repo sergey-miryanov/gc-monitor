@@ -1,0 +1,199 @@
+"""Tests for RssSampler — interval timing, live-PID filtering, injectable provider."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Generator
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from gcmon.rss_sampler import RssSampler, _default_rss_sampler, _noop_rss_sampler
+
+
+@pytest.fixture
+def no_psutil() -> Generator[None]:
+    """Temporarily remove psutil from sys.modules so import psutil raises ImportError."""
+    with patch.dict("sys.modules", {"psutil": None}):
+        yield
+
+
+@pytest.fixture
+def mock_psutil() -> Generator[MagicMock]:
+    """Create a mock psutil module and inject it into sys.modules.
+
+    The mock has real ``NoSuchProcess`` and ``AccessDenied`` exception
+    types so the code under test can catch them.  Tests configure the
+    mock's ``Process`` return / side-effect before calling into the
+    sampler.
+    """
+    mock = MagicMock()
+    mock.NoSuchProcess = type("NoSuchProcess", (Exception,), {})
+    mock.AccessDenied = type("AccessDenied", (Exception,), {})
+    with patch.dict("sys.modules", {"psutil": mock}):
+        yield mock
+
+
+class TestRssSampler:
+    """RssSampler unit tests — all use injectable rss_provider, no psutil dependency."""
+
+    def test_tick_no_live_pids(self) -> None:
+        """No sampling when live_pids is empty."""
+        exporter = MagicMock()
+        sampler = RssSampler(exporter, interval=0.0, rss_provider=_noop_rss_sampler)
+        sampler.tick(now=1.0, live_pids=set())
+        exporter.add_rss_sample.assert_not_called()
+
+    def test_tick_interval_not_elapsed(self) -> None:
+        """No sampling when interval has not elapsed."""
+        exporter = MagicMock()
+        sampler = RssSampler(exporter, interval=10.0, rss_provider=_noop_rss_sampler)
+        sampler._last_sample = 100.0
+        sampler.tick(now=105.0, live_pids={1})
+        exporter.add_rss_sample.assert_not_called()
+
+    def test_tick_samples_at_interval(self) -> None:
+        """Sampling occurs when interval has elapsed."""
+        exporter = MagicMock()
+        calls: list[int] = []
+
+        def provider_fn(pid: int) -> int:
+            calls.append(pid)
+            return 42
+
+        sampler = RssSampler(exporter, interval=1.0, rss_provider=provider_fn)
+        sampler._last_sample = 0.0
+        sampler.tick(now=2.0, live_pids={101, 102})
+        assert calls == [101, 102]
+        assert exporter.add_rss_sample.call_count == 2
+        first_call = exporter.add_rss_sample.call_args_list[0]
+        assert first_call[0][0] == 101
+        assert first_call[0][1] == 42
+        second_call = exporter.add_rss_sample.call_args_list[1]
+        assert second_call[0][0] == 102
+        assert second_call[0][1] == 42
+
+    def test_tick_respects_timer(self) -> None:
+        """Second tick within interval does nothing."""
+        exporter = MagicMock()
+        sampler = RssSampler(exporter, interval=5.0, rss_provider=lambda pid: 42)
+        sampler._last_sample = 0.0
+        sampler.tick(now=1.0, live_pids={1})
+        exporter.add_rss_sample.assert_not_called()
+        sampler.tick(now=10.0, live_pids={1})
+        exporter.add_rss_sample.assert_called_once()
+
+    def test_provider_returns_zero_skips_exporter(self) -> None:
+        """When the provider returns 0, exporter is not called (0 = unreachable)."""
+        exporter = MagicMock()
+        sampler = RssSampler(exporter, interval=0.0, rss_provider=_noop_rss_sampler)
+        sampler._last_sample = -1.0
+        sampler.tick(now=0.0, live_pids={1})
+        exporter.add_rss_sample.assert_not_called()
+
+    def test_provider_exception_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Exception in provider is caught and logged at DEBUG."""
+        exporter = MagicMock()
+
+        def failing_provider(pid: int) -> int:
+            raise RuntimeError("oops")
+
+        sampler = RssSampler(exporter, interval=0.0, rss_provider=failing_provider)
+        logger = logging.getLogger("gcmon")
+        logger.setLevel(logging.DEBUG)
+        sampler._last_sample = -1.0
+        sampler.tick(now=0.0, live_pids={1})
+        exporter.add_rss_sample.assert_not_called()
+        assert "Could not sample RSS for PID 1" in caplog.text
+
+    def test_tick_updates_last_sample(self) -> None:
+        """last_sample is updated after a sampling round."""
+        exporter = MagicMock()
+        sampler = RssSampler(exporter, interval=1.0, rss_provider=lambda pid: 42)
+        sampler._last_sample = 0.0
+        sampler.tick(now=5.0, live_pids={1})
+        assert sampler._last_sample == 5.0
+
+    def test_timestamp_from_monotonic_clock(self) -> None:
+        """RSS sample timestamp comes from time.monotonic_ns()."""
+        exporter = MagicMock()
+        sampler = RssSampler(exporter, interval=0.0, rss_provider=lambda pid: 42)
+        sampler._last_sample = -1.0
+        with patch("gcmon.rss_sampler.time.monotonic_ns", return_value=987_654_321):
+            sampler.tick(now=0.0, live_pids={42})
+        exporter.add_rss_sample.assert_called_once_with(42, 42, 987_654_321)
+
+    def test_injectable_provider_with_multiple_pids(self) -> None:
+        """All live PIDs are sampled in one tick."""
+        exporter = MagicMock()
+        results: dict[int, int] = {1: 100, 2: 200, 3: 300}
+        sampler = RssSampler(
+            exporter,
+            interval=0.0,
+            rss_provider=lambda pid: results[pid],
+        )
+        sampler._last_sample = -1.0
+        sampler.tick(now=0.0, live_pids={1, 2, 3})
+        assert exporter.add_rss_sample.call_count == 3
+
+    def test_enabled_flag(self) -> None:
+        """Disabled sampler does nothing even with high interval."""
+        exporter = MagicMock()
+        sampler = RssSampler(exporter, interval=0.0, rss_provider=_noop_rss_sampler)
+        sampler._enabled = False
+        sampler.tick(now=0.0, live_pids={1})
+        exporter.add_rss_sample.assert_not_called()
+
+    def test_default_provider_uses_default_rss_sampler(self) -> None:
+        """With rss_provider=None and psutil available, _default_rss_sampler is used."""
+        exporter = MagicMock()
+        sampler = RssSampler(exporter, interval=0.0)
+        assert sampler._enabled
+        assert sampler._provider is _default_rss_sampler
+
+    def test_psutil_unavailable_fallback(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        no_psutil: None,
+    ) -> None:
+        """When psutil is missing, RssSampler disables and uses _noop_rss_sampler."""
+        exporter = MagicMock()
+        sampler = RssSampler(exporter, interval=0.0)
+        assert not sampler._enabled
+        assert sampler._provider is _noop_rss_sampler
+        sampler.tick(now=1.0, live_pids={1})
+        exporter.add_rss_sample.assert_not_called()
+
+        assert "psutil not available" in caplog.text
+
+
+class TestDefaultRssSamplerMocked:
+    """_default_rss_sampler unit tests with a mocked psutil (no real psutil needed)."""
+
+    def test_returns_rss_value(self, mock_psutil: MagicMock) -> None:
+        mock_psutil.Process.return_value.memory_info.return_value.rss = 42 * 4096
+        result = _default_rss_sampler(123)
+        assert result == 42 * 4096
+
+    def test_zero_on_no_such_process(self, mock_psutil: MagicMock) -> None:
+        mock_psutil.Process.side_effect = mock_psutil.NoSuchProcess(999)
+        result = _default_rss_sampler(999)
+        assert result == 0
+
+    def test_zero_on_access_denied(self, mock_psutil: MagicMock) -> None:
+        mock_psutil.Process.side_effect = mock_psutil.AccessDenied(999)
+        result = _default_rss_sampler(999)
+        assert result == 0
+
+
+class TestDefaultRssSamplerIntegration:
+    """Integration-light tests for _default_rss_sampler (requires psutil)."""
+
+    def test_default_sampler_returns_int(self) -> None:
+        result = _default_rss_sampler(__import__("os").getpid())
+        assert isinstance(result, int)
+        assert result > 0
+
+    def test_default_sampler_zero_for_invalid_pid(self) -> None:
+        result = _default_rss_sampler(999_999_999)
+        assert result == 0
