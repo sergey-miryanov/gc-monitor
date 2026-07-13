@@ -1,12 +1,13 @@
 import threading
 import time
 from collections.abc import Callable
-from unittest.mock import MagicMock, Mock, call
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
 from gcmon.monitor_loop import MonitorLoop
 from gcmon.poll_status import PollStatus
+from gcmon.rss_sampler import RssSampler
 from gcmon.run_policy import InfinityRunner, Runner
 from gcmon.wait_policy import WaitPolicy
 
@@ -126,3 +127,162 @@ class TestMonitorLoopContextManager:
         with loop:
             pass
         assert loop._stop_event.is_set()
+
+
+class TestLivePidsTracking:
+    """Only PIDs that returned ``PollStatus.OK`` are passed to ``tick()``."""
+
+    def test_all_ok_pids_tracked(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.get_child_pids.return_value = [999, 888]
+        mock_monitor.poll.side_effect = [PollStatus.OK, PollStatus.OK, PollStatus.OK]
+        rss_sampler = Mock(spec=RssSampler)
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None])
+        loop = MonitorLoop(mock_monitor, runner, lambda: Mock(spec=WaitPolicy), rate=0.01, rss_sampler=rss_sampler)
+
+        loop.run()
+
+        rss_sampler.tick.assert_called_once()
+        _now, live_pids = rss_sampler.tick.call_args[0]
+        assert live_pids == {12345, 999, 888}
+
+    def test_failing_pids_excluded(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.get_child_pids.return_value = [999]
+        mock_monitor.poll.side_effect = [PollStatus.OK, PollStatus.FAIL]
+        rss_sampler = Mock(spec=RssSampler)
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None])
+
+        loop = MonitorLoop(mock_monitor, runner, lambda: Mock(spec=WaitPolicy), rate=0.01, rss_sampler=rss_sampler)
+        loop.run()
+
+        rss_sampler.tick.assert_called_once()
+        _now, live_pids = rss_sampler.tick.call_args[0]
+        assert live_pids == {12345}
+
+    def test_invalid_pids_excluded(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.get_child_pids.return_value = [999]
+        mock_monitor.poll.side_effect = [PollStatus.INVALID_PROCESS, PollStatus.OK]
+        rss_sampler = Mock(spec=RssSampler)
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None])
+
+        loop = MonitorLoop(mock_monitor, runner, lambda: Mock(spec=WaitPolicy), rate=0.01, rss_sampler=rss_sampler)
+        loop.run()
+
+        rss_sampler.tick.assert_called_once()
+        _now, live_pids = rss_sampler.tick.call_args[0]
+        assert live_pids == {999}
+
+    def test_cleared_between_iterations(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.get_child_pids.side_effect = [[999], [888]]
+        mock_monitor.poll.side_effect = [PollStatus.OK, PollStatus.OK, PollStatus.OK, PollStatus.OK]
+        rss_sampler = Mock(spec=RssSampler)
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None, None])
+
+        loop = MonitorLoop(mock_monitor, runner, lambda: Mock(spec=WaitPolicy), rate=0.01, rss_sampler=rss_sampler)
+        loop.run()
+
+        # After two iterations: first tick got {12345, 999}, second got {12345, 888}.
+        # The set is local to each iteration, so stale PIDs don't leak across.
+        assert rss_sampler.tick.call_count == 2
+        first_live = rss_sampler.tick.call_args_list[0][0][1]
+        second_live = rss_sampler.tick.call_args_list[1][0][1]
+        assert first_live == {12345, 999}
+        assert second_live == {12345, 888}
+
+
+class TestRssSamplerInLoop:
+    """RSS sampler is called with correct live PIDs and timestamp."""
+
+    def test_tick_called_with_live_pids(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.get_child_pids.return_value = [999]
+        mock_monitor.poll.side_effect = [PollStatus.OK, PollStatus.OK]
+        rss_sampler = Mock(spec=RssSampler)
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None])
+        loop = MonitorLoop(
+            mock_monitor,
+            runner,
+            lambda: Mock(spec=WaitPolicy),
+            rate=0.01,
+            rss_sampler=rss_sampler,
+        )
+
+        loop.run()
+
+        rss_sampler.tick.assert_called_once()
+        _args, _kwargs = rss_sampler.tick.call_args
+        _now, live_pids = _args
+        assert live_pids == {12345, 999}
+
+    def test_tick_not_called_when_no_sampler(self, mock_monitor: MagicMock) -> None:
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None])
+        loop = MonitorLoop(
+            mock_monitor,
+            runner,
+            lambda: Mock(spec=WaitPolicy),
+            rate=0.01,
+        )
+
+        loop.run()
+
+        # No error — tick is simply not called.
+
+    def test_tick_receives_monotonic_now(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.poll.return_value = PollStatus.OK
+        rss_sampler = Mock(spec=RssSampler)
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None])
+        loop = MonitorLoop(
+            mock_monitor,
+            runner,
+            lambda: Mock(spec=WaitPolicy),
+            rate=0.01,
+            rss_sampler=rss_sampler,
+        )
+
+        with patch("time.monotonic", return_value=42.0):
+            loop.run()
+
+        rss_sampler.tick.assert_called_once_with(42.0, {12345})
+
+    def test_tick_called_each_iteration(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.poll.return_value = PollStatus.OK
+        rss_sampler = Mock(spec=RssSampler)
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None, None, None])
+
+        loop = MonitorLoop(
+            mock_monitor,
+            runner,
+            lambda: Mock(spec=WaitPolicy),
+            rate=0.01,
+            rss_sampler=rss_sampler,
+        )
+
+        loop.run()
+
+        assert rss_sampler.tick.call_count == 3
+
+    def test_tick_skipped_when_no_live_pids(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.poll.return_value = PollStatus.FAIL
+        rss_sampler = Mock(spec=RssSampler)
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None])
+        loop = MonitorLoop(
+            mock_monitor,
+            runner,
+            lambda: Mock(spec=WaitPolicy),
+            rate=0.01,
+            rss_sampler=rss_sampler,
+        )
+
+        loop.run()
+
+        rss_sampler.tick.assert_called_once()
+        _args, _kwargs = rss_sampler.tick.call_args
+        _now, live_pids = _args
+        assert live_pids == set()
