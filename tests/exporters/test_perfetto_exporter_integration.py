@@ -1165,3 +1165,167 @@ class TestProcessOrderingIntegration:
             DEFAULT_PID: _TS_START - 1_000_000,
             _SECOND_PID: _TS_START - 2_000_000,
         }, f"unexpected start_ts values: {pid_to_start_ts}"
+
+
+_RSS_PID_1: int = DEFAULT_PID
+_RSS_PID_2: int = _SECOND_PID
+_RSS_VAL_1: int = 4_194_304  # 4 MB
+_RSS_VAL_2: int = 8_388_608  # 8 MB
+_RSS_VAL_3: int = 2_097_152  # 2 MB
+_RSS_TS_1: int = 500_000_000
+_RSS_TS_2: int = 1_500_000_000
+_RSS_TS_3: int = 2_500_000_000
+
+
+def _write_trace_with_rss(tmp: Path) -> Path:
+    path = tmp / "trace_with_rss.pb"
+    exporter: PerfettoExporter = PerfettoExporter(
+        output_path=path,
+        flush_threshold=1000,
+        cmdline_provider=_fake_cmdline_provider,
+    )
+    exporter.add_rss_sample(_RSS_PID_1, _RSS_VAL_1, _RSS_TS_1)
+    exporter.add_rss_sample(_RSS_PID_2, _RSS_VAL_2, _RSS_TS_2)
+    exporter.add_rss_sample(_RSS_PID_1, _RSS_VAL_3, _RSS_TS_3)
+    exporter.close()
+    return path
+
+
+@pytest.fixture
+def trace_processor_with_rss(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_trace_with_rss(tmp_path)
+    config = TraceProcessorConfig(load_timeout=300)
+    tp = TraceProcessor(trace=str(path), config=config)
+    try:
+        yield tp
+    finally:
+        tp.close()
+
+
+class TestRssCounterTrackIntegration:
+    """Integration tests verifying RSS counter tracks are populated in
+    Perfetto traces and queryable through the trace processor."""
+
+    def test_rss_counter_track_present(
+        self,
+        trace_processor_with_rss: TraceProcessor,
+    ) -> None:
+        rows = list(trace_processor_with_rss.query("SELECT name FROM counter_track WHERE name = 'rss'"))
+        assert len(rows) >= 1, "expected at least one 'rss' counter track"
+        for r in rows:
+            assert r.name == "rss"
+
+    def test_rss_counter_values_match(
+        self,
+        trace_processor_with_rss: TraceProcessor,
+    ) -> None:
+        """Values written via ``add_rss_sample`` must appear in the
+        ``counter`` table with the correct timestamp and value."""
+        for expected_ts, expected_val in (
+            (_RSS_TS_1, _RSS_VAL_1),
+            (_RSS_TS_3, _RSS_VAL_3),
+        ):
+            rows = list(
+                trace_processor_with_rss.query(
+                    f"SELECT c.value, c.ts FROM counter c "
+                    f"JOIN counter_track ct ON c.track_id = ct.id "
+                    f"WHERE ct.name = 'rss' AND c.ts = {expected_ts}"
+                )
+            )
+            matching = [r for r in rows if abs(r.value - expected_val) < 1]
+            assert matching, (
+                f"no counter row found for ts={expected_ts} val={expected_val}; got {[(r.ts, r.value) for r in rows]}"
+            )
+
+    def test_rss_counter_outside_gc_metrics_group(
+        self,
+        trace_processor_with_rss: TraceProcessor,
+    ) -> None:
+        """RSS counter track must NOT be parented inside a ``GC Metrics``
+        group — it should be a top-level counter. Since the trace processor
+        may not surface ``parent_id`` for OS-scoped parent relationships,
+        verify by checking there is no ``GC Metrics`` track in the trace."""
+        gc_metrics_rows = list(trace_processor_with_rss.query("SELECT name FROM track WHERE name = 'GC Metrics'"))
+        assert not gc_metrics_rows, f"GC Metrics track should NOT appear in an RSS-only trace; got {gc_metrics_rows}"
+
+    def test_rss_counter_tracks_per_pid(
+        self,
+        trace_processor_with_rss: TraceProcessor,
+    ) -> None:
+        """Each PID gets its own RSS counter track. Verify by counting
+        distinct RSS counter track ids and total counter values."""
+        # Two distinct RSS counter tracks (one per PID).
+        rss_track_ids = list(
+            trace_processor_with_rss.query("SELECT DISTINCT id FROM counter_track WHERE name = 'rss' ORDER BY id")
+        )
+        assert len(rss_track_ids) == 2, (
+            f"expected 2 distinct RSS counter track ids (one per PID), got {len(rss_track_ids)}"
+        )
+
+        # Total counter values should be 3: PID 1 has 2 samples,
+        # PID 2 has 1 sample.
+        total_values = list(
+            trace_processor_with_rss.query(
+                "SELECT COUNT(*) AS cnt FROM counter c "
+                "JOIN counter_track ct ON c.track_id = ct.id "
+                "WHERE ct.name = 'rss'"
+            )
+        )
+        assert total_values[0].cnt == 3, (
+            f"expected 3 RSS counter values total (2 for PID 1, 1 for PID 2), got {total_values[0].cnt}"
+        )
+
+        # Both expected PIDs appear in the process table.
+        for pid in (_RSS_PID_1, _RSS_PID_2):
+            proc_rows = list(trace_processor_with_rss.query(f"SELECT pid FROM process WHERE pid = {pid}"))
+            assert len(proc_rows) == 1, f"expected process row for PID {pid}"
+
+    def test_rss_counter_track_name_and_unit(
+        self,
+        trace_processor_with_rss: TraceProcessor,
+    ) -> None:
+        """The RSS counter track should have the name ``rss`` and its
+        unit column should indicate bytes (unit=None or '' is acceptable
+        since we don't set an explicit unit)."""
+        rows = list(trace_processor_with_rss.query("SELECT name, unit FROM counter_track WHERE name = 'rss'"))
+        assert len(rows) >= 1
+        for r in rows:
+            assert r.name == "rss"
+
+    def test_rss_does_not_affect_gc_counters(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Adding RSS samples must not remove or alter existing GC counter
+        tracks — writing both GC events and RSS samples preserves GC tracks."""
+        path = tmp_path / "trace_combined.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+        exporter.add_event(
+            DEFAULT_PID,
+            create_mock_stats_item(
+                gen=0,
+                iid=0,
+                collections=_COLLECTIONS,
+                collected=_COLLECTED,
+                uncollectable=_UNCOLLECTABLE,
+                candidates=_CANDIDATES,
+                heap_size=_HEAP_SIZE,
+            ),
+        )
+        exporter.add_rss_sample(DEFAULT_PID, _RSS_VAL_1, _RSS_TS_1)
+        exporter.close()
+
+        config = TraceProcessorConfig(load_timeout=300)
+        tp = TraceProcessor(trace=str(path), config=config)
+        try:
+            counter_tracks = {r.name.strip() for r in tp.query("SELECT name FROM counter_track")}
+            # GC counter tracks should still be present.
+            for expected in ("G0 collected", "G0 candidates", "heap_size"):
+                assert expected in counter_tracks, (
+                    f"GC counter track {expected!r} missing after adding RSS; got {sorted(counter_tracks)}"
+                )
+            assert "rss" in counter_tracks, (
+                f"RSS counter track missing after adding RSS + GC events; got {sorted(counter_tracks)}"
+            )
+        finally:
+            tp.close()

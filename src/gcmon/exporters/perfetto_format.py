@@ -149,15 +149,16 @@ __all__ = [
 
 _COUNTER_RANKS: dict[str, int] = {
     "heap_size": 0,
-    "collected": 1,
-    "uncollectable": 2,
-    "candidates": 3,
-    "duration": 4,
-    "increment_size": 5,
-    "alive_size": 6,
-    "finalized_garbage_count": 7,
-    "deleted_garbage_count": 8,
-    "clear_weakrefs_count": 9,
+    "rss": 1,
+    "collected": 2,
+    "uncollectable": 3,
+    "candidates": 4,
+    "duration": 5,
+    "increment_size": 6,
+    "alive_size": 7,
+    "finalized_garbage_count": 8,
+    "deleted_garbage_count": 9,
+    "clear_weakrefs_count": 10,
 }
 
 # Metrics listed here are parented directly to the process track (outside the
@@ -165,7 +166,7 @@ _COUNTER_RANKS: dict[str, int] = {
 # the group. NOTE: because the process track is OS-scoped, trace processor
 # drops `sibling_order_rank` for these — their UI position is heuristic, not
 # guaranteed.
-_TOPLEVEL_COUNTER_METRICS: frozenset[str] = frozenset({"heap_size"})
+_TOPLEVEL_COUNTER_METRICS: frozenset[str] = frozenset({"heap_size", "rss"})
 
 # Name of the non-OS-scoped grouping track that holds all GC counter tracks
 # for a given (pid, tid). Parenting counters to this group (instead of

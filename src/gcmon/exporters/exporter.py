@@ -21,3 +21,6 @@ class EventsExporter(ABC):
     @abstractmethod
     def close(self) -> None:
         """Close the exporter and write all events to file."""
+
+    def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:  # noqa: B027
+        """Record an RSS sample for *pid*. No-op in the base class."""

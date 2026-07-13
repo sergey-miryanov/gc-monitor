@@ -1,5 +1,6 @@
 """Tests for Perfetto protobuf message builders and conversion."""
 
+import pytest
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
     ThreadDescriptor,
     Trace,
@@ -942,7 +943,7 @@ class TestConvertItemToPerfettoPackets:
             )
         assert duration_track_uuid in descriptors
         parent, rank, _ = descriptors[duration_track_uuid]
-        assert rank == 4
+        assert rank == 5
         assert parent != 0
         assert descriptors[parent][2] == "GC Metrics"
 
@@ -2301,4 +2302,115 @@ class TestCounterTrackYAxisShareKey:
         assert len(parent_uuids) == 2, (
             f"expected G0 collected tracks under 2 distinct parent groups "
             f"(one per pid), got {len(parent_uuids)}: {parent_uuids}"
+        )
+
+
+class TestRssCounterTrack:
+    """RSS counter track shape and process-level parenting."""
+
+    def test_counter_track_parented_to_process(self) -> None:
+        state = PerfettoTrackState()
+        events: list[TraceEvent] = [
+            process_meta(100, "Process 100"),
+            counter_event(100, -1, "rss", 1_000, {"rss": 4096}),
+        ]
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+        proc_uuid = state.get_process_track_uuid(100)
+        ctr_key = (100, -1, "rss", "rss")
+        assert state.has_counter_track(*ctr_key)
+        ctr_uuid = state.get_or_create_counter_track_uuid(*ctr_key)
+        found_ctr = False
+        for d in descriptors:
+            td = _track_descriptor(d)
+            if td is None:
+                continue
+            if td.uuid == ctr_uuid:
+                assert td.parent_uuid == proc_uuid, (
+                    f"RSS counter track parent should be process track; "
+                    f"got parent_uuid={td.parent_uuid}, expected {proc_uuid}"
+                )
+                assert td.name == "rss"
+                assert td.HasField("counter")
+                found_ctr = True
+                break
+        assert found_ctr, "RSS counter track descriptor was not emitted"
+
+    def test_display_name_is_metric_name(self) -> None:
+        """With a single-arg counter, ``display_name`` defaults to the
+        metric name ``"rss"`` (the single arg name)."""
+        state = PerfettoTrackState()
+        events: list[TraceEvent] = [
+            process_meta(100, "Process 100"),
+            counter_event(100, -1, "rss", 1_000, {"rss": 8192}),
+        ]
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+        ctr_key = (100, -1, "rss", "rss")
+        ctr_uuid = state.get_or_create_counter_track_uuid(*ctr_key)
+        for d in descriptors:
+            td = _track_descriptor(d)
+            if td is not None and td.uuid == ctr_uuid:
+                assert td.name == "rss"
+                return
+        pytest.fail("RSS counter track descriptor not found")
+
+    def test_no_thread_descriptor_for_rss_tid(self) -> None:
+        """No ``ThreadDescriptor`` track should be emitted for
+        ``tid=-1`` — RSS is process-level."""
+        state = PerfettoTrackState()
+        events: list[TraceEvent] = [
+            process_meta(100, "Process 100"),
+            counter_event(100, -1, "rss", 1_000, {"rss": 4096}),
+        ]
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+        for d in descriptors:
+            td = _track_descriptor(d)
+            if td is not None and td.HasField("thread"):
+                pytest.fail(f"unexpected thread descriptor for RSS: uuid={td.uuid}")
+
+    def test_multiple_pids_get_separate_rss_tracks(self) -> None:
+        state = PerfettoTrackState()
+        events: list[TraceEvent] = [
+            process_meta(100, "Process 100"),
+            counter_event(100, -1, "rss", 1_000, {"rss": 4096}),
+            process_meta(200, "Process 200"),
+            counter_event(200, -1, "rss", 2_000, {"rss": 8192}),
+        ]
+        _, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+        for pid in (100, 200):
+            ctr_key = (pid, -1, "rss", "rss")
+            assert state.has_counter_track(*ctr_key), f"no RSS track for pid {pid}"
+        # Each RSS counter track is parented to the respective process
+        # track, and process tracks have distinct UUIDs.
+        assert state.get_process_track_uuid(100) != state.get_process_track_uuid(200)
+
+    def test_rss_renders_at_top_level(self) -> None:
+        """RSS is a top-level counter metric, parented directly to the
+        process track — NOT inside the GC Metrics group."""
+        state = PerfettoTrackState()
+        events: list[TraceEvent] = [
+            process_meta(100, "Process 100"),
+            thread_meta(100, 0, "Thread 0"),
+            # RSS sample (tid=-1, process-level)
+            counter_event(100, -1, "rss", 1_000, {"rss": 4096}),
+            # GC counter (tid=0, thread-level, inside GC Metrics group)
+            counter_event(100, 0, "G0", 1_000, {"collected": 42, "candidates": 10, "duration": 0.005}),
+        ]
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+        proc_uuid = state.get_process_track_uuid(100)
+        rss_key = (100, -1, "rss", "rss")
+        rss_uuid = state.get_or_create_counter_track_uuid(*rss_key)
+        g0_uuid = state.get_or_create_counter_track_uuid(100, 0, "G0", "duration")
+        rss_parent = None
+        g0_parent = None
+        for d in descriptors:
+            td = _track_descriptor(d)
+            if td is None:
+                continue
+            if td.uuid == rss_uuid:
+                rss_parent = td.parent_uuid
+            elif td.uuid == g0_uuid:
+                g0_parent = td.parent_uuid
+        assert rss_parent == proc_uuid, "RSS should be parented directly to process track"
+        assert g0_parent is not None and g0_parent != proc_uuid, (
+            "GC counters should be inside GC Metrics group, not directly on process track"
         )

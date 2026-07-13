@@ -7,12 +7,15 @@ from pathlib import Path
 from typing import override
 
 from ..protocol import TGCStatsInfo, TInstantMsg
-from ..trace_event import TraceEvent, instant_event, process_meta, thread_meta
+from ..trace_event import TraceEvent, counter_event, instant_event, process_meta, thread_meta
 from .encoder import EventEncoder
 from .exporter import EventsExporter
 from .trace_converter import convert_item_to_trace_format
 
 __all__ = ["BufferedTraceExporter"]
+
+
+_RSS_TID: int = -1  # sentinel: no real thread has this ID
 
 
 class BufferedTraceExporter(EventsExporter):
@@ -55,7 +58,7 @@ class BufferedTraceExporter(EventsExporter):
             if pid not in self._seen_pids:
                 self._seen_pids.add(pid)
                 meta.append(process_meta(pid, f"Process {pid}"))
-            if iid is not None and (pid, iid) not in self._seen_tids:
+            if iid is not None and iid >= 0 and (pid, iid) not in self._seen_tids:
                 self._seen_tids.add((pid, iid))
                 meta.append(thread_meta(pid, iid, f"Thread {iid}"))
         return meta
@@ -68,6 +71,14 @@ class BufferedTraceExporter(EventsExporter):
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
         events = [*self._build_meta(pid, None), instant_event(pid, item.name, item.ts)]
+        self._enqueue(events)
+
+    @override
+    def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:
+        events = [
+            *self._build_meta(pid, _RSS_TID),
+            counter_event(pid, _RSS_TID, "rss", ts_ns, {"rss": rss_bytes}),
+        ]
         self._enqueue(events)
 
     @override

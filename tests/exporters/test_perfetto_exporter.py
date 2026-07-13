@@ -386,3 +386,46 @@ class TestPerfettoExporter:
         begins = _count_event_type(packets, TrackEventType.SLICE_BEGIN)
         ends = _count_event_type(packets, TrackEventType.SLICE_END)
         assert begins == ends
+
+
+class TestRssRoundTrip:
+    def test_add_rss_sample_emits_counter_event(self, perfetto_exporter: ExporterFactory) -> None:
+        exporter, path = perfetto_exporter()
+        exporter.add_rss_sample(100, 4096, 1_000_000)
+        exporter.close()
+
+        packets = _read_trace_packets(path)
+        counter_packets: list[tuple[int, int, int]] = []
+        for packet in packets:
+            if not packet.HasField("track_event"):
+                continue
+            track_event = packet.track_event
+            if track_event.type != TrackEvent.Type.TYPE_COUNTER:
+                continue
+            counter_packets.append((track_event.track_uuid, track_event.counter_value, packet.timestamp))
+
+        assert len(counter_packets) == 1, f"expected 1 counter event, got {len(counter_packets)}"
+        _, value, ts = counter_packets[0]
+        assert value == 4096
+        assert ts == 1_000_000
+
+    def test_rss_uses_separate_counter_track(self, perfetto_exporter: ExporterFactory) -> None:
+        """RSS counter uses a different track UUID than GC counters."""
+        exporter, path = perfetto_exporter()
+        exporter.add_event(DEFAULT_PID, create_mock_stats_item())
+        exporter.add_rss_sample(DEFAULT_PID, 4096, 2_000_000)
+        exporter.close()
+
+        packets = _read_trace_packets(path)
+        counter_uuids: set[int] = set()
+        for packet in packets:
+            if not packet.HasField("track_event"):
+                continue
+            track_event = packet.track_event
+            if track_event.type != TrackEvent.Type.TYPE_COUNTER:
+                continue
+            counter_uuids.add(track_event.track_uuid)
+
+        # At least: collected, uncollectable, candidates, heap_size,
+        # duration (5 GC counters) + 1 RSS counter = 6 distinct UUIDs.
+        assert len(counter_uuids) >= 6
