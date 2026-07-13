@@ -21,6 +21,8 @@ def _make_args(**overrides: object) -> Namespace:
         "stats": False,
         "table_format": TableFormat.PLAIN,
         "control_name": None,
+        "rss": False,
+        "rss_interval": 1.0,
     }
     return Namespace(**{**defaults, **overrides})
 

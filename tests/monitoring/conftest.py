@@ -33,6 +33,8 @@ class MonitorArgsFactory:
         "stats": False,
         "table_format": None,
         "control_name": None,
+        "rss": False,
+        "rss_interval": 1.0,
     }
 
     def __call__(self, **overrides: object) -> Namespace:
@@ -135,6 +137,8 @@ def monitoring_options() -> Callable[..., MonitoringOptions]:
             "duration_label": "until interrupted",
             "show_stats": False,
             "table_format": TableFormat.PLAIN,
+            "rss_enabled": False,
+            "rss_interval": 1.0,
         }
         return MonitoringOptions(**{**defaults, **overrides})
 

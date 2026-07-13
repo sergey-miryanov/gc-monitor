@@ -11,6 +11,8 @@ from gcmon._env import (
     ENV_FORMAT,
     ENV_OUTPUT,
     ENV_RATE,
+    ENV_RSS,
+    ENV_RSS_INTERVAL,
     ENV_STATS,
     ENV_TABLE_FORMAT,
     ENV_VERBOSE,
@@ -20,6 +22,8 @@ from gcmon._env import (
     get_env_format,
     get_env_output,
     get_env_rate,
+    get_env_rss,
+    get_env_rss_interval,
     get_env_stats,
     get_env_table_format,
     get_env_verbose,
@@ -102,6 +106,18 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         default=get_env_control_name(),
         help=f"Control plane name. Full address: gcmon-<name> (default: auto, or {ENV_CONTROL_NAME} env var)",
     )
+    parser.add_argument(
+        "--rss",
+        action="store_true",
+        default=get_env_rss(),
+        help=f"Track RSS (Resident Set Size) of monitored process (Perfetto-only; requires psutil; or {ENV_RSS}=1 env var)",
+    )
+    parser.add_argument(
+        "--rss-interval",
+        type=float,
+        default=get_env_rss_interval(),
+        help=f"RSS sampling interval in seconds (default: 1.0 or {ENV_RSS_INTERVAL} env var)",
+    )
 
 
 class MonitoringOptions:
@@ -117,6 +133,8 @@ class MonitoringOptions:
         duration_label: str,
         show_stats: bool = False,
         table_format: TableFormat = TableFormat.PLAIN,
+        rss_enabled: bool = False,
+        rss_interval: float = 1.0,
     ) -> None:
         self.output_path = output_path
         self.rate = rate
@@ -126,6 +144,8 @@ class MonitoringOptions:
         self.duration_label = duration_label
         self.show_stats = show_stats
         self.table_format = table_format
+        self.rss_enabled = rss_enabled
+        self.rss_interval = rss_interval
 
 
 def get_monitoring_options(
@@ -143,6 +163,8 @@ def get_monitoring_options(
     flush_threshold = args.flush_threshold
     show_stats = args.stats
     table_format = args.table_format
+    rss_enabled = args.rss
+    rss_interval = args.rss_interval
 
     if output_format != "stdout":
         logger.info("Output: %s", output_path)
@@ -152,6 +174,8 @@ def get_monitoring_options(
         logger.info("Duration: %ss", duration)
     else:
         logger.info("Duration: %s", duration_label)
+    if rss_enabled:
+        logger.info("RSS tracking: enabled (interval: %ss)", rss_interval)
 
     if rate <= 0:
         logger.error("Rate must be positive, got %s", rate)
@@ -161,6 +185,9 @@ def get_monitoring_options(
         return None
     if flush_threshold <= 0:
         logger.error("Flush threshold must be positive, got %s", flush_threshold)
+        return None
+    if rss_interval <= 0:
+        logger.error("RSS interval must be positive, got %s", rss_interval)
         return None
 
     if output_format != "stdout":
@@ -178,4 +205,6 @@ def get_monitoring_options(
         duration_label=duration_label,
         show_stats=show_stats,
         table_format=table_format,
+        rss_enabled=rss_enabled,
+        rss_interval=rss_interval,
     )

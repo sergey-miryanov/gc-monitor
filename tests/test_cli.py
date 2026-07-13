@@ -82,9 +82,33 @@ class TestCliHelp:
                     "run",
                 ],
             ),
-            ("monitor", ["pid", "--output", "--rate", "--duration", "--verbose", "--stats", "--control-name"]),
+            (
+                "monitor",
+                [
+                    "pid",
+                    "--output",
+                    "--rate",
+                    "--duration",
+                    "--verbose",
+                    "--stats",
+                    "--control-name",
+                    "--rss",
+                    "--rss-interval",
+                ],
+            ),
             ("combine", ["Combine multiple Chrome Trace Format or JSONL files", "inputs", "--output"]),
-            ("run", ["Run a Python script or module", "--module", "--script", "--stats", "--control-name"]),
+            (
+                "run",
+                [
+                    "Run a Python script or module",
+                    "--module",
+                    "--script",
+                    "--stats",
+                    "--control-name",
+                    "--rss",
+                    "--rss-interval",
+                ],
+            ),
         ],
     )
     def test_help_subcommand(self, gcmon_cli: list[str], subcommand: str, expected_texts: list[str]) -> None:

@@ -182,4 +182,5 @@ class TestRunMonitoringLoop:
             ANY,
             rate=0.1,
             enabled=mock_control_instance.is_enabled,
+            rss_sampler=None,
         )

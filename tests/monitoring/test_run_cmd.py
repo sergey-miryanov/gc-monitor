@@ -254,6 +254,8 @@ class TestCmdRunUnit:
             "stats": False,
             "table_format": None,
             "control_name": None,
+            "rss": False,
+            "rss_interval": 1.0,
         }
         return Namespace(**{**defaults, **overrides})
 

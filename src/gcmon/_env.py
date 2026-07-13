@@ -19,6 +19,8 @@ ENV_SERVER_PORT = f"{ENV_PREFIX}_SERVER_PORT"
 ENV_STATS = f"{ENV_PREFIX}_STATS"
 ENV_TABLE_FORMAT = f"{ENV_PREFIX}_TABLE_FORMAT"
 ENV_CONTROL_NAME = f"{ENV_PREFIX}_CONTROL_NAME"
+ENV_RSS = f"{ENV_PREFIX}_RSS"
+ENV_RSS_INTERVAL = f"{ENV_PREFIX}_RSS_INTERVAL"
 
 __all__ = [
     "ENV_CONTROL_NAME",
@@ -28,6 +30,8 @@ __all__ = [
     "ENV_OUTPUT",
     "ENV_PREFIX",
     "ENV_RATE",
+    "ENV_RSS",
+    "ENV_RSS_INTERVAL",
     "ENV_SERVER_HOST",
     "ENV_SERVER_PORT",
     "ENV_STATS",
@@ -40,6 +44,8 @@ __all__ = [
     "get_env_format",
     "get_env_output",
     "get_env_rate",
+    "get_env_rss",
+    "get_env_rss_interval",
     "get_env_server_host",
     "get_env_server_port",
     "get_env_stats",
@@ -198,6 +204,33 @@ def get_env_stats() -> bool:
     if not stats_str:
         return False
     return stats_str in ("1", "true", "yes", "on")
+
+
+def get_env_rss() -> bool:
+    """Get RSS tracking flag from environment variable.
+
+    Returns:
+        True if GCMON_RSS is set to a truthy value ("1", "true", "yes", "on").
+    """
+    rss_str = os.environ.get(ENV_RSS, "").lower()
+    if not rss_str:
+        return False
+    return rss_str in ("1", "true", "yes", "on")
+
+
+def get_env_rss_interval() -> float:
+    """Get RSS sampling interval from environment variable.
+
+    Returns:
+        Interval from GCMON_RSS_INTERVAL env var, or default 1.0.
+    """
+    interval_str = os.environ.get(ENV_RSS_INTERVAL)
+    if interval_str:
+        try:
+            return float(interval_str)
+        except ValueError:
+            pass
+    return 1.0
 
 
 def get_env_control_name() -> str | None:

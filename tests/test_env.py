@@ -19,6 +19,8 @@ class TestEnvVarDefaults:
             ("ENV_FLUSH_THRESHOLD", "flush_threshold", 100),
             ("ENV_SERVER_HOST", "server_host", "localhost"),
             ("ENV_SERVER_PORT", "server_port", 9999),
+            ("ENV_RSS", "rss", False),
+            ("ENV_RSS_INTERVAL", "rss_interval", 1.0),
         ],
     )
     def test_default(
@@ -48,6 +50,8 @@ class TestEnvVarCustom:
             ("ENV_FLUSH_THRESHOLD", "flush_threshold", "50", 50),
             ("ENV_SERVER_HOST", "server_host", "127.0.0.1", "127.0.0.1"),
             ("ENV_SERVER_PORT", "server_port", "8888", 8888),
+            ("ENV_RSS", "rss", "true", True),
+            ("ENV_RSS_INTERVAL", "rss_interval", "2.5", 2.5),
         ],
     )
     def test_custom(
@@ -76,6 +80,7 @@ class TestEnvVarInvalidValues:
             ("ENV_THREAD_ID", "thread_id", 0),
             ("ENV_FLUSH_THRESHOLD", "flush_threshold", 100),
             ("ENV_SERVER_PORT", "server_port", 9999),
+            ("ENV_RSS_INTERVAL", "rss_interval", 1.0),
         ],
     )
     def test_invalid_value_returns_default(
@@ -193,6 +198,8 @@ class TestEnvVarEmpty:
             ("ENV_STATS", "stats", False),
             ("ENV_TABLE_FORMAT", "table_format", None),
             ("ENV_CONTROL_NAME", "control_name", None),
+            ("ENV_RSS", "rss", False),
+            ("ENV_RSS_INTERVAL", "rss_interval", 1.0),
         ],
     )
     def test_empty_string_returns_default(

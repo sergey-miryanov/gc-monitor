@@ -9,6 +9,7 @@ from gcmon.control.control_server import ControlServer
 from gcmon.exporters import EventsExporterFactory
 from gcmon.monitor import create_monitor
 from gcmon.monitor_loop import MonitorLoop
+from gcmon.rss_sampler import RssSampler
 from gcmon.run_policy import RunnerFactory
 from gcmon.stats import StreamingStats
 from gcmon.stats_output import print_stats
@@ -51,8 +52,18 @@ def run_monitoring_loop(
             stack.enter_context(monitor)
 
             run_policy = RunnerFactory(options.duration)
+
+            rss_sampler: RssSampler | None = None
+            if options.rss_enabled:
+                rss_sampler = RssSampler(exporter, interval=options.rss_interval)
+
             loop = MonitorLoop(
-                monitor, run_policy, wait_policy_factory, rate=options.rate, enabled=control_server.is_enabled
+                monitor,
+                run_policy,
+                wait_policy_factory,
+                rate=options.rate,
+                enabled=control_server.is_enabled,
+                rss_sampler=rss_sampler,
             )
 
             def _signal_handler(signum: int, frame: object) -> None:
