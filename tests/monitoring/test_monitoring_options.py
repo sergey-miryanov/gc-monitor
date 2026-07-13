@@ -105,3 +105,25 @@ class TestRssIntervalWarning:
         assert result is not None
         assert not result.rss_enabled
         assert "shorter than poll rate" not in caplog.text
+
+    def test_rss_interval_zero_rejected(self) -> None:
+        args = _make_args(rss=True, rss_interval=0.0)
+        result = get_monitoring_options(args)
+        assert result is None
+
+    def test_rss_interval_negative_rejected(self) -> None:
+        args = _make_args(rss=True, rss_interval=-1.0)
+        result = get_monitoring_options(args)
+        assert result is None
+
+    def test_rss_disabled_ignores_zero_interval(self) -> None:
+        args = _make_args(rss=False, rss_interval=0.0)
+        result = get_monitoring_options(args)
+        assert result is not None
+        assert not result.rss_enabled
+
+    def test_rss_disabled_ignores_negative_interval(self) -> None:
+        args = _make_args(rss=False, rss_interval=-1.0)
+        result = get_monitoring_options(args)
+        assert result is not None
+        assert not result.rss_enabled

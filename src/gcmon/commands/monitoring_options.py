@@ -193,7 +193,7 @@ def get_monitoring_options(
     if flush_threshold <= 0:
         logger.error("Flush threshold must be positive, got %s", flush_threshold)
         return None
-    if rss_interval <= 0:
+    if rss_enabled and rss_interval <= 0:
         logger.error("RSS interval must be positive, got %s", rss_interval)
         return None
 
