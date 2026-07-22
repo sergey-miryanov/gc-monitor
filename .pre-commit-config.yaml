@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: 1a4bb160cab6417b3045e1b37b6b72449243e658  # frozen: 0.37.4
+    rev: 6b63472e72e1a91ed8a2f6d483790dfb644fa1d3  # frozen: 0.37.4
     hooks:
       - id: check-dependabot
       - id: check-github-workflows
