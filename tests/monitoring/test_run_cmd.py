@@ -241,7 +241,7 @@ class TestCmdRunUnit:
             yield mock_loop, mock_runner_cls, mock_runner
 
     def _make_run_args(self, **overrides: object) -> Namespace:
-        defaults: dict[str, str | Path | float | int | bool | None | list[str]] = {
+        defaults: dict[str, str | Path | float | int | bool | list[str] | None] = {
             "module_name": None,
             "script": None,
             "script_args": [],
