@@ -28,7 +28,7 @@ repos:
       - id: ruff-format
 
   - repo: https://github.com/crate-ci/typos
-    rev: 96d9af6217dc2855210655af7e1ff19d23d4e593  # frozen: v1
+    rev: bee27e3a4fd1ea2111cf90ab89cd076c870fce14  # frozen: v1.48.0
     hooks:
       - id: typos
 
