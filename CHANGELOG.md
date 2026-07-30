@@ -26,6 +26,12 @@
 - Fix type annotations in source code and test suite
 - Remove `proto_decoder` and rely on the `perfetto` package for testing the `Perfetto` binary format.
 
+### Documentation
+
+- Correct the documented units for the JSONL `duration` field (seconds, not milliseconds) and for the pyperf `gc_pause_*` metrics (milliseconds, not microseconds)
+- Clarify that the pyperf `gc_heap_size_p99` metric is a percentile over per-process peak live object counts, not over all samples
+- Document the pyperf `gc_pause_count` metric, which was emitted but missing from the metric list
+
 ### CI / Infrastructure
 
 - Update pyrefly type checker to 1.1.1

@@ -270,8 +270,8 @@ With `--format jsonl` (writes to file) or `--format stdout` (writes to terminal)
 each line is a JSON object representing one GC event:
 
 ```jsonl
-{"pid": 12345, "tid": 0, "gen": 0, "iid": 1, "ts_start": 1700000000000000, "ts_stop": 1700000000001500, "heap_size": 1048576, "collections": 42, "collected": 120, "uncollectable": 0, "candidates": 300, "duration": 1.5}
-{"pid": 12345, "tid": 0, "gen": 1, "iid": 2, "ts_start": 1700000000200000, "ts_stop": 1700000000235000, "heap_size": 2097152, "collections": 3, "collected": 85, "uncollectable": 1, "candidates": 150, "duration": 3.5}
+{"pid": 12345, "tid": 0, "gen": 0, "iid": 1, "ts_start": 1700000000000000, "ts_stop": 1700000001500000, "heap_size": 1048576, "collections": 42, "collected": 120, "uncollectable": 0, "candidates": 300, "duration": 0.0015}
+{"pid": 12345, "tid": 0, "gen": 1, "iid": 2, "ts_start": 1700000200000000, "ts_stop": 1700000235000000, "heap_size": 2097152, "collections": 3, "collected": 85, "uncollectable": 1, "candidates": 150, "duration": 0.035}
 ```
 
 | Field | Description | Build |
@@ -285,7 +285,7 @@ each line is a JSON object representing one GC event:
 | `collected` | Objects collected in this event | Standard |
 | `uncollectable` | Objects that could not be collected | Standard |
 | `candidates` | Candidate objects for collection | Standard |
-| `duration` | Pause duration (milliseconds) | Standard |
+| `duration` | Pause duration in seconds (float, as reported by CPython) | Standard |
 | `increment_size` | Increment size for incremental GC | Custom build |
 | `alive_size` | Objects marked alive (gen > 0) | Custom build |
 | `finalized_garbage_count` | Objects finalized in this event | Custom build |
@@ -474,7 +474,8 @@ The hook collects and reports the following GC metrics in pyperf metadata:
 - `gc_pause_gen_0_p99`, `gc_pause_gen_1_p99`, `gc_pause_gen_2_p99` - P99 GC pause duration by generation (milliseconds)
 - `gc_pause_gen_0_sum`, `gc_pause_gen_1_sum`, `gc_pause_gen_2_sum` - Total GC pause time by generation (milliseconds)
 - `gc_pause_gen_0_count`, `gc_pause_gen_1_count`, `gc_pause_gen_2_count` - Number of GC pauses by generation
-- `gc_heap_size_p99` - P99 live object count across all samples
+- `gc_pause_count` - Total number of recorded GC pauses across all generations and monitored processes
+- `gc_heap_size_p99` - P99 across the per-process peak live object counts
 
 ### Example: Perfetto Trace Viewer for Pyperf Benchmarks
 
