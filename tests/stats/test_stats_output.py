@@ -240,6 +240,25 @@ class TestPrintStatsEdgeCases:
         assert "GC Clear Weakrefs" in captured.out
         assert "GC Delete Garbage" in captured.out
 
+    def test_pause_row_printed_in_milliseconds(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        stats = StreamingStats()
+        stats.update(12345, gc_stats_item_factory(ts_start=0, ts_stop=1_000_000))
+        stats.update(12345, gc_stats_item_factory(ts_start=0, ts_stop=3_000_000))
+
+        print_stats(stats)
+        captured = capsys.readouterr()
+        pause_line = next(line for line in captured.out.splitlines() if "GC Pause(0)" in line)
+        cells = [c.strip() for c in pause_line.strip().strip("|").split("|")]
+        # PID, Metric, Count, Sum, Avg, P50, P90, P95, P99 - durations in milliseconds
+        assert cells[1] == "GC Pause(0)"
+        assert cells[2] == "2"
+        assert cells[3] == "4.000"
+        assert cells[4] == "2.000"
+
     def test_read_time_row_omitted_when_not_recorded(
         self,
         capsys: pytest.CaptureFixture[str],

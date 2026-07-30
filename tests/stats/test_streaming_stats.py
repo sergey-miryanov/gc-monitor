@@ -105,6 +105,19 @@ class TestStreamingStatsUpdate:
         streaming_stats.update(12345, item)
         assert streaming_stats.metrics["pause"][0].count() == 0
 
+    def test_update_keeps_sub_microsecond_duration(
+        self,
+        streaming_stats: StreamingStats,
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        """Durations are stored in nanoseconds. They used to be truncated to
+        microseconds on ingest, so a sub-microsecond phase counted as 0."""
+        item = gc_stats_item_factory(ts_start=0, ts_stop=750)
+        streaming_stats.update(12345, item)
+
+        assert streaming_stats.metrics["pause"][0].count() == 1
+        assert streaming_stats.metrics["pause"][0].sum() == 750
+
     def test_update_tracks_heap_size(
         self,
         streaming_stats: StreamingStats,
@@ -168,7 +181,7 @@ class TestStreamingStatsPidTracking:
         pid_stats = streaming_stats.get_pid_stats(12345)
         assert pid_stats is not None
         assert pid_stats["pause"][0].count() == 1
-        assert pid_stats["pause"][0].sum() == 5
+        assert pid_stats["pause"][0].sum() == 5_000
         assert pid_stats["pause"][0].count() == streaming_stats.metrics["pause"][0].count()
         assert pid_stats["pause"][0].sum() == streaming_stats.metrics["pause"][0].sum()
 
@@ -272,7 +285,7 @@ class TestStreamingStatsReadTime:
         assert streaming_stats.count() == 1
         assert streaming_stats.read_time.count() == 1
         assert streaming_stats.read_time.sum() == 42_000
-        assert streaming_stats.metrics["pause"][0].sum() == 1_000
+        assert streaming_stats.metrics["pause"][0].sum() == 1_000_000
 
     def test_read_time_excluded_from_aggregate(self, streaming_stats: StreamingStats) -> None:
         streaming_stats.record_read_time(1_000_000)

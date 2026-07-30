@@ -3,14 +3,11 @@
 from enum import Enum
 from typing import Any
 
+from .data import dur_to_ms
 from .stats import METRICS, Stats, StreamingStats
 
 _SEP_GROUP: Any = object()
 _SEP_PHASE: Any = object()
-
-# Table durations are printed in milliseconds, sources differ in resolution.
-_US_PER_MS = 1_000
-_NS_PER_MS = 1_000_000
 
 
 class TableFormat(Enum):
@@ -65,21 +62,16 @@ def _print_table(rows: list[list[str] | Any], table_format: TableFormat = TableF
         )
 
 
-def _format_stats(s: Stats, per_ms: int = _US_PER_MS) -> list[str]:
-    """Format a Stats as table cells in milliseconds.
-
-    Args:
-        s: Collected durations.
-        per_ms: Units of ``s`` per millisecond.
-    """
+def _format_stats(s: Stats) -> list[str]:
+    """Format a Stats of nanosecond durations as table cells in milliseconds."""
     return [
         str(s.count()),
-        f"{s.sum() / per_ms:.3f}",
-        f"{s.average() / per_ms:.3f}",
-        f"{s.percentile(50) / per_ms:.3f}",
-        f"{s.percentile(90) / per_ms:.3f}",
-        f"{s.percentile(95) / per_ms:.3f}",
-        f"{s.percentile(99) / per_ms:.3f}",
+        f"{dur_to_ms(s.sum()):.3f}",
+        f"{dur_to_ms(s.average()):.3f}",
+        f"{dur_to_ms(s.percentile(50)):.3f}",
+        f"{dur_to_ms(s.percentile(90)):.3f}",
+        f"{dur_to_ms(s.percentile(95)):.3f}",
+        f"{dur_to_ms(s.percentile(99)):.3f}",
     ]
 
 
@@ -129,7 +121,7 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
     rt = stats.read_time
     if rt.count() > 0:
         all_rows.append(_SEP_GROUP)
-        all_rows.append(["", "Read Time", *_format_stats(rt, per_ms=_NS_PER_MS)])
+        all_rows.append(["", "Read Time", *_format_stats(rt)])
 
     if not all_rows:
         print("No GC statistics collected.")

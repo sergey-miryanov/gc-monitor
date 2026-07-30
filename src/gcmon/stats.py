@@ -9,7 +9,7 @@ try:
 except ImportError:
     HAS_DDSKETCH = False
 
-from .data import dur_to_us
+from .data import dur_to_ms
 from .protocol import (
     TGCStatsInfo,
     has_clear_weakrefs,
@@ -223,12 +223,13 @@ TStatsData = dict[str, dict[int, Stats]]
 
 
 def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
+    """Record a phase duration in nanoseconds; conversion happens at display time."""
     metric = METRICS[metric_name]
     ts_start, ts_stop = metric.get_values(item)
     gen = item.gen
 
     if ts_start != ts_stop:
-        stats[metric_name][gen].update(dur_to_us(ts_start, ts_stop))
+        stats[metric_name][gen].update(ts_stop - ts_start)
 
 
 class StreamingStats:
@@ -237,6 +238,7 @@ class StreamingStats:
 
     def __init__(self) -> None:
         self._count: int = 0
+        # Phase durations in nanoseconds, per metric and generation.
         self.metrics: TStatsData = {metric: {gen: Stats() for gen in self.GENS} for metric in METRICS}
         self._metrics_per_pid: OrderedDict[int, TStatsData] = OrderedDict()
         self._materialized_metrics: dict[int, TStatsData] = {}
@@ -285,12 +287,13 @@ class StreamingStats:
         return self._count
 
     def aggregate(self) -> dict[str, int | float]:
+        """Summarize pause metrics, with durations converted to milliseconds."""
         result: dict[str, int | float] = {}
         for gen in self.GENS:
             s = self.metrics["pause"][gen]
             if s.count() > 0:
-                result[f"pause_gen_{gen}_p99"] = s.percentile(99) / 1_000
-                result[f"pause_gen_{gen}_sum"] = s.sum() / 1_000
+                result[f"pause_gen_{gen}_p99"] = dur_to_ms(s.percentile(99))
+                result[f"pause_gen_{gen}_sum"] = dur_to_ms(s.sum())
                 result[f"pause_gen_{gen}_count"] = s.count()
         if self._heap_size:
             sorted_heaps = sorted(self._heap_size.values())

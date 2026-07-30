@@ -5,6 +5,7 @@
 ### Breaking changes
 
 - Remove `MonitorThread` (#63); use `MonitorLoop` instead
+- Replace `gcmon.data.dur_to_us(ts_start_ns, ts_stop_ns)` with `gcmon.data.dur_to_ms(dur_ns)`
 - `TYPE_SLICE_BEGIN`, `TYPE_SLICE_END`, `TYPE_INSTANT`, `TYPE_COUNTER` removed from `gcmon.exporters.perfetto_format.__all__` in favor of `TrackEventType` enum
 
 ### Features
@@ -18,6 +19,7 @@
 
 - Fix under-reported GC activity for child processes
 - Fix doubled `Count` and `Sum` in the `--stats` table's `GC Pause` rows
+- Keep GC phase durations in nanoseconds internally and convert to milliseconds only for display
 - Fix `--rss` samples discarded with `--format chrome+perfetto`
 - Warn that `--rss` has no effect with `jsonl` or `stdout`
 - Wait for process termination before reading return code in `run_monitoring_loop()` (#65)
