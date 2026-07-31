@@ -24,7 +24,7 @@
 - Warn that `--rss` has no effect with `jsonl` or `stdout`
 - Wait for process termination before reading return code in `run_monitoring_loop()` (#65)
 - Fix type annotations in source code and test suite
-- Remove `proto_decoder` and rely on the `perfetto` package for testing the `Perfetto` binary format.
+- Remove `proto_decoder` and rely on the `perfetto` package for testing the `Perfetto` binary format
 
 ### Documentation
 
@@ -32,19 +32,11 @@
 - Clarify that the pyperf `gc_heap_size_p99` metric is a percentile over per-process peak live object counts, not over all samples
 - Document the pyperf `gc_pause_count` metric, which was emitted but missing from the metric list
 - Add architecture decision records under `docs/adr/`
-- Split the README into per-topic guides under `docs/`: the README now covers
-  evaluation (why gcmon, alternatives, limitations, quick start) and links out
-  for CLI usage, output formats, statistics, RSS tracking, the pyperf hook,
-  programmatic control, and Perfetto SQL
+- Split the README into per-topic guides under `docs/`; the README now covers evaluation and links out for usage
 - Add `docs/README.md` as the documentation index
 - Fix the screenshot URLs so they render on the PyPI project page
 - Add a `Documentation` project URL pointing at `docs/README.md`
-- Document where process command lines are carried in a Perfetto trace
-  (`ProcessDescriptor.cmdline`, the process track `description`, and the
-  `debug.cmdline` annotation on the `Processes` track), with SQL examples for
-  the two that the trace processor exposes. They were previously described only
-  as UI tooltips
-- Document the `Start Process` instant marker emitted on each process track
+- Document where a Perfetto trace carries process command lines, with SQL examples for the two forms the trace processor exposes
 
 ### CI / Infrastructure
 
