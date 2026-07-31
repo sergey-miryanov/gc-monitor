@@ -2,6 +2,8 @@
 
 ## WIP
 
+## Version 0.4.0 (2026-07-31)
+
 ### Breaking changes
 
 - Remove `MonitorThread` (#63); use `MonitorLoop` instead
