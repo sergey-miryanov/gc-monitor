@@ -5,6 +5,13 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+    # Skip docs-only PRs. Pushes to main stay unfiltered so every commit
+    # refreshes the CodSpeed baseline.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'specs/**'
+      - 'LICENSE'
   # Allow CodSpeed to trigger backtest performance analysis to generate
   # initial baseline data.
   workflow_dispatch:

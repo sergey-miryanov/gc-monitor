@@ -5,6 +5,13 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+    # Skip docs-only PRs. Pushes to main stay unfiltered so every commit
+    # uploads coverage for Codecov to use as a PR base.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'specs/**'
+      - 'LICENSE'
   workflow_dispatch:
 
 concurrency:
