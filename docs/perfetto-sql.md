@@ -112,7 +112,8 @@ SELECT
     s.name,
     s.ts,
     s.dur,
-    EXTRACT_ARG(s.arg_set_id, 'debug.cmdline') AS cmdline
+    EXTRACT_ARG(s.arg_set_id, 'debug.cmdline') AS cmdline,
+    EXTRACT_ARG(s.arg_set_id, 'debug.clipped_from_ts') AS clipped_from_ts
 FROM slice s
 JOIN track t ON s.track_id = t.id
 WHERE t.name = 'Processes'
@@ -121,6 +122,28 @@ ORDER BY s.ts
 
 Both return no rows when the extra is missing or the command line could not be
 collected; the rest of the trace is unaffected.
+
+Two things to know before treating `dur` on this track as an observed duration.
+Every pid's slice lives on the one `Processes` track, and slices on a single
+Perfetto track have to nest, so where two pids' spans cross, the earlier one's
+end is pulled back to just before the later one begins. A slice whose end moved
+carries `clipped_from_ts` holding the end it would otherwise have had, so
+`clipped_from_ts - s.ts` is the observed span and `s.dur` is only what could be
+drawn. And a pid whose span is a single instant, or which is clipped down to
+nothing, gets no slice at all, so do not assume one row per monitored pid:
+
+```sql
+-- Processes whose drawn duration is shorter than what gcmon observed
+SELECT
+    s.name,
+    s.dur AS drawn_dur,
+    EXTRACT_ARG(s.arg_set_id, 'debug.clipped_from_ts') - s.ts AS observed_dur
+FROM slice s
+JOIN track t ON s.track_id = t.id
+WHERE t.name = 'Processes'
+  AND EXTRACT_ARG(s.arg_set_id, 'debug.clipped_from_ts') IS NOT NULL
+ORDER BY s.ts
+```
 
 ## Tips for Writing Queries
 

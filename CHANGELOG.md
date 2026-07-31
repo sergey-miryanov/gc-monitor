@@ -2,6 +2,11 @@
 
 ## WIP
 
+### Bugfixes
+
+- Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting; a shortened slice records its real end in a `clipped_from_ts` annotation
+- Omit the `Processes` slice for a process observed at a single instant instead of drawing it with zero duration
+
 ## Version 0.4.0 (2026-07-31)
 
 ### Breaking changes

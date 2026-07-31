@@ -8,6 +8,7 @@ objects (produced by the shared ``trace_converter``) and maps each to
 the corresponding Perfetto protobuf representation.
 """
 
+import logging
 from collections.abc import Sequence
 from enum import IntEnum
 
@@ -26,6 +27,8 @@ from .protobuf_encoder import (
     encode_string_field,
     encode_varint_field,
 )
+
+logger = logging.getLogger("gcmon")
 
 
 class TraceField(IntEnum):
@@ -202,9 +205,8 @@ class PerfettoTrackState:
         self._tid_uuids: dict[tuple[int, int], int] = {}
         self._start_process_marker_emitted: set[int] = set()
         self._process_lifetime_track_uuid: int | None = None
-        self._process_lifetime_opened: set[int] = set()
-        self._process_lifetime_end_ts: dict[int, int] = {}
-        self._first_event_ts: dict[int, int] = {}
+        self._process_lifetime: dict[int, tuple[int, int]] = {}
+        self._process_lifetime_drained: bool = False
         self._root_descriptor_emitted: bool = False
         self._next_uuid: int = 1
 
@@ -275,42 +277,70 @@ class PerfettoTrackState:
         return self._process_lifetime_track_uuid
 
     def has_process_lifetime(self, pid: int) -> bool:
-        return pid in self._process_lifetime_opened
+        return pid in self._process_lifetime
 
-    def mark_process_lifetime_opened(self, pid: int) -> None:
-        self._process_lifetime_opened.add(pid)
+    def update_process_lifetime(self, pid: int, ts: int, *, extends_end: bool) -> None:
+        """Fold *ts* into the recorded ``(start, end)`` span for *pid*.
 
-    def update_process_lifetime_end_ts(self, pid: int, ts: int) -> None:
-        self._process_lifetime_end_ts[pid] = ts
+        The start is the minimum ts over every non-meta event, counters
+        included, because the process track's ``sibling_order_rank`` and
+        ``start_timestamp_ns`` are both derived from it.
 
-    def pop_process_lifetime_ends(self) -> list[tuple[int, int]]:
-        """Return ``[(pid, end_ts), ...]`` sorted by ``(end_ts, pid)`` and
-        clear the internal end-ts state. The slice BEGINs are NOT cleared;
-        they remain marked as opened for the lifetime of ``self``."""
-        ends = sorted(self._process_lifetime_end_ts.items(), key=lambda kv: (kv[1], kv[0]))
-        self._process_lifetime_end_ts.clear()
-        return ends
+        The end is the maximum ts over non-counter events only, so
+        *extends_end* must be ``False`` for a ``CounterEvent``. Counters
+        are excluded because the ``Processes`` span means "the range over
+        which gcmon observed GC activity", not "the range over which the
+        process was alive": RSS samples are counters and are emitted on
+        their own 1 Hz schedule, independent of any GC work.
 
-    def record_first_event_ts(self, pid: int, ts: int) -> None:
-        """Record the first non-meta event timestamp for *pid*. Subsequent
-        calls for the same *pid* are ignored (the first ts wins)."""
-        if pid not in self._first_event_ts:
-            self._first_event_ts[pid] = ts
+        The first call for a pid seeds both ends of the span, so a pid
+        seen only through counters gets a zero-length span, which
+        ``finalize_perfetto_packets`` drops.
+        """
+        entry = self._process_lifetime.get(pid)
+        if entry is None:
+            self._process_lifetime[pid] = (ts, ts)
+            return
+        start_ts, end_ts = entry
+        self._process_lifetime[pid] = (
+            min(start_ts, ts),
+            max(end_ts, ts) if extends_end else end_ts,
+        )
 
-    def get_first_event_ts(self, pid: int) -> int | None:
-        return self._first_event_ts.get(pid)
+    def get_process_lifetime_start_ts(self, pid: int) -> int | None:
+        entry = self._process_lifetime.get(pid)
+        return None if entry is None else entry[0]
+
+    def pop_process_lifetimes(self) -> list[tuple[int, int, int]]:
+        """Return ``[(pid, start_ts, end_ts), ...]`` for every pid with a
+        recorded span, sorted by ``(start_ts, -end_ts, pid)``: ascending
+        start, and on equal starts the longer span first so that it
+        becomes the enclosing one.
+
+        Marks the spans as drained. A second call returns an empty list,
+        which is what makes ``finalize_perfetto_packets`` safe to call
+        more than once. The spans themselves are kept so the query
+        methods above keep working.
+        """
+        if self._process_lifetime_drained:
+            return []
+        self._process_lifetime_drained = True
+        return sorted(
+            ((pid, start, end) for pid, (start, end) in self._process_lifetime.items()),
+            key=lambda item: (item[1], -item[2], item[0]),
+        )
 
     def get_process_track_ranks(self) -> dict[int, int]:
         """Return a ``{pid: rank}`` map for every pid with a recorded
-        first event ts. Ranks are assigned by sorting pids by
-        ``(first_ts, pid)`` ascending and assigning sequential ranks
-        starting at ``0``. Pids with no recorded first ts are absent
+        lifetime span. Ranks are assigned by sorting pids by
+        ``(start_ts, pid)`` ascending and assigning sequential ranks
+        starting at ``0``. Pids with no recorded span are absent
         from the result."""
-        if not self._first_event_ts:
+        if not self._process_lifetime:
             return {}
         sorted_pids = sorted(
-            self._first_event_ts.keys(),
-            key=lambda p: (self._first_event_ts[p], p),
+            self._process_lifetime.keys(),
+            key=lambda p: (self._process_lifetime[p][0], p),
         )
         return {pid: rank for rank, pid in enumerate(sorted_pids)}
 
@@ -653,18 +683,28 @@ def _emit_process_lifetime_slice_begin(
     ts_ns: int,
     state: PerfettoTrackState,
     sequence_id: int,
+    clipped_from_ts: int | None = None,
 ) -> list[bytes]:
     """Emit a single ``TYPE_SLICE_BEGIN`` on the shared ``Processes``
     track for *pid*, using *ts_ns* as the packet timestamp. The slice
     carries a ``cmdline`` debug annotation (argv joined with a single
-    space) when *state* has a recorded cmdline for *pid*; otherwise no
-    debug annotations are emitted."""
+    space) when *state* has a recorded cmdline for *pid*.
+
+    *clipped_from_ts* is the pid's real last-event ts when the span's
+    end had to be pulled in to keep the track laminar; it is recorded
+    as a ``clipped_from_ts`` annotation so the rendered duration can be
+    told apart from the observed one. ``None`` means the span was not
+    clipped and no such annotation is emitted."""
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
     debug_annotations: list[bytes] = []
     cmdline = state.get_cmdline(pid)
     if cmdline:
         debug_annotations.append(
             _build_debug_annotation_string("cmdline", " ".join(cmdline)),
+        )
+    if clipped_from_ts is not None:
+        debug_annotations.append(
+            _build_debug_annotation_int("clipped_from_ts", clipped_from_ts),
         )
     return [
         build_trace_packet(
@@ -825,25 +865,30 @@ def convert_trace_events_to_perfetto(
 
     Each process descriptor is emitted with a ``sibling_order_rank``
     derived from the pid's first non-meta event timestamp. The
-    ``state._first_event_ts`` dict carries the cumulative first-ts
-    state across all batches in the trace; before the main loop this
-    function pre-scans the current batch for any first-ts updates so
-    that pids whose first event is in the same batch as their
+    ``state._process_lifetime`` dict carries the cumulative span state
+    across all batches in the trace; before the main loop this function
+    pre-scans the current batch and folds every non-meta event into it,
+    so that pids whose first event is in the same batch as their
     ``ProcessMeta`` still get a correct rank. Ties are broken by
     ascending pid.
 
-    The same first-ts value is also written into the
+    The same start ts is also written into the
     ``process.start_timestamp_ns`` field of each process descriptor so
     the Perfetto UI can correlate the process track with the process's
-    actual start time. Pids with no recorded first-ts get no
+    actual start time. Pids with no recorded span get no
     ``start_timestamp_ns`` set.
+
+    The ``Processes``-track slices themselves are not emitted here.
+    Both the BEGIN and the END are emitted once per pid at trace close
+    by ``finalize_perfetto_packets``, which needs every pid's span in
+    hand at once to keep the track laminar.
     """
     descriptors: list[bytes] = []
     packets: list[bytes] = []
 
     if events:
         for event in events:
-            _record_first_event_ts(event, state)
+            _record_process_lifetime(event, state)
         descriptors.extend(_emit_root_descriptor(state, sequence_id))
 
     ranks = state.get_process_track_ranks()
@@ -858,7 +903,7 @@ def convert_trace_events_to_perfetto(
                     state,
                     sequence_id,
                     sibling_order_rank=ranks.get(pid),
-                    start_timestamp_ns=state.get_first_event_ts(pid),
+                    start_timestamp_ns=state.get_process_lifetime_start_ts(pid),
                 )
             )
 
@@ -871,14 +916,13 @@ def convert_trace_events_to_perfetto(
                     state,
                     sequence_id,
                     sibling_order_rank=ranks.get(pid),
-                    start_timestamp_ns=state.get_first_event_ts(pid),
+                    start_timestamp_ns=state.get_process_lifetime_start_ts(pid),
                 )
             )
             descriptors.extend(_emit_thread_descriptor(pid, event.tid, state, sequence_id))
 
         elif isinstance(event, BeginEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
             annotations = _args_to_debug_annotations(event.args)
             packets.append(
@@ -896,7 +940,6 @@ def convert_trace_events_to_perfetto(
 
         elif isinstance(event, EndEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
             packets.append(
                 build_trace_packet(
@@ -908,7 +951,6 @@ def convert_trace_events_to_perfetto(
 
         elif isinstance(event, InstantEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
             proc_uuid = state.get_process_track_uuid(pid)
             packets.append(
                 build_trace_packet(
@@ -924,7 +966,6 @@ def convert_trace_events_to_perfetto(
 
         elif isinstance(event, CounterEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            _record_or_open_process_lifetime(event, state, sequence_id, packets, descriptors)
             single_arg = len(event.args) == 1
             for metric, value in event.args.items():
                 display_name = metric if single_arg else f"{event.name} {metric}"
@@ -963,91 +1004,147 @@ def _maybe_emit_start_process_marker(
     packets.extend(_emit_start_process_marker(event.pid, ts, state, sequence_id))
 
 
-def _record_or_open_process_lifetime(
-    event: TraceEvent,
-    state: PerfettoTrackState,
-    sequence_id: int,
-    packets: list[bytes],
-    descriptors: list[bytes],
-) -> None:
-    """Update / open the ``Processes`` track for *event*.
-
-    On the first non-meta event for a pid:
-      - emit the ``Processes`` track descriptor (once, total),
-      - mark the slice as opened for that pid,
-      - emit a ``TYPE_SLICE_BEGIN`` at this event's ts.
-
-    On every subsequent non-counter non-meta event for that pid, the
-    end-ts is updated. Counter events are skipped for end-ts tracking
-    because the encoder emits them at the start of a GC pause (not at
-    the end), so they would otherwise pull the slice duration down to
-    zero. Closeout (the slice END) is emitted exactly once at trace
-    close by ``finalize_perfetto_packets``; this function never emits
-    the END.
-
-    A no-op if the process descriptor has not yet been emitted (the
-    caller is expected to emit ``ProcessMeta`` before any non-meta
-    event for a pid).
-    """
-    if not state.has_pid(event.pid):
-        return
-    ts = getattr(event, "ts", 0)
-    if not state.has_process_lifetime_track():
-        descriptors.append(_emit_process_lifetime_track_descriptor(state, sequence_id))
-    if state.has_process_lifetime(event.pid):
-        if not isinstance(event, CounterEvent):
-            state.update_process_lifetime_end_ts(event.pid, ts)
-        return
-    state.mark_process_lifetime_opened(event.pid)
-    packets.extend(_emit_process_lifetime_slice_begin(event.pid, ts, state, sequence_id))
-    if not isinstance(event, CounterEvent):
-        state.update_process_lifetime_end_ts(event.pid, ts)
-
-
-def _record_first_event_ts(
+def _record_process_lifetime(
     event: TraceEvent,
     state: PerfettoTrackState,
 ) -> None:
-    """Record the first non-meta event timestamp for *event*'s pid.
+    """Fold *event* into its pid's recorded ``Processes``-track span.
 
-    ``ProcessMeta`` and ``ThreadMeta`` are skipped. The first ts for
-    each pid wins (subsequent calls for the same pid are ignored via
-    ``PerfettoTrackState.record_first_event_ts``). This mirrors the
-    pattern of ``_record_or_open_process_lifetime`` so a single
-    per-event call site handles both concerns.
+    ``ProcessMeta`` and ``ThreadMeta`` are skipped, so a pid seen only
+    through meta events gets no span and therefore no slice. A
+    ``CounterEvent`` moves the span's start but never its end; see
+    ``PerfettoTrackState.update_process_lifetime``.
+
+    This emits nothing. The span is only turned into packets at trace
+    close, by ``finalize_perfetto_packets``.
     """
     if isinstance(event, (ProcessMeta, ThreadMeta)):
         return
     ts = getattr(event, "ts", None)
     if ts is None:
         return
-    state.record_first_event_ts(event.pid, ts)
+    state.update_process_lifetime(
+        event.pid,
+        ts,
+        extends_end=not isinstance(event, CounterEvent),
+    )
+
+
+def _clip_spans_to_laminar(
+    spans: list[tuple[int, int, int]],
+) -> list[tuple[int, int, int, int | None]]:
+    """Clip *spans* so that any two of them are either disjoint or
+    strictly nested, and return ``[(pid, start, end, clipped_from), ...]``
+    in the input order. ``clipped_from`` is the original end ts for a
+    span whose end was pulled in, and ``None`` for one left alone.
+
+    *spans* must be ``[(pid, start, end), ...]`` sorted the way
+    ``PerfettoTrackState.pop_process_lifetimes`` sorts them: ascending
+    start, longer span first on a tie.
+
+    Slices on one Perfetto track are a stack, so a pair that merely
+    crosses -- A starts first, B starts inside A, and B ends after A --
+    cannot be expressed: the trace processor closes both at A's END and
+    discards B's as a ``misplaced_end_event``. Where two spans cross,
+    the earlier one's end is pulled back to one nanosecond before the
+    later one's start. Nesting is left untouched, so the common shape of
+    a parent outliving its children costs nothing.
+
+    Spans that merely touch (``A.end == B.start``) are treated as
+    crossing, because the relative order of an END and a BEGIN sharing a
+    timestamp is not something the wire format lets us pin down.
+
+    Sorting longer-span-first on equal starts is what makes the clip
+    safe: two spans with the same start always nest, so a clip only ever
+    happens when ``A.start < B.start``, and ``B.start - 1`` therefore
+    never lands before ``A.start``.
+    """
+    ends: dict[int, int] = {}
+    clipped_from: dict[int, int] = {}
+    open_pids: list[int] = []
+    for pid, start, end in spans:
+        # Walk out through the spans still open at *start*, closing the
+        # ones that ended before it and clipping the ones it crosses.
+        # Only a span that contains this one stops the walk.
+        while open_pids:
+            outer_pid = open_pids[-1]
+            outer_end = ends[outer_pid]
+            if outer_end < start:
+                open_pids.pop()
+                continue
+            if outer_end >= end:
+                break
+            clipped_from.setdefault(outer_pid, outer_end)
+            ends[outer_pid] = start - 1
+            open_pids.pop()
+        ends[pid] = end
+        open_pids.append(pid)
+    return [(pid, start, ends[pid], clipped_from.get(pid)) for pid, start, _end in spans]
 
 
 def finalize_perfetto_packets(
     state: PerfettoTrackState,
     sequence_id: int,
 ) -> list[bytes]:
-    """Emit the closeout packets for the entire trace: one
-    ``TYPE_SLICE_END`` per pid whose ``Processes``-track slice was
-    opened, in ascending order of end timestamp (ties broken by
-    ascending pid). Returns the list of closeout packets to append
-    to the trace.
+    """Emit every ``Processes``-track packet for the whole trace: the
+    track descriptor, then one ``TYPE_SLICE_BEGIN`` / ``TYPE_SLICE_END``
+    pair per pid that has a span. Returns the packets to append to the
+    trace.
 
     Call this exactly once, at the end of the trace (typically in the
     encoder's ``close()``), not at the end of every
-    ``convert_trace_events_to_perfetto`` call. Emitting ENDs
-    per-batch would cause the trace processor to collapse the slice
-    to the first batch's last event (it pairs the BEGIN with the
-    first END and drops the rest as orphan ENDs). The end-ts state
-    accumulates across all batches; this function consumes and
-    clears it.
+    ``convert_trace_events_to_perfetto`` call. Both ends of the pair are
+    emitted here rather than at convert time because keeping the track
+    laminar (see ``_clip_spans_to_laminar``) needs every pid's span in
+    hand at once, and because a clip discovered at close would otherwise
+    have no way to correct a BEGIN already on the wire.
 
-    Safe to call when no pids have been opened (returns an empty
-    list). Safe to call more than once (subsequent calls return
-    an empty list because the state was already cleared).
+    A span clipped to zero length is dropped entirely -- no BEGIN, no
+    END -- and logged, because a zero-duration slice renders as an
+    instant and would claim a lifetime the trace cannot support.
+
+    Packets come out in stack order: a pid's BEGIN precedes its
+    children's, and its END follows theirs. That matters for nested
+    spans sharing an end timestamp, where the trace processor relies on
+    packet order to decide which slice closes first.
+
+    Emitting the descriptor here puts it after the slices that reference
+    its uuid, which the trace processor accepts.
+
+    Safe to call when no pid has a span (returns an empty list). Safe to
+    call more than once (subsequent calls return an empty list).
     """
+    spans = [(pid, start, end) for pid, start, end in state.pop_process_lifetimes() if state.has_pid(pid)]
+    if not spans:
+        return []
+
     packets: list[bytes] = []
-    for pid, end_ts in state.pop_process_lifetime_ends():
-        packets.append(_emit_process_lifetime_slice_end(pid, end_ts, state, sequence_id))
-    return packets
+    open_spans: list[tuple[int, int]] = []
+    for pid, start_ts, end_ts, clipped_from in _clip_spans_to_laminar(spans):
+        if end_ts <= start_ts:
+            logger.debug(
+                "Dropping zero-length Processes slice for PID %s at ts %s",
+                pid,
+                start_ts,
+            )
+            continue
+        while open_spans and open_spans[-1][1] < start_ts:
+            open_pid, open_end = open_spans.pop()
+            packets.append(_emit_process_lifetime_slice_end(open_pid, open_end, state, sequence_id))
+        packets.extend(
+            _emit_process_lifetime_slice_begin(
+                pid,
+                start_ts,
+                state,
+                sequence_id,
+                clipped_from_ts=clipped_from,
+            )
+        )
+        open_spans.append((pid, end_ts))
+    while open_spans:
+        open_pid, open_end = open_spans.pop()
+        packets.append(_emit_process_lifetime_slice_end(open_pid, open_end, state, sequence_id))
+
+    if not packets:
+        return []
+    return [_emit_process_lifetime_track_descriptor(state, sequence_id), *packets]
