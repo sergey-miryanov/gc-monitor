@@ -32,6 +32,13 @@
 - Clarify that the pyperf `gc_heap_size_p99` metric is a percentile over per-process peak live object counts, not over all samples
 - Document the pyperf `gc_pause_count` metric, which was emitted but missing from the metric list
 - Add architecture decision records under `docs/adr/`
+- Split the README into per-topic guides under `docs/`: the README now covers
+  evaluation (why gcmon, alternatives, limitations, quick start) and links out
+  for CLI usage, output formats, statistics, RSS tracking, the pyperf hook,
+  programmatic control, and Perfetto SQL
+- Add `docs/README.md` as the documentation index
+- Fix the screenshot URLs so they render on the PyPI project page
+- Add a `Documentation` project URL pointing at `docs/README.md`
 
 ### CI / Infrastructure
 

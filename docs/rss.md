@@ -14,7 +14,20 @@ gcmon 12345 --format perfetto -o trace.pftrace --rss
 gcmon 12345 --format perfetto --rss --rss-interval 0.5
 ```
 
-Requires the `[cmdline]` extra (which installs `psutil`). Without psutil, `--rss` is silently ignored and an info log is emitted.
+## The `[cmdline]` extra
+
+RSS tracking requires [psutil](https://github.com/giampaolo/psutil), which ships
+with the `[cmdline]` extra:
+
+```bash
+pip install gcmon[cmdline]
+```
+
+When this extra is installed:
+- The Perfetto exporter reads the command line of each monitored process and includes it in the trace. This appears as a tooltip in the Perfetto UI.
+- RSS tracking (`--rss`) can sample Resident Set Size via `psutil.Process(pid).memory_info().rss`.
+
+Without this extra, the `cmdline` field is omitted and `--rss` is silently ignored (an info log is emitted at startup). All other trace data is unaffected.
 
 ## How It Works
 

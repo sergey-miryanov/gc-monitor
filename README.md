@@ -181,33 +181,17 @@ pip install gcmon
 
 # With optional extras
 pip install gcmon[stats]      # High-accuracy statistics (see docs/statistics.md)
-pip install gcmon[cmdline]    # Process command line in Perfetto traces
+pip install gcmon[cmdline]    # Process command line and RSS tracking (see docs/rss.md)
 pip install gcmon[stats,cmdline]  # Both extras
 ```
 
-### `[stats]` — High-Accuracy Statistics
-
-Install [DDSketch](https://github.com/DataDog/sketches-py) for memory-efficient, high-accuracy percentile tracking:
-
-```bash
-pip install gcmon[stats]
-```
-
-Without this extra, statistics use a fixed 1024-sample buffer. With it, all samples are tracked with 0.1% relative accuracy. See [Statistics](https://github.com/sergey-miryanov/gcmon/blob/main/docs/statistics.md) for details.
-
-### `[cmdline]` — Process Command Line & RSS Tracking
-
-Install [psutil](https://github.com/giampaolo/psutil) to populate the `cmdline` field in Perfetto traces and enable RSS tracking:
-
-```bash
-pip install gcmon[cmdline]
-```
-
-When this extra is installed:
-- The Perfetto exporter reads the command line of each monitored process and includes it in the trace. This appears as a tooltip in the Perfetto UI.
-- RSS tracking (`--rss`) can sample Resident Set Size via `psutil.Process(pid).memory_info().rss`.
-
-Without this extra, the `cmdline` field is omitted and `--rss` is silently ignored (an info log is emitted at startup). All other trace data is unaffected.
+`[stats]` installs [DDSketch](https://github.com/DataDog/sketches-py) for
+high-accuracy, memory-efficient percentiles — see
+[Statistics](https://github.com/sergey-miryanov/gcmon/blob/main/docs/statistics.md).
+`[cmdline]` installs [psutil](https://github.com/giampaolo/psutil), which
+populates process command lines in Perfetto traces and enables `--rss` — see
+[RSS Tracking](https://github.com/sergey-miryanov/gcmon/blob/main/docs/rss.md).
+Each extra degrades gracefully when absent; no other trace data is affected.
 
 ## Quick Start
 

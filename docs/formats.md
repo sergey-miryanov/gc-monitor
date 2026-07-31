@@ -20,7 +20,7 @@ flag itself.
 Perfetto features:
 - **Counter Y-axis sharing**: Same metric names share Y-axis across generations (e.g., `G0 collected`, `G1 collected`, `G2 collected` all on one axis).
 - **Process ordering**: Tracks are ordered by first event timestamp, so the earliest-starting process appears at the top.
-- **Command line tooltips**: Install the `[cmdline]` extra to populate process command lines, visible as tooltips in the UI.
+- **Command line tooltips**: Install the [`[cmdline]` extra](rss.md#the-cmdline-extra) to populate process command lines, visible as tooltips in the UI.
 - **RSS counter track**: A process-level `rss` counter track appears for each PID when `--rss` is enabled, showing Resident Set Size in bytes. Sampled at the configured `--rss-interval` (default 1s).
 
 This visualization helps you:
