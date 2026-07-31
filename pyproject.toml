@@ -57,6 +57,7 @@ pytest-codspeed = "^5.0.3"
 
 [tool.poetry.urls]
 Homepage = "https://github.com/sergey-miryanov/gcmon"
+Documentation = "https://github.com/sergey-miryanov/gcmon/blob/main/docs/README.md"
 Repository = "https://github.com/sergey-miryanov/gcmon"
 Issues = "https://github.com/sergey-miryanov/gcmon/issues"
 
