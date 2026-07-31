@@ -31,6 +31,7 @@
 - Correct the documented units for the JSONL `duration` field (seconds, not milliseconds) and for the pyperf `gc_pause_*` metrics (milliseconds, not microseconds)
 - Clarify that the pyperf `gc_heap_size_p99` metric is a percentile over per-process peak live object counts, not over all samples
 - Document the pyperf `gc_pause_count` metric, which was emitted but missing from the metric list
+- Add architecture decision records under `docs/adr/`
 
 ### CI / Infrastructure
 

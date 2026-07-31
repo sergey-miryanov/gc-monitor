@@ -12,22 +12,17 @@ the process track, one thread track per interpreter, counter tracks, and the sha
 
 An early design derived UUIDs arithmetically from the identifiers (process as
 `pid | (1 << 60)`, thread as `(pid << 20) | iid | (1 << 60)`, counters from a `3 << 60`
-base) on the theory that bit 60 marked "default" (OS-scoped) tracks and that
-deterministic UUIDs were collision-free by construction. That scheme was fragile: the
-bit-packing had to be re-derived every time a new track kind appeared, `(pid << 20) | iid`
-collides for large pids, and it produced enormous varints in every packet.
+base), on the theory that bit 60 marked "default" (OS-scoped) tracks and that deterministic
+UUIDs were collision-free by construction. The scheme was fragile: the bit-packing had to
+be re-derived for every new track kind, `(pid << 20) | iid` collides for large pids, and it
+put an enormous varint in every packet.
 
-Separately, the descriptor layout had four bugs that all presented as "the Perfetto UI
-renders gcmon traces in the wrong order, unlike the Chrome trace import":
-
-1. `ProcessDescriptor` was encoded at field **6**. Field 6 is `ChromeProcessDescriptor`,
-   a different message that Perfetto ignores for native traces; the correct field is **3**.
-   Perfetto never recognized the process track at all.
-2. Thread track UUIDs set bit **61** instead of bit **60**. Perfetto identifies default
-   process/thread tracks by bit 60, so the thread was treated as a generic custom track.
-3. Process and thread descriptors carried no `child_ordering` / `sibling_order_rank`.
-4. Counter tracks were parented to the *thread* track. Perfetto renders counter children
-   alongside their parent, which pushed the thread track down below its own counters.
+The descriptor layout was wrong in four further places, all presenting the same way, with
+the Perfetto UI rendering gcmon traces in the wrong order while the Chrome trace import
+looked right: `ProcessDescriptor` written at field 6 (`ChromeProcessDescriptor`) instead of
+field 3, thread UUIDs setting bit 61 instead of bit 60, process and thread descriptors
+carrying no ordering fields, and counter tracks parented to the *thread* track, which
+pushed the thread down below its own counters.
 
 ## Decision
 
@@ -67,7 +62,7 @@ with it.
 - UUIDs stay small, so their varints stay short.
 - The `1 << 60` bit-marking is gone. Perfetto's "default track" recognition comes from the
   presence of the `ProcessDescriptor` / `ThreadDescriptor` sub-message, not from the UUID
-  value. That is what bugs 1 and 2 above turned on.
+  value. That is what the field-6 and bit-61 errors above turned on.
 
 ## Alternatives considered
 

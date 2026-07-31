@@ -5,38 +5,25 @@
 
 ## Context
 
-gcmon writes Perfetto binary traces (`.pftrace`). The obvious implementation is to
-import the generated message classes from the official `perfetto` Python package and
-let it serialize. That package is large and pulls in `protobuf`, and gcmon is a
-monitoring tool meant to be installable next to the process it watches, so every runtime
-dependency is a dependency the target application inherits.
+gcmon writes Perfetto binary traces (`.pftrace`). The obvious implementation imports the
+generated message classes from the official `perfetto` Python package and lets it
+serialize. That package pulls in `protobuf`, and gcmon is a monitoring tool meant to be
+installable next to the process it watches, so every runtime dependency is one the target
+application inherits.
 
 The slice of the Perfetto wire format gcmon needs is small: varints, length-delimited
-submessages, and roughly thirty field numbers. Writing that by hand is a few hundred
-lines.
+submessages, and roughly thirty field numbers, a few hundred lines to write by hand.
 
-Doing it by hand does mean owning the field numbers, and those have bitten us three
-times:
+The cost is owning those field numbers against a proto that changes upstream. Three
+field-number bugs have shipped: `TrackEvent.type` and `track_uuid` renumbered upstream,
+timestamps written inside `TrackEvent` where field 1 is a `timestamp_delta_us` oneof
+member, and `DebugAnnotation.name` moving from field 1 to field 10 (field 1 is now a
+`uint64` interned ID). A fourth was arithmetic: `encode_varint` masked to 32 bits, so
+`sibling_order_rank = -1` was written as `0`.
 
-1. **`TrackEvent` was renumbered upstream.** `type` moved from field 1 to 9 and
-   `track_uuid` from 2 to 11. The old numbers silently collided with the new
-   assignments.
-2. **Timestamps in the wrong message.** Timestamps were encoded inside `TrackEvent`.
-   In the current proto, `TrackEvent` field 1 is `timestamp_delta_us` inside a oneof,
-   so writing `type = 1` at field 1 made Perfetto read it as `timestamp_delta_us = 1`
-   and emit "timestamp_delta_us without valid baseline" warnings.
-3. **`DebugAnnotation.name` moved from field 1 to field 10.** The proto declares
-   `oneof name_field { uint64 name_iid = 1; string name = 10; }`. Only one variant of a
-   oneof may be set. Writing the name string at field 1 meant Perfetto either dropped it
-   or read the bytes as a garbage interned ID. Symptom: GC pause arguments were missing
-   from the Perfetto UI's Args panel while the Chrome trace showed them fine.
-
-A fourth issue was purely arithmetic: `encode_varint` masked to 32 bits
-(`value & 0xFFFFFFFF`). Protobuf sign-extends `int32` to 64 bits before varint encoding,
-so `-1` must encode as ten bytes. The 32-bit mask produced a five-byte encoding, and
-`sibling_order_rank = -1` was silently written as `0`.
-
-Each of these fails silently. The trace still parses; it renders wrong.
+All four fail the same way. The trace still parses; it renders wrong, and only a human
+opening the UI notices. That failure mode, rather than any individual bug, is what the
+decision has to address.
 
 ## Decision
 
@@ -73,7 +60,8 @@ the runtime tree. Sub-messages are built field-by-field using the local encoder 
   silently. So the regression tests assert the **raw wire format**, meaning field number
   and wire type, instead of round-tripping through gcmon's own enums. A round-trip test
   reads back through the same constant it wrote with, so it is equally happy with a
-  correct and an incorrect value; it would not have caught any of the three bugs above.
+  correct and an incorrect value; it would not have caught any of the field-number bugs
+  above.
   The end-to-end guard is ADR-0014's trace-processor tests.
 - The `DebugAnnotationField.NAME = 10` constant carries an inline comment explaining the
   oneof constraint and warning against "fixing" it back to 1. Keep that comment.

@@ -710,6 +710,11 @@ viewer gcmon writes for:
 - [OpenTelemetry runtime metrics](https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/system_metrics/system_metrics.html) — fleet-wide GC collection counts
 - [Perfetto UI](https://ui.perfetto.dev) — the trace viewer used by gcmon's Perfetto exporter
 
+Project documentation:
+
+- [Architecture decision records](docs/adr/README.md)
+- [Release process](docs/RELEASE.md)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

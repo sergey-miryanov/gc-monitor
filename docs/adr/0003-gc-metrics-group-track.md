@@ -6,36 +6,26 @@
 ## Context
 
 gcmon emits several counter tracks per generation per thread (`G0 collected`,
-`G0 candidates`, `G0 duration`, `G0 uncollectable`, and the same for G1 and G2). Their
-order in the Perfetto UI matters: the list is long, and an arbitrary order makes it hard
-to compare the same metric across generations.
+`G0 candidates`, `G0 duration`, `G0 uncollectable`, and the same for G1 and G2). The list
+is long, and an arbitrary order makes it hard to compare one metric across generations.
 
 Perfetto's mechanism for this is `TrackDescriptor.child_ordering = EXPLICIT` on the parent
 plus `sibling_order_rank` on each child. gcmon set both, parenting the counter tracks
-directly to the process track, and the trace processor ignored the ordering.
+directly to the process track, and the trace processor ignored the ordering: against the
+build bundled with `perfetto` 0.56.0, the `track` SQL table came back flattened, with
+`parent_id = NULL` on every counter row.
 
-The reason is a rule in `track_descriptor.proto`, on the `child_ordering` field:
+The cause is a rule in `track_descriptor.proto`, on the `child_ordering` field:
 
 > Note: for tracks where `thread` or `process` are set (i.e. process tracks and thread
 > tracks), this option is *ignored*. Instead, use `thread_ordering` and `process_ordering`
 > on the root track descriptor (uuid = 0) to configure process and thread track ordering.
 
-The process track is OS-scoped, since it carries a `process` sub-message, so the trace
-processor:
-
-1. set `parent_id` to `NULL` in the `track` SQL table for every counter row (treating each
-   counter as a process-level counter, not a structural child), and
-2. silently discarded `child_ordering` and `sibling_order_rank` on those counters.
-
-We checked this against the trace processor bundled with the `perfetto`
-package (0.56.0 at the time):
-a trace with `child_ordering = EXPLICIT` and per-counter `sibling_order_rank`, all parented
-to the process track, produced a fully flattened `track` table with `parent_id = NULL` on
-every counter row.
-
-An earlier iteration drew the wrong conclusion from this ("the trace processor does not
-honor `sibling_order_rank` for counter tracks") and marked the ordering requirement as
-unachievable. **The parent's type is what breaks the ranking, not the rank field.**
+The process track carries a `process` sub-message, which makes it OS-scoped, so both the
+parent's `child_ordering` and the children's `sibling_order_rank` are discarded. An earlier
+iteration read the flattened table as "the trace processor does not honor
+`sibling_order_rank` for counter tracks" and gave the requirement up as unachievable.
+**The parent's type is what breaks the ranking, not the rank field.**
 
 ## Decision
 
@@ -45,9 +35,8 @@ Insert an intermediate **non-OS-scoped grouping track named `GC Metrics`**, one 
 `parent_uuid` points at this group instead of at the process track.
 
 Because the group is a plain custom track, the trace processor honors `child_ordering` on
-it and `sibling_order_rank` on its children. Re-checked against the same build: counter rows now have
-a non-NULL `parent_id` pointing at the `GC Metrics` row, and the `_COUNTER_RANKS` ordering
-is effective *inside* the group.
+it and `sibling_order_rank` on its children. Counter rows now carry a non-NULL `parent_id`
+pointing at the `GC Metrics` row, and `_COUNTER_RANKS` takes effect *inside* the group.
 
 Ranks come from `_COUNTER_RANKS`, a single ordered table covering each metric.
 `heap_size` and `rss` come first (they are top-level, see

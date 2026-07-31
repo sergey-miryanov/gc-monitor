@@ -10,8 +10,7 @@ tracks plotting the same quantity for different generations. By default each get
 auto-scaled Y-axis, so a spike on G0 and a spike on G1 look the same size even when they
 differ by two orders of magnitude. Comparing generations means mentally re-scaling.
 
-Perfetto solves this with `CounterDescriptor.y_axis_share_key` (field 7, optional string,
-the most recently added field on that message):
+Perfetto solves this with `CounterDescriptor.y_axis_share_key` (field 7, optional string):
 counter tracks that share a key **and** share a parent track are rendered on one Y-axis
 range. gcmon was already emitting a `CounterDescriptor` at `TrackDescriptor` field 8 for
 every counter track, but it was always the empty submessage.

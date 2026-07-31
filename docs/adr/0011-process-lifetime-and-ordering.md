@@ -22,10 +22,6 @@ is the same OS-scoped-parent rule that [ADR-0003](0003-gc-metrics-group-track.md
 seen from the other side: for process and thread tracks, ordering is configured on the root
 descriptor rather than on the parent.
 
-The field numbers matter and are easy to get wrong: `process_ordering` is **19** and
-`thread_ordering` is **20**. Fields **6 and 7 are `chrome_process` and `chrome_thread`**,
-different messages entirely.
-
 ## Decision
 
 **A single shared top-level track named `Processes`** holds one
@@ -46,25 +42,18 @@ nothing else: no name, no parent, no sub-message.
 **Process tracks are ranked by first event timestamp**, ties broken by ascending pid,
 sequential from 0. Only pids with at least one non-meta event get a rank.
 
-Two timing rules carry the weight here.
-
 **The slice END is emitted exactly once per pid, at encoder close**, via
-`finalize_perfetto_packets`, called once from `ProtobufEventEncoder.close()`. It is *not*
-emitted at the end of each convert call.
-
-`BufferedTraceExporter` flushes in chunks of `flush_threshold`
-(default 1000), so a long trace makes many convert calls. If closeout ran per call, the
-wire would carry one BEGIN and N ENDs per pid. Perfetto pairs a BEGIN with the **first**
-matching END on the track and treats the rest as orphans, collapsing the visible slice to
-the end of the first batch. You see a `Process <pid>` slice that ends
-hundreds of milliseconds before the process's last event. The end-timestamp state
-accumulates across convert calls and drains once.
+`finalize_perfetto_packets`, called once from `ProtobufEventEncoder.close()`, and *not* at
+the end of each convert call. `BufferedTraceExporter` flushes in chunks of
+`flush_threshold` (default 1000), so a long trace makes many convert calls; per-call
+closeout would put one BEGIN and N ENDs on the wire per pid. Perfetto pairs a BEGIN with
+the **first** matching END and orphans the rest, collapsing the slice to the end of the
+first batch. So end-timestamp state accumulates across convert calls and drains once.
 
 **Counter events are excluded from the end timestamp.** The encoder emits counter packets
-at `ts_start_ns` of each GC pause, alongside the pause's BEGIN. Including them would drag
-the end timestamp back to the *start* of the last pause on every counter, so a process
-monitored across N pauses would report a near-zero-duration lifetime. The span is
-`[first non-meta event, last Begin/End/Instant event]`.
+at `ts_start_ns` of each GC pause, alongside the pause's BEGIN, so including them would
+drag the end timestamp back to the *start* of the last pause and report a near-zero
+lifetime. The span is `[first non-meta event, last Begin/End/Instant event]`.
 
 END packets are emitted in ascending end-timestamp order, ties by ascending pid.
 
@@ -108,7 +97,9 @@ END packets are emitted in ascending end-timestamp order, ties by ascending pid.
 ## Implementation
 
 - `src/gcmon/exporters/perfetto_format.py:191`, `_PROCESS_LIFETIME_TRACK_NAME = "Processes"`.
-- `:52-53`, `PROCESS_ORDERING = 19`, `THREAD_ORDERING = 20`.
+- `:52-53`, `PROCESS_ORDERING = 19`, `THREAD_ORDERING = 20`. Fields 6 and 7 on the same
+  message are `chrome_process` and `chrome_thread`, so a wrong number here writes a
+  different message and fails silently ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)).
 - `:531-562`, `_emit_root_descriptor`, guarded by `has_root_descriptor` so it fires once.
 - `:303-315`, `get_process_track_ranks()`, sorting by `(first_ts, pid)`.
 - `:1027`, `finalize_perfetto_packets`, the single drain point at encoder close.

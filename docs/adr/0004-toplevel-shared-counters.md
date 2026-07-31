@@ -16,8 +16,8 @@ merging three partial series.
 ([ADR-0013](0013-rss-sampling.md)), which arrived later with the same shape: a
 process-level value with no generation and no thread affinity.
 
-There is a second, subtler problem. The encoder names a counter track
-`f"{event_name} {metric}"`. A counter event named `heap_size` carrying a single arg keyed
+Naming is a second constraint on any fix. The encoder names a counter track
+`f"{event_name} {metric}"`, so a counter event named `heap_size` carrying a single arg keyed
 `heap_size` would produce the track name `heap_size heap_size`.
 
 ## Decision

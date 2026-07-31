@@ -71,9 +71,8 @@ Both files keep the parent directory, so the existing parent-directory check cov
 dual output is a live-mode concern. `combine`'s `--output-format` choices stay
 `["jsonl", "chrome", "perfetto"]`.
 
-This change also fixed a pre-existing bug: `get_env_format`'s whitelist was
-`("chrome", "stdout", "jsonl")`, so `GCMON_FORMAT=perfetto` silently fell back to Chrome.
-It now accepts `perfetto` and `chrome+perfetto` too.
+**`GCMON_FORMAT` accepts the same set as `--format`**, `perfetto` and `chrome+perfetto`
+included. Its whitelist had omitted both, so `GCMON_FORMAT=perfetto` fell back to Chrome.
 
 ## Consequences
 
@@ -116,7 +115,7 @@ It now accepts `perfetto` and `chrome+perfetto` too.
 - `src/gcmon/exporters/combined_exporter.py:14`, `derive_combined_paths`; `:36`,
   `CombinedTraceExporter`.
 - `src/gcmon/exporters/exporter_factory.py:27-31`, the `chrome+perfetto` case.
-- `src/gcmon/_env.py:135`, the corrected `get_env_format` whitelist.
+- `src/gcmon/_env.py:135`, the `get_env_format` whitelist.
 - Tests: `tests/test_convert_cmd_perfetto.py` (609 lines, trace-processor driven; the
   chrome↔perfetto content-equivalence class at `:465`);
   `tests/exporters/test_combined_exporter.py` and `test_combined_exporter_integration.py`;

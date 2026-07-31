@@ -12,14 +12,14 @@ converter called `ts_to_us()` on each timestamp field on the way in.
 That was fine while Chrome was the only backend: the Chrome Trace Event format is specified
 in microseconds, so the model matched the output.
 
-It broke silently when Perfetto arrived. `TracePacket.timestamp` is a **nanosecond** field,
-and `ProtobufEventEncoder` wrote microseconds straight into it. Each
-`.pftrace` gcmon produced had its whole timeline compressed by a factor of 1000. A five
-millisecond GC pause rendered as five microseconds.
+It broke when Perfetto arrived. `TracePacket.timestamp` is a **nanosecond** field, and
+`ProtobufEventEncoder` wrote microseconds straight into it, compressing the whole timeline
+of every `.pftrace` by a factor of 1000. The failure was invisible because the compression
+was uniform: relative shape looked right, and the chrome↔perfetto equivalence test compared
+`chrome_dur // 1000 == perfetto_dur`, encoding the discrepancy as if it were expected.
 
-Nobody caught it, because the compression was uniform: relative shape looked right, and
-whoever wrote the chrome↔perfetto equivalence test used a `chrome_dur // 1000 == perfetto_dur`
-comparison, encoding the discrepancy as if it were expected.
+One model unit shared across backends with different wire units has no correct answer. The
+question is where the conversion belongs.
 
 ## Decision
 
