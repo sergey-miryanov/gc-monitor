@@ -40,6 +40,7 @@
 
 ### CI / Infrastructure
 
+- Skip CI and CodSpeed runs for documentation-only pull requests
 - Update pyrefly type checker to 1.1.1
 - Add pre-commit and editor configs, clean up tests, add CodSpeed benchmarks, bump actions/checkout, bump perfetto version and add protobuf dependency
 
