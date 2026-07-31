@@ -29,6 +29,15 @@ gcmon traces use the standard Perfetto schema:
 - **`process_track`** / **`thread_track`**: Contains process/thread information
   - `id`: Track ID
   - `pid` / `tid`: Process/thread ID
+  - `source_arg_set_id`: Reference to the track's args, including the process command line
+- **`args`** table: Key/value arguments for slices and tracks
+  - `arg_set_id`: The set this argument belongs to
+  - `key` / `flat_key`: Argument name — track args use bare names (`description`), slice debug annotations are prefixed (`debug.cmdline`)
+  - `string_value` / `int_value`: The value
+
+> **Note:** `process.cmdline` always returns `NULL`. The trace processor does not
+> surface `ProcessDescriptor.cmdline`, so query the process track's `description`
+> or the `debug.cmdline` annotation instead — see below.
 
 ## Example: Replicating the Stats Table
 
@@ -74,6 +83,44 @@ JOIN process p ON pt.upid = p.upid
 WHERE ct.name like 'rss%'
 ORDER BY p.start_ts, c.ts
 ```
+
+## Example: Querying Process Command Lines
+
+Requires the [`[cmdline]` extra](rss.md#the-cmdline-extra). gcmon writes the
+command line to [three places](formats.md#process-command-lines); two of them are
+reachable from SQL.
+
+The process track's `description` holds the space-joined command line:
+
+```sql
+-- Command line per PID, from the process track description
+SELECT p.pid, a.string_value AS cmdline
+FROM args a
+JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id
+JOIN process p ON p.upid = pt.upid
+WHERE a.key = 'description'
+ORDER BY p.pid
+```
+
+The same string is attached to each `Process {pid}` slice on the `Processes`
+lifetime track as a `cmdline` debug annotation, which pairs it with the process's
+start and end times:
+
+```sql
+-- Command line alongside each process's lifetime
+SELECT
+    s.name,
+    s.ts,
+    s.dur,
+    EXTRACT_ARG(s.arg_set_id, 'debug.cmdline') AS cmdline
+FROM slice s
+JOIN track t ON s.track_id = t.id
+WHERE t.name = 'Processes'
+ORDER BY s.ts
+```
+
+Both return no rows when the extra is missing or the command line could not be
+collected; the rest of the trace is unaffected.
 
 ## Tips for Writing Queries
 

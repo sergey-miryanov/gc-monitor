@@ -39,6 +39,12 @@
 - Add `docs/README.md` as the documentation index
 - Fix the screenshot URLs so they render on the PyPI project page
 - Add a `Documentation` project URL pointing at `docs/README.md`
+- Document where process command lines are carried in a Perfetto trace
+  (`ProcessDescriptor.cmdline`, the process track `description`, and the
+  `debug.cmdline` annotation on the `Processes` track), with SQL examples for
+  the two that the trace processor exposes. They were previously described only
+  as UI tooltips
+- Document the `Start Process` instant marker emitted on each process track
 
 ### CI / Infrastructure
 

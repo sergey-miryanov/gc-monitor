@@ -24,7 +24,7 @@ pip install gcmon[cmdline]
 ```
 
 When this extra is installed:
-- The Perfetto exporter reads the command line of each monitored process and includes it in the trace. This appears as a tooltip in the Perfetto UI.
+- The Perfetto exporter reads the command line of each monitored process and records it in the trace, where it labels the process track and is queryable from SQL — see [Process command lines](formats.md#process-command-lines).
 - RSS tracking (`--rss`) can sample Resident Set Size via `psutil.Process(pid).memory_info().rss`.
 
 Without this extra, the `cmdline` field is omitted and `--rss` is silently ignored (an info log is emitted at startup). All other trace data is unaffected.
