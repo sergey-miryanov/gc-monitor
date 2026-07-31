@@ -239,7 +239,7 @@ below.
 
 ### Example: Chrome Trace Output
 
-<img src="docs/images/chrome-trace-example.png" alt="Chrome Trace Example" width="800">
+<img src="https://raw.githubusercontent.com/sergey-miryanov/gcmon/main/docs/images/chrome-trace-example.png" alt="Chrome Trace Example" width="800">
 
 *Example: GC monitoring data visualized in Perfetto UI showing:*
 - *Process tracks with command line tooltips (requires `[cmdline]` extra)*
@@ -481,7 +481,7 @@ The hook collects and reports the following GC metrics in pyperf metadata:
 
 When you run a pyperf benchmark with the gcmon hook, you can visualize the GC activity alongside the benchmark execution in Perfetto:
 
-<img src="docs/images/perfetto-pyperf-example.png" alt="Perfetto Pyperf Example" width="800">
+<img src="https://raw.githubusercontent.com/sergey-miryanov/gcmon/main/docs/images/perfetto-pyperf-example.png" alt="Perfetto Pyperf Example" width="800">
 
 *Example: Pyperf benchmark trace visualized in Perfetto showing:*
 - *Multiple benchmark worker processes running in parallel*
