@@ -15,7 +15,6 @@ from gcmon.data import GCStatsInfo
 from gcmon.exporters.perfetto_format import (
     PerfettoTrackState,
     TrackEventType,
-    _clip_spans_to_laminar,
     build_trace,
     build_trace_packet,
     build_track_descriptor,
@@ -23,6 +22,7 @@ from gcmon.exporters.perfetto_format import (
     convert_trace_events_to_perfetto,
     finalize_perfetto_packets,
 )
+from gcmon.exporters.perfetto_process_lifetime import _clip_spans_to_laminar
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.trace_event import TraceEvent, counter_event, instant_event, process_meta, thread_meta
 

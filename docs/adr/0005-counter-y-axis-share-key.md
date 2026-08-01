@@ -77,11 +77,13 @@ minimal.
 
 ## Implementation
 
-- `src/gcmon/exporters/perfetto_format.py:93`, `CounterDescriptorField.Y_AXIS_SHARE_KEY = 7`.
-- `:408-416`, the emit logic in `build_track_descriptor`: populated submessage when the
-  key is truthy, empty submessage otherwise, nothing at all when `is_counter=False`.
-- `:800`, `y_axis_share_key=metric` on the grouped branch; the top-level branch at
-  `:780-786` omits it.
-- Tests: `tests/exporters/test_perfetto_format.py:315-380` (field-8 nesting, empty-submessage
-  fallback, non-counter ignore, empty-string normalization, only-field-7 guard);
+- `src/gcmon/exporters/perfetto_proto.py`, `CounterDescriptorField.Y_AXIS_SHARE_KEY = 7`.
+- `src/gcmon/exporters/perfetto_builders.py`, the emit logic in `build_track_descriptor`:
+  populated submessage when the key is truthy, empty submessage otherwise, nothing at all
+  when `is_counter=False`.
+- `src/gcmon/exporters/perfetto_format.py`, `_emit_counter_track_descriptor`, which passes
+  `y_axis_share_key=metric` on the grouped branch and omits it on the top-level branch.
+- Tests: `tests/exporters/test_perfetto_format.py`, `test_y_axis_share_key_emitted_at_field_8`
+  and its neighbours (empty-submessage fallback, non-counter ignore, empty-string
+  normalization, only-field-7 guard);
   `tests/exporters/test_perfetto_exporter_integration.py:547-595` (the `xfail`'d SQL pair).

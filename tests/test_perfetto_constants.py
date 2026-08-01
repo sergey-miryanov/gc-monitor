@@ -11,7 +11,7 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
     TrackEvent,
 )
 
-from gcmon.exporters.perfetto_format import (
+from gcmon.exporters.perfetto_proto import (
     ChildTracksOrdering,
     CounterDescriptorField,
     DebugAnnotationField,

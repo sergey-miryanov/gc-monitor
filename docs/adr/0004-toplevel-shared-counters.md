@@ -76,7 +76,7 @@ per-pause from the slice `args` table.
 - `src/gcmon/exporters/trace_converter.py:50-56`, per-generation `counter_data`, without
   `heap_size`.
 - `:281-289`, the separate consolidated `heap_size` counter event.
-- `src/gcmon/exporters/perfetto_format.py:169`, `_TOPLEVEL_COUNTER_METRICS`.
+- `src/gcmon/exporters/perfetto_format.py`, `_TOPLEVEL_COUNTER_METRICS`.
 - `:775-787`, the top-level branch, parenting directly to the process track.
 - `src/gcmon/exporters/encoder.py`, where `JsonEventEncoder` blanks the name of single-arg
   counter events so Chrome does not derive a doubled track name.

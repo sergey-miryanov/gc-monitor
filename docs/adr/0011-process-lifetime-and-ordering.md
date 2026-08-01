@@ -163,18 +163,24 @@ leaving spans comparable only across traces captured the same way.
 
 ## Implementation
 
-- `src/gcmon/exporters/perfetto_format.py:194`, `_PROCESS_LIFETIME_TRACK_NAME = "Processes"`.
-- `:52-53`, `PROCESS_ORDERING = 19`, `THREAD_ORDERING = 20`. Fields 6 and 7 on the same
-  message are `chrome_process` and `chrome_thread`, so a wrong number writes a different
-  message and fails silently ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)).
-- `PerfettoTrackState.update_process_lifetime`, the span accumulator; its `extends_end` flag
+- `src/gcmon/exporters/perfetto_process_lifetime.py` holds this decision:
+  `_PROCESS_LIFETIME_TRACK_NAME = "Processes"`, the three `_emit_process_lifetime_*`
+  functions, `_record_process_lifetime`, `_clip_spans_to_laminar` and
+  `finalize_perfetto_packets`.
+- `src/gcmon/exporters/perfetto_proto.py`, `TrackDescriptorField.PROCESS_ORDERING = 19` and
+  `THREAD_ORDERING = 20`. Fields 6 and 7 on the same message are `chrome_process` and
+  `chrome_thread`, so a wrong number writes a different message and fails silently
+  ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)).
+- `src/gcmon/exporters/perfetto_track_state.py`,
+  `PerfettoTrackState.update_process_lifetime`, the span accumulator; its `extends_end` flag
   is where the counter carve-out lives. `pop_process_lifetimes` applies the sort order the
   sweep depends on and drains once, so `finalize_perfetto_packets` is safe to call twice.
-- `_clip_spans_to_laminar`, the stack sweep. It carries each span's observed start and end
+  `get_process_track_ranks` sorts by `(start_ts, pid)`.
+- `_clip_spans_to_laminar`, the stack sweep, carries each span's observed start and end
   through untouched alongside the drawn ones, so the emission site can annotate every slice
   without knowing which fields the sweep may have moved.
-- `finalize_perfetto_packets`, the single emission point; `_emit_root_descriptor`, guarded by
-  `has_root_descriptor`; `get_process_track_ranks()`, sorting by `(start_ts, pid)`.
+- `src/gcmon/exporters/perfetto_format.py`, `_emit_root_descriptor`, guarded by
+  `has_root_descriptor`.
 - `tests/exporters/test_perfetto_format.py`: `TestClipSpansToLaminar` covers the sweep
   directly at full statement and branch coverage; `TestProcessLifetimeLaminarClipping` covers
   the same shapes through `finalize_perfetto_packets` and additionally checks the emitted

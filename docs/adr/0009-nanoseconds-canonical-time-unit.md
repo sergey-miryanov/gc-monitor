@@ -69,8 +69,8 @@ looking at bytes on disk.
 - `src/gcmon/data.py:53-55`, `ts_to_us`, now called only by the JSON encoder.
 - `src/gcmon/exporters/encoder.py:72-74`, the ns→µs conversion in
   `JsonEventEncoder.write_events`.
-- `src/gcmon/exporters/perfetto_format.py:887,944`, `event.ts` passed straight to
-  `timestamp=`.
+- `src/gcmon/exporters/perfetto_format.py`, `convert_trace_events_to_perfetto`, where every
+  branch passes `event.ts` straight to `timestamp=`.
 - Tests: `tests/test_time.py:5-12`;
   `tests/exporters/test_chrome_trace_format.py:183`
   (`test_preserves_timestamps_in_nanoseconds`);

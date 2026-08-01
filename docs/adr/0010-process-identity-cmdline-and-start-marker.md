@@ -87,11 +87,15 @@ atomic `_build_meta` guarantees that happens exactly once.
 
 ## Implementation
 
-- `src/gcmon/exporters/perfetto_format.py:79-83`, `ProcessDescriptorField`
+- `src/gcmon/exporters/perfetto_proto.py`, `ProcessDescriptorField`
   (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`); `TrackDescriptorField.DESCRIPTION = 14`.
-- `:186`, `_START_PROCESS_INSTANT_NAME = "Start Process"`; `:634`, its emission.
-- `:651-680`, `_emit_process_lifetime_slice_begin`, whose docstring records that cmdline
-  is the only debug annotation emitted here.
+- `src/gcmon/exporters/perfetto_format.py`, `_START_PROCESS_INSTANT_NAME = "Start Process"`,
+  emitted by `_emit_start_process_marker` and driven by `_maybe_emit_start_process_marker`.
+- `src/gcmon/exporters/perfetto_process_lifetime.py`,
+  `_emit_process_lifetime_slice_begin`, which puts the cmdline on the `Processes` slice
+  alongside the `real_start_ts` / `real_end_ts` annotations
+  ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 - `src/gcmon/exporters/encoder.py:113`, the lazy `import psutil` in
   `_default_cmdline_provider`; `:126`, `_ensure_cmdline`.
-- `PerfettoTrackState.set_cmdline` / `get_cmdline` (`perfetto_format.py:228-232`).
+- `src/gcmon/exporters/perfetto_track_state.py`, `PerfettoTrackState.set_cmdline` /
+  `get_cmdline`.

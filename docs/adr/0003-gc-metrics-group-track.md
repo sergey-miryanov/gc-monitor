@@ -72,7 +72,7 @@ shifts the ranks below it, which is fine: only the relative order matters.
 
 ## Implementation
 
-- `src/gcmon/exporters/perfetto_format.py:177`, `_COUNTER_GROUP_NAME = "GC Metrics"`.
+- `src/gcmon/exporters/perfetto_format.py`, `_COUNTER_GROUP_NAME = "GC Metrics"`.
 - `:728-752`, `_emit_counter_group_descriptor`, emitted once per `(pid, iid)`, with the
   docstring recording *why* the group is a plain custom track.
 - `:150-162`, `_COUNTER_RANKS`.

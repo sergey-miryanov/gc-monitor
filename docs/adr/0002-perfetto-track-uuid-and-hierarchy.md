@@ -74,7 +74,8 @@ with it.
 
 ## Implementation
 
-- `src/gcmon/exporters/perfetto_format.py:209-214`, `_next_uuid = 1` and `_alloc_uuid`.
+- `src/gcmon/exporters/perfetto_track_state.py`, `PerfettoTrackState._next_uuid` seeded to
+  `1` and `_alloc_uuid`.
 - `:234`, `:239`, `get_process_track_uuid` and `get_thread_track_uuid` (lazy, memoized).
 - `:79-83`, `ProcessDescriptorField` (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`,
   `START_TIMESTAMP_NS = 7`); the sub-message itself is written at `TrackDescriptor` field 3.

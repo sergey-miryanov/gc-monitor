@@ -92,7 +92,7 @@ the 0.1 s GC poll rate.
   `_sample`; `:79`, `_default_rss_sampler`, catching `NoSuchProcess` / `AccessDenied`.
 - `src/gcmon/exporters/_buffered_exporter.py:18`, `_RSS_TID = -1`; `:61`, the `iid >= 0`
   guard in `_build_meta`; `:77-82`, `add_rss_sample`.
-- `src/gcmon/exporters/perfetto_format.py:169`, `"rss"` in `_TOPLEVEL_COUNTER_METRICS`.
+- `src/gcmon/exporters/perfetto_format.py`, `"rss"` in `_TOPLEVEL_COUNTER_METRICS`.
 - `src/gcmon/monitor_loop.py:62-67`, live-pid collection then `tick`;
   `src/gcmon/commands/monitoring_base.py:58`, construction.
 - `src/gcmon/_env.py:209,221`, `get_env_rss` and `get_env_rss_interval`.

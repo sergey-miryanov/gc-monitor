@@ -1,7 +1,7 @@
 # ADR-0001: Hand-roll the Perfetto protobuf encoder; keep `perfetto` out of the runtime dependency tree
 
 - **Status:** Accepted
-- **Date:** 2026-06-08
+- **Date:** 2026-06-08 (`perfetto_format.py` split into five modules 2026-08-01)
 
 ## Context
 
@@ -27,10 +27,26 @@ decision has to address.
 
 ## Decision
 
-The production encoder is hand-rolled. `src/gcmon/exporters/protobuf_encoder.py` holds
-the wire primitives; `src/gcmon/exporters/perfetto_format.py` holds the message builders.
-The `perfetto` package is a **dev-only** dependency, used exclusively on the read side in
-tests (see [ADR-0014](0014-perfetto-integration-test-strategy.md)).
+The production encoder is hand-rolled, and the `perfetto` package is a **dev-only**
+dependency used exclusively on the read side in tests
+(see [ADR-0014](0014-perfetto-integration-test-strategy.md)).
+
+It is layered across six modules in `src/gcmon/exporters/`, each importing only from ones
+above it:
+
+| Module | Holds |
+|--------|-------|
+| `protobuf_encoder.py` | varint and length-delimited wire primitives |
+| `perfetto_proto.py` | field numbers and enum values, nothing else |
+| `perfetto_track_state.py` | uuid allocation and per-trace bookkeeping |
+| `perfetto_builders.py` | message builders, pure values in and bytes out |
+| `perfetto_process_lifetime.py` | the shared `Processes` track ([ADR-0011](0011-process-lifetime-and-ordering.md)) |
+| `perfetto_format.py` | track layout policy, the conversion pass, and the re-exports importers use |
+
+**The direction must stay acyclic.** It is what keeps the wire-format layer small enough to
+audit against upstream Perfetto, which is the reason for hand-rolling at all. Refuse an
+import that points the other way, such as `perfetto_builders` reaching for a layout
+constant.
 
 Three rules make this safe:
 
@@ -69,6 +85,11 @@ the runtime tree. Sub-messages are built field-by-field using the local encoder 
   trace, both encoders produced identical output (162,793 bytes, zero differences), and
   the trace processor reported matching rows across the `track`, `process`, `thread`,
   `slice`, and `counter` tables.
+- **Prove a no-behaviour-change refactor by comparing emitted bytes, not by a green
+  suite.** Some tests assert packets are present without asserting order, and order is
+  load-bearing on the `Processes` track. Pass an explicit `sequence_id`, or the default
+  `id(self) & 0x7FFFFFFF` changes every run and swamps the comparison. This is how the
+  five-module split was verified.
 
 ## Alternatives considered
 
@@ -86,11 +107,10 @@ the runtime tree. Sub-messages are built field-by-field using the local encoder 
 
 - `src/gcmon/exporters/protobuf_encoder.py:21`, `encode_varint`, with 64-bit sign
   extension for negative values; `:44`, `encode_varint_field`.
-- `src/gcmon/exporters/perfetto_format.py`, the field enums (`TrackDescriptorField` at
-  `:50-53`, `CounterDescriptorField.Y_AXIS_SHARE_KEY` at `:93`,
-  `ProcessDescriptorField` at `:79-83`, `DebugAnnotationField.NAME = 10` at `:108-115`
-  with its warning comment).
-- `src/gcmon/exporters/perfetto_format.py:324`, `build_track_descriptor`, which builds
-  each sub-message field-by-field.
+- `src/gcmon/exporters/perfetto_proto.py`, every field enum: `TrackDescriptorField`,
+  `CounterDescriptorField.Y_AXIS_SHARE_KEY`, `ProcessDescriptorField`, and
+  `DebugAnnotationField.NAME = 10` with its warning comment.
+- `src/gcmon/exporters/perfetto_builders.py`, `build_track_descriptor`, which builds each
+  sub-message field-by-field.
 - Wire-level regression tests: `tests/exporters/test_perfetto_format.py` (assertions on
   raw field numbers and wire types, not round-trips).
