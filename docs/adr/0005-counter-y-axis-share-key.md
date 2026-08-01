@@ -83,7 +83,8 @@ minimal.
   when `is_counter=False`.
 - `src/gcmon/exporters/perfetto_format.py`, `_emit_counter_track_descriptor`, which passes
   `y_axis_share_key=metric` on the grouped branch and omits it on the top-level branch.
-- Tests: `tests/exporters/test_perfetto_format.py`, `test_y_axis_share_key_emitted_at_field_8`
+- Tests: `tests/exporters/test_perfetto_builders.py`, `test_y_axis_share_key_emitted_at_field_8`
   and its neighbours (empty-submessage fallback, non-counter ignore, empty-string
-  normalization, only-field-7 guard);
+  normalization, only-field-7 guard); `tests/exporters/test_perfetto_counter_tracks.py` for
+  the same values as reached through a convert pass;
   `tests/exporters/test_perfetto_exporter_integration.py:547-595` (the `xfail`'d SQL pair).

@@ -1,7 +1,7 @@
 # ADR-0001: Hand-roll the Perfetto protobuf encoder; keep `perfetto` out of the runtime dependency tree
 
 - **Status:** Accepted
-- **Date:** 2026-06-08 (`perfetto_format.py` split into five modules 2026-08-01)
+- **Date:** 2026-06-08 (`perfetto_format.py` split into five modules, and its tests to match, 2026-08-01)
 
 ## Context
 
@@ -47,6 +47,12 @@ above it:
 audit against upstream Perfetto, which is the reason for hand-rolling at all. Refuse an
 import that points the other way, such as `perfetto_builders` reaching for a layout
 constant.
+
+`tests/exporters/` carries a `test_` module per row, importing from the module that owns
+each symbol rather than through the `perfetto_format` re-exports, so a test failure names
+the layer. Two subjects that `perfetto_format.py` implements are large enough to get their
+own files anyway: `test_perfetto_ordering.py` and `test_perfetto_counter_tracks.py`.
+Helpers shared by more than one of them live in `tests/exporters/perfetto_helpers.py`.
 
 Three rules make this safe:
 
@@ -112,5 +118,7 @@ the runtime tree. Sub-messages are built field-by-field using the local encoder 
   `DebugAnnotationField.NAME = 10` with its warning comment.
 - `src/gcmon/exporters/perfetto_builders.py`, `build_track_descriptor`, which builds each
   sub-message field-by-field.
-- Wire-level regression tests: `tests/exporters/test_perfetto_format.py` (assertions on
-  raw field numbers and wire types, not round-trips).
+- Wire-level regression tests: `tests/exporters/test_perfetto_builders.py` (assertions on
+  raw field numbers and wire types, not round-trips), and
+  `tests/exporters/test_perfetto_proto.py`, which reads the numbers back out of the
+  `perfetto` package's generated descriptors rather than trusting our own.

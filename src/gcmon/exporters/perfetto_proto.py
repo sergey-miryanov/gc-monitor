@@ -2,7 +2,7 @@
 
 Hand-maintained against Perfetto's ``.proto`` files (ADR-0001). A wrong
 number writes a different message and fails silently, so
-``tests/test_perfetto_constants.py`` guards this module.
+``tests/exporters/test_perfetto_proto.py`` guards this module.
 """
 
 from enum import IntEnum

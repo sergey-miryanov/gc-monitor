@@ -181,10 +181,12 @@ leaving spans comparable only across traces captured the same way.
   without knowing which fields the sweep may have moved.
 - `src/gcmon/exporters/perfetto_format.py`, `_emit_root_descriptor`, guarded by
   `has_root_descriptor`.
-- `tests/exporters/test_perfetto_format.py`: `TestClipSpansToLaminar` covers the sweep
-  directly at full statement and branch coverage; `TestProcessLifetimeLaminarClipping` covers
-  the same shapes through `finalize_perfetto_packets` and additionally checks the emitted
-  BEGIN/ENDs form a well-formed stack; `TestProcessLifetimeState` for the accumulator.
+- `tests/exporters/test_perfetto_process_lifetime.py`: `TestClipSpansToLaminar` covers the
+  sweep directly at full statement and branch coverage; `TestProcessLifetimeLaminarClipping`
+  covers the same shapes through `finalize_perfetto_packets` and additionally checks the
+  emitted BEGIN/ENDs form a well-formed stack. `TestProcessLifetimeState` for the accumulator
+  is in `tests/exporters/test_perfetto_track_state.py`, next to the class it exercises.
+  Ranking and `start_timestamp_ns` are in `tests/exporters/test_perfetto_ordering.py`.
 - `tests/exporters/test_perfetto_exporter_integration.py`: `TestCrossingProcessSpans` asserts
   `misplaced_end_event == 0` against a deliberately crossing trace,
   `TestZeroDurationProcessSpans` that a same-ts BEGIN/END is paired rather than orphaned and

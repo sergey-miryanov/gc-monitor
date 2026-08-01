@@ -76,7 +76,7 @@ _START_PROCESS_MARKER_NAME: str = "Start Process"
 # Name of the shared top-level Perfetto track that holds one slice per
 # pid spanning the first-to-last non-meta event timestamps for that
 # pid. Must match ``_PROCESS_LIFETIME_TRACK_NAME`` in
-# ``gcmon.exporters.perfetto_format``.
+# ``gcmon.exporters.perfetto_process_lifetime``.
 _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
 
 
@@ -613,7 +613,7 @@ class TestCounterYAxisShareKey:
     ``CounterDescriptor``.
 
     The wire-level tests in ``TestCounterTrackYAxisShareKey``
-    (``test_perfetto_format.py``) are the source of truth for the
+    (``test_perfetto_counter_tracks.py``) are the source of truth for the
     values. This class is a forward-looking check that the values also
     survive the round-trip through the Perfetto trace processor into
     the ``counter_track`` SQL table.
@@ -1283,7 +1283,7 @@ class TestProcessOrderingIntegration:
     """Schema-validity guard for the new root track descriptor and the
     per-process ``sibling_order_rank`` field.
 
-    The wire-level tests in ``TestProcessOrderingByFirstTs`` (test_perfetto_format.py)
+    The wire-level tests in ``TestProcessOrderingByFirstTs`` (test_perfetto_ordering.py)
     are the source of truth for the rank values; this class verifies that the
     Perfetto trace processor accepts the new protobuf layout (root descriptor
     with ``process_ordering`` / ``thread_ordering`` and process descriptors

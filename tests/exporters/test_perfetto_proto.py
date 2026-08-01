@@ -1,4 +1,9 @@
-"""Validate ``perfetto_format`` constants match the actual protobuf schema."""
+"""Validate ``perfetto_proto`` field numbers against the real protobuf schema.
+
+Every other Perfetto test asserts on bytes gcmon itself wrote, so a wrong
+field number would agree with itself. These read the numbers out of the
+``perfetto`` package's generated descriptors instead.
+"""
 
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
     CounterDescriptor,
@@ -27,7 +32,7 @@ from gcmon.exporters.perfetto_proto import (
 )
 
 
-class TestPerfettoFormatConstants:
+class TestPerfettoProtoConstants:
     def test_trace_field(self) -> None:
         desc = Trace.DESCRIPTOR
         assert desc is not None

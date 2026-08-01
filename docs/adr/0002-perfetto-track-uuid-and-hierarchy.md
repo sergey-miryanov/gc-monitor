@@ -82,6 +82,7 @@ with it.
 - `:705-725`, `_emit_thread_descriptor`: `parent_uuid` = process track,
   `sibling_order_rank = 0`, no `child_ordering`.
 - `:324`, `build_track_descriptor`, which omits `parent_uuid` when it is `None`.
-- Tests: `tests/exporters/test_perfetto_format.py`,
+- Tests: `tests/exporters/test_perfetto_track_state.py` for uuid allocation,
+  `tests/exporters/test_perfetto_format.py` for the emitted hierarchy,
   `tests/exporters/test_perfetto_exporter_integration.py` (the trace-processor `track`
   table assertions confirm the parent links survive parsing).
