@@ -73,13 +73,19 @@ is not something the wire format lets us pin down. Sorting longer-span-first on 
 starts is what makes this safe: two spans with the same start always nest, so a clip only
 happens when `A.start < B.start`, and `B.start - 1` therefore never lands before `A.start`.
 
-**A clipped slice carries a `clipped_from_ts` debug annotation** on its BEGIN, holding the
-end it would have had. The rendering loses the truth; the trace does not.
+**Every slice carries `real_start_ts` and `real_end_ts` debug annotations** on its BEGIN,
+holding the span as observed. They go on *every* slice, not only clipped ones, so a
+consumer reads the observed span the same way regardless of what the drawing had to give
+up — no annotation-present check, no branch. The slice's own `ts` and `dur` are what could
+be drawn; where the two disagree, the annotations are the truth.
 
-**A span that ends up zero-length is dropped entirely** — no BEGIN, no END — and logged at
-debug. That covers a pid observed at a single instant and a pid clipped down to nothing. A
-zero-duration slice renders as an instant and would claim a lifetime the trace cannot
-support.
+**No span is ever dropped.** A pid observed at a single instant, and a pid clipped down to
+nothing, both still get a BEGIN/END pair — a zero-duration slice, which the trace processor
+accepts and reports as `dur = 0`. Drawing a hairline overstates nothing: the drawn duration
+is the *lower* bound and the annotations carry the real one. Dropping the slice, by
+contrast, removes the only record that the process was monitored at all, and an absence is
+the one distortion a reader has no way to detect. Between a slice that is hard to see and a
+process that is impossible to find, the first is the lesser failure.
 
 **Counter events are excluded from the end timestamp**, though not from the start. The span
 means *the range over which gcmon observed GC activity*, not *the range over which the
@@ -88,22 +94,47 @@ on their own 1 Hz schedule with no GC work behind them, and letting them extend 
 would report sampler liveness as monitoring coverage. The span is
 `[first non-meta event, last Begin/End/Instant event]`.
 
+**This carve-out is provisional, and the two ends do not currently agree.** The start is a
+minimum over *every* non-meta event, counters included, so it already means "first evidence
+the process existed"; only the end means "last GC activity". When monitor-reported lifetime
+lands, liveness becomes the definition of the whole span, and an RSS sample is evidence of
+it on exactly the same footing as the monitor's own observation — both say *this process
+existed at time T* with no GC behind them, and admitting one while rejecting the other would
+be arbitrary. The carve-out is then expected to be **removed** rather than extended to the
+start, making the span `[first observed event, last observed event]`. Two things to weigh
+when that happens: the end would land within one sample interval of a process's death rather
+than at its last collection, which is the point; and a `--rss` run would report a wider span
+than a non-`--rss` run of the same workload, which is honest — more was observed — but means
+spans are only comparable across traces captured the same way.
+
 ## Consequences
 
 - You can see each monitored process's lifetime at a glance and compare across processes.
 - Traces are reproducible: the same events in a different input order produce the same
   ranks.
-- **A clipped slice under-reports how long the process was observed**, and the more
-  processes run concurrently with staggered starts, the more of them get clipped. In the
-  limit — many siblings, all crossing — the track degenerates into a row of slivers. This
-  is the price of one shared track; see the alternatives below for what the other prices
-  were.
+- **A clipped slice under-reports how long the process was observed**, and how badly
+  depends on how close together the starts are, not on how much the spans overlap. A clip
+  pulls the end back to `later.start - 1`, so a span crossed by one starting two seconds
+  later keeps a visible two-second stub, while the same span crossed by one starting a
+  microsecond later keeps a microsecond. Concurrent siblings that fan out from a single
+  fork loop start microseconds apart, so this is the normal case, not the limiting one:
+  1000 children with nanosecond start jitter and varying lifetimes retain **0.37%** of
+  their total observed duration on the track. `--rss` makes it likelier still, because
+  `RssSampler.tick` samples every live pid in one loop and counters move a span's start, so
+  every pid live in a given round starts within microseconds of every other one.
+- **Which sibling gets sacrificed is not meaningful.** Within an RSS round the sample order
+  is `set` iteration order, so the pid that ends up with the earliest start — and therefore
+  gets clipped — is decided by hash order rather than by anything about the processes.
+- **The drawn duration is a lower bound, never an upper one.** Both distortions the track
+  can apply — clipping an end, and drawing a zero-length span — shorten. A `Processes` slice
+  never claims more lifetime than gcmon observed, and `real_end_ts - real_start_ts` recovers
+  what it did observe. `docs/perfetto-sql.md` carries the query.
 - **Deaths are misreported as early, never as late.** Given the choice of which side of a
   crossing to distort, making a live process look dead is the safer error for a GC monitor
   than making a dead one look alive.
-- **There is not always one slice per pid.** Consumers must not join `Processes` slices to
-  pids one-to-one. `docs/perfetto-sql.md` carries a query for recovering observed durations
-  from `clipped_from_ts`.
+- **There is exactly one slice per pid that did GC work**, so consumers may join `Processes`
+  slices to pids one-to-one. A pid seen only through counters or only through meta events
+  still has none.
 - **`sibling_order_rank` is not exposed as a SQL column.** It is a UI rendering hint, so the
   trace-processor tests act as a *schema-validity guard*: they confirm the trace
   processor accepts the new layout and that the `process` and `track` tables survive
@@ -117,18 +148,36 @@ would report sampler liveness as monitoring coverage. The span is
   batch the pre-pass in `convert_trace_events_to_perfetto` folds every non-meta event into
   the span state *before* the main loop, so same-batch `ProcessMeta` still gets its rank.
 - A pid seen only through `ProcessMeta` / `ThreadMeta` gets no lifetime slice and no rank.
-- The `Processes` track descriptor is written after the slices that reference its uuid.
-  The trace processor accepts this; it resolves track references across the whole trace
-  rather than in file order.
+- The whole `Processes` block lands at the end of the file, after the events its slices
+  span. The descriptor leads the block, so it still precedes its own slices. The trace
+  processor accepts either arrangement; it resolves track references across the whole
+  trace rather than in file order.
 - Consumers enumerating slices must filter `track.name == 'Processes'`, as the equivalence
   test does, since these slices are Perfetto-only.
 
 ## Alternatives considered
 
 - **One lifetime track per pid**, which would represent crossing spans exactly, with no
-  clipping and no dropped slices. Rejected: gcmon is used on captures with hundreds to
-  thousands of processes, and a track per pid makes the timeline unreadable at that scale.
-  Parenting them to a collapsible group does not help; the row count is the problem.
+  clipping. Rejected: gcmon is used on captures with hundreds to thousands of processes,
+  and a track per pid makes the timeline unreadable at that scale. Parenting them to a
+  collapsible group does not help; the row count is the problem.
+- **Packing spans into lanes** — colouring the interval graph and giving each colour its own
+  track, so the row count is the maximum *concurrency* rather than the process *count*.
+  Strictly better than a track per pid: a pool of 8 workers running 1000 tasks needs 8 rows,
+  not 1000. Rejected because it does not address the shape that actually hurts. A fan-out of
+  N children alive at once has N mutually crossing intervals, so it needs N lanes — the same
+  unreadable timeline, reached by a longer route.
+- **Dropping a slice that ends up zero-length**, which was the original decision here.
+  Reversed: it optimised the rendering at the cost of the record. A hairline slice is hard
+  to see, but a missing one is impossible to find, and the pids most likely to be clipped to
+  nothing are exactly the short-lived children a reader is looking for. A drawn slice with
+  `real_*` annotations is legible to SQL whatever its width.
+- **Snapping near-equal starts together before the sweep**, converting a jittered fan-out
+  back into the nesting it almost is. Spans with exactly equal starts always nest, so this
+  would preserve every end truthfully at a cost of at most ε on each start — the 0.37%
+  above becomes 100%. Not adopted here, and still open: ε is a heuristic, nesting N deep
+  costs N rows of vertical space inside the track rather than N tracks, and neither the
+  trace processor's nor the UI's behaviour at that depth has been measured.
 - **Extending the earlier span's end instead of clipping it**, so the later span nests
   inside it. Rejected: it makes a dead process look alive, and the resulting nesting implies
   a parent/child relationship between pids that may not exist.
@@ -155,17 +204,23 @@ would report sampler liveness as monitoring coverage. The span is
   `extends_end` flag is where the counter carve-out lives.
 - `PerfettoTrackState.pop_process_lifetimes`, which applies the sort order the sweep
   depends on and drains once so `finalize_perfetto_packets` is safe to call twice.
-- `_clip_spans_to_laminar`, the stack sweep.
+- `_clip_spans_to_laminar`, the stack sweep. It carries each span's observed start and end
+  through untouched alongside the drawn ones, so the emission site annotates every slice
+  without needing to know which fields the sweep may have moved.
 - `finalize_perfetto_packets`, the single emission point at encoder close.
 - `_emit_root_descriptor`, guarded by `has_root_descriptor` so it fires once.
 - `get_process_track_ranks()`, sorting by `(start_ts, pid)`.
 - Tests: `tests/exporters/test_perfetto_format.py`,
   `TestProcessLifetimeLaminarClipping` (crossing, containment, disjoint, touching, equal
-  starts, a span crossed by two later spans, zero-length drops, and a randomized property
-  test asserting the output is always laminar); `TestProcessLifetimeState` for the span
-  accumulator; `TestConvertItemToPerfettoPackets::test_no_closeout_emitted_during_convert`.
+  starts, a span crossed by two later spans, both zero-length cases, and a randomized
+  property test asserting the output is always laminar, that no pid is ever dropped, and
+  that an end is only ever pulled in); `TestProcessLifetimeState` for the span accumulator;
+  `TestConvertItemToPerfettoPackets::test_no_closeout_emitted_during_convert`.
   `tests/exporters/test_perfetto_exporter_integration.py`, `TestCrossingProcessSpans`
-  (asserts `misplaced_end_event == 0` against a deliberately crossing trace) and
+  (asserts `misplaced_end_event == 0` against a deliberately crossing trace),
+  `TestZeroDurationProcessSpans` (a pid seen at a single instant and a pid clipped to
+  nothing; asserts the trace processor pairs a same-ts BEGIN/END rather than orphaning the
+  END, reports `dur = 0`, and keeps a slice for all three pids), and
   `TestProcessesTrack::test_slice_per_pid`, which asserts per-pid timestamps rather than
   just the row count;
   `TestMultiFlushProcessesTrack::test_slice_end_is_last_event_ts` forces many flushes with

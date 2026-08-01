@@ -14,12 +14,12 @@ flag itself.
 - *GC Pause slices with sub-step breakdown (Mark Alive, Fill increment, Deduce Unreachable, etc.)*
 - *Per-gen `G{gen}` counter tracks (`collected`, `candidates`, `duration`, `uncollectable`)*
 - *Shared `heap_size` top-level counter*
-- *`Processes` track — a minimap of the run, one slice per monitored process*
+- *`Processes` track — a minimap of the run, one slice per monitored process that did GC work (read durations from its annotations, not its width)*
 - *`rss` counter track (when `--rss` is enabled) showing Resident Set Size per PID*
 
 Perfetto features:
 - **Counter Y-axis sharing**: Same metric names share Y-axis across generations (e.g., `G0 collected`, `G1 collected`, `G2 collected` all on one axis).
-- **`Processes` track**: A minimap of the run — one slice per monitored process, spanning its first event to its last, so you can see at a glance which processes were alive when and where they overlap. The track is named `Processes`; that is the name to filter on in SQL.
+- **`Processes` track**: A minimap of the run — one slice per monitored process that did GC work, so you can see at a glance which processes were active when. The track is named `Processes`; that is the name to filter on in SQL. Every process gets exactly one slice, so these join to pids one-to-one. **A slice's width is a lower bound on the observed lifetime, not the lifetime itself.** Every process shares this one track, and slices on a Perfetto track have to nest, so where two spans overlap without nesting the earlier one is cut short to let the later one through — sometimes to nothing, leaving a zero-duration slice. Every slice therefore carries `real_start_ts` and `real_end_ts` annotations holding the span as observed, whether it was cut or not; see [Perfetto SQL](perfetto-sql.md) for reading them. The cut can be severe when processes start close together, which is normal for a fan-out of children, so prefer the annotations to the drawing whenever the number matters.
 - **Process ordering**: Tracks are ordered by first event timestamp, so the earliest-starting process appears at the top.
 - **Process command lines**: With the [`[cmdline]` extra](rss.md#the-cmdline-extra), each monitored process's command line is written to the trace — see [Process command lines](#process-command-lines) below.
 - **`Start Process` marker**: A zero-duration instant event named `Start Process` is emitted on each process track at that process's first event. Perfetto hides a track that carries no events, so this guarantees the process track and its label always render. It is Perfetto-only; consumers that enumerate slices should filter it out.

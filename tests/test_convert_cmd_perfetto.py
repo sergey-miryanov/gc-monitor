@@ -574,6 +574,9 @@ class TestCombineChromePerfettoEquivalenceIntegration:
             # - in perfetto: keys with the "debug." prefix
             # The chrome `name` key (the slice name as an arg) is not
             # emitted as a debug annotation and is also filtered.
+            # The last three are ours, not synthetic: they are the
+            # annotations on the Perfetto-only "Processes" track, which
+            # has no Chrome counterpart to compare against.
             _EXCLUDED_PERFETTO = {
                 "sibling_order_rank",
                 "is_root_in_scope",
@@ -582,6 +585,8 @@ class TestCombineChromePerfettoEquivalenceIntegration:
                 "trace_id",
                 "track_uuid",
                 "cmdline",
+                "real_start_ts",
+                "real_end_ts",
             }
             args_chrome = {
                 r.flat_key: r.int_value

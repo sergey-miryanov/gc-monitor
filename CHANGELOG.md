@@ -4,8 +4,8 @@
 
 ### Bugfixes
 
-- Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting; a shortened slice records its real end in a `clipped_from_ts` annotation
-- Omit the `Processes` slice for a process observed at a single instant instead of drawing it with zero duration
+- Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting
+- Every `Processes` slice now records the span gcmon observed in `real_start_ts` / `real_end_ts` annotations; the drawn duration is a lower bound, and no process is left off the track, including one observed at a single instant
 
 ## Version 0.4.0 (2026-07-31)
 

@@ -113,7 +113,8 @@ SELECT
     s.ts,
     s.dur,
     EXTRACT_ARG(s.arg_set_id, 'debug.cmdline') AS cmdline,
-    EXTRACT_ARG(s.arg_set_id, 'debug.clipped_from_ts') AS clipped_from_ts
+    EXTRACT_ARG(s.arg_set_id, 'debug.real_end_ts')
+        - EXTRACT_ARG(s.arg_set_id, 'debug.real_start_ts') AS observed_dur
 FROM slice s
 JOIN track t ON s.track_id = t.id
 WHERE t.name = 'Processes'
@@ -123,26 +124,31 @@ ORDER BY s.ts
 Both return no rows when the extra is missing or the command line could not be
 collected; the rest of the trace is unaffected.
 
-Two things to know before treating `dur` on this track as an observed duration.
-Every pid's slice lives on the one `Processes` track, and slices on a single
-Perfetto track have to nest, so where two pids' spans cross, the earlier one's
-end is pulled back to just before the later one begins. A slice whose end moved
-carries `clipped_from_ts` holding the end it would otherwise have had, so
-`clipped_from_ts - s.ts` is the observed span and `s.dur` is only what could be
-drawn. And a pid whose span is a single instant, or which is clipped down to
-nothing, gets no slice at all, so do not assume one row per monitored pid:
+**Do not read `dur` on this track as an observed duration.** Every pid's slice
+lives on the one `Processes` track, and slices on a single Perfetto track have to
+nest, so where two pids' spans cross, the earlier one's end is pulled back to just
+before the later one begins. `s.dur` is what could be drawn; `real_start_ts` and
+`real_end_ts` are what gcmon observed. Both are on every slice, clipped or not, so
+the query is the same either way — and the difference can be total, since a span
+crossed by one starting a microsecond later is clipped to a microsecond.
+
+Every monitored process that did GC work gets exactly one slice, so you may join
+these to pids one-to-one. Some of them have `dur = 0`: a process observed at a
+single instant, or clipped down to nothing. They are drawn anyway, precisely so
+that the annotations below can be read off them.
 
 ```sql
 -- Processes whose drawn duration is shorter than what gcmon observed
 SELECT
     s.name,
     s.dur AS drawn_dur,
-    EXTRACT_ARG(s.arg_set_id, 'debug.clipped_from_ts') - s.ts AS observed_dur
+    EXTRACT_ARG(s.arg_set_id, 'debug.real_end_ts')
+        - EXTRACT_ARG(s.arg_set_id, 'debug.real_start_ts') AS observed_dur
 FROM slice s
 JOIN track t ON s.track_id = t.id
 WHERE t.name = 'Processes'
-  AND EXTRACT_ARG(s.arg_set_id, 'debug.clipped_from_ts') IS NOT NULL
-ORDER BY s.ts
+  AND observed_dur > s.dur
+ORDER BY observed_dur - s.dur DESC
 ```
 
 ## Tips for Writing Queries
