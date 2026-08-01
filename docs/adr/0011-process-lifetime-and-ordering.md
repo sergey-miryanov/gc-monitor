@@ -1,7 +1,9 @@
 # ADR-0011: Show process lifetimes on one shared track, ordered by first event
 
 - **Status:** Accepted
-- **Date:** 2026-06-27 (ordering added 2026-06-28; laminar clipping added 2026-07-31)
+- **Date:** 2026-06-27 (ordering added 2026-06-28; laminar clipping added 2026-07-31; emission
+  simplified to unnested BEGIN/END pairs 2026-08-01; sort moved into the sweep and the
+  once-per-trace guard made explicit 2026-08-02)
 
 ## Context
 
@@ -20,9 +22,10 @@ tracks only when the special root descriptor at `uuid = 0` carries
 and thread tracks, ordering is configured on the root rather than on the parent.
 
 **Crossing spans.** Putting every pid on one track has a constraint the original design
-missed: slices on a single Perfetto track are a *stack*. A `TYPE_SLICE_END` closes whatever
-is open, so a pair that merely crosses (A starts first, B starts inside A, B ends after A)
-cannot be expressed. Given pid 1111 `[100ms, 400ms]` and pid 2222 `[200ms, 600ms]`, the
+missed: slices on a single Perfetto track are a *stack*. A `TYPE_SLICE_END` force-closes
+everything stacked above the slice it closes, so a pair that merely crosses (A starts first,
+B starts inside A, B ends after A) cannot be expressed. Given pid 1111 `[100ms, 400ms]` and
+pid 2222 `[200ms, 600ms]`, the
 trace processor returns pid 2222 with a 200ms duration and reports `misplaced_end_event: 1`.
 The failure is quiet: the slice table still holds one row per pid, and only the durations are
 wrong. gcmon monitors a process *tree*, so any two siblings whose lifetimes overlap without
@@ -33,7 +36,8 @@ suite passed anyway.
 
 **A single shared top-level track named `Processes`** holds one
 `TYPE_SLICE_BEGIN`/`TYPE_SLICE_END` pair per pid, named `Process <pid>`, spanning that pid's
-first to last non-meta event.
+first non-meta event to its last non-counter one (the asymmetry is deliberate and provisional;
+see the counter carve-out below).
 
 - Parented to the trace root, so `parent_uuid` is **absent on the wire**, not `0`, which is
   the reserved root descriptor ([ADR-0002](0002-perfetto-track-uuid-and-hierarchy.md)).
@@ -59,11 +63,58 @@ could the END, since `BufferedTraceExporter` flushes in chunks of `flush_thresho
 **Spans are clipped to a laminar set.** Sorted by ascending start, ties broken by longer span
 first and then ascending pid, a stack sweep pulls each crossed span's end back to one
 nanosecond before the span that crosses it. Nesting is untouched, so a parent outliving its
-children costs nothing. Spans that merely touch (`A.end == B.start`) count as crossing,
-because the relative order of an END and a BEGIN sharing a timestamp is not something the
-wire format lets us pin down. Sorting longer-first on equal starts is what makes the clip
-safe: two spans with the same start always nest, so a clip only happens when
-`A.start < B.start`, and `B.start - 1` never lands before `A.start`.
+children costs nothing. Spans that merely touch (`A.end == B.start`) count as crossing when B
+extends past A, because the relative order of an END and a BEGIN sharing a timestamp is not
+something the wire format lets us pin down; a B that both starts and ends at `A.end` is nested,
+and is left alone. Sorting longer-first on equal starts is what makes the clip safe: two spans
+with the same start always nest, so a clip only happens when `A.start < B.start`, and
+`B.start - 1` never lands before `A.start`.
+
+**Each span is emitted as an adjacent BEGIN/END pair, not interleaved into stack order.** The
+trace processor sorts by timestamp and breaks ties by position in the sequence, so order
+decides anything only where events share a timestamp. Two ENDs at one timestamp need no rule,
+because gcmon names every END and the trace processor matches it to the BEGIN with that name
+rather than to the top of the stack, so an END cannot close the wrong slice. It does
+force-close anything sitting *above* the slice it matched, and that is what makes the other
+two collisions matter. Each is owned by one function and neither is optional: building the
+pair BEGIN-first is `_emit_process_lifetime_slice`'s job, because a zero-length span emitted
+END-first reads as `dur = -1`; putting the outer BEGIN of two spans sharing a start ahead of
+the inner is the sweep's, because `[(100, 2, 6), (101, 2, 3)]` emitted inner-first gives pid
+100 a duration of 1 instead of 4 plus a `misplaced_end_event`. Neither claim is argued: the
+fuzz suite below checks both against the trace processor. The sweep's sort is therefore
+load-bearing twice over — longer-first on a tie keeps the clip safe *and* orders these BEGINs —
+which is why `_clip_spans_to_laminar` sorts its own input rather than documenting the order as
+a precondition.
+
+The sweep and the emission order together, on the crossing shape from the Context plus a nested
+third process (in ns, so the clip lands on 199):
+
+```
+                100     200     300     400     500     600  ns
+observed
+  pid 1111      [=======================]
+  pid 2222              [===============================]
+  pid 3333              [=======]
+
+sorted by (start, -end, pid)      1111, then 2222 before 3333 -- tie on
+                                  start 200, longer span first
+
+after the sweep                   2222 crosses 1111, so 1111's end is pulled
+  pid 1111      [======]          back to 199; 3333 nests inside 2222 and is
+  pid 2222              [===============================]    left alone
+  pid 3333              [=======]
+
+emitted in that order, one adjacent pair per span
+  BEGIN 1111 @100   END 1111 @199
+  BEGIN 2222 @200   END 2222 @600
+  BEGIN 3333 @200   END 3333 @300
+        ^                    ^
+        |                    +- 199, not 200: the sweep clipped 1111 apart
+        |                       from the span that crosses it
+        +- 2222 and 3333 share start 200; the longer one is emitted first,
+           so 3333 opens inside it rather than outside. Reversed, 3333's
+           END would force-close 2222 along with it
+```
 
 **Every slice carries `real_start_ts` and `real_end_ts` debug annotations** on its BEGIN,
 holding the span as observed. They go on *every* slice, not only clipped ones, so a consumer
@@ -164,7 +215,7 @@ leaving spans comparable only across traces captured the same way.
 ## Implementation
 
 - `src/gcmon/exporters/perfetto_process_lifetime.py` holds this decision:
-  `_PROCESS_LIFETIME_TRACK_NAME = "Processes"`, the three `_emit_process_lifetime_*`
+  `_PROCESS_LIFETIME_TRACK_NAME = "Processes"`, the two `_emit_process_lifetime_*`
   functions, `_record_process_lifetime`, `_clip_spans_to_laminar` and
   `finalize_perfetto_packets`.
 - `src/gcmon/exporters/perfetto_proto.py`, `TrackDescriptorField.PROCESS_ORDERING = 19` and
@@ -173,20 +224,31 @@ leaving spans comparable only across traces captured the same way.
   ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)).
 - `src/gcmon/exporters/perfetto_track_state.py`,
   `PerfettoTrackState.update_process_lifetime`, the span accumulator; its `extends_end` flag
-  is where the counter carve-out lives. `pop_process_lifetimes` applies the sort order the
-  sweep depends on and drains once, so `finalize_perfetto_packets` is safe to call twice.
-  `get_process_track_ranks` sorts by `(start_ts, pid)`.
-- `_clip_spans_to_laminar`, the stack sweep, carries each span's observed start and end
-  through untouched alongside the drawn ones, so the emission site can annotate every slice
-  without knowing which fields the sweep may have moved.
+  is where the counter carve-out lives. `get_process_lifetimes` is a plain accessor; the
+  once-per-trace contract is a `_process_lifetime_emitted` flag that
+  `finalize_perfetto_packets` checks and sets, which is what makes it safe to call twice and
+  covers the non-idempotent track descriptor too. `get_process_track_ranks` sorts by
+  `(start_ts, pid)`.
+- `_emit_process_lifetime_track_descriptor` asserts on that flag rather than trusting its
+  caller: a second descriptor for one uuid is accepted silently, so nothing downstream would
+  report it.
+- `_clip_spans_to_laminar`, the stack sweep, sorts its input by `(start, -end, pid)` and
+  returns in that order. It also carries each span's observed start and end through untouched
+  alongside the drawn ones, so the emission site can annotate every slice without knowing
+  which fields the sweep may have moved.
 - `src/gcmon/exporters/perfetto_format.py`, `_emit_root_descriptor`, guarded by
   `has_root_descriptor`.
 - `tests/exporters/test_perfetto_process_lifetime.py`: `TestClipSpansToLaminar` covers the
   sweep directly at full statement and branch coverage; `TestProcessLifetimeLaminarClipping`
   covers the same shapes through `finalize_perfetto_packets` and additionally checks the
-  emitted BEGIN/ENDs form a well-formed stack. `TestProcessLifetimeState` for the accumulator
-  is in `tests/exporters/test_perfetto_track_state.py`, next to the class it exercises.
-  Ranking and `start_timestamp_ns` are in `tests/exporters/test_perfetto_ordering.py`.
+  emitted BEGIN/ENDs are ones the trace processor can pair up.
+  `TestProcessLifetimeState` for the accumulator is in
+  `tests/exporters/test_perfetto_track_state.py`, next to the class it exercises. Ranking and
+  `start_timestamp_ns` are in `tests/exporters/test_perfetto_ordering.py`.
+- `tests/exporters/test_perfetto_emission_order_fuzz.py`, marked `fuzz` and run by its own CI
+  job, settles the emission-order claims above against the real trace processor: paired
+  emission reads back exactly over random laminar span sets, and the orderings rejected here
+  are asserted to *break*, so the positive case cannot pass by ordering being irrelevant.
 - `tests/exporters/test_perfetto_exporter_integration.py`: `TestCrossingProcessSpans` asserts
   `misplaced_end_event == 0` against a deliberately crossing trace,
   `TestZeroDurationProcessSpans` that a same-ts BEGIN/END is paired rather than orphaned and

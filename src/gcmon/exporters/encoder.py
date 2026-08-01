@@ -131,6 +131,14 @@ class ProtobufEventEncoder:
             self._track_state.set_cmdline(pid, cmdline)
 
     def open(self, path: Path) -> None:
+        """Bind this encoder to *path*. One encoder writes one trace.
+
+        The track state is per-trace -- uuid allocation, descriptor dedup,
+        the ``Processes`` once-per-trace flag -- so a second trace would
+        come out missing its descriptors and its whole ``Processes``
+        track, with nothing raised. Construct a new encoder per file.
+        """
+        assert self._path is None, "one encoder writes one trace; construct a new encoder per file"
         self._path = path
         self._has_written = False
 

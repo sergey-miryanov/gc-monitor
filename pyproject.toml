@@ -99,8 +99,9 @@ tmp_path_retention_policy = "failed"
 markers = [
     "stress: thread-safety stress tests for exporter and control-client pipelines (deselected by default; run with -m stress)",
     "benchmark: mark a test as a CodSpeed performance benchmark",
+    "fuzz: randomized differential tests against the real trace processor (deselected by default; run with -m fuzz)",
 ]
-addopts = "-m 'not stress and not benchmark'"
+addopts = "-m 'not stress and not benchmark and not fuzz'"
 
 # =============================================================================
 # Coverage Configuration

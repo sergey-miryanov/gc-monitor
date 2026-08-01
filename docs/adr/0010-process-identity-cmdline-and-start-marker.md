@@ -92,7 +92,7 @@ atomic `_build_meta` guarantees that happens exactly once.
 - `src/gcmon/exporters/perfetto_format.py`, `_START_PROCESS_INSTANT_NAME = "Start Process"`,
   emitted by `_emit_start_process_marker` and driven by `_maybe_emit_start_process_marker`.
 - `src/gcmon/exporters/perfetto_process_lifetime.py`,
-  `_emit_process_lifetime_slice_begin`, which puts the cmdline on the `Processes` slice
+  `_emit_process_lifetime_slice`, which puts the cmdline on the `Processes` slice's BEGIN
   alongside the `real_start_ts` / `real_end_ts` annotations
   ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 - `src/gcmon/exporters/encoder.py:113`, the lazy `import psutil` in

@@ -2,6 +2,11 @@
 
 ## WIP
 
+### Breaking changes
+
+- Rename `PerfettoTrackState.pop_process_lifetimes()` to `get_process_lifetimes()`; it no longer drains
+- `ProtobufEventEncoder.open()` now refuses a second call; construct a new encoder per file
+
 ### Bugfixes
 
 - Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting

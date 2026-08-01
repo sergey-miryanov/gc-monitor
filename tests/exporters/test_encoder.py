@@ -35,6 +35,15 @@ class TestProtobufEventEncoder:
         enc.close()
         assert not path.exists()
 
+    def test_reopening_is_refused(self, tmp_path: Path) -> None:
+        """One encoder writes one trace. A reused one would drop the
+        second trace's descriptors and its whole ``Processes`` track
+        without raising -- hence a guard, not just a docstring."""
+        enc = ProtobufEventEncoder()
+        enc.open(tmp_path / "first.perfetto")
+        with pytest.raises(AssertionError, match="one encoder writes one trace"):
+            enc.open(tmp_path / "second.perfetto")
+
     def test_default_cmdline_provider_returns_cmdline(self) -> None:
         result = ProtobufEventEncoder._default_cmdline_provider(os.getpid())
         assert isinstance(result, list)

@@ -22,7 +22,7 @@ class PerfettoTrackState:
         self._process_lifetime_track_uuid: int | None = None
         self._process_lifetime_start: dict[int, int] = {}
         self._process_lifetime_end: dict[int, int] = {}
-        self._process_lifetime_drained: bool = False
+        self._process_lifetime_emitted: bool = False
         self._root_descriptor_emitted: bool = False
         self._next_uuid: int = 1
 
@@ -118,23 +118,17 @@ class PerfettoTrackState:
     def get_process_lifetime_start_ts(self, pid: int) -> int | None:
         return self._process_lifetime_start.get(pid)
 
-    def pop_process_lifetimes(self) -> list[tuple[int, int, int]]:
+    def get_process_lifetimes(self) -> list[tuple[int, int, int]]:
         """Return ``[(pid, start_ts, end_ts), ...]`` for every pid with
-        both a start and an end, sorted by ``(start_ts, -end_ts, pid)`` --
-        the order ``_clip_spans_to_laminar`` requires. A pid seen only
-        through counters has no end and is absent.
+        both a start and an end; a pid seen only through counters has no
+        end and is absent."""
+        return [(pid, self._process_lifetime_start[pid], end) for pid, end in self._process_lifetime_end.items()]
 
-        Drains: a second call returns an empty list, which is what makes
-        ``finalize_perfetto_packets`` safe to call twice. The spans
-        themselves are kept, so the query methods above keep working.
-        """
-        if self._process_lifetime_drained:
-            return []
-        self._process_lifetime_drained = True
-        return sorted(
-            ((pid, self._process_lifetime_start[pid], end) for pid, end in self._process_lifetime_end.items()),
-            key=lambda item: (item[1], -item[2], item[0]),
-        )
+    def has_process_lifetime_emitted(self) -> bool:
+        return self._process_lifetime_emitted
+
+    def mark_process_lifetime_emitted(self) -> None:
+        self._process_lifetime_emitted = True
 
     def get_process_track_ranks(self) -> dict[int, int]:
         """Return ``{pid: rank}``, assigned sequentially from ``0`` by

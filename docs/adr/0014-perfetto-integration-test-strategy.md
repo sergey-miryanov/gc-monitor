@@ -1,7 +1,8 @@
 # ADR-0014: Validate traces against the real trace processor; gate only stress and benchmarks
 
 - **Status:** Accepted
-- **Date:** 2026-06-12 (stress marker) / 2026-06-18 (trace-processor tests)
+- **Date:** 2026-06-12 (stress marker) / 2026-06-18 (trace-processor tests) / 2026-08-02
+  (fuzz marker)
 
 ## Context
 
@@ -33,12 +34,18 @@ developer running `pytest` has it, and the tests import it at module level. The
 first run downloads the trace-processor binary; later runs use the cache.
 
 **Only the optional suites are gated by marker**, registered in `pyproject.toml` and
-deselected by `addopts = "-m 'not stress and not benchmark'"`:
+deselected by `addopts = "-m 'not stress and not benchmark and not fuzz'"`:
 
 - `stress`, for probabilistic concurrency tests. CI runs them in a separate `stress-test`
   job (`-m stress --count 20`, plus `-k "control" --count 40`), which does not block the
   always-on suite.
 - `benchmark`, for CodSpeed performance benchmarks, run by their own workflow.
+- `fuzz`, for randomized differential tests that load a trace per trial. CI runs them in a
+  separate `fuzz-test` job on Linux only. Unlike `stress` these are **not** probabilistic:
+  seeds are fixed, so a failure reproduces and repeating a trial re-runs the same trace.
+  That is why the job passes no `--count`; widen coverage by raising the trial count in the
+  test. They earn a marker for cost, not flakiness — the trace processor starts once per
+  trial, which is seconds rather than the milliseconds the default suite budgets for.
 
 **Tests are parametrized over Chrome JSON and Perfetto binary.** The trace processor
 normalizes both into the same SQL tables, so one set of queries validates both exporters,
@@ -102,11 +109,12 @@ tests do not assert on it.
 
 ## Implementation
 
-- `pyproject.toml:54`, `perfetto` in `[tool.poetry.group.dev.dependencies]`;
-  `:98-101`, the `stress` and `benchmark` marker registrations; `:102`,
-  `addopts = "-m 'not stress and not benchmark'"`.
-- `.github/workflows/ci.yml:118`, the always-on suite; `:134-160`, the separate
-  `stress-test` job.
+- `pyproject.toml:54`, `perfetto` in `[tool.poetry.group.dev.dependencies]`; `:99-103`, the
+  `stress`, `benchmark` and `fuzz` marker registrations; `:104`, the `addopts` deselection.
+- `.github/workflows/ci.yml`, the always-on `test` job, plus the separate `stress-test` and
+  `fuzz-test` jobs.
+- `tests/exporters/test_perfetto_emission_order_fuzz.py`, the only `fuzz`-marked file: it
+  pins ADR-0011's emission-order claims, positive case and negative control both.
 - `tests/exporters/test_perfetto_exporter_integration.py`, the `trace_processor` fixture,
   the `_write_trace` helper, and the chrome/perfetto parametrization.
 - `tests/test_convert_cmd_perfetto.py`, the same approach applied to the `combine` paths,

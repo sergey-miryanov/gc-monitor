@@ -1,8 +1,8 @@
 """Tests for the shared ``Processes`` track: spans, clipping, closeout.
 
 The clipping sweep is covered twice over: directly as a pure function,
-and through ``finalize_perfetto_packets`` where the emitted BEGIN/END
-packets also have to form a well-formed stack. See ADR-0011.
+and through ``finalize_perfetto_packets``, where the emitted BEGIN/END
+pairs also have to be ones the trace processor can pair up. See ADR-0011.
 """
 
 import random
@@ -17,6 +17,7 @@ from gcmon.data import GCStatsInfo
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_process_lifetime import (
     _clip_spans_to_laminar,
+    _emit_process_lifetime_track_descriptor,
     finalize_perfetto_packets,
 )
 from gcmon.exporters.perfetto_proto import TrackEventType
@@ -45,9 +46,13 @@ def _finalize_spans(
     Returns ``({pid: (ts, end_ts)}, {pid: (real_start_ts, real_end_ts)})``:
     the span each slice *draws*, and the span it *records*. Every pid
     with a span appears in both -- nothing is ever dropped -- so the two
-    dicts always have the same keys. Also asserts that the emitted
-    BEGIN/END packets nest as a well-formed stack, which is what the
-    trace processor requires of a single track.
+    dicts always have the same keys.
+
+    Also asserts the emitted order is one the trace processor can pair
+    up: each BEGIN is immediately followed by its own END, and of two
+    BEGINs on one timestamp the first outlives the second. Getting the
+    second wrong corrupts both slices, since a named END force-closes
+    whatever sits above the slice it matched.
     """
     state = PerfettoTrackState()
     for pid, start, end in spans:
@@ -57,25 +62,37 @@ def _finalize_spans(
     packets = finalize_perfetto_packets(state, sequence_id=1)
     lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
 
+    emitted = lifetime_slices(packets, lifetime_uuid)
     intervals: dict[int, tuple[int, int]] = {}
     real: dict[int, tuple[int, int]] = {}
-    open_stack: list[tuple[str, int]] = []
-    for ts, event_type, name, annotations in lifetime_slices(packets, lifetime_uuid):
+    open_slice: tuple[str, int] | None = None
+    for ts, event_type, name, annotations in emitted:
         if event_type == TrackEventType.SLICE_BEGIN:
-            open_stack.append((name, ts))
+            assert open_slice is None, f"BEGIN for {name!r} while {open_slice} is still open"
+            open_slice = (name, ts)
             real[int(name.removeprefix("Process "))] = (
                 int(annotations["real_start_ts"]),
                 int(annotations["real_end_ts"]),
             )
         else:
-            assert open_stack, f"slice END for {name!r} at ts {ts} with nothing open"
-            open_name, open_ts = open_stack.pop()
-            assert open_name == name, (
-                f"slice END for {name!r} closed {open_name!r}: the track is not a well-formed stack"
-            )
+            assert open_slice is not None, f"slice END for {name!r} at ts {ts} with nothing open"
+            open_name, open_ts = open_slice
+            assert open_name == name, f"slice END for {name!r} closed {open_name!r}"
             intervals[int(name.removeprefix("Process "))] = (open_ts, ts)
-    assert not open_stack, f"unclosed slices left open: {open_stack}"
+            open_slice = None
+    assert open_slice is None, f"unclosed slice left open: {open_slice}"
     assert intervals.keys() == real.keys()
+
+    begins = [(ts, int(name.removeprefix("Process "))) for ts, t, name, _ in emitted if t == TrackEventType.SLICE_BEGIN]
+    for i, (ts, pid) in enumerate(begins):
+        for later_ts, later_pid in begins[i + 1 :]:
+            if later_ts != ts:
+                continue
+            assert intervals[pid][1] >= intervals[later_pid][1], (
+                f"pids {pid} and {later_pid} share start {ts}, but {pid} is emitted first and "
+                f"ends at {intervals[pid][1]}, inside {later_pid}'s end {intervals[later_pid][1]}: "
+                "the outer BEGIN has to come first or the nesting opens inside-out"
+            )
     return intervals, real
 
 
@@ -90,19 +107,13 @@ def _assert_laminar(intervals: dict[int, tuple[int, int]]) -> None:
             assert disjoint or nested, f"pids {pid_a} [{start_a}, {end_a}] and {pid_b} [{start_b}, {end_b}] cross"
 
 
-def _sorted_for_clip(spans: list[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
-    """Sort *spans* the way ``pop_process_lifetimes`` does, which is the
-    order ``_clip_spans_to_laminar`` documents as its precondition."""
-    return sorted(spans, key=lambda s: (s[1], -s[2], s[0]))
-
-
 class TestClipSpansToLaminar:
     """Direct tests for the ``_clip_spans_to_laminar`` sweep.
 
     It is a pure function, so it can be exercised without building
     packets. ``TestProcessLifetimeLaminarClipping`` below covers the same
     ground through ``finalize_perfetto_packets`` and additionally checks
-    that the emitted BEGIN/END packets form a well-formed stack; these
+    the emitted packets are ones the trace processor can pair up; these
     tests pin the sweep's own contract, including the parts the packet
     view cannot see, such as output ordering.
     """
@@ -150,10 +161,10 @@ class TestClipSpansToLaminar:
         ]
 
     def test_equal_starts_always_nest(self) -> None:
-        """Given the required sort, equal starts arrive longest-first and
+        """The sweep's own sort puts equal starts longest-first, so they
         can never cross, which is what keeps ``start - 1`` from landing
         before the clipped span's own start."""
-        spans = _sorted_for_clip([(100, 500, 1_000), (200, 500, 9_000)])
+        spans = [(100, 500, 1_000), (200, 500, 9_000)]
         assert _clip_spans_to_laminar(spans) == [
             (200, 500, 9_000, 500, 9_000),
             (100, 500, 1_000, 500, 1_000),
@@ -202,37 +213,41 @@ class TestClipSpansToLaminar:
     def test_zero_length_input_survives(self) -> None:
         """A pid observed at a single instant arrives zero-length and is
         passed through, not discarded."""
-        spans = _sorted_for_clip([(100, 500, 500), (200, 500, 9_000)])
+        spans = [(100, 500, 500), (200, 500, 9_000)]
         assert _clip_spans_to_laminar(spans) == [
             (200, 500, 9_000, 500, 9_000),
             (100, 500, 500, 500, 500),
         ]
 
-    def test_output_preserves_input_order(self) -> None:
-        """The sweep runs over a stack but the result is returned in the
-        order it was given, so the caller can emit spans in sorted order
-        without re-sorting."""
+    def test_output_is_sorted_whatever_the_input_order(self) -> None:
+        """The result comes back in the sweep's own sort order, not the
+        caller's, so ``finalize_perfetto_packets`` can emit it as given."""
         spans = [(100, 0, 100), (200, 10, 200), (300, 20, 300)]
-        assert [row[0] for row in _clip_spans_to_laminar(spans)] == [100, 200, 300]
+        expected = [100, 200, 300]
+        for permuted in ([spans[2], spans[0], spans[1]], list(reversed(spans)), spans):
+            assert [row[0] for row in _clip_spans_to_laminar(permuted)] == expected
 
     @pytest.mark.parametrize("seed", range(50))
     def test_invariants_hold_for_random_spans(self, seed: int) -> None:
-        """Whatever goes in: the result is laminar, every span survives,
-        its start and observed span are untouched, and its end only ever
-        moves inwards -- never past its own start, and never outwards."""
+        """Whatever goes in, in whatever order: the result is laminar and
+        sorted, and every span survives. The per-span invariants are
+        named by the assertions."""
         rng = random.Random(seed)
-        spans = _sorted_for_clip(
-            [
-                (pid, start, start + rng.randrange(0, 2_000))
-                for pid in range(100, 100 + rng.randint(2, 12))
-                for start in (rng.randrange(0, 2_000),)
-            ]
-        )
+        spans = [
+            (pid, start, start + rng.randrange(0, 2_000))
+            for pid in range(100, 100 + rng.randint(2, 12))
+            for start in (rng.randrange(0, 2_000),)
+        ]
+        rng.shuffle(spans)
         clipped = _clip_spans_to_laminar(spans)
 
-        assert [row[0] for row in clipped] == [pid for pid, _s, _e in spans]
-        for (pid, start, end, real_start, real_end), original in zip(clipped, spans, strict=True):
-            assert (pid, real_start, real_end) == original, "the observed span is passed through"
+        originals = {pid: (start, end) for pid, start, end in spans}
+        assert {row[0] for row in clipped} == originals.keys(), "every span survives"
+        assert clipped == sorted(clipped, key=lambda row: (row[1], -row[4], row[0])), (
+            "the sweep sorts its own input, so the result comes back in that order"
+        )
+        for pid, start, end, real_start, real_end in clipped:
+            assert (real_start, real_end) == originals[pid], "the observed span is passed through"
             assert start == real_start, "a start is never moved"
             assert real_start <= end <= real_end, "an end only ever moves inwards"
         _assert_laminar({pid: (start, end) for pid, start, end, _rs, _re in clipped})
@@ -321,6 +336,28 @@ class TestProcessLifetimeLaminarClipping:
         state.update_process_lifetime(100, 500, extends_end=True)
         state.update_process_lifetime(100, 5_000, extends_end=True)
         assert finalize_perfetto_packets(state, sequence_id=1) == []
+
+    def test_descriptor_refuses_a_second_emission(self) -> None:
+        """The descriptor emitter asserts rather than trusting its
+        caller: two descriptors for one uuid are accepted silently by the
+        trace processor, so nothing downstream would report it."""
+        state = PerfettoTrackState()
+        state.mark_process_lifetime_emitted()
+        with pytest.raises(AssertionError, match="already gone out"):
+            _emit_process_lifetime_track_descriptor(state, sequence_id=1)
+
+    def test_track_is_marked_emitted_only_after_a_slice_goes_out(self) -> None:
+        """A trace with no drawable span emits nothing and leaves the
+        flag clear, so the guard cannot swallow a later real closeout."""
+        state = PerfettoTrackState()
+        assert finalize_perfetto_packets(state, sequence_id=1) == []
+        assert not state.has_process_lifetime_emitted()
+
+        state.mark_pid(100)
+        state.update_process_lifetime(100, 500, extends_end=True)
+        state.update_process_lifetime(100, 5_000, extends_end=True)
+        assert finalize_perfetto_packets(state, sequence_id=1) != []
+        assert state.has_process_lifetime_emitted()
 
     @pytest.mark.parametrize("seed", range(25))
     def test_output_is_always_laminar(self, seed: int) -> None:
@@ -566,8 +603,9 @@ class TestProcessLifetimeSlices:
         assert lifetime_slices(convert_packets, lifetime_uuid) == [], (
             "convert passes must emit no Processes-track slices"
         )
-        # Emitted in stack order: pid 100 opens first, is closed at 999
-        # because pid 200 crosses it, then pid 200 opens and closes.
+        # One BEGIN/END pair per pid, in clipped-span order: pid 100
+        # opens first and is closed at 999 because pid 200 crosses it,
+        # then pid 200 opens and closes.
         assert lifetime_slices(closeout, lifetime_uuid) == [
             (
                 500,
@@ -804,5 +842,5 @@ class TestCloseoutAtFinalize:
                 break
         assert end_packet is not None
         assert end_packet.timestamp == 4_000
-        # Calling finalize again is a no-op (state is drained).
+        # Calling finalize again is a no-op (the track is marked emitted).
         assert finalize_perfetto_packets(state, sequence_id=1) == []
