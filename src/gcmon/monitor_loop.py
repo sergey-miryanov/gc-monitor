@@ -41,9 +41,8 @@ class MonitorLoop:
         pid_policies: dict[int, WaitPolicy] = {}
         with set_on_exit(self._stop_event):
             for _ in self._runner.run(self._stop_event.is_set):
-                # One clock read per tick, shared by both phases below:
-                # liveness stamps the trace in nanoseconds (ADR-0009),
-                # the RSS sampler paces itself in seconds (ADR-0013).
+                # One clock read per tick: liveness stamps the trace in
+                # nanoseconds, the RSS sampler paces itself in seconds.
                 now_ns = time.monotonic_ns()
                 now = now_ns / 1e9
                 wait: list[bool] = []
@@ -67,9 +66,9 @@ class MonitorLoop:
                         live_pids.add(pid)
 
                 # Phase 2: liveness — report who answered, in one batched
-                # call. This is the only place in gcmon that knows a
-                # process was still there, so a pid that never collects
-                # reaches the trace through here or not at all.
+                # call. The only place that knows a process was still
+                # there, so a pid that never collects reaches the trace
+                # through here or not at all.
                 if live_pids:
                     self._monitor.exporter.add_process_liveness(live_pids, now_ns)
 

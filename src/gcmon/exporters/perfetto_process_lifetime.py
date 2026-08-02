@@ -99,9 +99,9 @@ def _record_process_lifetime(
 
     Every non-meta event widens the span in both directions, counters
     included: a timestamped event is evidence the process existed at
-    that instant, whatever kind of event it is. Meta events carry no
-    timestamp, so a pid seen only through them gets no span and no
-    slice. Emits nothing: spans become packets at close.
+    that instant, whatever kind it is. Meta events carry no timestamp,
+    so a pid seen only through them gets no span and no slice. Emits
+    nothing: spans become packets at close.
     """
     if isinstance(event, (ProcessMeta, ThreadMeta)):
         return
@@ -151,11 +151,9 @@ def finalize_perfetto_packets(
     once, at the end of the trace (typically the encoder's ``close()``).
 
     Every pid with a span gets a slice, including one the monitor loop
-    only ever reported as live. Such a pid has no process descriptor and
-    no cmdline -- nothing but the span itself -- and drawing it anyway is
-    the point of monitor-reported liveness: a process gcmon polled for a
-    whole run without it ever collecting is precisely what would
-    otherwise leave no trace at all.
+    only ever reported as live: it has no process descriptor and no
+    cmdline, nothing but the span, and drawing it anyway is the point of
+    monitor-reported liveness.
 
     No span is dropped: a pid observed at a single instant, or clipped to
     zero, still gets a zero-duration slice. Slices go out in the order

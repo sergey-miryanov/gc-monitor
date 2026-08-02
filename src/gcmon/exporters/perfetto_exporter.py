@@ -37,15 +37,12 @@ class PerfettoExporter(BufferedTraceExporter):
         """Fold one tick's liveness observations into the encoder's span
         accumulator.
 
-        ``_io_lock`` is not optional here. It is the lock that guards
-        every other touch of the encoder -- ``write_events`` from a
-        flush, and ``close()`` -- and both can run on another thread:
-        ``ControlServer`` calls ``add_instant_event`` from its own, and
-        the monitor is closed by whoever unwinds the ``ExitStack``.
-        Without it a concurrent read-modify-write can drop a min/max
-        update, narrowing a span by up to one tick, and a new pid
-        arriving mid-``close()`` can raise ``RuntimeError: dictionary
-        changed size during iteration`` out of ``get_process_lifetimes``.
+        ``_io_lock`` is not optional: it guards every other touch of the
+        encoder, and both a flush and ``close()`` can run on another
+        thread. Without it a concurrent read-modify-write can drop a
+        min/max update, and a new pid arriving mid-``close()`` can raise
+        ``RuntimeError: dictionary changed size during iteration`` out of
+        ``get_process_lifetimes``.
         """
         with self._io_lock:
             self._protobuf_encoder.record_process_liveness(pids, ts_ns)

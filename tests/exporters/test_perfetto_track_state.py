@@ -96,16 +96,10 @@ class TestProcessLifetimeState:
         assert state.get_process_lifetimes() == [(100, 1_000, 5_000)]
 
     def test_a_counter_widens_both_ends(self) -> None:
-        """The reverse of the old rule: a counter used to move the start
-        and never the end.
-
-        The carve-out went out with monitor-reported liveness. The span
-        means "the range over which gcmon observed this process", and an
-        RSS sample at 9us is evidence the process was alive at 9us
-        exactly like a GC event would be. The caller no longer says what
-        kind of event it is holding, so this is the same call as any
-        other -- which is the point.
-        """
+        """The reverse of the old rule, where a counter moved the start
+        and never the end. An RSS sample at 9us is evidence the process
+        was alive at 9us exactly as a GC event would be, and the caller
+        no longer says which kind it is holding."""
         state = PerfettoTrackState()
         state.update_process_lifetime(100, 2_000)
         state.update_process_lifetime(100, 4_000)
@@ -129,12 +123,10 @@ class TestProcessLifetimeState:
         """A counter sets the end like anything else, including when it
         is the first event folded for a pid.
 
-        Events reach the encoder in buffer order, not timestamp order:
-        a poll returns GC events that already happened, while an RSS
-        sample is stamped when it is taken. So a counter can arrive
-        first for a pid and carry a later ts than every GC event in the
-        same batch -- and under the current rule that later ts is the
-        end, because it is the last moment the process was observed.
+        Events reach the encoder in buffer order, not timestamp order: a
+        poll returns GC events that already happened, while an RSS sample
+        is stamped when taken, so a counter can arrive first and carry a
+        later ts than every GC event in the batch.
         """
         state = PerfettoTrackState()
         state.update_process_lifetime(100, 1_000)
@@ -143,13 +135,10 @@ class TestProcessLifetimeState:
         assert state.get_process_lifetimes() == [(100, 500, 1_000)]
 
     def test_both_ends_always_carry_the_same_pids(self) -> None:
-        """A consequence of the plain min/max worth pinning: one call is
-        enough to give a pid both a start and an end, so no pid can end
-        up in one dict and not the other.
-
-        ``get_process_lifetimes`` used to index the start dict while
-        iterating the end dict, and relied on that never raising.
-        """
+        """One call gives a pid both a start and an end, so no pid can
+        land in one dict and not the other -- which is what lets
+        ``get_process_lifetimes`` index the start dict while iterating
+        the end one."""
         state = PerfettoTrackState()
         for pid, ts in ((100, 1_000), (200, 2_000), (100, 3_000)):
             state.update_process_lifetime(pid, ts)

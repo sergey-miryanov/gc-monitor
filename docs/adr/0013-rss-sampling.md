@@ -33,11 +33,10 @@ the exporter, the interval, and the last-sample time. Its only public method is
 constructor argument and one line in the loop body. It knows nothing about `psutil`,
 timers, or how a sample turns into an event.
 
-`tick`'s signature is unchanged by monitor-reported liveness
-([ADR-0011](0011-process-lifetime-and-ordering.md)), but its caller is: the loop now takes a
-single `time.monotonic_ns()` per tick, hands the nanoseconds to `add_process_liveness` and
-`now_ns / 1e9` here. The sampler still receives seconds, and both phases describe the same
-instant.
+`tick`'s signature survives monitor-reported liveness
+([ADR-0011](0011-process-lifetime-and-ordering.md)); its caller changes. The loop now takes one
+`time.monotonic_ns()` per tick, passing the nanoseconds to `add_process_liveness` and
+`now_ns / 1e9` here.
 
 **The sampler callback is injectable**, the same pattern as `cmdline_provider` in
 `ProtobufEventEncoder`. Tests pass a mock and never touch `psutil`. The constructor checks

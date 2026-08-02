@@ -329,15 +329,11 @@ class TestProcessLifetimeLaminarClipping:
         assert _finalize_spans([]) == ({}, {})
 
     def test_pid_without_process_descriptor_still_gets_a_slice(self) -> None:
-        """A span is drawn for a pid that never reached ``mark_pid``,
-        i.e. one whose ``ProcessMeta`` was never seen because it produced
-        no events at all.
-
-        That is the pid monitor-reported liveness exists for: polled OK
-        for a whole run, never collected, so nothing but the liveness
-        observations says it was there. It has no process track and no
-        cmdline, so the slice carries only the ``real_*`` annotations.
-        """
+        """A span is drawn for a pid that never reached ``mark_pid`` --
+        one polled OK for a whole run that never collected, so it
+        produced no events and no ``ProcessMeta``. It has no process
+        track and no cmdline, so the slice carries only the ``real_*``
+        annotations."""
         state = PerfettoTrackState()
         state.update_process_lifetime(100, 500)
         state.update_process_lifetime(100, 5_000)

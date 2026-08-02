@@ -466,9 +466,8 @@ class TestProcessLivenessRoundTrip:
     rather than what it saw collect. See ADR-0011."""
 
     def test_liveness_only_pid_gets_a_slice(self, perfetto_exporter: ExporterFactory) -> None:
-        """The whole point of the feature: a pid gcmon polled OK for a
-        run that never collected produces no events, so under the old
-        rule it reached no track at all."""
+        """A pid gcmon polled OK for a run that never collected produces
+        no events, so under the old rule it reached no track at all."""
         exporter, path = perfetto_exporter()
         exporter.add_event(DEFAULT_PID, create_mock_stats_item())
         for ts in (1_400_000_000, 1_600_000_000, 1_800_000_000):
@@ -503,15 +502,10 @@ class TestProcessLivenessRoundTrip:
         assert spans[f"Process {_OTHER_QUIET_PID}"] == (1_400_000_000, 1_800_000_000)
 
     def test_a_trace_of_nothing_but_liveness_is_still_written(self, perfetto_exporter: ExporterFactory) -> None:
-        """A run whose processes all answered every poll and never
-        collected produces no events at all, so nothing reaches the file
-        before ``close()``.
-
-        The encoder used to skip its closeout in that case -- the guard
-        was equivalent to "no spans exist" back when only events could
-        create one -- which would have dropped the whole track, and the
-        file with it, in exactly the case this feature exists for.
-        """
+        """A run in which nothing ever collected produces no events, so
+        nothing reaches the file before ``close()``. The encoder used to
+        skip its closeout in that case, dropping the whole track and the
+        file with it."""
         exporter, path = perfetto_exporter()
         exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_400_000_000)
         exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_800_000_000)
@@ -533,13 +527,7 @@ class TestProcessLivenessRoundTrip:
     def test_liveness_holds_the_io_lock_for_the_duration(self, tmp_path: Path) -> None:
         """Asserted by contention, not by inspection: a second thread
         taking ``_io_lock`` the ordinary way -- through a flush -- must
-        not get in while the liveness call is inside the encoder.
-
-        ``ControlServer`` writes from its own thread and the monitor is
-        closed by whoever unwinds the ``ExitStack``, so this is the lock
-        that keeps a min/max update from being lost and keeps a new pid
-        from appearing mid-finalize.
-        """
+        not get in while the liveness call is inside the encoder."""
         exporter = PerfettoExporter(output_path=tmp_path / "trace.pb", flush_threshold=1)
         inside = threading.Event()
         release = threading.Event()

@@ -1337,14 +1337,11 @@ class TestMonitorReportedLiveness:
 
 
 class TestLivenessOnlyTrace:
-    """A whole run in which nothing ever collected.
-
-    The trace has no events, so no process descriptors, no thread
-    tracks, no root descriptor -- only the ``Processes`` track. It still
-    has to be a trace the processor accepts, since a run of an idle or
-    short-lived target is the ordinary case for this shape rather than a
-    corner of it.
-    """
+    """A whole run in which nothing ever collected: no events, so no
+    process descriptors, no thread tracks, no root descriptor, only the
+    ``Processes`` track. The trace processor still has to accept it,
+    since an idle or short-lived target is an ordinary thing to
+    monitor."""
 
     def test_no_misplaced_end_events(self, liveness_only_trace_processor: TraceProcessor) -> None:
         assert _misplaced_end_events(liveness_only_trace_processor) == 0

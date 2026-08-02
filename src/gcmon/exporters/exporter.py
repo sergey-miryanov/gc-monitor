@@ -30,11 +30,7 @@ class EventsExporter(ABC):
         """Record that gcmon read GC state out of every pid in *pids* at
         *ts_ns*. No-op in the base class.
 
-        One call per monitor tick carries the whole live set, so the
-        cost is one call and one lock acquisition per tick rather than
-        per pid. Only the Perfetto path does anything with it: the
-        observations widen each pid's ``Processes``-track span, which is
-        what makes the slice mean "gcmon saw this process" rather than
-        "gcmon saw this process collect". Chrome JSON, JSONL and stdout
-        reach this no-op.
+        One call per monitor tick carries the whole live set. Only the
+        Perfetto path acts on it, widening each pid's ``Processes``-track
+        span; see ADR-0011.
         """

@@ -143,19 +143,15 @@ class ProtobufEventEncoder:
         self._has_written = False
 
     def record_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
-        """Fold a whole tick's worth of liveness observations into the
+        """Fold a whole tick's liveness observations into the
         ``Processes``-track span accumulator: *pids* are the processes
         gcmon read GC state out of at *ts_ns*.
 
-        Not part of the ``EventEncoder`` protocol -- a liveness
-        observation is neither a ``TraceEvent`` nor bytes, and the
-        Chrome and JSONL encoders have nothing to do with it. The caller
-        is ``PerfettoExporter``, which holds a typed handle to this
-        class; see ADR-0011.
-
-        Writes nothing. The observations reach the file at ``close()``,
-        through the same ``finalize_perfetto_packets`` pass that emits
-        the event-derived half of every span.
+        Kept off the ``EventEncoder`` protocol, since a liveness
+        observation is neither a ``TraceEvent`` nor bytes. The caller is
+        ``PerfettoExporter``, which holds a typed handle to this class;
+        see ADR-0011. Writes nothing: the observations reach the file at
+        ``close()``.
         """
         for pid in pids:
             self._track_state.update_process_lifetime(pid, ts_ns)
@@ -186,14 +182,11 @@ class ProtobufEventEncoder:
     def close(self) -> None:
         """Emit the ``Processes`` track and finish the file.
 
-        The guard is on the packets, not on whether anything was written
-        earlier. Liveness reaches ``_track_state`` without going through
-        ``write_events``, so a run whose processes all answered every
-        poll and never collected has spans to emit and no bytes on disk
-        yet -- which is precisely the run monitor-reported liveness
-        exists to make visible. A trace with nothing at all still
-        produces no file, because ``finalize_perfetto_packets`` returns
-        nothing to write.
+        The guard is on having packets, not on having written earlier:
+        liveness reaches ``_track_state`` without going through
+        ``write_events``, so a run in which nothing ever collected has a
+        track to emit and no bytes on disk yet. A trace with nothing at
+        all still produces no file.
         """
         if self._path is None:
             return

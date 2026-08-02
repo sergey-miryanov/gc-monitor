@@ -150,10 +150,9 @@ def test_nesting_pairs_up_to_the_trace_processor_limit(tmp_path: Path) -> None:
     """512 co-terminating processes read back exactly, with no
     ``misplaced_end_event``.
 
-    ADR-0011 accepts what deep nesting does to the *UI*. What the
-    *parser* does with it is a different question, because a mispair
-    there is wrong data rather than an ugly picture, and this answers
-    it. Does not gate the feature.
+    ADR-0011 accepts what deep nesting does to the *UI*; what the parser
+    does with it is a different question, since a mispair there is wrong
+    data rather than an ugly picture.
     """
     clipped = _clip_spans_to_laminar(_co_terminating(_PAIRABLE_NESTING_DEPTH))
     misplaced, slices = _slices_as_read_back(
@@ -166,15 +165,13 @@ def test_nesting_pairs_up_to_the_trace_processor_limit(tmp_path: Path) -> None:
 
 
 def test_nesting_past_the_limit_loses_slices_silently(tmp_path: Path) -> None:
-    """One level past 512 and the trace processor stops closing slices:
-    each one beyond the limit reads back ``dur = -1``.
+    """Past 512 the trace processor stops closing slices: each one
+    beyond the limit reads back ``dur = -1``, and nothing in the trace
+    says so.
 
-    The loss is silent -- ``misplaced_end_event`` stays 0 and no other
-    non-info stat is raised -- so nothing in the trace says the durations
-    are missing. gcmon emits a well-formed BEGIN/END pair for every span
-    either way; the ceiling is the reader's. Recorded here so the number
-    is a measurement rather than an assumption, and so a trace processor
-    that lifts it shows up as a failure here rather than going unnoticed.
+    gcmon writes a well-formed pair for every span either way, so the
+    limit sits in the reader. Pinned here so a trace processor that
+    lifts it shows up as a failure rather than going unnoticed.
     """
     depth = _PAIRABLE_NESTING_DEPTH + 8
     clipped = _clip_spans_to_laminar(_co_terminating(depth))
