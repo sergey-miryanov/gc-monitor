@@ -135,10 +135,19 @@ per tick rather than per pid.
 
 The counter carve-out this ADR originally described — counters moved the start but never the
 end — is **removed**, as it said it expected to be. It existed because letting RSS samples
-extend the span would have reported sampler liveness as monitoring coverage; monitoring
-coverage is now reported directly, and an RSS sample cannot push an end past the liveness
-tick that produced it by more than the microseconds between the loop's `time.monotonic_ns()`
-and the sampler's. `update_process_lifetime(pid, ts)` is a plain min/max with no keyword.
+extend the span would have reported sampler liveness as monitoring coverage, which is now
+reported directly, so what an RSS sample can add on top of it is bounded by one tick rather
+than by the time since the pid's last collection.
+
+The bound is one tick, not one instant: the loop reads its clock *before* the poll phase and
+`RssSampler._sample` stamps each sample with its own `time.monotonic_ns()` *after* it, so
+within a tick an RSS sample is always the later of the two, by the duration of that poll —
+N × `get_gc_stats`, which is the "Read Time" row in `--stats` and is milliseconds rather than
+microseconds for a fan-out. So on a `--rss` run it is routinely the RSS sample, not the
+liveness observation, that sets a span's end. Both are observations of the same tick and the
+span is documented as a lower bound either way, so the loop is left reading its clock once,
+up front, rather than twice or later. `update_process_lifetime(pid, ts)` is a plain min/max
+with no keyword.
 
 **Liveness folds in alongside events; it does not replace them.** Defining the span as
 `[first OK, last OK]` was rejected: `get_gc_stats` returns collections that *already
@@ -335,6 +344,13 @@ raise `RuntimeError: dictionary changed size during iteration` out of
   `src/gcmon/exporters/perfetto_exporter.py` overrides it under `_io_lock`, forwarding to
   `ProtobufEventEncoder.record_process_liveness` in `src/gcmon/exporters/encoder.py`, which
   folds the batch into `_track_state`. The `EventEncoder` protocol is untouched.
+- `ProtobufEventEncoder.close()` gates on having packets to emit, not on having written
+  earlier. The old `_has_written` guard was equivalent to "no spans exist" while only events
+  could create one; liveness reaches `_track_state` without passing through `write_events`, so
+  a run where nothing ever collected has a track to emit and no bytes on disk yet — and that
+  run is the ordinary case for this feature, not a corner of it. The first write then has to
+  select `"wb"` rather than `"ab"`. A trace with neither events nor liveness still produces no
+  file, since `finalize_perfetto_packets` returns nothing.
 - `tests/exporters/test_perfetto_process_lifetime.py`: `TestClipSpansToLaminar` covers the
   sweep directly at full statement and branch coverage; `TestProcessLifetimeLaminarClipping`
   covers the same shapes through `finalize_perfetto_packets` and additionally checks the

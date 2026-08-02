@@ -502,6 +502,34 @@ class TestProcessLivenessRoundTrip:
         assert spans[f"Process {_QUIET_PID}"] == (1_400_000_000, 1_800_000_000)
         assert spans[f"Process {_OTHER_QUIET_PID}"] == (1_400_000_000, 1_800_000_000)
 
+    def test_a_trace_of_nothing_but_liveness_is_still_written(self, perfetto_exporter: ExporterFactory) -> None:
+        """A run whose processes all answered every poll and never
+        collected produces no events at all, so nothing reaches the file
+        before ``close()``.
+
+        The encoder used to skip its closeout in that case -- the guard
+        was equivalent to "no spans exist" back when only events could
+        create one -- which would have dropped the whole track, and the
+        file with it, in exactly the case this feature exists for.
+        """
+        exporter, path = perfetto_exporter()
+        exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_400_000_000)
+        exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_800_000_000)
+        exporter.close()
+
+        assert path.exists(), "a trace with spans and no events must still be written"
+        assert _lifetime_spans(path) == {
+            f"Process {_QUIET_PID}": (1_400_000_000, 1_800_000_000),
+            f"Process {_OTHER_QUIET_PID}": (1_400_000_000, 1_800_000_000),
+        }
+
+    def test_a_trace_of_truly_nothing_writes_no_file(self, perfetto_exporter: ExporterFactory) -> None:
+        """The other side of the guard: with no events *and* no liveness
+        there is nothing to finalize, so no file appears."""
+        exporter, path = perfetto_exporter()
+        exporter.close()
+        assert not path.exists()
+
     def test_liveness_holds_the_io_lock_for_the_duration(self, tmp_path: Path) -> None:
         """Asserted by contention, not by inspection: a second thread
         taking ``_io_lock`` the ordinary way -- through a flush -- must

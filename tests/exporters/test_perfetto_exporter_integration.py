@@ -358,6 +358,27 @@ def liveness_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
         tp.close()
 
 
+def _write_liveness_only_trace(tmp: Path) -> Path:
+    """Write a Perfetto trace with no events whatsoever: every pid
+    answered every poll and none of them ever collected."""
+    path = tmp / "liveness_only.pb"
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    for ts in _LIVE_TICKS:
+        exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, ts)
+    exporter.close()
+    return path
+
+
+@pytest.fixture
+def liveness_only_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_liveness_only_trace(tmp_path)
+    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
+    try:
+        yield tp
+    finally:
+        tp.close()
+
+
 @pytest.fixture
 def trace_processor(tmp_path: Path, fmt: str) -> Iterator[TraceProcessor]:
     path = _write_trace(tmp_path, fmt)
@@ -1312,6 +1333,37 @@ class TestMonitorReportedLiveness:
         assert {r.name: r.n for r in rows} == {
             f"Process {DEFAULT_PID}": 1,
             f"Process {_SECOND_PID}": 1,
+        }
+
+
+class TestLivenessOnlyTrace:
+    """A whole run in which nothing ever collected.
+
+    The trace has no events, so no process descriptors, no thread
+    tracks, no root descriptor -- only the ``Processes`` track. It still
+    has to be a trace the processor accepts, since a run of an idle or
+    short-lived target is the ordinary case for this shape rather than a
+    corner of it.
+    """
+
+    def test_no_misplaced_end_events(self, liveness_only_trace_processor: TraceProcessor) -> None:
+        assert _misplaced_end_events(liveness_only_trace_processor) == 0
+
+    def test_both_pids_span_the_observed_range(
+        self,
+        liveness_only_trace_processor: TraceProcessor,
+    ) -> None:
+        rows = list(
+            liveness_only_trace_processor.query(
+                f"SELECT s.name AS name, s.ts AS ts, s.dur AS dur FROM slice s "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' ORDER BY s.name"
+            )
+        )
+        span = (_LIVE_TICKS[0], _LIVE_TICKS[-1] - _LIVE_TICKS[0])
+        assert {r.name: (r.ts, r.dur) for r in rows} == {
+            f"Process {DEFAULT_PID}": span,
+            f"Process {_SECOND_PID}": span,
         }
 
 

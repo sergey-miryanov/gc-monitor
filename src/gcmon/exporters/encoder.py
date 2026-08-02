@@ -184,11 +184,25 @@ class ProtobufEventEncoder:
             f.flush()
 
     def close(self) -> None:
-        if self._path is None or not self._has_written:
+        """Emit the ``Processes`` track and finish the file.
+
+        The guard is on the packets, not on whether anything was written
+        earlier. Liveness reaches ``_track_state`` without going through
+        ``write_events``, so a run whose processes all answered every
+        poll and never collected has spans to emit and no bytes on disk
+        yet -- which is precisely the run monitor-reported liveness
+        exists to make visible. A trace with nothing at all still
+        produces no file, because ``finalize_perfetto_packets`` returns
+        nothing to write.
+        """
+        if self._path is None:
             return
         packets = finalize_perfetto_packets(self._track_state, self._sequence_id)
-        if packets:
-            with open(self._path, "ab") as f:
-                for entry in packets:
-                    f.write(encode_bytes_field(TraceField.PACKET, entry))
-                f.flush()
+        if not packets:
+            return
+        mode = "wb" if not self._has_written else "ab"
+        self._has_written = True
+        with open(self._path, mode) as f:
+            for entry in packets:
+                f.write(encode_bytes_field(TraceField.PACKET, entry))
+            f.flush()

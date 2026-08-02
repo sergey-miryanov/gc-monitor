@@ -35,6 +35,18 @@ class TestProtobufEventEncoder:
         enc.close()
         assert not path.exists()
 
+    def test_liveness_alone_still_produces_a_trace(self, tmp_path: Path) -> None:
+        """``close()`` gates on having packets to emit, not on having
+        written earlier: ``record_process_liveness`` reaches the span
+        accumulator without passing through ``write_events``."""
+        enc = ProtobufEventEncoder()
+        path = tmp_path / "out.perfetto"
+        enc.open(path)
+        enc.record_process_liveness({1234}, 1_400_000_000)
+        assert enc._has_written is False
+        enc.close()
+        assert path.exists() and path.stat().st_size > 0
+
     def test_reopening_is_refused(self, tmp_path: Path) -> None:
         """One encoder writes one trace. A reused one would drop the
         second trace's descriptors and its whole ``Processes`` track

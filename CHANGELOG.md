@@ -13,6 +13,7 @@
 
 - Add `EventsExporter.add_process_liveness()`: `MonitorLoop` reports the PIDs that answered each poll, so a `Processes` slice covers a process's monitored lifetime (Perfetto only; Chrome JSON, JSONL and stdout are unaffected)
 - A process gcmon polled successfully but that never collected now appears on the `Processes` track instead of being absent from the trace
+- A Perfetto run in which nothing ever collected now writes a trace carrying the `Processes` track, where it previously wrote no file at all
 
 ### Bugfixes
 
