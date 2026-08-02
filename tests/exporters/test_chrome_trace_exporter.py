@@ -304,12 +304,15 @@ def mock_read_events() -> Callable[[int, bool], list[GCStatsInfo]]:
 
     def side_effect(pid: int, all_interpreters: bool = True) -> list[GCStatsInfo]:
         base_ts = read_count[0] * 100 + 1_500_000_000
+        # `collections` rises with each collection, so a batch carrying a new
+        # timestamp carries a new counter value too.
+        nth = read_count[0]
         read_count[0] += 1
         item1 = create_mock_stats_item(
             gen=0,
             ts_start=base_ts,
             ts_stop=base_ts + 5_000_000,
-            collections=10,
+            collections=10 + nth,
             collected=50,
             uncollectable=1,
             candidates=20,
@@ -320,7 +323,7 @@ def mock_read_events() -> Callable[[int, bool], list[GCStatsInfo]]:
             gen=1,
             ts_start=base_ts + 1_000_000,
             ts_stop=base_ts + 6_000_000,
-            collections=20,
+            collections=20 + nth,
             collected=100,
             uncollectable=2,
             candidates=40,

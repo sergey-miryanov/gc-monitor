@@ -50,12 +50,14 @@ class TestGCMonitor:
         assert result == PollStatus.OK
         assert len(exporter.events) == 1
 
-    def test_poll_duplicate_timestamps(
+    def test_poll_duplicate_records(
         self, exporter: MockExporter, monitor: EventsMonitor, mock_gc_stats: MagicMock
     ) -> None:
-        item1 = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
-        item2 = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_006_000_000)
-        item3 = create_mock_stats_item(ts_start=2_000_000_000, ts_stop=2_005_000_000)
+        """The monitor identifies a record by `collections`, so two slots
+        reporting the same value are one collection seen twice."""
+        item1 = create_mock_stats_item(collections=50, ts_start=1_000_000_000, ts_stop=1_005_000_000)
+        item2 = create_mock_stats_item(collections=50, ts_start=1_000_000_000, ts_stop=1_006_000_000)
+        item3 = create_mock_stats_item(collections=51, ts_start=2_000_000_000, ts_stop=2_005_000_000)
 
         mock_gc_stats.return_value = [item1, item2, item3]
         monitor.poll(12345)

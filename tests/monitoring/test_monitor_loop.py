@@ -193,6 +193,70 @@ class TestLivePidsTracking:
         assert second_live == {12345, 888}
 
 
+class TestForgettingDeadPids:
+    """The loop drops per-PID state once a process stops answering. A cursor
+    tracks a counter owned by one process and means nothing for the next."""
+
+    def _loop(self, monitor: MagicMock, policies: list[Mock], ticks: int = 1) -> MonitorLoop:
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None] * ticks)
+        factory = Mock(side_effect=policies)
+        return MonitorLoop(monitor, runner, factory, rate=0.01)
+
+    def test_forgets_a_child_that_stops_answering(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.get_child_pids.return_value = [999]
+        mock_monitor.poll.side_effect = [
+            PollStatus.OK,
+            PollStatus.OK,  # tick 1: both answer
+            PollStatus.OK,
+            PollStatus.INVALID_PROCESS,  # tick 2: the child is gone
+        ]
+        policies = [Mock(spec=WaitPolicy, **{"wait.return_value": True}) for _ in range(3)]
+
+        self._loop(mock_monitor, policies, ticks=2).run()
+
+        mock_monitor.forget.assert_called_once_with(999)
+
+    def test_keeps_state_for_a_child_that_has_not_started(self, mock_monitor: MagicMock) -> None:
+        """Before the first OK an invalid PID may be a process that has yet
+        to initialise, and replacing its policy restarts the timeout."""
+        mock_monitor.get_child_pids.return_value = [999]
+        mock_monitor.poll.side_effect = [
+            PollStatus.OK,
+            PollStatus.INVALID_PROCESS,
+            PollStatus.OK,
+            PollStatus.INVALID_PROCESS,
+        ]
+        policies = [Mock(spec=WaitPolicy, **{"wait.return_value": True}) for _ in range(2)]
+        factory = Mock(side_effect=policies)
+        runner = Mock(spec=Runner)
+        runner.run.return_value = iter([None, None])
+
+        MonitorLoop(mock_monitor, runner, factory, rate=0.01).run()
+
+        mock_monitor.forget.assert_not_called()
+        # Two policies for two PIDs, and the child kept the one it started with.
+        assert factory.call_count == 2
+
+    def test_a_reused_pid_gets_a_fresh_policy(self, mock_monitor: MagicMock) -> None:
+        mock_monitor.get_child_pids.return_value = [999]
+        mock_monitor.poll.side_effect = [
+            PollStatus.OK,
+            PollStatus.OK,
+            PollStatus.OK,
+            PollStatus.INVALID_PROCESS,
+            PollStatus.OK,
+            PollStatus.OK,
+        ]
+        policies = [Mock(spec=WaitPolicy, **{"wait.return_value": True}) for _ in range(3)]
+
+        self._loop(mock_monitor, policies, ticks=3).run()
+
+        # 12345 and 999, then 999 again after the loop dropped it.
+        assert [c.args for c in mock_monitor.forget.call_args_list] == [(999,)]
+        assert len(policies) == 3
+
+
 class TestRssSamplerInLoop:
     """RSS sampler is called with correct live PIDs and timestamp."""
 

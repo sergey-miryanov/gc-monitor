@@ -76,10 +76,10 @@ class TestEventsMonitorExtra:
         another PID. One monitor polls the target and every child, and their
         event streams interleave in time."""
         per_pid = {
-            12345: [create_mock_stats_item(ts_start=5_000, ts_stop=5_100)],
+            12345: [create_mock_stats_item(collections=50, ts_start=5_000, ts_stop=5_100)],
             999: [
-                create_mock_stats_item(ts_start=4_000, ts_stop=4_100),
-                create_mock_stats_item(ts_start=6_000, ts_stop=6_100),
+                create_mock_stats_item(collections=7, ts_start=4_000, ts_stop=4_100),
+                create_mock_stats_item(collections=8, ts_start=6_000, ts_stop=6_100),
             ],
         }
 

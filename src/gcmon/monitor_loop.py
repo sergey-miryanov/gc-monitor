@@ -39,6 +39,9 @@ class MonitorLoop:
 
     def run(self) -> None:
         pid_policies: dict[int, WaitPolicy] = {}
+        # Pids that have answered at least once. An invalid poll from a pid
+        # outside this set may be a process that has yet to start.
+        answered: set[int] = set()
         with set_on_exit(self._stop_event):
             for _ in self._runner.run(self._stop_event.is_set):
                 # One clock read per tick: liveness stamps the trace in
@@ -64,6 +67,17 @@ class MonitorLoop:
                     wait.append(pid_policies[pid].wait(rc))
                     if rc == PollStatus.OK:
                         live_pids.add(pid)
+                        answered.add(pid)
+                    elif rc == PollStatus.INVALID_PROCESS and pid in answered:
+                        # The process is gone and the OS may hand the pid out
+                        # again, so drop its state here and nowhere else.
+                        # Before the first OK the policy has to survive:
+                        # StartupTimeoutPolicy times out against its own
+                        # construction, and a replacement restarts that clock
+                        # on every tick.
+                        self._monitor.forget(pid)
+                        del pid_policies[pid]
+                        answered.discard(pid)
 
                 # Phase 2: liveness — report who answered, in one batched
                 # call. The only place that knows a process was still

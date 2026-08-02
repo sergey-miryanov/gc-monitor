@@ -16,6 +16,8 @@
 
 ### Bugfixes
 
+- Fix GC events discarded by the poll loop. gcmon now identifies a record by the target's `collections` counter, tracked per process, interpreter and generation
+- Drop per-process poll state once a process that had answered stops answering, so gcmon does not measure a reused PID against its predecessor's counter
 - Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting
 - Every `Processes` slice now records the span gcmon observed in `real_start_ts` / `real_end_ts` annotations
 
