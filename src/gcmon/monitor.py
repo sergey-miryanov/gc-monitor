@@ -3,7 +3,7 @@
 import logging
 import time
 from _remote_debugging import get_child_pids, get_gc_stats
-from collections.abc import Sequence
+from collections.abc import Sequence, Set
 from typing import Self
 
 from .exporters import EventsExporter
@@ -42,14 +42,19 @@ class EventsMonitor:
         self._cursors: dict[int, dict[CursorKey, int]] = {}
         self._stats = stats
 
-    def get_child_pids(self) -> list[int]:
+    def get_child_pids(self) -> list[int] | None:
+        """Every descendant of the target, or ``None`` when the OS could not
+        be asked. ``None`` is not an empty process tree: a caller that drops
+        state for pids missing from the list has to skip that tick, or one
+        failed listing throws away the cursors for every live child.
+        """
         try:
             return get_child_pids(self._process.pid, recursive=True)
         except Exception as exc:
             logger.warning(
                 "Monitor for PID %s encountered error while gathering children PIDs", self._process.pid, exc_info=exc
             )
-            return []
+            return None
 
     def poll(self, pid: int) -> PollStatus:
 
@@ -83,6 +88,16 @@ class EventsMonitor:
         the process stops answering, so a reused pid inherits no counter."""
         self._cursors.pop(pid, None)
 
+    def retain(self, pids: Set[int]) -> None:
+        """Drop the cursors of every pid outside *pids*.
+
+        A process that exits between two ticks is never polled again, so no
+        wait policy ever gives up on it and ``forget`` never runs. Its
+        disappearance from the process tree is the only evidence left.
+        """
+        for pid in self._cursors.keys() - pids:
+            del self._cursors[pid]
+
     def _ingest(self, pid: int, events: Sequence[TGCStatsInfo]) -> None:
         """Emit the records in *events* not seen yet.
 
@@ -90,7 +105,6 @@ class EventsMonitor:
         target's per-generation counter, identifies the new records.
         """
         cursors = self._cursors.setdefault(pid, {})
-        self._rebaseline_restarted(pid, cursors, events)
 
         fresh: dict[tuple[int, int, int], TGCStatsInfo] = {}
         for event in events:
@@ -110,34 +124,6 @@ class EventsMonitor:
             self._stats.update(pid, event)
             key = (event.iid, event.gen)
             cursors[key] = max(cursors.get(key, 0), event.collections)
-
-    def _rebaseline_restarted(self, pid: int, cursors: dict[CursorKey, int], events: Sequence[TGCStatsInfo]) -> None:
-        """Forget cursors whose counter has gone backwards.
-
-        ``collections`` only rises, so a lower value means a different
-        process or interpreter. A stale cursor would otherwise reject
-        everything until the new counter overtook it.
-        """
-        highest: dict[CursorKey, int] = {}
-        for event in events:
-            if not _is_complete(event):
-                continue
-            key = (event.iid, event.gen)
-            highest[key] = max(highest.get(key, 0), event.collections)
-
-        for key, high in highest.items():
-            cursor = cursors.get(key)
-            if cursor is not None and high < cursor:
-                logger.debug(
-                    "PID %s (iid=%s, gen=%s) collection counter went backwards (%s -> %s); "
-                    "treating it as a new process or interpreter",
-                    pid,
-                    key[0],
-                    key[1],
-                    cursor,
-                    high,
-                )
-                del cursors[key]
 
     def stop(self) -> None:
         """Stop monitoring and close the handler and exporter.

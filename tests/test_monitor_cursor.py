@@ -203,62 +203,34 @@ class TestCursorScope:
         monitor.forget(777)
 
 
-class TestCounterRegression:
-    def test_lower_counter_rebaselines(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
-        """A reused pid starts from nothing. Otherwise the stale cursor would
-        reject its records until the counter climbed past the old one."""
+class TestRetain:
+    def test_a_stale_cursor_silences_a_reused_pid(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
+        """Why the loop has to drop cursors for pids that leave the process
+        tree. Nothing here notices the counter restarting, so a reused pid
+        stays silent until it climbs past its predecessor."""
         monitor._ingest(PID, [create_mock_stats_item(gen=0, collections=800, ts_start=8_000, ts_stop=8_500)])
         exporter.events.clear()
 
         monitor._ingest(PID, [create_mock_stats_item(gen=0, collections=2, ts_start=100, ts_stop=200)])
 
-        assert seen(exporter) == {(0, 2)}
+        assert exporter.events == []
 
-    def test_rebaseline_is_per_generation(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
-        """The monitor re-baselines only the buffer whose counter moved
-        backwards."""
-        monitor._ingest(
-            PID,
-            [
-                create_mock_stats_item(gen=0, collections=800, ts_start=8_000, ts_stop=8_500),
-                create_mock_stats_item(gen=1, collections=40, ts_start=8_600, ts_stop=8_700),
-            ],
-        )
+    def test_retain_drops_pids_outside_the_tree(
+        self, monitor: EventsMonitor, exporter: MockExporter, poll_0: list[GCStatsInfo]
+    ) -> None:
+        monitor._ingest(PID, poll_0)
+        monitor._ingest(999, build_batch(POLL_0))
         exporter.events.clear()
 
-        monitor._ingest(
-            PID,
-            [
-                create_mock_stats_item(gen=0, collections=2, ts_start=100, ts_stop=200),
-                create_mock_stats_item(gen=1, collections=40, ts_start=8_600, ts_stop=8_700),
-            ],
-        )
+        monitor.retain({PID})
 
-        assert seen(exporter) == {(0, 2)}
+        monitor._ingest(PID, build_batch(POLL_0))
+        assert exporter.events == [], "the retained pid kept its cursors"
+        monitor._ingest(999, build_batch(POLL_0))
+        assert len(exporter.events) == 15, "the dropped pid started over"
 
-    def test_rebaseline_logs_at_debug(self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture) -> None:
-        monitor._ingest(PID, [create_mock_stats_item(gen=0, collections=800, ts_start=8_000, ts_stop=8_500)])
-
-        with caplog.at_level("DEBUG", logger="gcmon"):
-            monitor._ingest(PID, [create_mock_stats_item(gen=0, collections=2, ts_start=100, ts_stop=200)])
-
-        assert "counter went backwards" in caplog.text
-
-    def test_unwritten_slots_do_not_trigger_rebaseline(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
-        """An all-zero slot reports collections=0 and must not read as a
-        counter going backwards."""
-        monitor._ingest(PID, [create_mock_stats_item(gen=0, collections=800, ts_start=8_000, ts_stop=8_500)])
-        exporter.events.clear()
-
-        monitor._ingest(
-            PID,
-            [
-                create_mock_stats_item(gen=0, collections=0, ts_start=0, ts_stop=0),
-                create_mock_stats_item(gen=0, collections=801, ts_start=9_000, ts_stop=9_500),
-            ],
-        )
-
-        assert seen(exporter) == {(0, 801)}
+    def test_retain_keeps_a_pid_with_no_cursors_yet(self, monitor: EventsMonitor) -> None:
+        monitor.retain({PID, 999})
 
 
 class TestPollIntegration:

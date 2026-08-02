@@ -39,9 +39,6 @@ class MonitorLoop:
 
     def run(self) -> None:
         pid_policies: dict[int, WaitPolicy] = {}
-        # Pids that have answered at least once. An invalid poll from a pid
-        # outside this set may be a process that has yet to start.
-        answered: set[int] = set()
         with set_on_exit(self._stop_event):
             for _ in self._runner.run(self._stop_event.is_set):
                 # One clock read per tick: liveness stamps the trace in
@@ -49,7 +46,19 @@ class MonitorLoop:
                 now_ns = time.monotonic_ns()
                 now = now_ns / 1e9
                 wait: list[bool] = []
-                children: list[int] = [self._monitor.pid, *self._monitor.get_child_pids()]
+                child_pids = self._monitor.get_child_pids()
+                children: list[int] = [self._monitor.pid, *(child_pids or [])]
+
+                # A process that exits between two ticks drops out of the
+                # tree without ever being polled again, so no policy gives up
+                # on it and the branch below never runs. Absence from the
+                # tree is the only evidence, and it counts only when the
+                # listing worked: get_child_pids returns None, not an empty
+                # tree, when it could not ask.
+                if child_pids is not None:
+                    self._monitor.retain(set(children))
+                    for gone in pid_policies.keys() - set(children):
+                        del pid_policies[gone]
 
                 # Phase 1: GC poll — track which PIDs returned OK
                 live_pids: set[int] = set()
@@ -64,20 +73,18 @@ class MonitorLoop:
                         pid_policies[pid] = self._wait_policy_factory()
 
                     rc = self._monitor.poll(pid)
-                    wait.append(pid_policies[pid].wait(rc))
+                    keep_waiting = pid_policies[pid].wait(rc)
+                    wait.append(keep_waiting)
                     if rc == PollStatus.OK:
                         live_pids.add(pid)
-                        answered.add(pid)
-                    elif rc == PollStatus.INVALID_PROCESS and pid in answered:
-                        # The process is gone and the OS may hand the pid out
-                        # again, so drop its state here and nowhere else.
-                        # Before the first OK the policy has to survive:
-                        # StartupTimeoutPolicy times out against its own
-                        # construction, and a replacement restarts that clock
-                        # on every tick.
+                    elif not keep_waiting:
+                        # The policy decides when a pid is finished, so it
+                        # decides when the cursors built from that process's
+                        # counter stop meaning anything. The policy itself
+                        # stays: a replacement would not have seen this pid
+                        # alive and would answer True until its own startup
+                        # timeout expired, holding the loop open that long.
                         self._monitor.forget(pid)
-                        del pid_policies[pid]
-                        answered.discard(pid)
 
                 # Phase 2: liveness — report who answered, in one batched
                 # call. The only place that knows a process was still

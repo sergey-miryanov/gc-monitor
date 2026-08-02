@@ -31,12 +31,14 @@ class TestEventsMonitorExtra:
         mock_get.assert_called_once_with(12345, recursive=True)
         assert children == [999, 888]
 
-    def test_get_child_pids_exception_returns_empty(self, monitor: EventsMonitor) -> None:
+    def test_get_child_pids_exception_returns_none(self, monitor: EventsMonitor) -> None:
+        """None rather than [], so the caller can tell a failed listing from
+        a target with no children and skip pruning that tick."""
         with patch("gcmon.monitor.get_child_pids", side_effect=Exception("boom")) as mock_get:
             children = monitor.get_child_pids()
 
         mock_get.assert_called_once_with(12345, recursive=True)
-        assert children == []
+        assert children is None
 
     def test_exporter_property(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
         assert monitor.exporter is exporter
