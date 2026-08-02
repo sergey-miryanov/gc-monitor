@@ -12,7 +12,7 @@ Two implementations are provided:
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Sequence, Set
 from pathlib import Path
 from typing import Protocol
 
@@ -141,6 +141,24 @@ class ProtobufEventEncoder:
         assert self._path is None, "one encoder writes one trace; construct a new encoder per file"
         self._path = path
         self._has_written = False
+
+    def record_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
+        """Fold a whole tick's worth of liveness observations into the
+        ``Processes``-track span accumulator: *pids* are the processes
+        gcmon read GC state out of at *ts_ns*.
+
+        Not part of the ``EventEncoder`` protocol -- a liveness
+        observation is neither a ``TraceEvent`` nor bytes, and the
+        Chrome and JSONL encoders have nothing to do with it. The caller
+        is ``PerfettoExporter``, which holds a typed handle to this
+        class; see ADR-0011.
+
+        Writes nothing. The observations reach the file at ``close()``,
+        through the same ``finalize_perfetto_packets`` pass that emits
+        the event-derived half of every span.
+        """
+        for pid in pids:
+            self._track_state.update_process_lifetime(pid, ts_ns)
 
     def write_events(self, events: Sequence[TraceEvent]) -> None:
         if not events:

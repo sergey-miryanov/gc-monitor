@@ -95,22 +95,21 @@ class PerfettoTrackState:
     def has_process_lifetime(self, pid: int) -> bool:
         return pid in self._process_lifetime_start
 
-    def update_process_lifetime(self, pid: int, ts: int, *, extends_end: bool) -> None:
-        """Fold *ts* into the recorded span for *pid*.
+    def update_process_lifetime(self, pid: int, ts: int) -> None:
+        """Fold *ts* into the recorded span for *pid*: a plain min/max
+        over every piece of evidence that gcmon saw the process.
 
-        The start is a minimum over every non-meta event; the end is a
-        maximum over non-counter events only, so *extends_end* must be
-        ``False`` for a ``CounterEvent``. The two are held separately so
-        a counter can never seed the end, not even as the first event
-        folded for a pid; a counter-only pid therefore keeps its rank but
-        gets no slice. ADR-0011 has the rationale, and why the asymmetry
-        is provisional.
+        Evidence is any non-meta event, counters included, *or* a
+        liveness observation from the monitor loop. There is no
+        event-kind exception: the counter carve-out this method used to
+        carry was removed when monitor-reported liveness landed, because
+        the span now means "the range over which gcmon observed this
+        process", and an RSS sample is evidence of that on the same
+        footing as a GC event. ADR-0011 has the rationale.
         """
         start_ts = self._process_lifetime_start.get(pid)
         if start_ts is None or ts < start_ts:
             self._process_lifetime_start[pid] = ts
-        if not extends_end:
-            return
         end_ts = self._process_lifetime_end.get(pid)
         if end_ts is None or ts > end_ts:
             self._process_lifetime_end[pid] = ts
@@ -119,9 +118,15 @@ class PerfettoTrackState:
         return self._process_lifetime_start.get(pid)
 
     def get_process_lifetimes(self) -> list[tuple[int, int, int]]:
-        """Return ``[(pid, start_ts, end_ts), ...]`` for every pid with
-        both a start and an end; a pid seen only through counters has no
-        end and is absent."""
+        """Return ``[(pid, start_ts, end_ts), ...]`` for every pid with a
+        recorded span.
+
+        Since ``update_process_lifetime`` became a plain min/max the two
+        dicts always carry identical key sets, so this is every pid ever
+        folded in -- including one known only from liveness, which is
+        exactly the zero-GC process the ``Processes`` track exists to
+        make visible.
+        """
         return [(pid, self._process_lifetime_start[pid], end) for pid, end in self._process_lifetime_end.items()]
 
     def has_process_lifetime_emitted(self) -> bool:

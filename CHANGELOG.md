@@ -6,6 +6,13 @@
 
 - Rename `PerfettoTrackState.pop_process_lifetimes()` to `get_process_lifetimes()`; it no longer drains
 - `ProtobufEventEncoder.open()` now refuses a second call; construct a new encoder per file
+- `PerfettoTrackState.update_process_lifetime()` loses its `extends_end` keyword and is now a plain min/max
+- Perfetto `Processes` slices now span the range over which gcmon observed each process, not the range over which it observed GC activity
+
+### Features
+
+- Add `EventsExporter.add_process_liveness()`: `MonitorLoop` reports the PIDs that answered each poll, so a `Processes` slice covers a process's monitored lifetime (Perfetto only; Chrome JSON, JSONL and stdout are unaffected)
+- A process gcmon polled successfully but that never collected now appears on the `Processes` track instead of being absent from the trace
 
 ### Bugfixes
 

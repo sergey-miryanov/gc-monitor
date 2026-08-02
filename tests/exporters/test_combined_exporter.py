@@ -83,6 +83,17 @@ class TestCombinedTraceExporter:
         chrome.add_rss_sample.assert_called_once_with(DEFAULT_PID, 4096, 1_000_000)
         perfetto.add_rss_sample.assert_called_once_with(DEFAULT_PID, 4096, 1_000_000)
 
+    def test_add_process_liveness_forwards_to_both(self) -> None:
+        """The chrome half reaches the base no-op, but the fan-out still
+        has to happen or ``--format chrome+perfetto`` would silently
+        lose liveness from the perfetto file."""
+        chrome = Mock()
+        perfetto = Mock()
+        combined = CombinedTraceExporter(chrome=chrome, perfetto=perfetto)
+        combined.add_process_liveness({DEFAULT_PID, 999}, 1_000_000)
+        chrome.add_process_liveness.assert_called_once_with({DEFAULT_PID, 999}, 1_000_000)
+        perfetto.add_process_liveness.assert_called_once_with({DEFAULT_PID, 999}, 1_000_000)
+
     def test_close_calls_both_subexporters(self) -> None:
         chrome = Mock()
         perfetto = Mock()

@@ -56,9 +56,8 @@ def _finalize_spans(
     """
     state = PerfettoTrackState()
     for pid, start, end in spans:
-        state.mark_pid(pid)
-        state.update_process_lifetime(pid, start, extends_end=True)
-        state.update_process_lifetime(pid, end, extends_end=True)
+        state.update_process_lifetime(pid, start)
+        state.update_process_lifetime(pid, end)
     packets = finalize_perfetto_packets(state, sequence_id=1)
     lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
 
@@ -329,13 +328,31 @@ class TestProcessLifetimeLaminarClipping:
     def test_no_spans_emits_nothing(self) -> None:
         assert _finalize_spans([]) == ({}, {})
 
-    def test_pid_without_process_descriptor_is_skipped(self) -> None:
-        """A span is only drawn for a pid that reached ``mark_pid``, i.e.
-        one whose ``ProcessMeta`` was seen."""
+    def test_pid_without_process_descriptor_still_gets_a_slice(self) -> None:
+        """A span is drawn for a pid that never reached ``mark_pid``,
+        i.e. one whose ``ProcessMeta`` was never seen because it produced
+        no events at all.
+
+        That is the pid monitor-reported liveness exists for: polled OK
+        for a whole run, never collected, so nothing but the liveness
+        observations says it was there. It has no process track and no
+        cmdline, so the slice carries only the ``real_*`` annotations.
+        """
         state = PerfettoTrackState()
-        state.update_process_lifetime(100, 500, extends_end=True)
-        state.update_process_lifetime(100, 5_000, extends_end=True)
-        assert finalize_perfetto_packets(state, sequence_id=1) == []
+        state.update_process_lifetime(100, 500)
+        state.update_process_lifetime(100, 5_000)
+        assert not state.has_pid(100)
+        lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
+        packets = finalize_perfetto_packets(state, sequence_id=1)
+        assert lifetime_slices(packets, lifetime_uuid) == [
+            (
+                500,
+                TrackEventType.SLICE_BEGIN,
+                "Process 100",
+                {"real_start_ts": 500, "real_end_ts": 5_000},
+            ),
+            (5_000, TrackEventType.SLICE_END, "Process 100", {}),
+        ]
 
     def test_descriptor_refuses_a_second_emission(self) -> None:
         """The descriptor emitter asserts rather than trusting its
@@ -353,9 +370,8 @@ class TestProcessLifetimeLaminarClipping:
         assert finalize_perfetto_packets(state, sequence_id=1) == []
         assert not state.has_process_lifetime_emitted()
 
-        state.mark_pid(100)
-        state.update_process_lifetime(100, 500, extends_end=True)
-        state.update_process_lifetime(100, 5_000, extends_end=True)
+        state.update_process_lifetime(100, 500)
+        state.update_process_lifetime(100, 5_000)
         assert finalize_perfetto_packets(state, sequence_id=1) != []
         assert state.has_process_lifetime_emitted()
 

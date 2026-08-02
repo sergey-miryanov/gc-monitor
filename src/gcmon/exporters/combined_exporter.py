@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Set
 from pathlib import Path
 from typing import override
 
@@ -68,6 +69,11 @@ class CombinedTraceExporter(EventsExporter):
     def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:
         self._chrome.add_rss_sample(pid, rss_bytes, ts_ns)
         self._perfetto.add_rss_sample(pid, rss_bytes, ts_ns)
+
+    @override
+    def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
+        self._chrome.add_process_liveness(pids, ts_ns)
+        self._perfetto.add_process_liveness(pids, ts_ns)
 
     @override
     def close(self) -> None:

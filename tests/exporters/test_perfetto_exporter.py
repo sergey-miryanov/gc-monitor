@@ -1,5 +1,7 @@
 """Tests for Perfetto binary protobuf exporter."""
 
+import threading
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
@@ -22,6 +24,11 @@ from tests.helpers import create_mock_incremental_item, create_mock_stats_item
 # cmdline description is always visible in the Perfetto UI. Must match
 # ``_START_PROCESS_INSTANT_NAME`` in ``gcmon.exporters.perfetto_format``.
 _START_PROCESS_MARKER_NAME: str = "Start Process"
+
+# Pids that only ever show up as liveness observations: gcmon polled
+# them successfully but they never collected, so they produce no events.
+_QUIET_PID: int = 24680
+_OTHER_QUIET_PID: int = 13579
 
 
 def _read_trace_packets(path: Path) -> list[TracePacket]:
@@ -429,3 +436,113 @@ class TestRssRoundTrip:
         # At least: collected, uncollectable, candidates, heap_size,
         # duration (5 GC counters) + 1 RSS counter = 6 distinct UUIDs.
         assert len(counter_uuids) >= 6
+
+
+def _lifetime_spans(path: Path) -> dict[str, tuple[int, int]]:
+    """Return ``{slice name: (begin ts, end ts)}`` for the ``Processes``
+    track, read back off disk.
+
+    The track is the only one carrying named BEGIN/END pairs, and the
+    encoder emits each pair adjacently, so matching by name is enough.
+    """
+    begins: dict[str, int] = {}
+    spans: dict[str, tuple[int, int]] = {}
+    for packet in _read_trace_packets(path):
+        if not packet.HasField("track_event"):
+            continue
+        track_event = packet.track_event
+        if not track_event.name.startswith("Process "):
+            continue
+        if track_event.type == TrackEventType.SLICE_BEGIN:
+            begins[track_event.name] = packet.timestamp
+        elif track_event.type == TrackEventType.SLICE_END:
+            spans[track_event.name] = (begins[track_event.name], packet.timestamp)
+    return spans
+
+
+class TestProcessLivenessRoundTrip:
+    """``add_process_liveness`` folds into the same span accumulator GC
+    events feed, so a ``Processes`` slice covers what gcmon observed
+    rather than what it saw collect. See ADR-0011."""
+
+    def test_liveness_only_pid_gets_a_slice(self, perfetto_exporter: ExporterFactory) -> None:
+        """The whole point of the feature: a pid gcmon polled OK for a
+        run that never collected produces no events, so under the old
+        rule it reached no track at all."""
+        exporter, path = perfetto_exporter()
+        exporter.add_event(DEFAULT_PID, create_mock_stats_item())
+        for ts in (1_400_000_000, 1_600_000_000, 1_800_000_000):
+            exporter.add_process_liveness({_QUIET_PID}, ts)
+        exporter.close()
+
+        assert _lifetime_spans(path)[f"Process {_QUIET_PID}"] == (1_400_000_000, 1_800_000_000)
+
+    def test_liveness_widens_an_event_derived_span(self, perfetto_exporter: ExporterFactory) -> None:
+        """Liveness folds in alongside events rather than replacing
+        them: ``get_gc_stats`` returns collections that already
+        happened, so a freshly discovered child's first event can carry
+        a timestamp from before gcmon ever saw it."""
+        exporter, path = perfetto_exporter()
+        exporter.add_event(DEFAULT_PID, create_mock_stats_item(ts_start=1_500_000_000, ts_stop=1_505_000_000))
+        exporter.add_process_liveness({DEFAULT_PID}, 1_900_000_000)
+        exporter.close()
+
+        # The event start is still the start -- it precedes the first
+        # observation -- and the last observation is now the end.
+        assert _lifetime_spans(path)[f"Process {DEFAULT_PID}"] == (1_500_000_000, 1_900_000_000)
+
+    def test_whole_live_set_lands_in_one_call(self, perfetto_exporter: ExporterFactory) -> None:
+        exporter, path = perfetto_exporter()
+        exporter.add_event(DEFAULT_PID, create_mock_stats_item())
+        exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_400_000_000)
+        exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_800_000_000)
+        exporter.close()
+
+        spans = _lifetime_spans(path)
+        assert spans[f"Process {_QUIET_PID}"] == (1_400_000_000, 1_800_000_000)
+        assert spans[f"Process {_OTHER_QUIET_PID}"] == (1_400_000_000, 1_800_000_000)
+
+    def test_liveness_holds_the_io_lock_for_the_duration(self, tmp_path: Path) -> None:
+        """Asserted by contention, not by inspection: a second thread
+        taking ``_io_lock`` the ordinary way -- through a flush -- must
+        not get in while the liveness call is inside the encoder.
+
+        ``ControlServer`` writes from its own thread and the monitor is
+        closed by whoever unwinds the ``ExitStack``, so this is the lock
+        that keeps a min/max update from being lost and keeps a new pid
+        from appearing mid-finalize.
+        """
+        exporter = PerfettoExporter(output_path=tmp_path / "trace.pb", flush_threshold=1)
+        inside = threading.Event()
+        release = threading.Event()
+        real_record = exporter._protobuf_encoder.record_process_liveness
+
+        def _blocking_record(pids: AbstractSet[int], ts_ns: int) -> None:
+            inside.set()
+            assert release.wait(timeout=5.0)
+            real_record(pids, ts_ns)
+
+        exporter._protobuf_encoder.record_process_liveness = _blocking_record  # type: ignore[method-assign]
+
+        flushed = threading.Event()
+
+        def _flush() -> None:
+            # flush_threshold=1, so this reaches the encoder under
+            # _io_lock rather than only buffering.
+            exporter.add_instant_event(DEFAULT_PID, create_instant_msg(name="contend", ts=1_500_000_000))
+            flushed.set()
+
+        liveness = threading.Thread(target=exporter.add_process_liveness, args=({_QUIET_PID}, 1_400_000_000))
+        writer = threading.Thread(target=_flush)
+        liveness.start()
+        assert inside.wait(timeout=5.0)
+        writer.start()
+
+        assert not flushed.wait(timeout=0.2), "the flush got the io lock while liveness was still holding it"
+        release.set()
+        liveness.join(timeout=5.0)
+        writer.join(timeout=5.0)
+        assert flushed.is_set(), "the flush never completed after liveness released the lock"
+        assert not liveness.is_alive() and not writer.is_alive()
+
+        exporter.close()

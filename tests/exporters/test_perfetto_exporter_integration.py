@@ -317,6 +317,47 @@ def zero_duration_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
         tp.close()
 
 
+# Timestamps for the liveness trace. DEFAULT_PID collects once, early,
+# and is then merely observed for the rest of the run; _SECOND_PID is
+# only ever observed. Both spans start at the first observation and end
+# at the last, but DEFAULT_PID's reaches back to a GC event that
+# happened before gcmon ever polled it -- get_gc_stats returns
+# collections that already happened.
+_LIVE_TICKS: tuple[int, ...] = (300_000_000, 400_000_000, 500_000_000)
+_LIVE_GC_START: int = 100_000_000
+_LIVE_GC_STOP: int = 200_000_000
+
+
+def _write_liveness_trace(tmp: Path) -> Path:
+    """Write a Perfetto trace where one pid has both events and liveness
+    and another has liveness only."""
+    path = tmp / "liveness.pb"
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_event(
+        DEFAULT_PID,
+        create_mock_stats_item(
+            gen=_GEN,
+            iid=_IID,
+            ts_start=_LIVE_GC_START,
+            ts_stop=_LIVE_GC_STOP,
+        ),
+    )
+    for ts in _LIVE_TICKS:
+        exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, ts)
+    exporter.close()
+    return path
+
+
+@pytest.fixture
+def liveness_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_liveness_trace(tmp_path)
+    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
+    try:
+        yield tp
+    finally:
+        tp.close()
+
+
 @pytest.fixture
 def trace_processor(tmp_path: Path, fmt: str) -> Iterator[TraceProcessor]:
     path = _write_trace(tmp_path, fmt)
@@ -1202,6 +1243,75 @@ class TestZeroDurationProcessSpans:
             (f"Process {_SECOND_PID}", "debug.real_end_ts"): _ZERO_CROSSER_STOP,
             (f"Process {_THIRD_PID}", "debug.real_start_ts"): _ZERO_INSTANT_TS,
             (f"Process {_THIRD_PID}", "debug.real_end_ts"): _ZERO_INSTANT_TS,
+        }
+
+
+class TestMonitorReportedLiveness:
+    """``Processes`` slices span what gcmon *observed*, not what it saw
+    collect, so the monitor loop's per-tick liveness reports reach the
+    track alongside the events. See ADR-0011.
+    """
+
+    def test_no_misplaced_end_events(self, liveness_trace_processor: TraceProcessor) -> None:
+        """The two spans co-terminate on the last tick, so the later one
+        nests inside the earlier and both ENDs land on one timestamp.
+        The trace processor must still pair them."""
+        assert _misplaced_end_events(liveness_trace_processor) == 0
+
+    def test_liveness_only_pid_gets_exactly_one_slice(
+        self,
+        liveness_trace_processor: TraceProcessor,
+    ) -> None:
+        """``_SECOND_PID`` produced no events at all: no process
+        descriptor, no process track, nothing but three liveness
+        observations. Under the old ``has_pid`` filter it had no slice,
+        which is the gap this feature closes."""
+        rows = list(
+            liveness_trace_processor.query(
+                f"SELECT s.ts AS ts, s.dur AS dur FROM slice s "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' AND s.name = 'Process {_SECOND_PID}'"
+            )
+        )
+        assert len(rows) == 1, f"expected exactly one slice for the liveness-only pid, got {len(rows)}"
+        assert (rows[0].ts, rows[0].ts + rows[0].dur) == (_LIVE_TICKS[0], _LIVE_TICKS[-1])
+
+    def test_a_pid_with_both_spans_their_union(
+        self,
+        liveness_trace_processor: TraceProcessor,
+    ) -> None:
+        """Liveness folds in alongside events rather than replacing them.
+        ``DEFAULT_PID``'s GC event predates every observation -- a poll
+        returns collections that already happened -- so the start is the
+        event's and the end is the last tick's."""
+        rows = list(
+            liveness_trace_processor.query(
+                f"SELECT a.flat_key AS flat_key, a.int_value AS int_value FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' AND s.name = 'Process {DEFAULT_PID}' "
+                f"AND a.flat_key IN ('debug.real_start_ts', 'debug.real_end_ts')"
+            )
+        )
+        assert {r.flat_key: r.int_value for r in rows} == {
+            "debug.real_start_ts": _LIVE_GC_START,
+            "debug.real_end_ts": _LIVE_TICKS[-1],
+        }
+
+    def test_every_polled_pid_appears_exactly_once(
+        self,
+        liveness_trace_processor: TraceProcessor,
+    ) -> None:
+        rows = list(
+            liveness_trace_processor.query(
+                f"SELECT s.name AS name, COUNT(*) AS n FROM slice s "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' GROUP BY s.name"
+            )
+        )
+        assert {r.name: r.n for r in rows} == {
+            f"Process {DEFAULT_PID}": 1,
+            f"Process {_SECOND_PID}": 1,
         }
 
 

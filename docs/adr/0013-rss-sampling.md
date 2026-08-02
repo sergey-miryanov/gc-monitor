@@ -1,7 +1,7 @@
 # ADR-0013: Sample RSS in a standalone `RssSampler`, on a `tid = -1` sentinel track
 
 - **Status:** Accepted
-- **Date:** 2026-07-13
+- **Date:** 2026-07-13 (caller note added 2026-08-02)
 
 ## Context
 
@@ -32,6 +32,12 @@ the exporter, the interval, and the last-sample time. Its only public method is
 `tick(now, live_pids)`, and the timer check is internal. `MonitorLoop` gains one optional
 constructor argument and one line in the loop body. It knows nothing about `psutil`,
 timers, or how a sample turns into an event.
+
+`tick`'s signature is unchanged by monitor-reported liveness
+([ADR-0011](0011-process-lifetime-and-ordering.md)), but its caller is: the loop now takes a
+single `time.monotonic_ns()` per tick, hands the nanoseconds to `add_process_liveness` and
+`now_ns / 1e9` here. The sampler still receives seconds, and both phases describe the same
+instant.
 
 **The sampler callback is injectable**, the same pattern as `cmdline_provider` in
 `ProtobufEventEncoder`. Tests pass a mock and never touch `psutil`. The constructor checks
@@ -93,7 +99,7 @@ the 0.1 s GC poll rate.
 - `src/gcmon/exporters/_buffered_exporter.py:18`, `_RSS_TID = -1`; `:61`, the `iid >= 0`
   guard in `_build_meta`; `:77-82`, `add_rss_sample`.
 - `src/gcmon/exporters/perfetto_format.py`, `"rss"` in `_TOPLEVEL_COUNTER_METRICS`.
-- `src/gcmon/monitor_loop.py:62-67`, live-pid collection then `tick`;
+- `src/gcmon/monitor_loop.py`, live-pid collection, then liveness, then `tick`;
   `src/gcmon/commands/monitoring_base.py:58`, construction.
 - `src/gcmon/_env.py:209,221`, `get_env_rss` and `get_env_rss_interval`.
 - Tests: `tests/test_rss_sampler.py` (interval timing, live-pid filtering, injected sampler,

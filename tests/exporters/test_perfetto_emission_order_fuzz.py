@@ -121,6 +121,81 @@ def test_orders_adr_0011_rejects_really_do_break(order: str, tmp_path: Path) -> 
     )
 
 
+# The deepest slice stack the trace processor closes. Measured, not
+# documented: at 512 every slice reads back exactly, and each level
+# beyond leaves one more slice open. Both tests below pin one side of it.
+_PAIRABLE_NESTING_DEPTH: int = 512
+
+
+def _co_terminating(depth: int) -> list[tuple[int, int, int]]:
+    """``depth`` spans that all end together, one starting per ns.
+
+    The shape monitor-reported liveness makes ordinary: every pid still
+    alive when the loop stops is stamped with the same final timestamp,
+    and co-terminating spans never clip -- the sweep breaks out on
+    ``outer_end >= end`` -- so they nest, one level per process.
+    """
+    return [(100 + i, i, depth) for i in range(depth)]
+
+
+def test_co_terminating_spans_nest_rather_than_clip() -> None:
+    """The premise of the two measurements below, checked on the sweep
+    itself so a change there cannot quietly turn them into tests of some
+    other shape."""
+    spans = _co_terminating(8)
+    assert [(pid, start, end) for pid, start, end, _rs, _re in _clip_spans_to_laminar(spans)] == spans
+
+
+def test_nesting_pairs_up_to_the_trace_processor_limit(tmp_path: Path) -> None:
+    """512 co-terminating processes read back exactly, with no
+    ``misplaced_end_event``.
+
+    ADR-0011 accepts what deep nesting does to the *UI*. What the
+    *parser* does with it is a different question, because a mispair
+    there is wrong data rather than an ugly picture, and this answers
+    it. Does not gate the feature.
+    """
+    clipped = _clip_spans_to_laminar(_co_terminating(_PAIRABLE_NESTING_DEPTH))
+    misplaced, slices = _slices_as_read_back(
+        _packets_in_order(clipped, "paired", random.Random(0)),
+        tmp_path,
+        "deep_nesting_ok",
+    )
+    assert misplaced == 0
+    assert slices == _expected(clipped)
+
+
+def test_nesting_past_the_limit_loses_slices_silently(tmp_path: Path) -> None:
+    """One level past 512 and the trace processor stops closing slices:
+    each one beyond the limit reads back ``dur = -1``.
+
+    The loss is silent -- ``misplaced_end_event`` stays 0 and no other
+    non-info stat is raised -- so nothing in the trace says the durations
+    are missing. gcmon emits a well-formed BEGIN/END pair for every span
+    either way; the ceiling is the reader's. Recorded here so the number
+    is a measurement rather than an assumption, and so a trace processor
+    that lifts it shows up as a failure here rather than going unnoticed.
+    """
+    depth = _PAIRABLE_NESTING_DEPTH + 8
+    clipped = _clip_spans_to_laminar(_co_terminating(depth))
+    misplaced, slices = _slices_as_read_back(
+        _packets_in_order(clipped, "paired", random.Random(0)),
+        tmp_path,
+        "deep_nesting_over",
+    )
+    expected = _expected(clipped)
+    unclosed = {name for name, (_ts, dur) in slices.items() if dur < 0}
+    assert misplaced == 0, "the loss is silent: the parser reports nothing"
+    assert slices.keys() == expected.keys(), "every span still produces a slice row"
+    assert len(unclosed) == depth - _PAIRABLE_NESTING_DEPTH, (
+        f"expected exactly the {depth - _PAIRABLE_NESTING_DEPTH} innermost slices to be left open, got {len(unclosed)}"
+    )
+    # The ones that fit are untouched.
+    assert {name: span for name, span in slices.items() if name not in unclosed} == {
+        name: span for name, span in expected.items() if name not in unclosed
+    }
+
+
 def test_a_named_end_matches_by_name_not_by_stack_position(tmp_path: Path) -> None:
     """Pin the mechanism ADR-0011's emission argument rests on.
 

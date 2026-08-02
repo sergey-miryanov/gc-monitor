@@ -3,7 +3,7 @@
 One BEGIN/END pair per pid on one shared track. See ADR-0011.
 """
 
-from ..trace_event import CounterEvent, ProcessMeta, ThreadMeta, TraceEvent
+from ..trace_event import ProcessMeta, ThreadMeta, TraceEvent
 from .perfetto_builders import (
     _build_debug_annotation_int,
     _build_debug_annotation_string,
@@ -97,21 +97,18 @@ def _record_process_lifetime(
 ) -> None:
     """Fold *event* into its pid's recorded ``Processes``-track span.
 
-    Meta events are skipped, so a pid seen only through them gets no
-    span and no slice. A ``CounterEvent`` moves the start but never the
-    end; see ``PerfettoTrackState.update_process_lifetime``. Emits
-    nothing: spans become packets at close.
+    Every non-meta event widens the span in both directions, counters
+    included: a timestamped event is evidence the process existed at
+    that instant, whatever kind of event it is. Meta events carry no
+    timestamp, so a pid seen only through them gets no span and no
+    slice. Emits nothing: spans become packets at close.
     """
     if isinstance(event, (ProcessMeta, ThreadMeta)):
         return
     ts = getattr(event, "ts", None)
     if ts is None:
         return
-    state.update_process_lifetime(
-        event.pid,
-        ts,
-        extends_end=not isinstance(event, CounterEvent),
-    )
+    state.update_process_lifetime(event.pid, ts)
 
 
 def _clip_spans_to_laminar(
@@ -153,6 +150,13 @@ def finalize_perfetto_packets(
     track descriptor, then one slice per pid that has a span. Call this
     once, at the end of the trace (typically the encoder's ``close()``).
 
+    Every pid with a span gets a slice, including one the monitor loop
+    only ever reported as live. Such a pid has no process descriptor and
+    no cmdline -- nothing but the span itself -- and drawing it anyway is
+    the point of monitor-reported liveness: a process gcmon polled for a
+    whole run without it ever collecting is precisely what would
+    otherwise leave no trace at all.
+
     No span is dropped: a pid observed at a single instant, or clipped to
     zero, still gets a zero-duration slice. Slices go out in the order
     ``_clip_spans_to_laminar`` returns. See ADR-0011.
@@ -164,7 +168,7 @@ def finalize_perfetto_packets(
     """
     if state.has_process_lifetime_emitted():
         return []
-    spans = [(pid, start, end) for pid, start, end in state.get_process_lifetimes() if state.has_pid(pid)]
+    spans = state.get_process_lifetimes()
     if not spans:
         return []
 

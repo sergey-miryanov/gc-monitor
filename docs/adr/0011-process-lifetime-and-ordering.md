@@ -3,7 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-06-27 (ordering added 2026-06-28; laminar clipping added 2026-07-31; emission
   simplified to unnested BEGIN/END pairs 2026-08-01; sort moved into the sweep and the
-  once-per-trace guard made explicit 2026-08-02)
+  once-per-trace guard made explicit 2026-08-02; monitor-reported liveness landed and the
+  counter carve-out was removed 2026-08-02)
 
 ## Context
 
@@ -35,9 +36,9 @@ suite passed anyway.
 ## Decision
 
 **A single shared top-level track named `Processes`** holds one
-`TYPE_SLICE_BEGIN`/`TYPE_SLICE_END` pair per pid, named `Process <pid>`, spanning that pid's
-first non-meta event to its last non-counter one (the asymmetry is deliberate and provisional;
-see the counter carve-out below).
+`TYPE_SLICE_BEGIN`/`TYPE_SLICE_END` pair per pid, named `Process <pid>`, spanning
+`[first observed, last observed]` for that pid (see the liveness section below for what
+counts as an observation).
 
 - Parented to the trace root, so `parent_uuid` is **absent on the wire**, not `0`, which is
   the reserved root descriptor ([ADR-0002](0002-perfetto-track-uuid-and-hierarchy.md)).
@@ -125,23 +126,54 @@ annotations disagree, the annotations are the truth.
 nothing, both still get a BEGIN/END pair; the trace processor accepts it and reports
 `dur = 0`. A missing slice would leave no record that the process was monitored at all.
 
-**Counter events are excluded from the end timestamp**, though not from the start. The span
-means *the range over which gcmon observed GC activity*, not *the range over which the
-process was alive*. RSS samples are counter events ([ADR-0013](0013-rss-sampling.md)) emitted
-on their own 1 Hz schedule with no GC work behind them, so letting them extend the span would
-report sampler liveness as monitoring coverage. The span is
-`[first non-meta event, last Begin/End/Instant event]`.
+**The span is `[min, max]` over every observation, with no event-kind exception.** An
+observation is any non-meta trace event — counters included — *or* a **liveness observation**
+from `MonitorLoop`: a `(pid, ts)` pair meaning gcmon successfully read GC state out of that
+process at that instant. `MonitorLoop` reports the whole `PollStatus.OK` set once per tick
+through `EventsExporter.add_process_liveness(pids, ts_ns)`, one call and one lock acquisition
+per tick rather than per pid.
 
-**The carve-out is provisional, and the two ends disagree today.** The start is a minimum
-over *every* non-meta event, counters included, so it already means "first evidence the
-process existed"; only the end means "last GC activity". When monitor-reported lifetime
-lands, liveness becomes the definition of the whole span, and an RSS sample is evidence of it
-on the same footing as the monitor's own observation, so the carve-out is expected to be
-**removed** rather than extended to the start, making the span
-`[first observed event, last observed event]`. That puts the end within one sample interval
-of a process's death rather than at its last collection, which is the intent. It also makes
-a `--rss` run report a wider span than a non-`--rss` run of the same workload, honest but
-leaving spans comparable only across traces captured the same way.
+The counter carve-out this ADR originally described — counters moved the start but never the
+end — is **removed**, as it said it expected to be. It existed because letting RSS samples
+extend the span would have reported sampler liveness as monitoring coverage; monitoring
+coverage is now reported directly, and an RSS sample cannot push an end past the liveness
+tick that produced it by more than the microseconds between the loop's `time.monotonic_ns()`
+and the sampler's. `update_process_lifetime(pid, ts)` is a plain min/max with no keyword.
+
+**Liveness folds in alongside events; it does not replace them.** Defining the span as
+`[first OK, last OK]` was rejected: `get_gc_stats` returns collections that *already
+happened*, so a freshly discovered child's first GC event can carry a timestamp from before
+gcmon ever polled it, and under a replace rule a GC slice would sit outside its own process's
+lifetime slice — structurally, not occasionally.
+
+**Membership in `children` is not an observation.** `get_child_pids` is the OS's claim about
+the process tree; treating it as evidence would reintroduce, through a different door, the
+`create_time()` approach rejected below.
+
+**The span means *liveness*, not *monitoring coverage*.** The distinction is visible when the
+control server suppresses a pid mid-run (`monitor_loop.py`): that pid is not polled and so is
+not observed, but if it is re-enabled later it gets **one continuous span across the gap**,
+because the accumulator stores only a min and a max. That is correct under "liveness" and
+wrong under "monitoring coverage", which is why the choice is stated here rather than left to
+the reader. Representing the gap as two spans is out of scope.
+
+**Always-on.** No flag. The cost that justified `--rss` ([ADR-0013](0013-rss-sampling.md)) —
+a `psutil` dependency and a syscall per pid per round — does not transfer: `live_pids` is
+already built by the poll phase, and the feature is one batched call and two dict comparisons
+per pid per tick. A flag would mean shipping two definitions of a `Processes` slice and
+keeping both alive in tests and docs.
+
+**Liveness is attached at `PerfettoExporter`, not on the `EventEncoder` protocol.**
+`EventEncoder` is three methods meaning "translate a batch of `TraceEvent` into bytes", and a
+liveness observation is neither a `TraceEvent` nor bytes. `PerfettoExporter` constructs its
+own `ProtobufEventEncoder`, so it keeps a typed handle to it and overrides
+`add_process_liveness` itself; Chrome, JSONL and stdout reach the no-op on the
+`EventsExporter` base. The override takes `_io_lock`, and that is not optional: it is the
+lock guarding every other encoder touch, `close()` included, and `ControlServer` calls
+`add_instant_event` from its own thread. Without it a concurrent read-modify-write can drop a
+min/max update, narrowing a span by up to one tick, and a new pid arriving mid-`close()` can
+raise `RuntimeError: dictionary changed size during iteration` out of
+`get_process_lifetimes`.
 
 ## Consequences
 
@@ -153,16 +185,47 @@ leaving spans comparable only across traces captured the same way.
   the losses are severe in ordinary use: 1000 children with nanosecond start jitter and
   varying lifetimes retain **0.37%** of their total observed duration. `--rss` makes it
   likelier still, since `RssSampler.tick` samples every live pid in one loop and counters
-  move a span's start.
+  move a span's start. Liveness cuts the other way for part of the fan-out: children whose
+  earliest evidence is the tick that first polled them share that timestamp exactly and so
+  nest rather than clip. Children whose first GC event predates the poll keep their jitter,
+  so both shapes remain.
 - **Which sibling gets sacrificed is not meaningful.** Within an RSS round the sample order is
   `set` iteration order, so hash order decides which pid gets the earliest start and is
   therefore clipped, rather than anything about the processes.
 - **The drawn duration is a lower bound, never an upper one**, so deaths are misreported as
   early rather than late. `real_end_ts - real_start_ts` recovers what was observed;
   `docs/perfetto-sql.md` carries the query.
-- **Exactly one slice per pid that did GC work**, so consumers may join `Processes` slices to
-  pids one-to-one. A pid seen only through counters or only through meta events has none, and
-  no rank either.
+- **Exactly one slice per pid gcmon polled**, so consumers may join `Processes` slices to pids
+  one-to-one. A pid that answered a single poll and never collected gets a slice; only a pid
+  seen through meta events alone has none. `finalize_perfetto_packets` therefore does *not*
+  filter on `has_pid`, which would have required a process descriptor and so an event.
+- **A zero-GC pid's slice carries no cmdline.** Such a pid never passes through
+  `write_events`, so `_ensure_cmdline` never runs for it. It has no process track either,
+  which the UI hides anyway — the problem [ADR-0010](0010-process-identity-cmdline-and-start-marker.md)'s
+  `Start Process` marker was invented for. Emitting a track or a marker for it is out of scope.
+- **Rank gaps.** A zero-GC pid consumes a rank — `get_process_track_ranks` sorts the same dict
+  liveness writes — but has no descriptor to apply it to, so real pids get 0, 1, 2, 4, 5.
+  Harmless: `sibling_order_rank` is a sort key, not an index. Splitting the accumulator so
+  ranks stayed event-derived was rejected; it would add a second exception to
+  `update_process_lifetime` in the same change that deletes the first one, to avoid cosmetic
+  gaps in a sort key.
+- **Deep nesting is now the normal shape.** Processes still alive when the loop stops share an
+  end timestamp, and `_clip_spans_to_laminar` breaks out on `outer_end >= end`, so
+  co-terminating spans never clip — they nest, one level per process. A 1000-child fan-out
+  that survives the run nests 1000 deep on one track. Staggered deaths still clip as before,
+  so traces show both shapes mixed.
+- **The trace processor closes at most 512 nested slices.** Measured, not assumed
+  (`test_perfetto_emission_order_fuzz.py`): at depth 512 every slice reads back exactly; at
+  513 the innermost comes back with `dur = -1`, and each further level loses one more. The
+  loss is **silent** — `misplaced_end_event` stays 0 and no other non-info stat is raised — so
+  nothing in the trace says the durations are missing. gcmon emits a well-formed BEGIN/END
+  pair for every span either way; the ceiling is the reader's. A run with more than 512
+  processes surviving to the last tick will hit it. Bounding or flattening nesting depth is
+  out of scope.
+- **`combine` diverges from live capture.** Offline conversion has no `MonitorLoop`, so its
+  spans stay purely event-derived and are narrower than a live run of the same workload.
+  Inherent to sourcing liveness from the loop; carrying it through JSONL or Chrome so
+  `combine` could reproduce it is out of scope.
 - **`sibling_order_rank` is not exposed as a SQL column.** It is a UI hint, so the
   trace-processor tests act as a *schema-validity guard*: they confirm the layout is
   accepted and the `process` and `track` tables survive intact, but only the Perfetto UI can
@@ -172,7 +235,11 @@ leaving spans comparable only across traces captured the same way.
   than its first non-meta event, the descriptor goes out before the rank is known, and
   emission is idempotent, so that pid gets no rank. Within a batch the pre-pass in
   `convert_trace_events_to_perfetto` folds every non-meta event into the span state *before*
-  the main loop, so same-batch `ProcessMeta` still gets its rank.
+  the main loop, so same-batch `ProcessMeta` still gets its rank. Liveness shrinks this wart
+  without closing it: it usually lands a start earlier than any event would, but `monitor.poll`
+  enqueues the `ProcessMeta` *during* the poll while the liveness call happens after the poll
+  phase, so a batch crossing `flush_threshold` mid-poll still emits a rank-less descriptor.
+  Left as-is rather than reordering the loop to chase it.
 - The `Processes` block lands at the end of the file, descriptor first. The trace processor
   resolves track references across the whole trace rather than in file order.
 - Consumers enumerating slices must filter `track.name == 'Processes'`, as the equivalence
@@ -207,6 +274,26 @@ leaving spans comparable only across traces captured the same way.
 - **OS-level process times via `psutil.Process(pid).create_time()`.** Rejected: the span
   should describe what gcmon observed, not when the OS started the process; the difference
   would be misread as monitoring coverage.
+- **Defining the span purely as `[first OK, last OK]`**, liveness replacing events rather than
+  folding in with them. Rejected: a GC slice would then sit outside its own process's lifetime
+  slice structurally rather than occasionally, which is a contradiction a reader can see in
+  the UI.
+- **Stamping every pid in a tick with one timestamp**, which would make spans that share a
+  start *nest* rather than cross and so deliver the "snap near-equal starts" alternative above
+  without having to choose an ε. Noted and deliberately not taken: the benefit is an artifact
+  of `--rate` and would silently degrade as the rate drops. Snapping should be done
+  deliberately or not at all.
+- **Emitting liveness as a `TraceEvent`.** Rejected: at 10 Hz × N pids, a 60-second run with
+  ten children carries ~6,000 extra events, visible on the process tracks, to record two
+  numbers per pid.
+- **A `RssSampler`-style collaborator** accumulating `first`/`last` per pid and flushing once
+  at close. Rejected: it mirrors state the exporter already holds in
+  `_process_lifetime_start` / `_process_lifetime_end`, and adds a close-ordering hazard. Since
+  `update_process_lifetime` is a min/max, ~600 redundant calls per pid over a minute cost only
+  dict comparisons.
+- **A fourth method on the `EventEncoder` protocol**, with a no-op in `JsonEventEncoder`.
+  Rejected: it widens a precise abstraction to carry out-of-band per-trace state that one
+  implementation has, and taxes the other forever.
 - **Emitting the slice END at the end of each convert call.** The original implementation,
   and wrong; see above.
 - **Re-emitting a process descriptor with a corrected rank in a later batch.** Rejected: it
@@ -223,8 +310,9 @@ leaving spans comparable only across traces captured the same way.
   `chrome_thread`, so a wrong number writes a different message and fails silently
   ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)).
 - `src/gcmon/exporters/perfetto_track_state.py`,
-  `PerfettoTrackState.update_process_lifetime`, the span accumulator; its `extends_end` flag
-  is where the counter carve-out lives. `get_process_lifetimes` is a plain accessor; the
+  `PerfettoTrackState.update_process_lifetime`, the span accumulator; a plain min/max taking
+  `(pid, ts)`, with no `extends_end` keyword since the carve-out was removed. Start and end
+  therefore always carry identical key sets. `get_process_lifetimes` is a plain accessor; the
   once-per-trace contract is a `_process_lifetime_emitted` flag that
   `finalize_perfetto_packets` checks and sets, which is what makes it safe to call twice and
   covers the non-idempotent track descriptor too. `get_process_track_ranks` sorts by
@@ -238,6 +326,15 @@ leaving spans comparable only across traces captured the same way.
   which fields the sweep may have moved.
 - `src/gcmon/exporters/perfetto_format.py`, `_emit_root_descriptor`, guarded by
   `has_root_descriptor`.
+- The liveness path, loop to accumulator: `src/gcmon/monitor_loop.py` takes one
+  `time.monotonic_ns()` per tick, calls `self._monitor.exporter.add_process_liveness(live_pids,
+  now_ns)` after the poll phase (skipped when the set is empty), and passes `now_ns / 1e9` to
+  `RssSampler.tick`, leaving [ADR-0013](0013-rss-sampling.md)'s signature unchanged.
+  `src/gcmon/exporters/exporter.py` holds the no-op base `add_process_liveness`;
+  `src/gcmon/exporters/combined_exporter.py` fans it out;
+  `src/gcmon/exporters/perfetto_exporter.py` overrides it under `_io_lock`, forwarding to
+  `ProtobufEventEncoder.record_process_liveness` in `src/gcmon/exporters/encoder.py`, which
+  folds the batch into `_track_state`. The `EventEncoder` protocol is untouched.
 - `tests/exporters/test_perfetto_process_lifetime.py`: `TestClipSpansToLaminar` covers the
   sweep directly at full statement and branch coverage; `TestProcessLifetimeLaminarClipping`
   covers the same shapes through `finalize_perfetto_packets` and additionally checks the
@@ -248,10 +345,18 @@ leaving spans comparable only across traces captured the same way.
 - `tests/exporters/test_perfetto_emission_order_fuzz.py`, marked `fuzz` and run by its own CI
   job, settles the emission-order claims above against the real trace processor: paired
   emission reads back exactly over random laminar span sets, and the orderings rejected here
-  are asserted to *break*, so the positive case cannot pass by ordering being irrelevant.
+  are asserted to *break*, so the positive case cannot pass by ordering being irrelevant. It
+  also pins both sides of the 512-deep nesting limit above.
 - `tests/exporters/test_perfetto_exporter_integration.py`: `TestCrossingProcessSpans` asserts
   `misplaced_end_event == 0` against a deliberately crossing trace,
   `TestZeroDurationProcessSpans` that a same-ts BEGIN/END is paired rather than orphaned and
-  that every pid keeps a slice, and
+  that every pid keeps a slice, `TestMonitorReportedLiveness` that a liveness-only pid gets
+  exactly one slice and a pid with both gets the union, and
   `TestMultiFlushProcessesTrack::test_slice_end_is_last_event_ts`, which forces many flushes
   with `flush_threshold=5` and asserts `slice.ts + slice.dur == last_event_ts`.
+- Liveness tests: `tests/monitoring/test_monitor_loop.py::TestProcessLiveness` (one call per
+  tick with exactly the OK set, one clock read shared with the sampler);
+  `tests/exporters/test_perfetto_exporter.py::TestProcessLivenessRoundTrip`, including an
+  `_io_lock` test asserted by contention rather than by inspection;
+  `tests/exporters/test_buffered_exporter.py::TestAddProcessLivenessIsPerfettoOnly`, which
+  pins Chrome, JSONL and stdout output as byte-identical with and without liveness.
