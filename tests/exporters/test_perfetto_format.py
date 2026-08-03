@@ -2,19 +2,22 @@
 
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
     TracePacket,
+    TrackDescriptor,
     TrackEvent,
 )
 
-from gcmon.data import GCStatsInfo
+from gcmon.data import GCStatsInfo, LossMsg
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_process_lifetime import finalize_perfetto_packets
 from gcmon.exporters.perfetto_proto import TrackEventType
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from gcmon.exporters.trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format
 from gcmon.trace_event import TraceEvent, counter_event, instant_event, process_meta, thread_meta
 from tests.exporters.perfetto_helpers import (
     convert_item,
     lifetime_slices,
 )
+from tests.helpers import create_mock_stats_item
 
 # Name of the synthetic marker emitted on the process track so the
 # cmdline description is always visible in the Perfetto UI. Must match
@@ -862,3 +865,87 @@ class TestConvertInstantToPerfettoPacket:
         convert_item(100, item_g1, state, sequence_id=1)
         uuid_after_g1 = state.get_or_create_counter_track_uuid(100, 0, "heap_size", "heap_size")
         assert uuid_after_g0 == uuid_after_g1
+
+
+class TestLossTrackDescriptor:
+    """Nothing but this describes the loss track: `_build_meta` suppresses
+    `ThreadMeta` for a negative tid, which is what stops it being drawn as a
+    thread and also leaves it undescribed. See ADR-0015."""
+
+    def _convert(self, *msgs: LossMsg, pid: int = 100) -> tuple[list[TrackDescriptor], list[TracePacket]]:
+        state = PerfettoTrackState()
+        events: list[TraceEvent] = [process_meta(pid, f"Process {pid}")]
+        for msg in msgs:
+            events.extend(convert_loss_to_trace_format(pid, msg))
+        descriptors, packets = convert_trace_events_to_perfetto(events, state, 1)
+        return (
+            [TracePacket.FromString(d).track_descriptor for d in descriptors],
+            [TracePacket.FromString(p) for p in packets],
+        )
+
+    def _loss_tracks(self, descriptors: list[TrackDescriptor]) -> list[TrackDescriptor]:
+        return [d for d in descriptors if d.name.startswith("GC Loss")]
+
+    def test_the_track_is_described(self) -> None:
+        descriptors, _ = self._convert(LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76))
+
+        assert [d.name for d in self._loss_tracks(descriptors)] == ["GC Loss 0"]
+
+    def test_it_is_not_an_os_thread(self) -> None:
+        """`_emit_thread_descriptor` would name it `Thread -2` and put
+        `tid = -2` on a thread sub-message, describing a thread that does not
+        exist."""
+        descriptors, _ = self._convert(LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76))
+        track = self._loss_tracks(descriptors)[0]
+
+        assert not track.HasField("thread")
+        assert not track.HasField("process")
+
+    def test_it_hangs_off_the_process_track(self) -> None:
+        descriptors, _ = self._convert(LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76))
+        process = next(d for d in descriptors if d.HasField("process"))
+
+        assert self._loss_tracks(descriptors)[0].parent_uuid == process.uuid
+
+    def test_the_slices_land_on_it(self) -> None:
+        descriptors, packets = self._convert(LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76))
+        track = self._loss_tracks(descriptors)[0]
+
+        slices = [p for p in packets if p.track_event.type in (TrackEventType.SLICE_BEGIN, TrackEventType.SLICE_END)]
+        assert [p.track_event.track_uuid for p in slices] == [track.uuid, track.uuid]
+
+    def test_described_once_across_many_spans(self) -> None:
+        descriptors, _ = self._convert(
+            LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76),
+            LossMsg(iid=0, ts_start=3_000, ts_stop=4_000, lost_gen_0=5),
+        )
+
+        assert len(self._loss_tracks(descriptors)) == 1
+
+    def test_each_interpreter_gets_its_own(self) -> None:
+        descriptors, _ = self._convert(
+            LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76),
+            LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=5),
+        )
+        tracks = self._loss_tracks(descriptors)
+
+        assert sorted(d.name for d in tracks) == ["GC Loss 0", "GC Loss 1"]
+        assert len({d.uuid for d in tracks}) == 2
+
+    def test_it_does_not_share_a_track_with_gc_slices(self) -> None:
+        """A loss span crosses the interpreter's GC slices, and a track is a
+        stack."""
+        state = PerfettoTrackState()
+        item = create_mock_stats_item(iid=0)
+        events: list[TraceEvent] = [
+            process_meta(100, "Process 100"),
+            thread_meta(100, 0, "Thread 0"),
+            *convert_item_to_trace_format(100, item),
+            *convert_loss_to_trace_format(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1)),
+        ]
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, 1)
+        decoded = [TracePacket.FromString(d).track_descriptor for d in descriptors]
+
+        loss = next(d for d in decoded if d.name.startswith("GC Loss"))
+        thread = next(d for d in decoded if d.HasField("thread"))
+        assert loss.uuid != thread.uuid

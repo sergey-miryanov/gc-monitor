@@ -12,6 +12,7 @@ need to know only this name.
 from collections.abc import Sequence
 
 from ..trace_event import (
+    LOSS_TID_BASE,
     BeginEvent,
     CounterEvent,
     EndEvent,
@@ -19,6 +20,7 @@ from ..trace_event import (
     ProcessMeta,
     ThreadMeta,
     TraceEvent,
+    loss_iid,
 )
 from .perfetto_builders import (
     _args_to_debug_annotations,
@@ -101,6 +103,9 @@ _TOPLEVEL_COUNTER_METRICS: frozenset[str] = frozenset({"heap_size", "rss"})
 # on OS-scoped (process/thread) tracks, but honors them on plain custom
 # child tracks.
 _COUNTER_GROUP_NAME: str = "GC Metrics"
+_LOSS_TRACK_NAME: str = "GC Loss"
+# Below the interpreter's own thread track, which ranks 0.
+_LOSS_TRACK_RANK: int = 1
 
 # Name of the synthetic dur=0 instant event emitted on the process track
 # itself, once per pid, on the first non-meta event for that pid. The
@@ -240,6 +245,39 @@ def _emit_thread_descriptor(
         parent_uuid=state.get_process_track_uuid(pid),
         sibling_order_rank=0,
         thread_name=f"Thread {iid}",
+    )
+    return [build_trace_packet(sequence_id, track_descriptor=desc)]
+
+
+def _emit_loss_descriptor(
+    pid: int,
+    tid: int,
+    state: PerfettoTrackState,
+    sequence_id: int,
+) -> list[bytes]:
+    """Build the per-``(pid, iid)`` GC Loss track descriptor, once.
+
+    Returns nothing for a tid that is not a loss track, so the slice branches
+    can call this without checking first.
+
+    Nothing else would describe this track. Thread tracks get their descriptor
+    from a ``ThreadMeta``, and ``_build_meta`` suppresses those for negative
+    tids — which is the same guard that keeps the track from being drawn as a
+    thread in the first place.
+
+    A plain custom track, like the counter group: ``_emit_thread_descriptor``
+    would name it ``Thread -2`` and put ``tid = -2`` on a thread sub-message,
+    describing an OS thread that does not exist. The interpreter is recovered
+    from the sentinel, the tid being the only thing a ``TraceEvent`` carries.
+    """
+    if tid > LOSS_TID_BASE or state.has_tid(pid, tid):
+        return []
+    state.mark_tid(pid, tid)
+    desc = build_track_descriptor(
+        state.get_thread_track_uuid(pid, tid),
+        f"{_LOSS_TRACK_NAME} {loss_iid(tid)}",
+        parent_uuid=state.get_process_track_uuid(pid),
+        sibling_order_rank=_LOSS_TRACK_RANK,
     )
     return [build_trace_packet(sequence_id, track_descriptor=desc)]
 
@@ -389,6 +427,7 @@ def convert_trace_events_to_perfetto(
 
         elif isinstance(event, BeginEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
+            descriptors.extend(_emit_loss_descriptor(pid, event.tid, state, sequence_id))
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
             annotations = _args_to_debug_annotations(event.args)
             packets.append(
@@ -406,6 +445,7 @@ def convert_trace_events_to_perfetto(
 
         elif isinstance(event, EndEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
+            descriptors.extend(_emit_loss_descriptor(pid, event.tid, state, sequence_id))
             thread_uuid = state.get_thread_track_uuid(pid, event.tid)
             packets.append(
                 build_trace_packet(
