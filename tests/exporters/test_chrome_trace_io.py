@@ -6,7 +6,7 @@ from pathlib import Path
 import msgspec
 import pytest
 
-from gcmon.data import GCStatsInfo
+from gcmon.data import GCStatsInfo, LossMsg
 from gcmon.exporters.chrome_trace_io import (
     _normalize_jsonl_timestamps,
     _normalize_trace_timestamps,
@@ -23,6 +23,7 @@ from gcmon.trace_event import (
     begin_event,
     counter_event,
     end_event,
+    loss_tid,
     process_meta,
     thread_meta,
 )
@@ -685,3 +686,69 @@ class TestCombineFiles:
         records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert records[0]["increment_size"] == 500
         assert records[0]["alive_size"] == 300
+
+
+class TestJsonlLossRoundTrip:
+    """`combine` reads and writes JSONL, so a loss span has to survive the
+    round trip as well as a GC record does — otherwise a converted capture
+    silently loses the spans the live run drew."""
+
+    def _msg(self, **kw: int) -> LossMsg:
+        return LossMsg(iid=kw.pop("iid", 1), ts_start=kw.pop("ts_start", 5_000), ts_stop=kw.pop("ts_stop", 6_000), **kw)
+
+    def test_write_then_read(self, tmp_path: Path) -> None:
+        path = tmp_path / "loss.jsonl"
+        msg = self._msg(lost_gen_0=76, lost_gen_1=5, lost_pause_gen_0=8_100_000)
+
+        write_jsonl(path, {42: [msg]})
+
+        assert read_jsonl(path) == {42: [msg]}
+
+    def test_written_on_the_loss_track(self, tmp_path: Path) -> None:
+        path = tmp_path / "loss.jsonl"
+
+        write_jsonl(path, {42: [self._msg(lost_gen_0=76)]})
+
+        assert json.loads(path.read_text(encoding="utf-8"))["tid"] == loss_tid(1)
+
+    def test_normalize_shifts_a_loss_span(self) -> None:
+        """It is neither a GC record nor an instant, so without a branch of its
+        own it would keep raw timestamps while everything around it moved."""
+        msg = self._msg(ts_start=7_000, ts_stop=8_000, lost_gen_0=76)
+        item = create_mock_stats_item(ts_start=5_000, ts_stop=6_000)
+
+        _normalize_jsonl_timestamps({1: [item, msg]})
+
+        assert (msg.ts_start, msg.ts_stop) == (2_000, 3_000)
+        assert item.ts_start == 0
+
+    def test_a_loss_span_can_set_the_origin(self) -> None:
+        """A window opens before the record that closes it, so the earliest
+        thing in a capture can be a loss span."""
+        msg = self._msg(ts_start=3_000, ts_stop=5_000, lost_gen_0=76)
+        item = create_mock_stats_item(ts_start=5_000, ts_stop=6_000)
+
+        _normalize_jsonl_timestamps({1: [msg, item]})
+
+        assert msg.ts_start == 0
+        assert item.ts_start == 2_000
+
+    def test_combine_carries_loss_into_a_chrome_trace(self, tmp_path: Path) -> None:
+        source = tmp_path / "in.jsonl"
+        out = tmp_path / "out.json"
+        write_jsonl(source, {42: [create_mock_stats_item(iid=1), self._msg(lost_gen_0=76)]})
+
+        combine_files([source], out, input_format="jsonl", output_format="chrome")
+
+        names = {e["name"] for e in json.loads(out.read_text(encoding="utf-8"))}
+        assert "GC Loss" in names
+
+    def test_combine_jsonl_to_jsonl_keeps_the_span(self, tmp_path: Path) -> None:
+        source = tmp_path / "in.jsonl"
+        out = tmp_path / "out.jsonl"
+        msg = self._msg(lost_gen_0=76)
+        write_jsonl(source, {42: [msg]})
+
+        combine_files([source], out, input_format="jsonl", output_format="jsonl")
+
+        assert read_jsonl(out) == {42: [msg]}
