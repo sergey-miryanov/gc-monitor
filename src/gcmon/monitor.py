@@ -4,9 +4,11 @@ import logging
 import time
 from _remote_debugging import get_child_pids, get_gc_stats
 from collections.abc import Sequence, Set
+from itertools import groupby
 from typing import Self
 
 from .exporters import EventsExporter
+from .loss import CursorKey, KeyAccumulator
 from .poll_status import PollStatus
 from .protocol import TGCStatsInfo
 from .stats import StreamingStats
@@ -15,10 +17,6 @@ from .target_process import TargetProcess
 logger = logging.getLogger("gcmon")
 
 __all__ = ["EventsMonitor", "create_monitor"]
-
-# (iid, gen): one ring buffer per interpreter and generation, each with its
-# own `collections` counter.
-type CursorKey = tuple[int, int]
 
 
 def _is_complete(event: TGCStatsInfo) -> bool:
@@ -38,7 +36,7 @@ class EventsMonitor:
         self._process = process
         self._exporter = exporter
         self._enabled = True
-        self._cursors: dict[int, dict[CursorKey, int]] = {}
+        self._cursors: dict[int, dict[CursorKey, KeyAccumulator]] = {}
         self._stats = stats
 
     def get_child_pids(self) -> list[int] | None:
@@ -103,23 +101,32 @@ class EventsMonitor:
         """
         cursors = self._cursors.setdefault(pid, {})
 
-        fresh: dict[tuple[int, int, int], TGCStatsInfo] = {}
-        for event in events:
-            if not _is_complete(event):
-                continue
-            if event.collections <= cursors.get((event.iid, event.gen), 0):
-                continue
-            # Two slots with the same counter are one collection: the target
-            # copies a record forward before overwriting it.
-            fresh.setdefault((event.iid, event.gen, event.collections), event)
-
         # Slot order is not time order: the batch arrives rotated around the
-        # ring's write position, with the generations concatenated.
-        for event in sorted(fresh.values(), key=lambda event: event.ts_start):
+        # ring's write position, with the generations concatenated. Sorting
+        # puts every ring back into the counter order its accumulator folds in.
+        ordered = sorted(
+            (event for event in events if _is_complete(event)),
+            key=lambda event: (event.iid, event.gen, event.ts_start),
+        )
+
+        fresh: list[TGCStatsInfo] = []
+        for key, group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
+            accumulator = cursors.setdefault(key, KeyAccumulator())
+            seen = accumulator.last
+            # Keying on the counter drops the copy the target makes of a record
+            # ahead of overwriting it: both slots report the same counter, so no
+            # threshold tells them apart.
+            run = list({event.collections: event for event in group if event.collections > seen}.values())
+
+            accumulator.observe_batch(run)
+            fresh.extend(run)
+
+        # One interpreter's generations share a track, so they go out in time
+        # order. Two interpreters share no track and collect concurrently, so
+        # nothing is claimed about the order between them.
+        for event in sorted(fresh, key=lambda event: (event.iid, event.ts_start)):
             self._exporter.add_event(pid, event)
             self._stats.update(pid, event)
-            key = (event.iid, event.gen)
-            cursors[key] = max(cursors.get(key, 0), event.collections)
 
     def stop(self) -> None:
         """Stop monitoring and close the handler and exporter.
