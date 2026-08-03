@@ -7,8 +7,7 @@ import msgspec
 
 from ..data import from_mapping
 from ..protocol import (
-    TGCStatsInfo,
-    TInstantMsg,
+    TItem,
     TMapping,
     has_clear_weakrefs,
     has_deduce_unreachable,
@@ -41,14 +40,14 @@ __all__ = [
 ]
 
 
-def json_to_item(data: TMapping) -> tuple[int, TGCStatsInfo | TInstantMsg]:
+def json_to_item(data: TMapping) -> tuple[int, TItem]:
     pid = int(data["pid"])
     item = from_mapping(data)
     return pid, item
 
 
-def read_jsonl(filename: Path) -> dict[int, list[TGCStatsInfo | TInstantMsg]]:
-    items: dict[int, list[TGCStatsInfo | TInstantMsg]] = {}
+def read_jsonl(filename: Path) -> dict[int, list[TItem]]:
+    items: dict[int, list[TItem]] = {}
     with open(filename, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -67,7 +66,7 @@ def convert_jsonl_to_trace_format(path: Path) -> list[TraceEvent]:
     return convert_to_trace_format(items)
 
 
-def write_jsonl(filename: Path, items: dict[int, list[TGCStatsInfo | TInstantMsg]]) -> None:
+def write_jsonl(filename: Path, items: Mapping[int, Sequence[TItem]]) -> None:
     """Write GC stats items to a JSONL file."""
     with open(filename, "wb") as f:
         for pid, pid_items in items.items():
@@ -124,7 +123,7 @@ def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
             e.ts = e.ts - min_ts
 
 
-def _normalize_jsonl_timestamps(items: Mapping[int, Sequence[TGCStatsInfo | TInstantMsg]]) -> None:
+def _normalize_jsonl_timestamps(items: Mapping[int, Sequence[TItem]]) -> None:
     for pid_items in items.values():
         timestamps: list[int] = []
         for item in pid_items:
@@ -180,7 +179,7 @@ def combine_files(
         )
 
     if input_format == "jsonl" and output_format == "jsonl":
-        all_items: dict[int, list[TGCStatsInfo | TInstantMsg]] = {}
+        all_items: dict[int, list[TItem]] = {}
 
         for input_path in input_paths:
             items = read_jsonl(input_path)

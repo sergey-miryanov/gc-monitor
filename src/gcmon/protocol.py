@@ -11,6 +11,8 @@ __all__ = [
     "THandleWeakrefsInfo",
     "TIncrementalInfo",
     "TInstantMsg",
+    "TItem",
+    "TLossMsg",
     "TMapping",
     "TMarkAliveInfo",
     "has_clear_weakrefs",
@@ -25,6 +27,7 @@ __all__ = [
     "has_pause_ts",
     "is_gc_stats",
     "is_instant",
+    "is_loss",
     "to_mapping",
 ]
 
@@ -94,7 +97,22 @@ class TInstantMsg(Protocol):
     ts: int
 
 
+class TLossMsg(Protocol):
+    iid: int
+    ts_start: int
+    ts_stop: int
+    lost_gen_0: int
+    lost_gen_1: int
+    lost_gen_2: int
+    lost_pause_gen_0: int
+    lost_pause_gen_1: int
+    lost_pause_gen_2: int
+
+
 TMapping = Mapping[str, str | int | float]
+
+# Everything a JSONL line can decode to, and everything the converters accept.
+type TItem = TGCStatsInfo | TInstantMsg | TLossMsg
 
 
 def has_pause_ts(item: object) -> TypeGuard[TGCStatsInfo]:
@@ -145,12 +163,29 @@ def is_instant(item: object) -> TypeGuard[TInstantMsg]:
     return hasattr(item, "type")
 
 
-def to_mapping(item: TGCStatsInfo | TInstantMsg) -> TMapping:
+def is_loss(item: object) -> TypeGuard[TLossMsg]:
+    return hasattr(item, "lost_gen_0")
+
+
+def to_mapping(item: TItem) -> TMapping:
     if is_instant(item):
         return {
             "type": item.type,
             "name": item.name,
             "ts": item.ts,
+        }
+
+    if is_loss(item):
+        return {
+            "iid": item.iid,
+            "ts_start": item.ts_start,
+            "ts_stop": item.ts_stop,
+            "lost_gen_0": item.lost_gen_0,
+            "lost_gen_1": item.lost_gen_1,
+            "lost_gen_2": item.lost_gen_2,
+            "lost_pause_gen_0": item.lost_pause_gen_0,
+            "lost_pause_gen_1": item.lost_pause_gen_1,
+            "lost_pause_gen_2": item.lost_pause_gen_2,
         }
 
     if has_gen(item):

@@ -1,7 +1,9 @@
 from collections.abc import Mapping
 from types import SimpleNamespace
 
-from gcmon.data import GCStatsInfo, InstantMsg
+import pytest
+
+from gcmon.data import GCStatsInfo, InstantMsg, LossMsg
 from gcmon.protocol import (
     has_clear_weakrefs,
     has_deduce_unreachable,
@@ -15,9 +17,15 @@ from gcmon.protocol import (
     has_pause_ts,
     is_gc_stats,
     is_instant,
+    is_loss,
     to_mapping,
 )
 from tests.helpers import create_mock_stats_item
+
+
+@pytest.fixture
+def loss_item() -> LossMsg:
+    return LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=76, lost_gen_1=5, lost_pause_gen_0=8_100_000)
 
 
 class TestIsGC:
@@ -436,3 +444,39 @@ class TestToMapping:
 
         with pytest.raises(NotImplementedError, match="Unknown item type"):
             to_mapping("not a valid item")  # type: ignore[arg-type]
+
+    def test_loss_item(self, loss_item: LossMsg) -> None:
+        result = to_mapping(loss_item)
+
+        assert isinstance(result, Mapping)
+        assert result["iid"] == 1
+        assert result["ts_start"] == 1_000
+        assert result["ts_stop"] == 2_000
+        assert result["lost_gen_0"] == 76
+        assert result["lost_gen_1"] == 5
+        assert result["lost_gen_2"] == 0
+        assert result["lost_pause_gen_0"] == 8_100_000
+
+    def test_loss_item_carries_no_generation(self, loss_item: LossMsg) -> None:
+        """A merged span covers every generation at once, so a single ``gen``
+        would have to lie about which."""
+        assert "gen" not in to_mapping(loss_item)
+
+
+class TestIsLoss:
+    def test_loss_returns_true(self, loss_item: LossMsg) -> None:
+        assert is_loss(loss_item) is True
+
+    def test_gc_stats_returns_false(self, simple_item: GCStatsInfo) -> None:
+        assert is_loss(simple_item) is False
+
+    def test_instant_returns_false(self, instant_item: InstantMsg) -> None:
+        assert is_loss(instant_item) is False
+
+    def test_the_existing_guards_reject_it(self, loss_item: LossMsg) -> None:
+        """``to_mapping`` and the converters dispatch on these three, so a
+        record answering to two of them would take whichever branch came
+        first."""
+        assert is_gc_stats(loss_item) is False
+        assert is_instant(loss_item) is False
+        assert has_gen(loss_item) is False

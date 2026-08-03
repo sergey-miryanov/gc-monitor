@@ -1,8 +1,8 @@
 import msgspec
 import pytest
 
-from gcmon.data import GCStatsInfo, InstantMsg, from_mapping, instant_msg
-from gcmon.protocol import TMapping, has_deduce_unreachable, has_incremental, has_mark_alive
+from gcmon.data import GCStatsInfo, InstantMsg, LossMsg, from_mapping, instant_msg
+from gcmon.protocol import TMapping, has_deduce_unreachable, has_incremental, has_mark_alive, to_mapping
 
 
 class TestGCStatsInfo:
@@ -91,3 +91,41 @@ class TestFromMapping:
     def test_from_mapping_empty_raises(self) -> None:
         with pytest.raises(msgspec.ValidationError):
             from_mapping({})
+
+
+class TestLossMsg:
+    def test_absent_generations_default_to_zero(self) -> None:
+        msg = LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76)
+
+        assert msg.lost_gen_1 == 0
+        assert msg.lost_pause_gen_2 == 0
+
+    def test_neither_a_gc_record_nor_an_instant(self) -> None:
+        """What keeps the existing branches in ``to_mapping``,
+        ``convert_to_trace_format`` and the normalizers from claiming it."""
+        msg = LossMsg(iid=0, ts_start=1_000, ts_stop=2_000)
+
+        assert not hasattr(msg, "gen")
+        assert not hasattr(msg, "type")
+
+    def test_from_mapping_returns_loss_msg(self) -> None:
+        result = from_mapping(
+            {"pid": 42, "tid": -2, "iid": 1, "ts_start": 1_000, "ts_stop": 2_000, "lost_gen_0": 76, "lost_gen_1": 5}
+        )
+
+        assert isinstance(result, LossMsg)
+        assert result.iid == 1
+        assert result.lost_gen_0 == 76
+        assert result.lost_gen_1 == 5
+
+    def test_round_trips_through_a_mapping(self) -> None:
+        msg = LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=76, lost_gen_1=5, lost_pause_gen_0=8_100_000)
+
+        assert from_mapping(to_mapping(msg)) == msg
+
+    def test_a_zeroed_record_still_decodes_as_loss(self) -> None:
+        """``from_mapping`` discriminates on ``lost_gen_0`` being present, not
+        truthy, so a span where gen 0 lost nothing must still round-trip."""
+        msg = LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_1=5)
+
+        assert from_mapping(to_mapping(msg)) == msg

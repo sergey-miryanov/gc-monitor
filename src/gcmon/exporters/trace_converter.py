@@ -1,8 +1,10 @@
 """Shared conversion from GC stats items to TraceEvent objects."""
 
+from collections.abc import Mapping, Sequence
+
 from ..protocol import (
     TGCStatsInfo,
-    TInstantMsg,
+    TItem,
     has_clear_weakrefs,
     has_deduce_unreachable,
     has_delete_garbage,
@@ -291,7 +293,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     return events
 
 
-def convert_to_trace_format(items: dict[int, list[TGCStatsInfo | TInstantMsg]]) -> list[TraceEvent]:
+def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceEvent]:
     events: list[TraceEvent] = []
     for pid, pid_items in items.items():
         events.append(process_meta(pid, f"{pid}"))

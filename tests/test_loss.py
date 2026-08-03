@@ -14,7 +14,7 @@ from itertools import groupby, pairwise
 import pytest
 
 from gcmon.data import GCStatsInfo, secs_to_ns
-from gcmon.loss import KeyAccumulator, LossWindow, MergedLoss, merge_by_interpreter, merge_windows
+from gcmon.loss import KeyAccumulator, LossWindow, MergedLoss, merge_by_interpreter, merge_windows, to_loss_msg
 from tests.helpers import create_mock_stats_item
 from tests.test_monitor_cursor import POLL_0, POLL_1, build_batch
 
@@ -137,6 +137,12 @@ def window(
 @pytest.fixture
 def accumulator() -> KeyAccumulator:
     return KeyAccumulator()
+
+
+@pytest.fixture
+def captured() -> dict[tuple[int, int], KeyAccumulator]:
+    """The verbatim two-poll capture, ingested the way the monitor would."""
+    return observe_all({}, iter([build_batch(POLL_0), build_batch(POLL_1)]))
 
 
 class TestEmptyAccumulator:
@@ -356,10 +362,6 @@ class TestCaptureFixture:
     covered by the synthetic runs above.
     """
 
-    @pytest.fixture
-    def captured(self) -> dict[tuple[int, int], KeyAccumulator]:
-        return observe_all({}, iter([build_batch(POLL_0), build_batch(POLL_1)]))
-
     def test_gen_0_lost_seventy_six_records(self, captured: dict[tuple[int, int], KeyAccumulator]) -> None:
         acc = captured[(0, 0)]
 
@@ -492,6 +494,29 @@ class TestMergeProperties:
 
         total = sum(sum(m.lost_count.values()) for m in merged)
         assert total == sum(w.lost_count for w in windows)
+
+
+class TestToLossMsg:
+    def test_carries_the_span_and_its_per_generation_totals(self) -> None:
+        msg = to_loss_msg(1, MergedLoss(ts_start=10, ts_stop=99, lost_count={0: 76, 1: 5}, lost_pause_ns={0: 81, 1: 7}))
+
+        assert (msg.iid, msg.ts_start, msg.ts_stop) == (1, 10, 99)
+        assert (msg.lost_gen_0, msg.lost_gen_1) == (76, 5)
+        assert (msg.lost_pause_gen_0, msg.lost_pause_gen_1) == (81, 7)
+
+    def test_a_generation_outside_the_span_reads_zero(self) -> None:
+        """The span is real and gen 2 lost nothing in it, which is a different
+        statement from gen 2 being unknown."""
+        msg = to_loss_msg(0, MergedLoss(ts_start=10, ts_stop=99, lost_count={0: 76}))
+
+        assert msg.lost_gen_2 == 0
+        assert msg.lost_pause_gen_2 == 0
+
+    def test_a_merged_capture_flattens(self, captured: dict[tuple[int, int], KeyAccumulator]) -> None:
+        merged = merge_by_interpreter(captured)
+        msg = to_loss_msg(0, merged[0][0])
+
+        assert (msg.lost_gen_0, msg.lost_gen_1, msg.lost_gen_2) == (76, 5, 0)
 
 
 class TestMergeByInterpreter:

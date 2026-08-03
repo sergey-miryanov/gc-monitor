@@ -12,7 +12,7 @@ from collections.abc import Iterable, Mapping, Sequence
 
 import msgspec
 
-from .data import secs_to_ns
+from .data import LossMsg, secs_to_ns
 from .protocol import TGCStatsInfo
 
 __all__ = [
@@ -22,6 +22,7 @@ __all__ = [
     "MergedLoss",
     "merge_by_interpreter",
     "merge_windows",
+    "to_loss_msg",
 ]
 
 # (iid, gen). One CPython ring buffer, with its own `collections` counter.
@@ -202,6 +203,27 @@ def merge_windows(windows: Iterable[LossWindow]) -> list[MergedLoss]:
         current.lost_pause_ns[gen] = current.lost_pause_ns.get(gen, 0) + window.lost_pause_ns
 
     return merged
+
+
+def to_loss_msg(iid: int, merged: MergedLoss) -> LossMsg:
+    """Flatten a merged span into the record the exporters carry.
+
+    A generation absent from the span contributes zero, which is also what a
+    reader should see: the span exists, that generation lost nothing in it.
+    """
+    counts = merged.lost_count
+    pauses = merged.lost_pause_ns
+    return LossMsg(
+        iid=iid,
+        ts_start=merged.ts_start,
+        ts_stop=merged.ts_stop,
+        lost_gen_0=counts.get(0, 0),
+        lost_gen_1=counts.get(1, 0),
+        lost_gen_2=counts.get(2, 0),
+        lost_pause_gen_0=pauses.get(0, 0),
+        lost_pause_gen_1=pauses.get(1, 0),
+        lost_pause_gen_2=pauses.get(2, 0),
+    )
 
 
 def merge_by_interpreter(cursors: Mapping[CursorKey, KeyAccumulator]) -> dict[int, list[MergedLoss]]:
