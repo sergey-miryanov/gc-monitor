@@ -16,15 +16,14 @@ logger = logging.getLogger("gcmon")
 
 __all__ = ["EventsMonitor", "create_monitor"]
 
-# One ring buffer: CPython keeps a separate one, with its own `collections`
-# counter, per interpreter and per generation.
+# (iid, gen): one ring buffer per interpreter and generation, each with its
+# own `collections` counter.
 type CursorKey = tuple[int, int]
 
 
 def _is_complete(event: TGCStatsInfo) -> bool:
-    """Skip slots holding no finished collection: never written (all zeros),
-    or mid-write, where CPython has published ``ts_start`` but not yet
-    ``ts_stop``. The following poll reads those once they are whole."""
+    """False for a slot holding no finished collection: never written, or
+    mid-write with ``ts_start`` published and ``ts_stop`` not yet."""
     return event.ts_start < event.ts_stop
 
 
@@ -43,10 +42,9 @@ class EventsMonitor:
         self._stats = stats
 
     def get_child_pids(self) -> list[int] | None:
-        """Every descendant of the target, or ``None`` when the OS could not
-        be asked. ``None`` is not an empty process tree: a caller that drops
-        state for pids missing from the list has to skip that tick, or one
-        failed listing throws away the cursors for every live child.
+        """Every descendant of the target, or ``None`` when the tree could
+        not be read. ``None`` is not an empty tree: a caller that prunes
+        state for missing pids has to skip that tick.
         """
         try:
             return get_child_pids(self._process.pid, recursive=True)
@@ -84,16 +82,15 @@ class EventsMonitor:
             return PollStatus.FAIL
 
     def forget(self, pid: int) -> None:
-        """Drop every cursor held for *pid*. The poll loop calls this after
-        the process stops answering, so a reused pid inherits no counter."""
+        """Drop every cursor held for *pid*, so a reused pid inherits no
+        counter."""
         self._cursors.pop(pid, None)
 
     def retain(self, pids: Set[int]) -> None:
         """Drop the cursors of every pid outside *pids*.
 
         A process that exits between two ticks is never polled again, so no
-        wait policy ever gives up on it and ``forget`` never runs. Its
-        disappearance from the process tree is the only evidence left.
+        wait policy gives up on it and ``forget`` never runs.
         """
         for pid in self._cursors.keys() - pids:
             del self._cursors[pid]
@@ -101,8 +98,8 @@ class EventsMonitor:
     def _ingest(self, pid: int, events: Sequence[TGCStatsInfo]) -> None:
         """Emit the records in *events* not seen yet.
 
-        Every poll returns the whole ring buffer, so ``collections``, the
-        target's per-generation counter, identifies the new records.
+        Every poll returns the whole ring buffer, so ``collections`` is what
+        identifies a record.
         """
         cursors = self._cursors.setdefault(pid, {})
 
@@ -112,13 +109,12 @@ class EventsMonitor:
                 continue
             if event.collections <= cursors.get((event.iid, event.gen), 0):
                 continue
-            # Two slots reporting the same counter are one collection: the
-            # target copies a record forward before overwriting it.
+            # Two slots with the same counter are one collection: the target
+            # copies a record forward before overwriting it.
             fresh.setdefault((event.iid, event.gen, event.collections), event)
 
-        # Slot order is not time order. The batch arrives rotated around the
-        # ring's write position, with the generations concatenated, so sort
-        # before emitting.
+        # Slot order is not time order: the batch arrives rotated around the
+        # ring's write position, with the generations concatenated.
         for event in sorted(fresh.values(), key=lambda event: event.ts_start):
             self._exporter.add_event(pid, event)
             self._stats.update(pid, event)

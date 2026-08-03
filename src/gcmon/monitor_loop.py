@@ -49,12 +49,10 @@ class MonitorLoop:
                 child_pids = self._monitor.get_child_pids()
                 children: list[int] = [self._monitor.pid, *(child_pids or [])]
 
-                # A process that exits between two ticks drops out of the
-                # tree without ever being polled again, so no policy gives up
-                # on it and the branch below never runs. Absence from the
-                # tree is the only evidence, and it counts only when the
-                # listing worked: get_child_pids returns None, not an empty
-                # tree, when it could not ask.
+                # A process that exits between two ticks is never polled
+                # again, so no policy gives up on it and the branch below
+                # never runs. None means the listing failed, so prune only
+                # when it worked.
                 if child_pids is not None:
                     self._monitor.retain(set(children))
                     for gone in pid_policies.keys() - set(children):
@@ -78,12 +76,9 @@ class MonitorLoop:
                     if rc == PollStatus.OK:
                         live_pids.add(pid)
                     elif not keep_waiting:
-                        # The policy decides when a pid is finished, so it
-                        # decides when the cursors built from that process's
-                        # counter stop meaning anything. The policy itself
-                        # stays: a replacement would not have seen this pid
-                        # alive and would answer True until its own startup
-                        # timeout expired, holding the loop open that long.
+                        # The policy decides when a pid is finished. It stays
+                        # behind: a fresh one would answer True until its own
+                        # startup timeout expired, holding the loop open.
                         self._monitor.forget(pid)
 
                 # Phase 2: liveness — report who answered, in one batched

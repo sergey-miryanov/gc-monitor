@@ -83,7 +83,7 @@ descriptor defensively if a `ThreadMeta` arrives first, but callers should not r
 - `src/gcmon/exporters/perfetto_format.py`, `convert_trace_events_to_perfetto`.
   `_emit_counter_track_descriptor` returns `(uuid, bytes)` so the call site does not look
   the UUID up twice.
-- `src/gcmon/monitor.py`, `_ingest` and its per-`(pid, iid, gen)` `collections` cursor,
-  combined with the `ts_start < ts_stop` validity guard in `_is_complete`.
+- `src/gcmon/monitor.py`, `_ingest`'s per-`(pid, iid, gen)` `collections` cursor and the
+  `ts_start < ts_stop` validity guard in `_is_complete`.
 - Tests: `test_poll_skips_invalid_timestamp_event`, `test_poll_skips_equal_timestamp_event`,
   `test_invalid_timestamps_produces_events`, `test_equal_timestamps_produces_events`.

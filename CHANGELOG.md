@@ -8,7 +8,7 @@
 - `ProtobufEventEncoder.open()` now refuses a second call; construct a new encoder per file
 - `PerfettoTrackState.update_process_lifetime()` loses its `extends_end` keyword; it is now a plain min/max
 - Perfetto `Processes` slices now span observed liveness rather than observed GC activity
-- `EventsMonitor.get_child_pids()` returns `None` instead of `[]` when the process tree cannot be read, so callers can tell a failed listing from a target with no children
+- `EventsMonitor.get_child_pids()` returns `None` instead of `[]` when the process tree cannot be read
 
 ### Features
 
@@ -17,8 +17,8 @@
 
 ### Bugfixes
 
-- Fix GC events discarded by the poll loop. gcmon now identifies a record by the target's `collections` counter, tracked per process, interpreter and generation
-- Drop per-process poll state when the wait policy gives up on a PID, or when the PID leaves the process tree, so gcmon does not measure a reused PID against its predecessor's counter
+- Fix GC events discarded by the poll loop. The cursor now tracks the target's `collections` counter per process, interpreter and generation
+- Drop poll state when the wait policy gives up on a PID or the PID leaves the process tree, so a reused PID does not inherit its predecessor's counter
 - Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting
 - Every `Processes` slice now records the span gcmon observed in `real_start_ts` / `real_end_ts` annotations
 
