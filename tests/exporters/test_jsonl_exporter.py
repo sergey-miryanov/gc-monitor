@@ -1,7 +1,11 @@
 """Tests for the JSONL file exporter."""
 
-from gcmon.data import GCStatsInfo
+import json
+
+from gcmon.data import GCStatsInfo, LossMsg
 from gcmon.exporters import JsonlExporter
+from gcmon.exporters.chrome_trace_io import read_jsonl
+from gcmon.trace_event import loss_tid
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory, JsonlFileReader
@@ -251,3 +255,35 @@ class TestJsonlExporterInstantEvents:
         assert len(read_jsonl(path)) == 3
         exporter.close()
         assert len(read_jsonl(path)) == 5
+
+
+class TestJsonlLossRecords:
+    def test_a_loss_span_round_trips(self, jsonl_exporter: ExporterFactory) -> None:
+        """The path `combine` depends on: a loss span written to JSONL has to
+        come back as the same record, so a converted capture carries the spans
+        the live run drew."""
+        exporter, path = jsonl_exporter()
+        msg = LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=76, lost_gen_1=5, lost_pause_gen_0=8_100_000)
+
+        exporter.add_loss_event(DEFAULT_PID, msg)
+        exporter.close()
+
+        assert read_jsonl(path) == {DEFAULT_PID: [msg]}
+
+    def test_it_is_written_on_the_loss_track(self, jsonl_exporter: ExporterFactory) -> None:
+        exporter, path = jsonl_exporter()
+
+        exporter.add_loss_event(DEFAULT_PID, LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=76))
+        exporter.close()
+
+        assert json.loads(path.read_text(encoding="utf-8"))["tid"] == loss_tid(1)
+
+    def test_it_does_not_disturb_gc_records(self, jsonl_exporter: ExporterFactory) -> None:
+        exporter, path = jsonl_exporter()
+        item = create_mock_stats_item(iid=0)
+
+        exporter.add_event(DEFAULT_PID, item)
+        exporter.add_loss_event(DEFAULT_PID, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
+        exporter.close()
+
+        assert read_jsonl(path)[DEFAULT_PID][0] == item

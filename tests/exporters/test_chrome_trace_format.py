@@ -3,20 +3,23 @@
 import msgspec
 from msgspec import structs
 
-from gcmon.data import GCStatsInfo
+from gcmon.data import GCStatsInfo, LossMsg
 from gcmon.exporters.chrome_trace_format import (
     convert_item_to_trace_format,
     convert_to_trace_format,
 )
-from gcmon.protocol import TGCStatsInfo, TInstantMsg
+from gcmon.exporters.trace_converter import convert_loss_to_trace_format
+from gcmon.protocol import TGCStatsInfo, TInstantMsg, TItem
 from gcmon.trace_event import (
     BeginEvent,
     CounterEvent,
     EndEvent,
+    ThreadMeta,
     begin_event,
     counter_event,
     end_event,
     instant_event,
+    loss_tid,
     process_meta,
     thread_meta,
 )
@@ -552,3 +555,48 @@ class TestConvertToTraceFormatWithInstant:
         assert instants[0].ts == 1_000_000_000
         assert instants[1].name == "stop GC monitor"
         assert instants[1].ts == 2_000_000_000
+
+
+class TestConvertLoss:
+    def _msg(self, **kw: int) -> LossMsg:
+        return LossMsg(iid=kw.pop("iid", 0), ts_start=kw.pop("ts_start", 1_000), ts_stop=kw.pop("ts_stop", 2_000), **kw)
+
+    def _pair(self, msg: LossMsg, pid: int = 42) -> tuple[BeginEvent, EndEvent]:
+        begin, end = convert_loss_to_trace_format(pid, msg)
+        assert isinstance(begin, BeginEvent)
+        assert isinstance(end, EndEvent)
+        return begin, end
+
+    def test_one_pair_spanning_the_interval(self) -> None:
+        begin, end = self._pair(self._msg(lost_gen_0=76))
+
+        assert (begin.name, begin.ts, begin.pid, begin.tid) == ("GC Loss", 1_000, 42, loss_tid(0))
+        assert (end.name, end.ts, end.pid, end.tid) == ("GC Loss", 2_000, 42, loss_tid(0))
+
+    def test_silent_generations_are_left_out_of_the_args(self) -> None:
+        """Six rows to find the one that moved is worse than three."""
+        begin, _ = self._pair(self._msg(lost_gen_0=76, lost_pause_gen_0=81))
+
+        assert begin.args == {"iid": 0, "lost_gen_0": 76, "lost_pause_gen_0": 81, "lost_total": 76}
+
+    def test_every_generation_that_lost_is_reported(self) -> None:
+        begin, _ = self._pair(self._msg(lost_gen_0=76, lost_gen_1=5, lost_gen_2=2))
+
+        assert begin.args["lost_gen_1"] == 5
+        assert begin.args["lost_total"] == 83
+
+    def test_a_batch_routes_loss_through_the_same_converter(self) -> None:
+        """ADR-0007: Chrome, Perfetto and JSONL all read this one output, so
+        `combine` reproduces loss spans from a JSONL capture."""
+        items: dict[int, list[TItem]] = {42: [create_mock_stats_item(iid=0), self._msg(lost_gen_0=76)]}
+
+        events = convert_to_trace_format(items)
+
+        assert any(isinstance(e, BeginEvent) and e.name == "GC Loss" for e in events)
+
+    def test_loss_claims_no_thread_meta(self) -> None:
+        items: dict[int, list[TItem]] = {42: [self._msg(lost_gen_0=76)]}
+
+        events = convert_to_trace_format(items)
+
+        assert not any(isinstance(e, ThreadMeta) for e in events)

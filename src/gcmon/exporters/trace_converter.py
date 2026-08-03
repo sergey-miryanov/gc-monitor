@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from ..protocol import (
     TGCStatsInfo,
     TItem,
+    TLossMsg,
     has_clear_weakrefs,
     has_deduce_unreachable,
     has_delete_garbage,
@@ -15,6 +16,7 @@ from ..protocol import (
     has_mark_alive,
     is_gc_stats,
     is_instant,
+    is_loss,
 )
 from ..trace_event import (
     TraceEvent,
@@ -22,12 +24,14 @@ from ..trace_event import (
     counter_event,
     end_event,
     instant_event,
+    loss_tid,
     process_meta,
     thread_meta,
 )
 
 __all__ = [
     "convert_item_to_trace_format",
+    "convert_loss_to_trace_format",
     "convert_to_trace_format",
 ]
 
@@ -293,6 +297,34 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     return events
 
 
+_GENERATIONS = (0, 1, 2)
+
+
+def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
+    """One ``GC Loss`` slice for an interval whose records were overwritten.
+
+    Drawn on the interpreter's own loss track rather than beside its GC
+    slices, which a loss span would cross; see ADR-0015. Generations that
+    lost nothing are left out of the args so a reader is not made to scan
+    six rows to find the one that moved.
+    """
+    tid = loss_tid(item.iid)
+    counts = (item.lost_gen_0, item.lost_gen_1, item.lost_gen_2)
+    pauses = (item.lost_pause_gen_0, item.lost_pause_gen_1, item.lost_pause_gen_2)
+
+    args: dict[str, int] = {"iid": item.iid}
+    for gen in _GENERATIONS:
+        if counts[gen]:
+            args[f"lost_gen_{gen}"] = counts[gen]
+            args[f"lost_pause_gen_{gen}"] = pauses[gen]
+    args["lost_total"] = sum(counts)
+
+    return [
+        begin_event(pid, tid, "GC Loss", "gc.loss", item.ts_start, args),
+        end_event(pid, tid, "GC Loss", "gc.loss", item.ts_stop),
+    ]
+
+
 def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceEvent]:
     events: list[TraceEvent] = []
     for pid, pid_items in items.items():
@@ -302,6 +334,8 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
         for item in pid_items:
             if is_instant(item):
                 pid_events.append(instant_event(pid, item.name, item.ts))
+            elif is_loss(item):
+                pid_events.extend(convert_loss_to_trace_format(pid, item))
             elif is_gc_stats(item):
                 threads.add(item.iid)
                 pid_events.extend(convert_item_to_trace_format(pid, item))

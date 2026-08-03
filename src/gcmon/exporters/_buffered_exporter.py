@@ -6,16 +6,13 @@ import threading
 from pathlib import Path
 from typing import override
 
-from ..protocol import TGCStatsInfo, TInstantMsg
-from ..trace_event import TraceEvent, counter_event, instant_event, process_meta, thread_meta
+from ..protocol import TGCStatsInfo, TInstantMsg, TLossMsg
+from ..trace_event import RSS_TID, TraceEvent, counter_event, instant_event, loss_tid, process_meta, thread_meta
 from .encoder import EventEncoder
 from .exporter import EventsExporter
-from .trace_converter import convert_item_to_trace_format
+from .trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format
 
 __all__ = ["BufferedTraceExporter"]
-
-
-_RSS_TID: int = -1  # sentinel: no real thread has this ID
 
 
 class BufferedTraceExporter(EventsExporter):
@@ -76,9 +73,14 @@ class BufferedTraceExporter(EventsExporter):
     @override
     def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:
         events = [
-            *self._build_meta(pid, _RSS_TID),
-            counter_event(pid, _RSS_TID, "rss", ts_ns, {"rss": rss_bytes}),
+            *self._build_meta(pid, RSS_TID),
+            counter_event(pid, RSS_TID, "rss", ts_ns, {"rss": rss_bytes}),
         ]
+        self._enqueue(events)
+
+    @override
+    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+        events = [*self._build_meta(pid, loss_tid(item.iid)), *convert_loss_to_trace_format(pid, item)]
         self._enqueue(events)
 
     @override

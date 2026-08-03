@@ -9,7 +9,8 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TextIO, override
 
-from ..protocol import TGCStatsInfo, TInstantMsg, to_mapping
+from ..protocol import TGCStatsInfo, TInstantMsg, TLossMsg, to_mapping
+from ..trace_event import loss_tid
 from .exporter import EventsExporter
 
 __all__ = ["JsonlExporter"]
@@ -41,6 +42,26 @@ class JsonlExporter(EventsExporter):
         event: dict[str, str | int | float] = {
             "pid": pid,
             "tid": item.iid,
+        }
+        event.update(to_mapping(item))
+
+        events: list[dict[str, str | int | float]] = []
+        with self._lock:
+            self._events.append(event)
+
+            if len(self._events) >= self._flush_threshold:
+                events = self._events[:]
+                self._events.clear()
+
+        if events:
+            with self._io_lock:
+                self._flush(events)
+
+    @override
+    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+        event: dict[str, str | int | float] = {
+            "pid": pid,
+            "tid": loss_tid(item.iid),
         }
         event.update(to_mapping(item))
 

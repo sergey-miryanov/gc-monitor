@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.data import GCStatsInfo
-from gcmon.exporters._buffered_exporter import _RSS_TID, BufferedTraceExporter
+from gcmon.data import GCStatsInfo, LossMsg
+from gcmon.exporters._buffered_exporter import BufferedTraceExporter
 from gcmon.exporters.chrome_trace_exporter import TraceExporter
 from gcmon.exporters.encoder import JsonEventEncoder
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.exporters.jsonl_exporter import JsonlExporter
 from gcmon.exporters.stdout_exporter import StdoutExporter
-from gcmon.trace_event import CounterEvent, ProcessMeta, ThreadMeta
+from gcmon.trace_event import RSS_TID, BeginEvent, CounterEvent, EndEvent, ProcessMeta, ThreadMeta, loss_tid
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_stats_item
 
@@ -71,7 +71,7 @@ class TestAddRssSample:
         assert len(counters) == 1
         c = counters[0]
         assert c.pid == 100
-        assert c.tid == _RSS_TID
+        assert c.tid == RSS_TID
         assert c.name == "rss"
         assert c.args == {"rss": 4096}
         assert c.ts == 1_000_000
@@ -129,3 +129,57 @@ class TestAddProcessLivenessIsPerfettoOnly:
         exporter.add_process_liveness({100, 200}, 1_400_000_000)
         exporter.close()
         assert capsys.readouterr().out == without
+
+
+class TestAddLossEvent:
+    def _make_exporter(self, tmp_path: Path) -> BufferedTraceExporter:
+        return BufferedTraceExporter(JsonEventEncoder(), tmp_path / "test.json", flush_threshold=1000)
+
+    def test_emits_a_begin_end_pair_on_the_loss_track(self, tmp_path: Path) -> None:
+        exporter = self._make_exporter(tmp_path)
+
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76))
+
+        begins = [e for e in exporter._buffer if isinstance(e, BeginEvent)]
+        ends = [e for e in exporter._buffer if isinstance(e, EndEvent)]
+        assert [(b.name, b.tid, b.ts) for b in begins] == [("GC Loss", loss_tid(0), 1_000)]
+        assert [(e.name, e.tid, e.ts) for e in ends] == [("GC Loss", loss_tid(0), 2_000)]
+
+    def test_the_loss_track_is_not_the_interpreter_thread(self, tmp_path: Path) -> None:
+        """Sharing `tid = iid` would put loss spans back on the track whose
+        slices they cross. See ADR-0015."""
+        exporter = self._make_exporter(tmp_path)
+
+        exporter.add_event(100, create_mock_stats_item(iid=0))
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
+
+        tids = {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)}
+        assert len(tids) == 2
+
+    def test_each_interpreter_gets_its_own_track(self, tmp_path: Path) -> None:
+        exporter = self._make_exporter(tmp_path)
+
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
+        exporter.add_loss_event(100, LossMsg(iid=1, ts_start=1, ts_stop=2, lost_gen_0=1))
+
+        assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {loss_tid(0), loss_tid(1)}
+
+    def test_no_thread_meta_for_the_loss_track(self, tmp_path: Path) -> None:
+        """A negative tid skips it, which is what keeps the track from being
+        drawn and named as a thread."""
+        exporter = self._make_exporter(tmp_path)
+
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
+
+        assert any(isinstance(e, ProcessMeta) for e in exporter._buffer)
+        assert not any(isinstance(e, ThreadMeta) for e in exporter._buffer)
+
+    def test_the_loss_and_rss_sentinels_do_not_collide(self, tmp_path: Path) -> None:
+        exporter = self._make_exporter(tmp_path)
+
+        exporter.add_rss_sample(100, 4096, 1_000_000)
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
+
+        counter = next(e for e in exporter._buffer if isinstance(e, CounterEvent))
+        begin = next(e for e in exporter._buffer if isinstance(e, BeginEvent))
+        assert counter.tid != begin.tid

@@ -6,7 +6,7 @@ from collections.abc import Set
 from pathlib import Path
 from typing import override
 
-from ..protocol import TGCStatsInfo, TInstantMsg
+from ..protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 from .exporter import EventsExporter
 
 __all__ = ["CombinedTraceExporter", "derive_combined_paths"]
@@ -69,6 +69,11 @@ class CombinedTraceExporter(EventsExporter):
     def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:
         self._chrome.add_rss_sample(pid, rss_bytes, ts_ns)
         self._perfetto.add_rss_sample(pid, rss_bytes, ts_ns)
+
+    @override
+    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+        self._chrome.add_loss_event(pid, item)
+        self._perfetto.add_loss_event(pid, item)
 
     @override
     def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
