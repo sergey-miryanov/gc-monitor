@@ -8,13 +8,20 @@ actually happened. The capture fixture from ``test_monitor_cursor`` carries
 no durations, so it checks gap counts against real slot data instead.
 """
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from itertools import groupby, pairwise
 
 import pytest
 
 from gcmon.data import GCStatsInfo, secs_to_ns
-from gcmon.loss import KeyAccumulator, LossWindow, MergedLoss, merge_by_interpreter, merge_windows, to_loss_msg
+from gcmon.loss import (
+    KeyAccumulator,
+    LossWindow,
+    MergedLoss,
+    confirmed_by_interpreter,
+    merge_windows,
+    to_loss_msg,
+)
 from tests.helpers import create_mock_stats_item
 from tests.test_monitor_cursor import POLL_0, POLL_1, build_batch
 
@@ -87,40 +94,57 @@ def fold_singly(events: Sequence[GCStatsInfo]) -> KeyAccumulator:
     return accumulator
 
 
-def ingest(cursors: dict[tuple[int, int], KeyAccumulator], batch: Sequence[GCStatsInfo]) -> None:
-    """Mirror what ``EventsMonitor._ingest`` will do to a whole ring buffer.
+class Ingested:
+    """What a sequence of polls left behind.
 
-    Slot order is not time order, so a helper that walked the batch as it
-    came would seed ``first`` from whichever record sat at the ring's write
-    position. Sort each ring back into counter order, drop what the cursor
-    has already passed, and hand the rest over as one run.
+    Mirrors ``EventsMonitor._ingest``, which merges and emits each poll's
+    windows rather than retaining them — so a test that wants to look at a
+    window has to collect it on the way past.
     """
-    ordered = sorted(
-        (event for event in batch if event.ts_start < event.ts_stop),
-        key=lambda e: (e.iid, e.gen, e.ts_start),
-    )
 
-    for key, group in groupby(ordered, key=lambda e: (e.iid, e.gen)):
-        accumulator = cursors.setdefault(key, KeyAccumulator())
-        seen = accumulator.last
-        run: list[GCStatsInfo] = []
-        for event in group:
-            # Already emitted, or the copy the target makes of a record
-            # ahead of overwriting it.
-            if event.collections <= seen:
-                continue
-            seen = event.collections
-            run.append(event)
+    def __init__(self) -> None:
+        self.cursors: dict[tuple[int, int], KeyAccumulator] = {}
+        self.windows: dict[tuple[int, int], list[LossWindow]] = {}
 
-        accumulator.observe_batch(run)
+    def poll(self, batch: Sequence[GCStatsInfo]) -> dict[int, list[LossWindow]]:
+        """Fold one whole ring buffer; return the windows it opened, by iid.
+
+        Slot order is not time order, so walking the batch as it came would
+        seed ``first`` from whichever record sat at the ring's write position.
+        Sort each ring back into counter order, drop what the cursor has
+        already passed, and hand the rest over as one run.
+        """
+        confirmed = confirmed_by_interpreter(self.cursors)
+        ordered = sorted(
+            (event for event in batch if event.ts_start < event.ts_stop),
+            key=lambda e: (e.iid, e.gen, e.ts_start),
+        )
+
+        opened: dict[int, list[LossWindow]] = {}
+        for key, group in groupby(ordered, key=lambda e: (e.iid, e.gen)):
+            accumulator = self.cursors.setdefault(key, KeyAccumulator())
+            seen = accumulator.last
+            run = list({event.collections: event for event in group if event.collections > seen}.values())
+
+            window = accumulator.observe_batch(run, confirmed.get(key[0], 0))
+            if window is not None:
+                opened.setdefault(key[0], []).append(window)
+                self.windows.setdefault(key, []).append(window)
+
+        return opened
+
+    def __getitem__(self, key: tuple[int, int]) -> KeyAccumulator:
+        return self.cursors[key]
+
+    def windows_for(self, key: tuple[int, int]) -> list[LossWindow]:
+        return self.windows.get(key, [])
 
 
-def observe_all(
-    cursors: dict[tuple[int, int], KeyAccumulator], batches: Iterator[Sequence[GCStatsInfo]]
-) -> dict[tuple[int, int], KeyAccumulator]:
+def observe_all(batches: Iterable[Sequence[GCStatsInfo]]) -> Ingested:
+    ingested = Ingested()
     for batch in batches:
-        ingest(cursors, batch)
-    return cursors
+        ingested.poll(batch)
+    return ingested
 
 
 def true_pause_ns(events: Sequence[GCStatsInfo], first: int, last: int) -> int:
@@ -140,9 +164,9 @@ def accumulator() -> KeyAccumulator:
 
 
 @pytest.fixture
-def captured() -> dict[tuple[int, int], KeyAccumulator]:
+def captured() -> Ingested:
     """The verbatim two-poll capture, ingested the way the monitor would."""
-    return observe_all({}, iter([build_batch(POLL_0), build_batch(POLL_1)]))
+    return observe_all([build_batch(POLL_0), build_batch(POLL_1)])
 
 
 class TestEmptyAccumulator:
@@ -150,7 +174,6 @@ class TestEmptyAccumulator:
         assert accumulator.exact_count == 0
         assert accumulator.exact_pause_ns == 0
         assert accumulator.lost_count == 0
-        assert accumulator.windows == []
 
     def test_coverage_and_scale_are_neutral(self, accumulator: KeyAccumulator) -> None:
         """Nothing observed and nothing lost. Returning 1.0 rather than
@@ -165,21 +188,21 @@ class TestEmptyAccumulator:
 
 class TestFencepost:
     def test_one_record_spans_itself(self, accumulator: KeyAccumulator) -> None:
-        accumulator.observe_batch(
+        window = accumulator.observe_batch(
             [create_mock_stats_item(collections=42, ts_start=1_000, ts_stop=1_700, duration=0.0007)]
         )
 
         assert accumulator.exact_count == 1
         assert accumulator.exact_pause_ns == 700
         assert accumulator.sampled_pause_ns == 700
-        assert accumulator.windows == []
+        assert window is None
 
     def test_two_adjacent_records_leave_no_gap(self, accumulator: KeyAccumulator) -> None:
-        accumulator.observe_batch(build_run(2))
+        window = accumulator.observe_batch(build_run(2))
 
         assert accumulator.exact_count == 2
         assert accumulator.lost_count == 0
-        assert accumulator.windows == []
+        assert window is None
 
     def test_exact_pause_covers_the_first_record(self, accumulator: KeyAccumulator) -> None:
         """The delta of a cumulative field starts *after* the first record, so
@@ -207,41 +230,37 @@ class TestGapDetection:
     def test_a_skipped_record_opens_a_window(self, accumulator: KeyAccumulator) -> None:
         events = build_run(3)
         accumulator.observe_batch([events[0]])
-        accumulator.observe_batch([events[2]])
+        gap = accumulator.observe_batch([events[2]])
 
-        assert len(accumulator.windows) == 1
-        gap = accumulator.windows[0]
+        assert gap is not None
         assert gap.lost_count == 1
         assert gap.lost_pause_ns == events[1].ts_stop - events[1].ts_start
 
     def test_the_window_is_bounded_by_observed_records(self, accumulator: KeyAccumulator) -> None:
         events = build_run(6)
         accumulator.observe_batch([events[0]])
-        accumulator.observe_batch([events[4]])
+        gap = accumulator.observe_batch([events[4]])
 
-        gap = accumulator.windows[0]
+        assert gap is not None
         assert gap.ts_start == events[0].ts_stop
         assert gap.ts_stop == events[4].ts_start
 
     def test_the_window_carries_its_generation(self, accumulator: KeyAccumulator) -> None:
         events = build_run(3, gen=1)
         accumulator.observe_batch([events[0]])
-        accumulator.observe_batch([events[2]])
+        gap = accumulator.observe_batch([events[2]])
 
-        assert accumulator.windows[0].gen == 1
+        assert gap is not None
+        assert gap.gen == 1
 
     def test_a_lossless_run_opens_none(self, accumulator: KeyAccumulator) -> None:
-        accumulator.observe_batch(build_run(50))
-
-        assert accumulator.windows == []
+        assert accumulator.observe_batch(build_run(50)) is None
         assert accumulator.coverage == 1.0
         assert accumulator.scale_factor == pytest.approx(1.0, abs=1e-9)
 
     def test_no_window_before_the_first_record_or_after_the_last(self, accumulator: KeyAccumulator) -> None:
         events = build_run(30)
-        accumulator.observe_batch(events[10:20])
-
-        assert accumulator.windows == []
+        assert accumulator.observe_batch(events[10:20]) is None
 
 
 class TestObserveBatch:
@@ -279,9 +298,10 @@ class TestObserveBatch:
         batched = KeyAccumulator()
 
         batched.observe_batch(events[:5])
-        batched.observe_batch(events[12:])
+        gap = batched.observe_batch(events[12:])
 
-        assert [w.lost_count for w in batched.windows] == [7]
+        assert gap is not None
+        assert gap.lost_count == 7
         assert batched == fold_singly(events[:5] + events[12:])
 
     def test_a_hole_inside_a_run_goes_unnoticed(self) -> None:
@@ -294,10 +314,8 @@ class TestObserveBatch:
         torn = events[:4] + events[6:]
         batched = KeyAccumulator()
 
-        batched.observe_batch(torn)
-
+        assert batched.observe_batch(torn) is None
         assert batched.lost_count == 2
-        assert batched.windows == []
         assert batched.exact_pause_ns > batched.sampled_pause_ns
 
 
@@ -316,7 +334,7 @@ class TestReconstructionAgainstGroundTruth:
     )
     def test_counts_and_pause_sums_are_exact(self, capacity: int, per_tick: int) -> None:
         events = build_run(400)
-        acc = observe_all({}, ring_polls(events, capacity, per_tick))[(0, 0)]
+        acc = observe_all(ring_polls(events, capacity, per_tick))[(0, 0)]
 
         assert acc.exact_count == acc.last - acc.first + 1
         assert acc.exact_pause_ns == true_pause_ns(events, acc.first, acc.last)
@@ -327,9 +345,10 @@ class TestReconstructionAgainstGroundTruth:
         missed. This is the one assertion that catches a fencepost error, a
         clock mismatch between ``duration`` and the timestamps, and a wrong
         window in a single check."""
-        acc = observe_all({}, ring_polls(build_run(400), capacity, per_tick))[(0, 0)]
+        ingested = observe_all(ring_polls(build_run(400), capacity, per_tick))
+        acc = ingested[(0, 0)]
 
-        lost = sum(w.lost_pause_ns for w in acc.windows)
+        lost = sum(w.lost_pause_ns for w in ingested.windows_for((0, 0)))
         assert acc.exact_pause_ns == acc.sampled_pause_ns + lost
 
     def test_coverage_approaches_the_ring_ratio(self) -> None:
@@ -337,18 +356,18 @@ class TestReconstructionAgainstGroundTruth:
         the run is long enough to drown the first tick. That one is narrower:
         its span starts at the oldest slot still in the ring, so the 76
         records lost before gcmon ever looked fall outside the span."""
-        acc = observe_all({}, ring_polls(build_run(8_700), 11, 87))[(0, 0)]
+        acc = observe_all(ring_polls(build_run(8_700), 11, 87))[(0, 0)]
 
         assert acc.coverage == pytest.approx(11 / 87, rel=0.02)
         assert acc.coverage == acc.sampled_count / acc.exact_count
 
     def test_lost_count_matches_the_windows(self) -> None:
-        acc = observe_all({}, ring_polls(build_run(400), 11, 87))[(0, 0)]
+        ingested = observe_all(ring_polls(build_run(400), 11, 87))
 
-        assert acc.lost_count == sum(w.lost_count for w in acc.windows)
+        assert ingested[(0, 0)].lost_count == sum(w.lost_count for w in ingested.windows_for((0, 0)))
 
     def test_scale_factor_corrects_a_sampled_sum(self) -> None:
-        acc = observe_all({}, ring_polls(build_run(400), 11, 87))[(0, 0)]
+        acc = observe_all(ring_polls(build_run(400), 11, 87))[(0, 0)]
 
         corrected = acc.sampled_pause_ns * acc.scale_factor
         assert corrected == pytest.approx(acc.exact_pause_ns, rel=1e-9)
@@ -362,44 +381,43 @@ class TestCaptureFixture:
     covered by the synthetic runs above.
     """
 
-    def test_gen_0_lost_seventy_six_records(self, captured: dict[tuple[int, int], KeyAccumulator]) -> None:
+    def test_gen_0_lost_seventy_six_records(self, captured: Ingested) -> None:
         acc = captured[(0, 0)]
 
         assert (acc.first, acc.last) == (466, 563)
-        assert [w.lost_count for w in acc.windows] == [76]
+        assert [w.lost_count for w in captured.windows_for((0, 0))] == [76]
         assert acc.sampled_count == 22
 
-    def test_gen_1_lost_five_records(self, captured: dict[tuple[int, int], KeyAccumulator]) -> None:
+    def test_gen_1_lost_five_records(self, captured: Ingested) -> None:
         acc = captured[(0, 1)]
 
         assert (acc.first, acc.last) == (41, 51)
-        assert [w.lost_count for w in acc.windows] == [5]
+        assert [w.lost_count for w in captured.windows_for((0, 1))] == [5]
 
-    def test_an_unchanged_generation_loses_nothing(self, captured: dict[tuple[int, int], KeyAccumulator]) -> None:
+    def test_an_unchanged_generation_loses_nothing(self, captured: Ingested) -> None:
         acc = captured[(0, 2)]
 
         assert acc.sampled_count == 1
-        assert acc.windows == []
+        assert captured.windows_for((0, 2)) == []
 
-    def test_the_window_spans_the_unobserved_interval(self, captured: dict[tuple[int, int], KeyAccumulator]) -> None:
+    def test_the_window_spans_the_unobserved_interval(self, captured: Ingested) -> None:
         """From the newest gen-0 record in the first poll to the oldest in the
         second, 90.0 ms of a 100 ms tick. Both bounds come from time order,
         not slot order: 563 sits at the head of the second batch and 553 at
         its tail."""
-        gap = captured[(0, 0)].windows[0]
+        gap = captured.windows_for((0, 0))[0]
 
         assert gap.ts_start == 294787154918900  # collections=476, newest in POLL_0
         assert gap.ts_stop == 294787244879600  # collections=553, oldest in POLL_1
         assert gap.ts_stop - gap.ts_start == pytest.approx(90_000_000, rel=0.01)
 
-    def test_the_two_generations_merge_into_one_span(self, captured: dict[tuple[int, int], KeyAccumulator]) -> None:
+    def test_the_two_generations_merge_into_one_span(self, captured: Ingested) -> None:
         """Real data producing the shape §5.1 of the spec is about: both
         windows sit inside one tick and overlap."""
-        merged = merge_by_interpreter(captured)
+        merged = merge_windows(captured.windows_for((0, 0)) + captured.windows_for((0, 1)))
 
-        assert list(merged) == [0]
-        assert len(merged[0]) == 1
-        assert merged[0][0].lost_count == {0: 76, 1: 5}
+        assert len(merged) == 1
+        assert merged[0].lost_count == {0: 76, 1: 5}
 
 
 class TestMergeWindows:
@@ -512,43 +530,86 @@ class TestToLossMsg:
         assert msg.lost_gen_2 == 0
         assert msg.lost_pause_gen_2 == 0
 
-    def test_a_merged_capture_flattens(self, captured: dict[tuple[int, int], KeyAccumulator]) -> None:
-        merged = merge_by_interpreter(captured)
-        msg = to_loss_msg(0, merged[0][0])
+    def test_a_merged_capture_flattens(self, captured: Ingested) -> None:
+        merged = merge_windows(captured.windows_for((0, 0)) + captured.windows_for((0, 1)))
+        msg = to_loss_msg(0, merged[0])
 
         assert (msg.lost_gen_0, msg.lost_gen_1, msg.lost_gen_2) == (76, 5, 0)
 
 
-class TestMergeByInterpreter:
-    def test_generations_of_one_interpreter_merge(self) -> None:
+class TestConfirmedByInterpreter:
+    def test_no_cursors_at_all(self) -> None:
+        assert confirmed_by_interpreter({}) == {}
+
+    def test_takes_the_latest_record_across_generations(self) -> None:
+        """One bulk read covers all three, so the newest record any of them
+        returned bounds when that read happened."""
         cursors = {
-            (0, 0): KeyAccumulator(windows=[window(gen=0, ts_start=1, ts_stop=20, lost_count=76)]),
-            (0, 1): KeyAccumulator(windows=[window(gen=1, ts_start=2, ts_stop=25, lost_count=5)]),
+            (0, 0): KeyAccumulator(last_ts_stop=500),
+            (0, 1): KeyAccumulator(last_ts_stop=120),
+            (0, 2): KeyAccumulator(last_ts_stop=40),
         }
 
-        merged = merge_by_interpreter(cursors)
-
-        assert list(merged) == [0]
-        assert merged[0] == [MergedLoss(ts_start=1, ts_stop=25, lost_count={0: 76, 1: 5}, lost_pause_ns={0: 0, 1: 0})]
+        assert confirmed_by_interpreter(cursors) == {0: 500}
 
     def test_interpreters_stay_apart(self) -> None:
-        """Each interpreter draws on its own track, so its spans never share
-        a stack with another's."""
-        cursors = {
-            (0, 0): KeyAccumulator(windows=[window(ts_start=1, ts_stop=20)]),
-            (1, 0): KeyAccumulator(windows=[window(ts_start=2, ts_stop=25)]),
-        }
+        """Separate reads, separate confirmation points."""
+        cursors = {(0, 0): KeyAccumulator(last_ts_stop=500), (1, 0): KeyAccumulator(last_ts_stop=90)}
 
-        merged = merge_by_interpreter(cursors)
+        assert confirmed_by_interpreter(cursors) == {0: 500, 1: 90}
 
-        assert sorted(merged) == [0, 1]
-        assert [(m.ts_start, m.ts_stop) for m in merged[0]] == [(1, 20)]
-        assert [(m.ts_start, m.ts_stop) for m in merged[1]] == [(2, 25)]
+    def test_an_unobserved_key_confirms_nothing(self) -> None:
+        assert confirmed_by_interpreter({(0, 0): KeyAccumulator()}) == {0: 0}
 
-    def test_an_interpreter_with_no_windows_is_absent(self) -> None:
-        cursors = {(0, 0): KeyAccumulator(), (0, 1): KeyAccumulator()}
 
-        assert merge_by_interpreter(cursors) == {}
+class TestQuietGeneration:
+    """A poll finding a counter unchanged is evidence, not silence: it proves
+    nothing was lost on that key up to that read. Without it a generation that
+    goes quiet and later loses records would open a window reaching back over
+    every tick it sat out — ticks in which it demonstrably lost nothing."""
 
-    def test_no_cursors_at_all(self) -> None:
-        assert merge_by_interpreter({}) == {}
+    def polls(self) -> Ingested:
+        gen0 = build_run(9, gen=0)
+        # Collects once at the start, then not again until well after the
+        # second poll, by which point three of its records are already gone.
+        gen2 = build_run(7, gen=2, spacing_ns=3 * SPACING_NS)
+
+        ingested = Ingested()
+        ingested.poll([*gen0[0:3], gen2[0]])
+        ingested.poll([*gen0[3:6], gen2[0]])
+        ingested.poll([*gen0[6:9], *gen2[4:7]])
+        return ingested
+
+    def test_the_window_starts_where_the_last_poll_confirmed(self) -> None:
+        gen0 = build_run(9, gen=0)
+        gen2 = build_run(7, gen=2, spacing_ns=3 * SPACING_NS)
+        ingested = self.polls()
+
+        gap = ingested.windows_for((0, 2))[0]
+
+        assert gap.lost_count == 3
+        assert gap.ts_start == gen0[5].ts_stop
+        assert gap.ts_stop == gen2[4].ts_start
+
+    def test_it_does_not_reach_back_to_the_generation_own_last_record(self) -> None:
+        gen2 = build_run(7, gen=2, spacing_ns=3 * SPACING_NS)
+        ingested = self.polls()
+
+        gap = ingested.windows_for((0, 2))[0]
+
+        assert gap.ts_start > gen2[0].ts_stop
+
+    def test_the_window_stays_inside_one_tick(self) -> None:
+        """Which is what lets `_ingest` merge and emit per poll: a window that
+        could reach back would overlap spans already written."""
+        ingested = self.polls()
+
+        gen0_windows = ingested.windows_for((0, 0))
+        gap = ingested.windows_for((0, 2))[0]
+
+        assert all(w.ts_stop <= gap.ts_start for w in gen0_windows)
+
+    def test_an_unchanged_counter_opens_nothing(self) -> None:
+        ingested = self.polls()
+
+        assert len(ingested.windows_for((0, 2))) == 1

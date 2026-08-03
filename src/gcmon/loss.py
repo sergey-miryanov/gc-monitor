@@ -20,7 +20,7 @@ __all__ = [
     "KeyAccumulator",
     "LossWindow",
     "MergedLoss",
-    "merge_by_interpreter",
+    "confirmed_by_interpreter",
     "merge_windows",
     "to_loss_msg",
 ]
@@ -70,13 +70,17 @@ class KeyAccumulator(msgspec.Struct):
     last_ts_stop: int = 0
     sampled_count: int = 0
     sampled_pause_ns: int = 0
-    windows: list[LossWindow] = msgspec.field(default_factory=list)
 
-    def observe_batch(self, events: Sequence[TGCStatsInfo]) -> None:
+    def observe_batch(self, events: Sequence[TGCStatsInfo], confirmed_ts: int = 0) -> LossWindow | None:
         """Fold one poll's run of records for this key, in counter order.
 
         A ring holds consecutive records, so only the run's first record can
-        sit across a gap and only its last one settles the cursor.
+        sit across a gap and only its last one settles the cursor. Returns
+        the window that gap opened, if any, for the caller to merge and emit.
+
+        *confirmed_ts* is the latest record seen anywhere in this interpreter
+        before this poll. A poll that found the counter unchanged proves
+        nothing was lost up to that read, so the window cannot start earlier.
 
         The run must be sorted by counter, past ``last``, and free of the
         copy the target makes of a record ahead of overwriting it; ``_ingest``
@@ -84,9 +88,9 @@ class KeyAccumulator(msgspec.Struct):
         ADR-0015.
         """
         if not events:
-            return
+            return None
 
-        self._open_run(events[0])
+        window = self._open_run(events[0], confirmed_ts)
 
         for event in events:
             self.sampled_pause_ns += event.ts_stop - event.ts_start
@@ -97,8 +101,10 @@ class KeyAccumulator(msgspec.Struct):
         self.last_duration = last.duration
         self.last_ts_stop = last.ts_stop
 
-    def _open_run(self, first: TGCStatsInfo) -> None:
-        """Seed the span, or record the gap the run sits behind.
+        return window
+
+    def _open_run(self, first: TGCStatsInfo, confirmed_ts: int) -> LossWindow | None:
+        """Seed the span, or describe the gap the run sits behind.
 
         Touches no running total; :meth:`observe_batch` owns those.
         """
@@ -106,23 +112,21 @@ class KeyAccumulator(msgspec.Struct):
             self.first = first.collections
             self.first_pause_ns = first.ts_stop - first.ts_start
             self.first_duration = first.duration
-            return
+            return None
 
         lost = first.collections - self.last - 1
         if lost <= 0:
-            return
+            return None
 
         # Delta duration spans the records after `last` through this one, so
         # taking this one's own pause back out leaves the `lost` records alone.
         spanned_ns = secs_to_ns(first.duration - self.last_duration)
-        self.windows.append(
-            LossWindow(
-                ts_start=self.last_ts_stop,
-                ts_stop=first.ts_start,
-                gen=first.gen,
-                lost_count=lost,
-                lost_pause_ns=spanned_ns - (first.ts_stop - first.ts_start),
-            )
+        return LossWindow(
+            ts_start=max(self.last_ts_stop, confirmed_ts),
+            ts_stop=first.ts_start,
+            gen=first.gen,
+            lost_count=lost,
+            lost_pause_ns=spanned_ns - (first.ts_stop - first.ts_start),
         )
 
     @property
@@ -178,12 +182,16 @@ class KeyAccumulator(msgspec.Struct):
 
 
 def merge_windows(windows: Iterable[LossWindow]) -> list[MergedLoss]:
-    """Collapse overlapping windows into disjoint spans, in time order.
+    """Collapse one poll's windows for one interpreter into disjoint spans.
 
     Windows on one key never overlap, being consecutive gaps in one sequence,
     but windows from different generations cross whenever the records bounding
     them interleave. Merging keeps their shared track laminar without clipping
     a span the way ADR-0011's sweep has to.
+
+    One poll is the whole of it. A single bulk read gives every generation of
+    an interpreter the same confirmation point, so windows opened in later
+    polls start after these end and can never reach back into them.
 
     Touching windows merge: apart they would draw two slices with nothing
     between them.
@@ -226,15 +234,16 @@ def to_loss_msg(iid: int, merged: MergedLoss) -> LossMsg:
     )
 
 
-def merge_by_interpreter(cursors: Mapping[CursorKey, KeyAccumulator]) -> dict[int, list[MergedLoss]]:
-    """Merge one pid's windows, per interpreter.
+def confirmed_by_interpreter(cursors: Mapping[CursorKey, KeyAccumulator]) -> dict[int, int]:
+    """The latest record seen anywhere in each interpreter so far.
 
-    Generations merge together because they share a track; interpreters do
-    not, because they do not.
+    One bulk read covers all of an interpreter's generations, so a poll that
+    found one key's counter unchanged proves nothing was lost on it up to that
+    read — and the newest record any key returned bounds when that read
+    happened. A gap found later cannot have opened before it.
     """
-    by_iid: dict[int, list[LossWindow]] = {}
+    confirmed: dict[int, int] = {}
     for (iid, _gen), accumulator in cursors.items():
-        if accumulator.windows:
-            by_iid.setdefault(iid, []).extend(accumulator.windows)
+        confirmed[iid] = max(confirmed.get(iid, 0), accumulator.last_ts_stop)
 
-    return {iid: merge_windows(windows) for iid, windows in by_iid.items()}
+    return confirmed

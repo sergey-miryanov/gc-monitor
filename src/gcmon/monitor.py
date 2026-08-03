@@ -8,7 +8,7 @@ from itertools import groupby
 from typing import Self
 
 from .exporters import EventsExporter
-from .loss import CursorKey, KeyAccumulator
+from .loss import CursorKey, KeyAccumulator, LossWindow, confirmed_by_interpreter, merge_windows, to_loss_msg
 from .poll_status import PollStatus
 from .protocol import TGCStatsInfo
 from .stats import StreamingStats
@@ -100,6 +100,7 @@ class EventsMonitor:
         identifies a record.
         """
         cursors = self._cursors.setdefault(pid, {})
+        confirmed = confirmed_by_interpreter(cursors)
 
         # Slot order is not time order: the batch arrives rotated around the
         # ring's write position, with the generations concatenated. Sorting
@@ -110,16 +111,27 @@ class EventsMonitor:
         )
 
         fresh: list[TGCStatsInfo] = []
-        for key, group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
-            accumulator = cursors.setdefault(key, KeyAccumulator())
+        windows: dict[int, list[LossWindow]] = {}
+        for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
+            accumulator = cursors.setdefault((iid, gen), KeyAccumulator())
             seen = accumulator.last
             # Keying on the counter drops the copy the target makes of a record
             # ahead of overwriting it: both slots report the same counter, so no
             # threshold tells them apart.
             run = list({event.collections: event for event in group if event.collections > seen}.values())
 
-            accumulator.observe_batch(run)
+            window = accumulator.observe_batch(run, confirmed.get(iid, 0))
+            if window is not None:
+                windows.setdefault(iid, []).append(window)
             fresh.extend(run)
+
+        # Every window that can overlap another opened in this same poll, so
+        # merging here is enough to keep the loss track laminar. These precede
+        # the records below in time: each ends where this poll's earliest fresh
+        # record begins.
+        for iid, opened in windows.items():
+            for merged in merge_windows(opened):
+                self._exporter.add_loss_event(pid, to_loss_msg(iid, merged))
 
         # One interpreter's generations share a track, so they go out in time
         # order. Two interpreters share no track and collect concurrently, so
