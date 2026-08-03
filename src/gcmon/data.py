@@ -58,3 +58,8 @@ def ts_to_us(ts_ns: int) -> int:
 def dur_to_ms(dur_ns: float) -> float:
     """Convert duration from nanoseconds to milliseconds"""
     return dur_ns / 1_000_000
+
+
+def secs_to_ns(dur_s: float) -> int:
+    """Convert duration from seconds to nanoseconds"""
+    return round(dur_s * 1_000_000_000)
