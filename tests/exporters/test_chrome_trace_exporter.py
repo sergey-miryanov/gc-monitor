@@ -11,6 +11,7 @@ from gcmon.exporters import TraceExporter
 from gcmon.monitor import EventsMonitor
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
+from gcmon.trace_event import loss_tid
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory
@@ -336,6 +337,41 @@ def mock_read_events() -> Callable[[int, bool], list[GCStatsInfo]]:
 
 
 @pytest.fixture
+def mock_lossy_read_events() -> Callable[[int, bool], list[GCStatsInfo]]:
+    """The same shape, with the counter skipping three records per poll.
+
+    `mock_read_events` advances `collections` by one, so it can never produce
+    a gap. A ring that wrapped between two polls returns a counter further
+    along than the one before it, and `duration` further along by the pause of
+    everything in between, which is what makes the loss measurable.
+    """
+    read_count = [0]
+    pause_ns = 5_000_000
+    per_poll = 4
+
+    def side_effect(pid: int, all_interpreters: bool = True) -> list[GCStatsInfo]:
+        nth = read_count[0]
+        read_count[0] += 1
+        collections = 10 + per_poll * nth
+        base_ts = 1_500_000_000 + nth * 100_000_000
+        return [
+            create_mock_stats_item(
+                gen=0,
+                ts_start=base_ts,
+                ts_stop=base_ts + pause_ns,
+                collections=collections,
+                collected=50,
+                uncollectable=1,
+                candidates=20,
+                heap_size=1000000,
+                duration=collections * pause_ns / 1e9,
+            )
+        ]
+
+    return side_effect
+
+
+@pytest.fixture
 def monitor_with_exporter(trace_exporter: ExporterFactory) -> tuple[EventsMonitor, Path]:
     """Create an EventsMonitor wired to a TraceExporter."""
     exporter, path = trace_exporter()
@@ -349,6 +385,87 @@ def monitor_with_exporter(trace_exporter: ExporterFactory) -> tuple[EventsMonito
 def mock_gc_stats(mock_read_events: Callable[..., list[GCStatsInfo]]) -> Generator[None]:
     with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
         yield
+
+
+class TestGCMonitorStreamsLoss:
+    """The whole chain on one path: a ring that wrapped between two polls has
+    to come out of the exporter as a slice, not just as a number in the stats
+    table. Everything between the accumulator and the file is exercised only
+    here.
+    """
+
+    def trace(
+        self,
+        monitor_with_exporter: tuple[EventsMonitor, Path],
+        polls: int = 3,
+    ) -> list[dict[str, ChromeTraceValue]]:
+        monitor, path = monitor_with_exporter
+        for _ in range(polls):
+            monitor.poll(DEFAULT_PID)
+        monitor.stop()
+        return assert_valid_chrome_trace_format(path)
+
+    def losses(self, data: list[dict[str, ChromeTraceValue]]) -> list[dict[str, ChromeTraceValue]]:
+        return [e for e in data if e["name"] == "GC Loss" and e["ph"] == "B"]
+
+    def test_a_wrapped_ring_draws_a_slice(
+        self,
+        mock_lossy_read_events: Callable[..., list[GCStatsInfo]],
+        monitor_with_exporter: tuple[EventsMonitor, Path],
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_lossy_read_events):
+            data = self.trace(monitor_with_exporter)
+
+        # The first poll seeds the cursor; the two after it each find a gap.
+        assert len(self.losses(data)) == 2
+
+    def test_the_slice_reports_what_the_counters_say(
+        self,
+        mock_lossy_read_events: Callable[..., list[GCStatsInfo]],
+        monitor_with_exporter: tuple[EventsMonitor, Path],
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_lossy_read_events):
+            data = self.trace(monitor_with_exporter)
+
+        args = self.losses(data)[0]["args"]
+        assert isinstance(args, dict)
+        assert args["lost_gen_0"] == 3
+        assert args["lost_pause_gen_0"] == 15_000_000
+        assert args["lost_total"] == 3
+
+    def test_it_lands_on_the_loss_track(
+        self,
+        mock_lossy_read_events: Callable[..., list[GCStatsInfo]],
+        monitor_with_exporter: tuple[EventsMonitor, Path],
+    ) -> None:
+        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_lossy_read_events):
+            data = self.trace(monitor_with_exporter)
+
+        assert {e["tid"] for e in self.losses(data)} == {loss_tid(0)}
+
+    def test_it_fills_the_gap_between_two_collections(
+        self,
+        mock_lossy_read_events: Callable[..., list[GCStatsInfo]],
+        monitor_with_exporter: tuple[EventsMonitor, Path],
+    ) -> None:
+        """From the record before the gap to the one after it, in the
+        microseconds the format carries."""
+        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_lossy_read_events):
+            data = self.trace(monitor_with_exporter)
+
+        first = self.losses(data)[0]
+        assert first["ts"] == ts_to_us(1_505_000_000)
+        assert next(e["ts"] for e in data if e["name"] == "GC Loss" and e["ph"] == "E") == ts_to_us(1_600_000_000)
+
+    def test_a_run_that_lost_nothing_draws_none(
+        self, mock_gc_stats: None, monitor_with_exporter: tuple[EventsMonitor, Path]
+    ) -> None:
+        """The contiguous fixture is the control: no gap, no track, no slice.
+        A lossless capture looks as it did before loss existed."""
+        data = self.trace(monitor_with_exporter, polls=4)
+
+        assert self.losses(data) == []
+        assert all(tid >= 0 for tid in (e["tid"] for e in data if "tid" in e) if isinstance(tid, int))
 
 
 class TestGCMonitorStreaming:

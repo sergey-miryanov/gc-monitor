@@ -24,8 +24,42 @@ The hook collects and reports the following GC metrics in pyperf metadata:
 - `gc_pause_gen_0_p99`, `gc_pause_gen_1_p99`, `gc_pause_gen_2_p99` - P99 GC pause duration by generation (milliseconds)
 - `gc_pause_gen_0_sum`, `gc_pause_gen_1_sum`, `gc_pause_gen_2_sum` - Total GC pause time by generation (milliseconds)
 - `gc_pause_gen_0_count`, `gc_pause_gen_1_count`, `gc_pause_gen_2_count` - Number of GC pauses by generation
-- `gc_pause_count` - Total number of recorded GC pauses across all generations and monitored processes
+- `gc_pause_count` - Total number of GC pauses across all generations and monitored processes
+- `gc_pause_gen_0_coverage`, `gc_pause_gen_1_coverage`, `gc_pause_gen_2_coverage` - Share of that generation's collections gcmon actually read, in `[0, 1]`
+- `gc_pause_gen_N_lifetime_count`, `gc_pause_gen_N_lifetime_sum` - Collections and pause time since the *interpreter* started, not since the benchmark did
 - `gc_heap_size_p99` - P99 across the per-process peak live object counts
+
+### `sum` and `count` are exact, `p99` is sampled
+
+> **Breaking change.** `gc_pause_gen_N_sum`, `gc_pause_gen_N_count` and
+> `gc_pause_count` used to report the collections gcmon managed to read. They now
+> report **every** collection that ran in the monitored window, reconstructed
+> from CPython's cumulative counters. On a benchmark with GC loss the new values
+> are larger, often by an order of magnitude. Do not trend a history that spans
+> this change.
+
+CPython exports GC records through a ring buffer of 11 slots (generation 0) or 3
+(older generations), so a benchmark collecting faster than gcmon polls overwrites
+records before anyone reads them. `sum` and `count` correct for that exactly.
+`p99` cannot be corrected and reads high, since a long collection occupies its
+slot for longer and is likelier to survive to the next poll.
+
+`gc_pause_gen_N_coverage` tells you how far to trust the `p99` beside it: at `1.0`
+it is the real distribution, at `0.2` it is the tail of a biased sample. See
+[Statistics](statistics.md#percentiles-are-sampled-biased-high-and-not-corrected)
+for why no scale factor fixes a quantile.
+
+### The lifetime metrics are not benchmark-scoped
+
+`gc_pause_gen_N_lifetime_count` and `_lifetime_sum` cover the interpreter's whole
+history: every collection since it started, including whatever ran before the hook
+attached and outside any benchmark iteration. They answer how much time this
+process has spent in GC, which is a different question from what this benchmark
+cost.
+
+So they do not compare across runs of differing length. Trend them the way you
+would trend `sum` and you will mostly measure how long each worker process lived.
+Use `gc_pause_gen_N_sum` for anything the benchmark is responsible for.
 
 ## Example: Perfetto Trace Viewer for Pyperf Benchmarks
 

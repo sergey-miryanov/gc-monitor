@@ -1,7 +1,7 @@
 """Reconstructing the GC records a poll could not observe.
 
-A target collecting faster than gcmon polls overwrites records before they
-are read. Two cumulative fields make the loss measurable: ``collections``
+A target collecting faster than gcmon polls overwrites records before anyone
+reads them. Two cumulative fields make the loss measurable: ``collections``
 counts what was missed, and ``duration`` gives the pause time nobody saw.
 
 ``EventsMonitor`` owns one ``KeyAccumulator`` per ``(pid, iid, gen)``; see
@@ -60,7 +60,7 @@ class KeyAccumulator(msgspec.Struct):
     """What one ring buffer did, against what gcmon saw of it.
 
     ``last`` doubles as the poll cursor: a record whose ``collections`` does
-    not exceed it was already emitted, or was overwritten and is gone.
+    not exceed it has gone out already, or the ring overwrote it.
     """
 
     first: int = 0
@@ -85,7 +85,7 @@ class KeyAccumulator(msgspec.Struct):
 
         The run must be sorted by counter, past ``last``, and free of the
         copy the target makes of a record ahead of overwriting it; ``_ingest``
-        guarantees all three. Contiguity is trusted rather than checked, see
+        guarantees all three. Contiguity it trusts without checking, see
         ADR-0015.
         """
         if not events:
@@ -121,10 +121,10 @@ class KeyAccumulator(msgspec.Struct):
 
         # Delta duration spans the records after `last` through this one, so
         # taking this one's own pause back out leaves the `lost` records alone.
-        # The two come from different clocks — a cumulative float of seconds
-        # against ns timestamps — so a gap holding almost no pause can subtract
-        # to a hair below zero. Floor it: negative pause has no meaning, and it
-        # would otherwise drag `exact_pause_ns` under the sum gcmon measured.
+        # The two come from different clocks, a cumulative float of seconds
+        # against ns timestamps, so a gap holding almost no pause can subtract
+        # to a hair below zero. Floor it: negative pause means nothing, and it
+        # would drag `exact_pause_ns` under the sum gcmon measured.
         spanned_ns = secs_to_ns(first.duration - self.last_duration)
         return LossWindow(
             ts_start=max(self.last_ts_stop, confirmed_ts),
@@ -177,7 +177,7 @@ class KeyAccumulator(msgspec.Struct):
         """Multiplier taking a sampled pause sum to the exact one.
 
         Sub-phases have no exact counterpart, since CPython accumulates a
-        total for the pause alone, but they partition it — so scaling a
+        total for the pause alone, but they partition it, so scaling a
         measured phase sum by this estimates it. Percentiles it cannot
         correct; see ADR-0015.
         """
@@ -196,7 +196,7 @@ def merge_windows(windows: Iterable[LossWindow]) -> list[MergedLoss]:
 
     One poll is the whole of it. A single bulk read gives every generation of
     an interpreter the same confirmation point, so windows opened in later
-    polls start after these end and can never reach back into them.
+    polls start after these end and cannot reach back into them.
 
     Touching windows merge: apart they would draw two slices with nothing
     between them.
@@ -221,8 +221,8 @@ def merge_windows(windows: Iterable[LossWindow]) -> list[MergedLoss]:
 def _apportion(total: int, weights: Sequence[int]) -> list[int]:
     """Share *total* out in proportion to *weights*, largest remainder first.
 
-    The parts add back up to *total* exactly, so splitting a span never
-    invents or loses a collection.
+    The parts add back up to *total*, so a split neither invents a collection
+    nor loses one.
     """
     span = sum(weights)
     if total <= 0 or span <= 0:
@@ -255,20 +255,19 @@ def _cut(ts_start: int, ts_stop: int, observed: Iterable[tuple[int, int]]) -> li
 
 
 def split_around(span: MergedLoss, observed: Iterable[tuple[int, int]]) -> list[MergedLoss]:
-    """Cut *span* into the stretches where gcmon was actually blind.
+    """Cut *span* into the stretches where gcmon was blind.
 
-    A collection observed inside a span is one the lost records cannot have
-    run during — collections in an interpreter are serialized — so the span
-    owes it a hole. What is left is where the missing records must be: a
-    gen-0 window bracketing an observed gen-1 collection becomes two pieces,
-    one either side of it, instead of one bar drawn over the top of it.
+    Collections in an interpreter are serialized, so no lost record ran
+    during one the poll observed, and a span holding such a collection owes
+    it a hole. What is left is where the missing records must be: a gen-0
+    window bracketing an observed gen-1 collection becomes two pieces, one
+    either side of it, instead of one bar over the top of it.
 
-    Counts and pause are shared across the pieces in proportion to width.
-    Nothing in the ring says where inside the span the records ran, so no
-    split is more true than another — but proportional is the one that adds
-    back up, and it keeps a piece from claiming more pause than it has room
-    for. A piece left holding nothing is dropped rather than drawn as a bar
-    reporting no loss.
+    Counts and pause split across the pieces in proportion to width. Nothing
+    in the ring says where inside the span the records ran, so no split is
+    truer than another; proportional is the one that adds back up and keeps a
+    piece from claiming more pause than it has room for. A piece left holding
+    nothing is dropped rather than drawn as a bar reporting no loss.
     """
     pieces = _cut(span.ts_start, span.ts_stop, observed)
     if not pieces:
@@ -325,7 +324,7 @@ def confirmed_by_interpreter(cursors: Mapping[CursorKey, KeyAccumulator]) -> dic
 
     One bulk read covers all of an interpreter's generations, so a poll that
     found one key's counter unchanged proves nothing was lost on it up to that
-    read — and the newest record any key returned bounds when that read
+    read, and the newest record any key returned bounds when that read
     happened. A gap found later cannot have opened before it.
     """
     confirmed: dict[int, int] = {}

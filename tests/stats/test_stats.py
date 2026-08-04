@@ -301,6 +301,59 @@ class TestExactTotals:
         assert stats.lost_count(1, 0) == 7
 
 
+class TestCoverageAdvisory:
+    """One warning per run, and only when the ring is actually overflowing.
+
+    It names the read-cost floor that bounds `--rate`, which is worth saying
+    once and unbearable per poll, since a lossy run records loss every tick.
+    """
+
+    ADVISORY = "of collections observed"
+
+    def _sampled(self, stats: StreamingStats, count: int) -> None:
+        for _ in range(count):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+
+    def test_it_fires_below_the_threshold(self, caplog: pytest.LogCaptureFixture) -> None:
+        stats = StreamingStats()
+        self._sampled(stats, 3)
+
+        stats.record_loss(1, 0, 7, 7_000)
+
+        assert self.ADVISORY in caplog.text
+        assert "ring buffer" in caplog.text
+
+    def test_it_stays_quiet_above_the_threshold(self, caplog: pytest.LogCaptureFixture) -> None:
+        stats = StreamingStats()
+        self._sampled(stats, 99)
+
+        stats.record_loss(1, 0, 1, 1_000)
+
+        assert stats.coverage(1, 0) > StreamingStats.COVERAGE_ADVISORY
+        assert self.ADVISORY not in caplog.text
+
+    def test_it_fires_once_across_many_ticks(self, caplog: pytest.LogCaptureFixture) -> None:
+        stats = StreamingStats()
+        self._sampled(stats, 3)
+
+        for _ in range(20):
+            stats.record_loss(1, 0, 7, 7_000)
+
+        assert caplog.text.count(self.ADVISORY) == 1
+
+    def test_one_generation_warning_covers_the_run(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The latch is per run, not per key: the advice is about the poll
+        rate, which no generation owns."""
+        stats = StreamingStats()
+        self._sampled(stats, 3)
+
+        stats.record_loss(1, 0, 7, 7_000)
+        stats.record_loss(1, 1, 7, 7_000)
+        stats.record_loss(2, 0, 7, 7_000)
+
+        assert caplog.text.count(self.ADVISORY) == 1
+
+
 class TestLifetimeTotals:
     def test_summed_across_interpreters(self) -> None:
         stats = StreamingStats()

@@ -148,6 +148,29 @@ and counter data only. See
 [Output formats](https://github.com/sergey-miryanov/gcmon/blob/main/docs/formats.md)
 for which fields need which build.
 
+### Not every collection is read
+
+CPython publishes GC records into a fixed ring buffer: 11 slots for generation 0,
+3 for the older two, and 1 each on a free-threaded build. A target collecting
+faster than gcmon polls overwrites records before anyone reads them, and at default
+settings that is the normal case. A busy workload can run ~87 gen-0 collections
+between two polls of an 11-slot ring.
+
+Polling faster goes only so far. A single read costs about 0.6 ms per process, so
+that is the floor `--rate` approaches, well above what catching every collection of
+a GC-heavy target would take.
+
+gcmon reconstructs what it missed. CPython's `collections` and `duration` counters
+are cumulative, so the missed records can be counted and their pause time
+recovered. **`Count` and `Sum` in the `--stats` table are exact**, and the `Cov`
+column reports what share gcmon read. **Percentiles are not corrected and read
+high**, since long collections are likelier to survive in the ring. The trace draws
+each blind interval on a `GC Loss` track. See
+[Statistics](https://github.com/sergey-miryanov/gcmon/blob/main/docs/statistics.md)
+for how to read a low-coverage table, and
+[Output formats](https://github.com/sergey-miryanov/gcmon/blob/main/docs/formats.md#gc-loss-slices)
+for the loss slices.
+
 ### No call-stack attribution
 
 gcmon reports when each collection ran, how long it took, and how large the heap

@@ -1,8 +1,8 @@
 """Does the trace processor draw loss spans where we think it does?
 
 Two claims that nothing at the wire level can settle. First, that a loss span
-lands on a row of its own rather than among the collections — the whole point
-of the sentinel tid, and a track descriptor Perfetto could quietly ignore.
+lands on a row of its own rather than among the collections, which is the whole
+point of the sentinel tid and of a track descriptor Perfetto could ignore.
 Second, that the spans on that row stay laminar, which is what `merge_windows`
 is for. Both ask trace processor directly, and are marked ``fuzz`` for the
 cost.
@@ -49,10 +49,15 @@ def _pause(ts_start: int, ts_stop: int, collections: int) -> GCStatsInfo:
     )
 
 
-def _load(events: list[TraceEvent], tmp_path: Path, name: str) -> tuple[int, list[Slice]]:
+def _write(events: list[TraceEvent], tmp_path: Path, name: str) -> Path:
     descriptors, packets = convert_trace_events_to_perfetto(events, PerfettoTrackState(), SEQUENCE_ID)
     path = tmp_path / f"{name}.pftrace"
     path.write_bytes(build_trace([*descriptors, *packets]))
+    return path
+
+
+def _load(events: list[TraceEvent], tmp_path: Path, name: str) -> tuple[int, list[Slice]]:
+    path = _write(events, tmp_path, name)
 
     tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
     try:
@@ -123,10 +128,36 @@ def test_two_interpreters_get_two_rows(tmp_path: Path) -> None:
     assert {track for track, name, _ts, _dur in slices if name == "GC Loss"} == {"GC Loss 0", "GC Loss 7"}
 
 
+def _process_slices(events: list[TraceEvent], tmp_path: Path, name: str) -> list[Slice]:
+    """What sits on the process track itself, which `_load` filters out."""
+    tp = TraceProcessor(trace=str(_write(events, tmp_path, name)), config=TraceProcessorConfig(load_timeout=300))
+    try:
+        return [
+            (row.track_name, row.name, row.ts, row.dur)
+            for row in tp.query(
+                "SELECT t.name AS track_name, s.name, s.ts, s.dur FROM slice s "
+                "JOIN track t ON s.track_id = t.id WHERE s.name = 'Start Process'"
+            )
+        ]
+    finally:
+        tp.close()
+
+
+def test_the_process_marker_is_untouched_by_loss_spans(tmp_path: Path) -> None:
+    """The loss track hangs off the process track, so a descriptor naming the
+    wrong parent would land its spans on the process's own row and reshape
+    the lifetime marker ADR-0013 put there."""
+    without = _process_slices(_events(), tmp_path, "no_loss")
+    with_loss = _process_slices(_events(_loss(2_000, 9_000, 500)), tmp_path, "with_loss")
+
+    assert len(without) == 1
+    assert with_loss == without
+
+
 def test_crossing_spans_are_silently_reshaped(tmp_path: Path) -> None:
     """The negative control, and why `merge_windows` runs before export.
     A track is a stack, so an unmerged span crossing its neighbour is read as
-    its parent — and trace processor reports nothing wrong."""
+    its parent, and trace processor reports nothing wrong."""
     events = _events(_loss(2_000, 5_000, 500), _loss(4_000, 9_000, 500))
 
     misplaced, slices = _load(events, tmp_path, "crossing")

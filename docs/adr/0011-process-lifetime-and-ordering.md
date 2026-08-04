@@ -4,7 +4,7 @@
 - **Date:** 2026-06-27 (ordering added 2026-06-28; laminar clipping added 2026-07-31; emission
   simplified to unnested BEGIN/END pairs 2026-08-01; sort moved into the sweep and the
   once-per-trace guard made explicit 2026-08-02; monitor-reported liveness landed and the
-  counter carve-out was removed 2026-08-02)
+  counter carve-out was removed 2026-08-02; pointer to ADR-0015 added 2026-08-05)
 
 ## Context
 
@@ -224,6 +224,13 @@ mid-`close()` can raise `RuntimeError: dictionary changed size during iteration`
   resolves track references across the whole trace rather than in file order.
 - Consumers enumerating slices must filter `track.name == 'Processes'`, as the equivalence
   test does, since these slices are Perfetto-only.
+- **The crossing-spans analysis above generalises to any synthetic track.**
+  [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) reuses it for reconstructed GC loss
+  spans, and reaches the opposite decision on the remedy: loss windows may be *merged* where
+  process lifetimes may not, so that track is kept laminar by union rather than by clipping,
+  with nothing shortened. Its `GC Loss` track also follows the `Processes` precedent for
+  parenting a plain custom slice track — no `process` / `thread` / `counter` sub-message — to
+  a process track.
 
 ## Alternatives considered
 

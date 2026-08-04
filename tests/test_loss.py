@@ -100,7 +100,7 @@ class Ingested:
     """What a sequence of polls left behind.
 
     Mirrors ``EventsMonitor._ingest``, which merges and emits each poll's
-    windows rather than retaining them — so a test that wants to look at a
+    windows rather than retaining them, so a test that wants to look at a
     window has to collect it on the way past.
     """
 
@@ -506,13 +506,13 @@ class TestARecordReadIncompleteThenComplete:
     """A slot caught mid-write is dropped, and arrives one poll late.
 
     `_is_complete` filters it before the cursor ever sees it, so the next poll
-    returns it finished and *fresh* — emitted then, drawn where it ran, which
-    is before that poll's window would otherwise open.
+    returns it finished and fresh: emitted then, drawn where it ran, which is
+    before that poll's window would otherwise open.
 
-    Its `ts_stop` is a confirmation, not a hole. The GC was inside that
-    collection at the earlier read, and nothing newer had finished — a lost
-    record would have been the newest one that read saw. Collections in an
-    interpreter are serialized, so everything lost since ran after it ended.
+    Its `ts_stop` confirms rather than holes. The GC was inside that collection
+    at the earlier read and nothing newer had finished, so a lost record would
+    have been the newest one that read saw. Collections in an interpreter are
+    serialized, so everything lost since ran after it ended.
     The window opens there, and no loss is attributed to the stretch before
     it.
     """
@@ -565,9 +565,9 @@ class TestARecordReadIncompleteThenComplete:
         assert gap.ts_start > done.ts_start
 
     def test_the_start_alone_confirms_even_if_the_record_never_returns(self) -> None:
-        """The slot can be overwritten before the next read, and often is —
-        that is the whole problem this spec is about. `ts_start` was published
-        and read, so the bound survives losing the record itself."""
+        """The slot can be overwritten before the next read, and often is,
+        which is the whole problem here. gcmon published and read `ts_start`,
+        so the bound survives losing the record itself."""
         gen0 = build_run(4, gen=0, spacing_ns=44_000_000)
         gen1 = build_run(1, gen=1, ts0=TS0 + 66_000_000)[0]
         mid_write = msgspec.structs.replace(gen1, ts_stop=gen1.ts_start - 1_000)
@@ -741,7 +741,7 @@ class TestQuietGeneration:
     """A poll finding a counter unchanged is evidence, not silence: it proves
     nothing was lost on that key up to that read. Without it a generation that
     goes quiet and later loses records would open a window reaching back over
-    every tick it sat out — ticks in which it demonstrably lost nothing."""
+    every tick it sat out, ticks in which the polls proved it lost nothing."""
 
     def polls(self) -> Ingested:
         gen0 = build_run(9, gen=0)
@@ -841,7 +841,7 @@ class TestSplittingAroundAnObservedCollection:
 
     def test_the_loss_is_shared_out_not_duplicated(self) -> None:
         """Nothing says which side of the observed collection each lost record
-        fell, so the split follows width — the one apportionment that adds
+        fell, so the split follows width, the one apportionment that adds
         back up."""
         pieces = self.polls().pieces()
 
@@ -911,7 +911,7 @@ class TestCounterOrderNotClockOrder:
 
     ``_ingest`` sorts on ``collections`` to give it that. A healthy ring makes
     the two orders agree, so this is the invariant holding rather than a bug
-    reproducing — but the cursor means a counter, and a batch where the clock
+    reproducing. The cursor still means a counter, and a batch where the clock
     disagrees must not walk it backwards.
     """
 

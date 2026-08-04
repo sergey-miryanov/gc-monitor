@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Mapping, Sequence
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ from typing import Any
 from ..control.control_client import ControlClient, connect_with_retry
 from ..control.control_server import _make_address
 from ..exporters.chrome_trace_io import read_jsonl
-from ..protocol import is_gc_stats
+from ..protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
 from ..stats import StreamingStats
 from ..utils.process_terminator import log_process_output, terminate_process
 
@@ -87,6 +88,44 @@ def _get_env_pyperf_hook_output(bench_name: str, pid: int) -> Path:
         env_path = env_path.format(bench_name=bench_name, pid=pid)
         return Path(env_path)
     return Path(f"gcmon_{bench_name}_combined_{pid}.jsonl")
+
+
+def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> None:
+    """Rebuild a session's statistics from the records it wrote.
+
+    The monitor folds loss and lifetime as it polls, but the hook meets the
+    session only as a file, so both have to come back off it. Loss rides in
+    records of its own. Lifetime rides on every GC record, whose
+    ``collections`` and ``duration`` are the target's cumulative totals, so
+    the newest record of each ring carries what ``_ingest`` recorded live.
+
+    Loss goes in last, summed per ``(pid, gen)``, so the coverage advisory
+    sees the whole sample rather than however much of it happened to precede
+    a loss record in the file.
+    """
+    lost: dict[tuple[int, int], tuple[int, int]] = {}
+    newest: dict[tuple[int, int, int], TGCStatsInfo] = {}
+
+    for pid, items in parsed.items():
+        for item in items:
+            if is_gc_stats(item):
+                stats.update(pid, item)
+                ring = (pid, item.iid, item.gen)
+                if ring not in newest or item.collections > newest[ring].collections:
+                    newest[ring] = item
+            elif is_loss(item):
+                counts = (item.lost_gen_0, item.lost_gen_1, item.lost_gen_2)
+                pauses = (item.lost_pause_gen_0, item.lost_pause_gen_1, item.lost_pause_gen_2)
+                for gen, (count, pause_ns) in enumerate(zip(counts, pauses, strict=True)):
+                    seen_count, seen_pause = lost.get((pid, gen), (0, 0))
+                    lost[(pid, gen)] = (seen_count + count, seen_pause + pause_ns)
+
+    for (pid, iid, gen), record in newest.items():
+        stats.record_lifetime(pid, iid, gen, record.collections, record.duration)
+
+    for (pid, gen), (count, pause_ns) in lost.items():
+        if count or pause_ns:
+            stats.record_loss(pid, gen, count, pause_ns)
 
 
 class GCMonitorHook:
@@ -219,11 +258,7 @@ class GCMonitorHook:
             ss = StreamingStats()
             if output_path.exists():
                 try:
-                    parsed = read_jsonl(output_path)
-                    for pid, items in parsed.items():
-                        for item in items:
-                            if is_gc_stats(item):
-                                ss.update(pid, item)
+                    _replay(ss, read_jsonl(output_path))
                 except Exception as e:
                     logger.warning("Failed to read combined GC metrics: %s", e)
 

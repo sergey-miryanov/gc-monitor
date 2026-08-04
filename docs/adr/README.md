@@ -39,12 +39,13 @@ the decision itself changes.
 | [0012](0012-trace-output-formats.md) | Support Perfetto output in `combine`, and dual output only in live mode |
 | [0013](0013-rss-sampling.md) | Sample RSS in a standalone `RssSampler`, on a `tid = -1` sentinel track |
 | [0014](0014-perfetto-integration-test-strategy.md) | Validate traces against the real trace processor; deselect slow suites by marker |
+| [0015](0015-gc-loss-spans-on-their-own-track.md) | Draw reconstructed GC loss on a per-interpreter track, merged per poll |
 
 ## Reading order
 
 ADRs 0001–0005 are about the Perfetto wire format and track layout, and build on each other
 in that order. 0006–0009 cover the internal event model shared by all backends. 0010–0013
-are individual features. 0014 explains how any of it is verified.
+and 0015 are individual features. 0014 explains how any of it is verified.
 
 ---
 

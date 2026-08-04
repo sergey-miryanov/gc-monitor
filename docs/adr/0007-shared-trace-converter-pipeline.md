@@ -1,7 +1,7 @@
 # ADR-0007: Convert GC stats to `TraceEvent` once, in a shared pipeline
 
 - **Status:** Accepted
-- **Date:** 2026-06-14
+- **Date:** 2026-06-14 (`LossMsg` noted as the third record type 2026-08-05)
 
 ## Context
 
@@ -62,6 +62,12 @@ descriptor defensively if a `ThreadMeta` arrives first, but callers should not r
   was dropped.
 - Adding an output format means writing an encoder, not a converter.
   [ADR-0008](0008-buffered-exporter-and-encoder-protocol.md) builds on that.
+- **A new record type also lands in one place.** `LossMsg` is the third kind of thing through
+  this pipeline, after GC records and instants, and it reached Chrome, Perfetto and JSONL by
+  adding one converter branch — the outcome this ADR predicted, tested on something that is
+  not a sub-phase. [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) records why it is
+  emitted from `_ingest` rather than from a Perfetto-side finalize hook, which would have
+  broken the property.
 
 ## Alternatives considered
 

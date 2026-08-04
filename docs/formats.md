@@ -24,6 +24,7 @@ Perfetto features:
 - **Process command lines**: With the [`[cmdline]` extra](rss.md#the-cmdline-extra), each monitored process's command line is written to the trace — see [Process command lines](#process-command-lines) below.
 - **`Start Process` marker**: A zero-duration instant event named `Start Process` is emitted on each process track at that process's first event. Perfetto hides a track that carries no events, so this guarantees the process track and its label always render. It is Perfetto-only; consumers that enumerate slices should filter it out.
 - **RSS counter track**: A process-level `rss` counter track appears for each PID when `--rss` is enabled, showing Resident Set Size in bytes. Sampled at the configured `--rss-interval` (default 1s).
+- **`GC Loss` track**: One row per interpreter, named `GC Loss {iid}`, sitting under that process's own track. Each slice marks an interval in which the ring buffer overwrote GC records before gcmon could read them — see [GC Loss slices](#gc-loss-slices) below.
 
 This visualization helps you:
 - **Identify GC pause patterns** - See when and how long GC pauses occur
@@ -33,6 +34,50 @@ This visualization helps you:
 - **Correlate sub-step timing** - See which GC phase (mark, sweep, finalize) dominates pause time
 
 > **Note:** Sub-step slices (Mark Alive, Fill increment, Deduce Unreachable, etc.) and their associated data are only available when using a custom CPython build with enhanced GC instrumentation. Standard CPython builds provide only the top-level GC Pause slices and counter data.
+
+### GC Loss slices
+
+CPython exports GC records through a small ring buffer of 11 slots for generation 0
+and 3 for the older two, so a target collecting faster than gcmon polls overwrites
+records before anyone reads them. gcmon detects this from CPython's cumulative
+`collections` and `duration` counters and marks each blind interval with a slice
+named `GC Loss`, on a `GC Loss {iid}` track of its own.
+
+**The slice's width is the interval the records were lost in rather than the pause
+they took.** Nothing in the ring says where inside that interval the missing
+collections ran, so the bar spans the whole stretch gcmon could not see: from the
+last thing it observed to the next record it recovered. One lost 5 ms collection
+can draw a 130 ms bar. Read the magnitude from the args and not from the width.
+That gap between the two is why these slices sit on a row of their own, since
+among the `GC Pause` slices a window-width bar would read as a very long pause.
+
+Each slice carries:
+
+| Arg | Meaning |
+|---|---|
+| `iid` | Interpreter the records were lost from |
+| `lost_gen_N` | Collections of generation *N* that ran unobserved in this interval |
+| `lost_pause_gen_N` | Pause time those collections took, in nanoseconds — exact, from the target's own counter |
+| `lost_total` | Collections lost across all generations |
+| `lost_pause_total` | **Read this for the magnitude.** Total pause time lost in the interval, in nanoseconds |
+
+Only generations that lost something get a `lost_gen_N` / `lost_pause_gen_N` pair;
+`lost_total` and `lost_pause_total` are always present.
+
+Where a window brackets a collection gcmon did observe, it draws as several slices
+with a hole around that collection instead of one bar over the top of it, since no
+lost record can have run during an observed one. gcmon then shares the counts
+across the pieces in proportion to width, so **a piece's `lost_gen_N` is a share
+rather than a measurement**. A piece reading "1 lost, 8.75 ms" means that of the
+records this window lost, this stretch covers 15% of the blind time. Add up the
+pieces of one window and the totals are exact; only their distribution is
+estimated. How a span draws leaves the `--stats` table's `Cov` and `F` columns
+untouched.
+
+At default settings the track reads as a near-solid bar, because gcmon is blind for
+most of every tick. Lower `--rate` or a calmer workload thins it out. See
+[ADR-0015](adr/0015-gc-loss-spans-on-their-own-track.md) for the reasoning, and
+[Statistics](statistics.md) for what the loss does to the numbers.
 
 ### Process command lines
 
@@ -91,3 +136,27 @@ each line is a JSON object representing one GC event:
 > **Note:** Fields marked **Custom build** require a CPython build with enhanced
 > GC instrumentation — see the [Chrome trace and Perfetto output](#chrome-trace-and-perfetto-output)
 > note above.
+
+### Loss records
+
+A run that lost records to ring-buffer wrap also writes one line per blind
+interval, alongside the GC events. A loss record carries no `gen` field, since it
+can span several generations at once, and no `collections`:
+
+```jsonl
+{"pid": 12345, "tid": -2, "iid": 0, "ts_start": 1700000001500000, "ts_stop": 1700000098000000, "lost_gen_0": 9, "lost_gen_1": 1, "lost_gen_2": 0, "lost_pause_gen_0": 57450000, "lost_pause_gen_1": 8100000, "lost_pause_gen_2": 0}
+```
+
+| Field | Description |
+|-------|-------------|
+| `tid` | `-2 - iid`, the sentinel the trace formats draw the `GC Loss` track on. `-1` is reserved for `rss` |
+| `iid` | Interpreter the records were lost from |
+| `ts_start`, `ts_stop` | The blind interval (nanoseconds). Its width is uncertainty, not pause time |
+| `lost_gen_N` | Collections of generation *N* that ran unobserved in the interval |
+| `lost_pause_gen_N` | Pause time those collections took, in nanoseconds |
+
+Tell the record types apart by field presence: a GC event has `gen`, a loss record
+has `lost_gen_0`, an instant event has `type`. `gcmon combine` reads loss records
+back and reproduces the spans in Chrome or Perfetto output. `--normalize` shifts
+them with everything else, and a loss record can be the earliest thing in a
+capture, since a window opens before the record that closes it.

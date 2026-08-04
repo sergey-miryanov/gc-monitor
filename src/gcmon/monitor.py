@@ -132,17 +132,17 @@ class EventsMonitor:
 
         # A collection the previous read caught mid-flight confirms that
         # interpreter, whatever generation it belongs to. The GC was inside it
-        # then, and nothing newer had finished — a record lost since would have
-        # a higher counter than anything the read saw, and had it completed
-        # before the read it would have *been* what the read saw. Collections
+        # then and nothing newer had finished: a record lost since carries a
+        # higher counter than anything the read saw, and had it completed
+        # before the read it would have been what the read saw. Collections
         # are serialized, so everything lost since ran after it.
         #
-        # Its `ts_start` is the bound, and it is the strongest one available: a
+        # Its `ts_start` is the bound, and the strongest one available, since a
         # collection that had started is later evidence than the newest one
-        # that had finished. It also survives the record never coming back —
-        # the slot can be overwritten before the next read, and the interval
-        # is bounded all the same. Learning where it *ended* raises the bound
-        # further, so both apply.
+        # that had finished. It also survives the record never coming back: the
+        # slot can be overwritten before the next read and the interval stays
+        # bounded. Learning where it ended raises the bound further, so both
+        # apply.
         for iid, since in self._in_flight_starts.get(pid, {}).items():
             confirmed[iid] = max(confirmed.get(iid, 0), since)
             finished = [e.ts_stop for e in events if e.iid == iid and _is_complete(e) and e.ts_start <= since]
@@ -178,13 +178,12 @@ class EventsMonitor:
                 observed.setdefault(iid, []).extend((event.ts_start, event.ts_stop) for event in run)
             fresh.extend(run)
 
-        # A window runs to the next record on its own key, which is the last
-        # thing the two polls prove about that key. Collections observed
-        # inside it are cut out rather than used as a bound: a lost record
-        # cannot have run during one that was seen, so what is left after the
-        # holes is where the missing records must be. One gen-0 window
-        # bracketing an observed gen-1 collection therefore draws as two
-        # pieces, one either side of it.
+        # A window runs to the next record on its own key, the last thing the
+        # two polls prove about that key. Collections observed inside it earn
+        # a hole rather than a bound: no lost record ran during one that was
+        # seen, so what is left after the holes is where the missing records
+        # must be. One gen-0 window bracketing an observed gen-1 collection
+        # therefore draws as two pieces, one either side of it.
         for iid, opened in windows.items():
             # Every window that can overlap another opened in this same poll,
             # so merging here is enough to keep the loss track laminar.
