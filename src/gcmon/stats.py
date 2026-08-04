@@ -1,3 +1,4 @@
+import logging
 from collections import OrderedDict, deque
 from collections.abc import Sequence
 from typing import Protocol
@@ -9,7 +10,7 @@ try:
 except ImportError:
     HAS_DDSKETCH = False
 
-from .data import dur_to_ms
+from .data import dur_to_ms, secs_to_ns
 from .protocol import (
     TGCStatsInfo,
     has_clear_weakrefs,
@@ -22,6 +23,8 @@ from .protocol import (
     has_mark_alive,
     has_pause_ts,
 )
+
+logger = logging.getLogger("gcmon")
 
 
 def get_quantile_value(buffer: Sequence[float], q: int) -> float:
@@ -235,6 +238,9 @@ def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
 class StreamingStats:
     MAX_ACTIVE_PIDS = 64
     GENS = (0, 1, 2)
+    # Below this, the sampled percentiles describe so little of the run that
+    # a reader should be told once rather than left to infer it from `Cov`.
+    COVERAGE_ADVISORY = 0.9
 
     def __init__(self) -> None:
         self._count: int = 0
@@ -244,6 +250,15 @@ class StreamingStats:
         self._materialized_metrics: dict[int, TStatsData] = {}
         self._heap_size: dict[int, int] = {}
         self._read_time: Stats = Stats()
+        # Loss arrives as a per-poll increment, so exact totals follow from the
+        # §4 invariant without holding the monitor's cursors: what gcmon saw
+        # plus what it missed. A pid dropped by `forget` keeps what it recorded.
+        self._lost_count: dict[tuple[int, int], int] = {}
+        self._lost_pause_ns: dict[tuple[int, int], int] = {}
+        # Lifetime is a running total, not an increment, so it is stored per
+        # ring and overwritten rather than summed across polls.
+        self._lifetime: dict[tuple[int, int, int], tuple[int, float]] = {}
+        self._coverage_warned = False
 
     def update(self, pid: int, item: TGCStatsInfo) -> None:
         self._count += 1
@@ -272,6 +287,102 @@ class StreamingStats:
         """Record the time spent reading GC stats from a target process."""
         self._read_time.update(duration_ns)
 
+    def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
+        """Record one interval whose records were overwritten before a poll."""
+        key = (pid, gen)
+        self._lost_count[key] = self._lost_count.get(key, 0) + lost_count
+        self._lost_pause_ns[key] = self._lost_pause_ns.get(key, 0) + lost_pause_ns
+
+        if not self._coverage_warned and self.coverage(pid, gen) < self.COVERAGE_ADVISORY:
+            self._coverage_warned = True
+            logger.warning(
+                "PID %s generation %s: only %.0f%% of collections observed. The ring buffer CPython "
+                "exports holds %s records, and a poll costs ~0.6 ms, so a target collecting faster "
+                "than that overwrites records before they can be read. Counts and sums below are "
+                "reconstructed and exact; percentiles cover only what was sampled and read high.",
+                pid,
+                gen,
+                self.coverage(pid, gen) * 100,
+                "11 (gen 0) or 3" if gen == 0 else "3",
+            )
+
+    def record_lifetime(self, pid: int, iid: int, gen: int, collections: int, duration_s: float) -> None:
+        """Record one ring's totals since its interpreter started.
+
+        Both fields are cumulative in the target, so the newest values replace
+        the previous ones rather than adding to them.
+        """
+        self._lifetime[(pid, iid, gen)] = (collections, duration_s)
+
+    def _sampled(self, pid: int | None, gen: int) -> Stats:
+        """The pause durations gcmon actually saw, for one pid or all of them."""
+        if pid is None:
+            return self.metrics["pause"][gen]
+        pid_data = self.get_pid_stats(pid)
+        if pid_data is None:
+            return Stats()
+        return pid_data["pause"][gen]
+
+    def _lost(self, totals: dict[tuple[int, int], int], pid: int | None, gen: int) -> int:
+        if pid is not None:
+            return totals.get((pid, gen), 0)
+        return sum(value for (_pid, key_gen), value in totals.items() if key_gen == gen)
+
+    def lost_count(self, pid: int | None, gen: int) -> int:
+        return self._lost(self._lost_count, pid, gen)
+
+    def lost_pause_ns(self, pid: int | None, gen: int) -> int:
+        return self._lost(self._lost_pause_ns, pid, gen)
+
+    def exact_count(self, pid: int | None, gen: int) -> int:
+        """Collections over the observed span, seen and unseen alike."""
+        return self._sampled(pid, gen).count() + self.lost_count(pid, gen)
+
+    def exact_pause_ns(self, pid: int | None, gen: int) -> float:
+        """Pause time over the same span. See §4's invariant."""
+        return self._sampled(pid, gen).sum() + self.lost_pause_ns(pid, gen)
+
+    def coverage(self, pid: int | None, gen: int) -> float:
+        """Observed share of the span, in ``[0, 1]``.
+
+        1.0 when nothing was observed: none of the nothing it covers was lost,
+        and every call site would otherwise guard a division.
+        """
+        exact = self.exact_count(pid, gen)
+        if exact == 0:
+            return 1.0
+        return self._sampled(pid, gen).count() / exact
+
+    def scale_factor(self, pid: int | None, gen: int) -> float:
+        """Multiplier taking a sampled pause sum to the exact one.
+
+        Sub-phases have no exact counterpart but partition the pause, so
+        scaling a measured phase sum by this estimates it. Percentiles it
+        cannot correct; see ADR-0015.
+        """
+        sampled = self._sampled(pid, gen).sum()
+        if sampled == 0:
+            return 1.0
+        return self.exact_pause_ns(pid, gen) / sampled
+
+    def _lifetime_totals(self, pid: int | None, gen: int) -> tuple[int, float]:
+        """Summed over the interpreters of *pid*, or of every pid."""
+        count = 0
+        duration_s = 0.0
+        for (key_pid, _iid, key_gen), (collections, duration) in self._lifetime.items():
+            if key_gen == gen and (pid is None or key_pid == pid):
+                count += collections
+                duration_s += duration
+        return count, duration_s
+
+    def lifetime_count(self, pid: int | None, gen: int) -> int:
+        """Collections since the interpreter started, not since gcmon attached."""
+        return self._lifetime_totals(pid, gen)[0]
+
+    def lifetime_pause_ns(self, pid: int | None, gen: int) -> int:
+        """Pause time over that same whole history."""
+        return secs_to_ns(self._lifetime_totals(pid, gen)[1])
+
     @property
     def read_time(self) -> Stats:
         """Read durations in nanoseconds, aggregated over all polled PIDs."""
@@ -287,16 +398,27 @@ class StreamingStats:
         return self._count
 
     def aggregate(self) -> dict[str, int | float]:
-        """Summarize pause metrics, with durations converted to milliseconds."""
+        """Summarize pause metrics, with durations converted to milliseconds.
+
+        Sums and counts are exact: what gcmon saw plus what the target's own
+        counters say it missed. ``p99`` stays sampled, and reads high — a long
+        collection delays its successors, so it survives in the ring more often
+        than a short one, and no scale factor corrects a quantile.
+        """
         result: dict[str, int | float] = {}
         for gen in self.GENS:
             s = self.metrics["pause"][gen]
             if s.count() > 0:
                 result[f"pause_gen_{gen}_p99"] = dur_to_ms(s.percentile(99))
-                result[f"pause_gen_{gen}_sum"] = dur_to_ms(s.sum())
-                result[f"pause_gen_{gen}_count"] = s.count()
+                result[f"pause_gen_{gen}_sum"] = dur_to_ms(self.exact_pause_ns(None, gen))
+                result[f"pause_gen_{gen}_count"] = self.exact_count(None, gen)
+                result[f"pause_gen_{gen}_coverage"] = self.coverage(None, gen)
+            lifetime_count = self.lifetime_count(None, gen)
+            if lifetime_count > 0:
+                result[f"pause_gen_{gen}_lifetime_count"] = lifetime_count
+                result[f"pause_gen_{gen}_lifetime_sum"] = dur_to_ms(self.lifetime_pause_ns(None, gen))
         if self._heap_size:
             sorted_heaps = sorted(self._heap_size.values())
             result["heap_size_p99"] = get_quantile_value(sorted_heaps, 99)
-        result["pause_count"] = self.count()
+        result["pause_count"] = sum(self.exact_count(None, gen) for gen in self.GENS)
         return result

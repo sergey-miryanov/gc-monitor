@@ -8,7 +8,15 @@ from itertools import groupby
 from typing import Self
 
 from .exporters import EventsExporter
-from .loss import CursorKey, KeyAccumulator, LossWindow, confirmed_by_interpreter, merge_windows, to_loss_msg
+from .loss import (
+    CursorKey,
+    KeyAccumulator,
+    LossWindow,
+    confirmed_by_interpreter,
+    merge_windows,
+    split_around,
+    to_loss_msg,
+)
 from .poll_status import PollStatus
 from .protocol import TGCStatsInfo
 from .stats import StreamingStats
@@ -25,6 +33,22 @@ def _is_complete(event: TGCStatsInfo) -> bool:
     return event.ts_start < event.ts_stop
 
 
+def _in_flight(events: Sequence[TGCStatsInfo]) -> dict[int, int]:
+    """Per interpreter, the ``ts_start`` of the collection running at the read.
+
+    A slot with ``ts_start`` published and no ``ts_stop`` yet is one the GC is
+    inside. Collections in an interpreter are serialized, so there is at most
+    one, and taking the newest ``ts_start`` picks it out from slots that were
+    never written at all.
+    """
+    started: dict[int, int] = {}
+    for event in events:
+        if not _is_complete(event):
+            started[event.iid] = max(started.get(event.iid, 0), event.ts_start)
+
+    return {iid: ts for iid, ts in started.items() if ts > 0}
+
+
 class EventsMonitor:
     def __init__(
         self,
@@ -37,6 +61,7 @@ class EventsMonitor:
         self._exporter = exporter
         self._enabled = True
         self._cursors: dict[int, dict[CursorKey, KeyAccumulator]] = {}
+        self._in_flight_starts: dict[int, dict[int, int]] = {}
         self._stats = stats
 
     def get_child_pids(self) -> list[int] | None:
@@ -83,6 +108,7 @@ class EventsMonitor:
         """Drop every cursor held for *pid*, so a reused pid inherits no
         counter."""
         self._cursors.pop(pid, None)
+        self._in_flight_starts.pop(pid, None)
 
     def retain(self, pids: Set[int]) -> None:
         """Drop the cursors of every pid outside *pids*.
@@ -92,6 +118,8 @@ class EventsMonitor:
         """
         for pid in self._cursors.keys() - pids:
             del self._cursors[pid]
+        for pid in self._in_flight_starts.keys() - pids:
+            del self._in_flight_starts[pid]
 
     def _ingest(self, pid: int, events: Sequence[TGCStatsInfo]) -> None:
         """Emit the records in *events* not seen yet.
@@ -102,16 +130,37 @@ class EventsMonitor:
         cursors = self._cursors.setdefault(pid, {})
         confirmed = confirmed_by_interpreter(cursors)
 
+        # A collection the previous read caught mid-flight confirms that
+        # interpreter, whatever generation it belongs to. The GC was inside it
+        # then, and nothing newer had finished — a record lost since would have
+        # a higher counter than anything the read saw, and had it completed
+        # before the read it would have *been* what the read saw. Collections
+        # are serialized, so everything lost since ran after it.
+        #
+        # Its `ts_start` is the bound, and it is the strongest one available: a
+        # collection that had started is later evidence than the newest one
+        # that had finished. It also survives the record never coming back —
+        # the slot can be overwritten before the next read, and the interval
+        # is bounded all the same. Learning where it *ended* raises the bound
+        # further, so both apply.
+        for iid, since in self._in_flight_starts.get(pid, {}).items():
+            confirmed[iid] = max(confirmed.get(iid, 0), since)
+            finished = [e.ts_stop for e in events if e.iid == iid and _is_complete(e) and e.ts_start <= since]
+            if finished:
+                confirmed[iid] = max(confirmed[iid], max(finished))
+        self._in_flight_starts[pid] = _in_flight(events)
+
         # Slot order is not time order: the batch arrives rotated around the
         # ring's write position, with the generations concatenated. Sorting
         # puts every ring back into the counter order its accumulator folds in.
         ordered = sorted(
             (event for event in events if _is_complete(event)),
-            key=lambda event: (event.iid, event.gen, event.ts_start),
+            key=lambda event: (event.iid, event.gen, event.collections),
         )
 
         fresh: list[TGCStatsInfo] = []
         windows: dict[int, list[LossWindow]] = {}
+        observed: dict[int, list[tuple[int, int]]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = cursors.setdefault((iid, gen), KeyAccumulator())
             seen = accumulator.last
@@ -123,15 +172,25 @@ class EventsMonitor:
             window = accumulator.observe_batch(run, confirmed.get(iid, 0))
             if window is not None:
                 windows.setdefault(iid, []).append(window)
+                self._stats.record_loss(pid, gen, window.lost_count, window.lost_pause_ns)
+            if run:
+                self._stats.record_lifetime(pid, iid, gen, accumulator.last, accumulator.last_duration)
+                observed.setdefault(iid, []).extend((event.ts_start, event.ts_stop) for event in run)
             fresh.extend(run)
 
-        # Every window that can overlap another opened in this same poll, so
-        # merging here is enough to keep the loss track laminar. These precede
-        # the records below in time: each ends where this poll's earliest fresh
-        # record begins.
+        # A window runs to the next record on its own key, which is the last
+        # thing the two polls prove about that key. Collections observed
+        # inside it are cut out rather than used as a bound: a lost record
+        # cannot have run during one that was seen, so what is left after the
+        # holes is where the missing records must be. One gen-0 window
+        # bracketing an observed gen-1 collection therefore draws as two
+        # pieces, one either side of it.
         for iid, opened in windows.items():
+            # Every window that can overlap another opened in this same poll,
+            # so merging here is enough to keep the loss track laminar.
             for merged in merge_windows(opened):
-                self._exporter.add_loss_event(pid, to_loss_msg(iid, merged))
+                for piece in split_around(merged, observed.get(iid, ())):
+                    self._exporter.add_loss_event(pid, to_loss_msg(iid, piece))
 
         # One interpreter's generations share a track, so they go out in time
         # order. Two interpreters share no track and collect concurrently, so

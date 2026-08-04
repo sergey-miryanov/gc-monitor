@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from gcmon.stats import HAS_DDSKETCH, Stats
+from gcmon.stats import HAS_DDSKETCH, Stats, StreamingStats
+from tests.helpers import create_mock_stats_item
 
 
 class TestStatsUpdate:
@@ -242,3 +243,128 @@ class TestStatsPercentileValidation:
     def test_negative_raises_on_empty_stats(self, stats: Stats) -> None:
         with pytest.raises(ValueError, match=r"percentile must be in \[0, 100\]"):
             stats.percentile(-1)
+
+
+class TestExactTotals:
+    """Loss arrives per poll, so the exact totals follow from §4's invariant:
+    what gcmon saw plus what the target's counters say it missed."""
+
+    def _stats(self, sampled: int = 3, lost: int = 7) -> StreamingStats:
+        stats = StreamingStats()
+        for _ in range(sampled):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(1, 0, lost, lost * 1_000)
+        return stats
+
+    def test_exact_is_sampled_plus_lost(self) -> None:
+        stats = self._stats()
+
+        assert stats.exact_count(1, 0) == 10
+        assert stats.exact_pause_ns(1, 0) == 10_000
+
+    def test_coverage_and_scale_agree_with_the_totals(self) -> None:
+        stats = self._stats()
+
+        assert stats.coverage(1, 0) == pytest.approx(0.3)
+        assert stats.scale_factor(1, 0) == pytest.approx(10 / 3)
+
+    def test_an_untouched_generation_is_neutral(self) -> None:
+        """1.0 rather than a division by zero, so no call site has to guard."""
+        stats = StreamingStats()
+
+        assert stats.coverage(1, 2) == 1.0
+        assert stats.scale_factor(1, 2) == 1.0
+        assert stats.exact_count(1, 2) == 0
+
+    def test_a_lossless_run_reports_full_coverage(self) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+
+        assert stats.coverage(1, 0) == 1.0
+        assert stats.exact_count(1, 0) == 1
+
+    def test_totals_span_every_pid(self) -> None:
+        stats = self._stats()
+        stats.update(2, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(2, 0, 1, 1_000)
+
+        assert stats.exact_count(None, 0) == 12
+        assert stats.exact_count(2, 0) == 2
+
+    def test_loss_survives_a_pid_the_monitor_forgets(self) -> None:
+        """Recorded per poll rather than flushed at the end, so a child that
+        exits mid-run still counts."""
+        stats = self._stats()
+        before = stats.exact_count(None, 0)
+
+        assert before == stats.exact_count(None, 0)
+        assert stats.lost_count(1, 0) == 7
+
+
+class TestLifetimeTotals:
+    def test_summed_across_interpreters(self) -> None:
+        stats = StreamingStats()
+        stats.record_lifetime(1, 0, 0, 500, 0.5)
+        stats.record_lifetime(1, 1, 0, 300, 0.3)
+
+        assert stats.lifetime_count(1, 0) == 800
+        assert stats.lifetime_pause_ns(1, 0) == 800_000_000
+
+    def test_the_newest_value_replaces_the_last(self) -> None:
+        """Cumulative in the target, so polls report a running total, not a
+        delta -- adding them would count every collection many times."""
+        stats = StreamingStats()
+        stats.record_lifetime(1, 0, 0, 500, 0.5)
+        stats.record_lifetime(1, 0, 0, 900, 0.9)
+
+        assert stats.lifetime_count(1, 0) == 900
+
+    def test_it_can_exceed_the_observed_span(self) -> None:
+        """The point of reporting it: what ran before gcmon attached is not
+        loss, and must not touch `Cov`."""
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_lifetime(1, 0, 0, 5_000, 5.0)
+
+        assert stats.lifetime_count(1, 0) == 5_000
+        assert stats.exact_count(1, 0) == 1
+        assert stats.coverage(1, 0) == 1.0
+
+
+class TestAggregateExactness:
+    def test_sums_and_counts_are_exact(self) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        stats.record_loss(1, 0, 9, 9_000_000)
+
+        result = stats.aggregate()
+
+        assert result["pause_gen_0_count"] == 10
+        assert result["pause_gen_0_sum"] == pytest.approx(10.0)
+        assert result["pause_count"] == 10
+
+    def test_coverage_is_reported(self) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(1, 0, 1, 1_000)
+
+        assert stats.aggregate()["pause_gen_0_coverage"] == pytest.approx(0.5)
+
+    def test_lifetime_metrics_appear_only_when_recorded(self) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+
+        assert "pause_gen_0_lifetime_count" not in stats.aggregate()
+
+        stats.record_lifetime(1, 0, 0, 5_000, 5.0)
+
+        assert stats.aggregate()["pause_gen_0_lifetime_count"] == 5_000
+
+    def test_p99_stays_sampled(self) -> None:
+        """No scale factor corrects a quantile; §5.5."""
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        without = stats.aggregate()["pause_gen_0_p99"]
+        stats.record_loss(1, 0, 99, 99_000_000)
+
+        assert stats.aggregate()["pause_gen_0_p99"] == without

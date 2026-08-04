@@ -135,51 +135,57 @@ class TestAddLossEvent:
     def _make_exporter(self, tmp_path: Path) -> BufferedTraceExporter:
         return BufferedTraceExporter(JsonEventEncoder(), tmp_path / "test.json", flush_threshold=1000)
 
-    def test_emits_a_begin_end_pair_on_the_loss_track(self, tmp_path: Path) -> None:
+    def test_the_bar_is_the_window(self, tmp_path: Path) -> None:
+        """The whole interval gcmon could not observe, not the 200 ns of GC
+        known to be somewhere inside it."""
         exporter = self._make_exporter(tmp_path)
 
-        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76))
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=1, lost_pause_gen_0=200))
 
-        begins = [e for e in exporter._buffer if isinstance(e, BeginEvent)]
-        ends = [e for e in exporter._buffer if isinstance(e, EndEvent)]
-        assert [(b.name, b.tid, b.ts) for b in begins] == [("GC Loss", loss_tid(0), 1_000)]
-        assert [(e.name, e.tid, e.ts) for e in ends] == [("GC Loss", loss_tid(0), 2_000)]
+        begin = next(e for e in exporter._buffer if isinstance(e, BeginEvent))
+        end = next(e for e in exporter._buffer if isinstance(e, EndEvent))
+        assert (begin.name, begin.ts) == ("GC Loss", 1_000)
+        assert end.ts == 2_000
 
-    def test_the_loss_track_is_not_the_interpreter_thread(self, tmp_path: Path) -> None:
-        """Sharing `tid = iid` would put loss spans back on the track whose
-        slices they cross. See ADR-0015."""
+    def test_it_lands_on_the_loss_track(self, tmp_path: Path) -> None:
+        exporter = self._make_exporter(tmp_path)
+
+        exporter.add_loss_event(100, LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=1, lost_pause_gen_0=200))
+
+        assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {loss_tid(1)}
+
+    def test_it_does_not_share_the_track_with_gc_slices(self, tmp_path: Path) -> None:
+        """One interpreter, two rows: a reconstructed span is easier to find
+        on a row that holds nothing else."""
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_event(100, create_mock_stats_item(iid=0))
-        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1, lost_pause_gen_0=1))
 
-        tids = {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)}
-        assert len(tids) == 2
+        assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {0, loss_tid(0)}
 
-    def test_each_interpreter_gets_its_own_track(self, tmp_path: Path) -> None:
+    def test_the_loss_track_is_not_declared_as_a_thread(self, tmp_path: Path) -> None:
+        """The same negative-tid guard RSS relies on. `perfetto_format`
+        describes this track off the slices instead."""
         exporter = self._make_exporter(tmp_path)
 
-        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
-        exporter.add_loss_event(100, LossMsg(iid=1, ts_start=1, ts_stop=2, lost_gen_0=1))
-
-        assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {loss_tid(0), loss_tid(1)}
-
-    def test_no_thread_meta_for_the_loss_track(self, tmp_path: Path) -> None:
-        """A negative tid skips it, which is what keeps the track from being
-        drawn and named as a thread."""
-        exporter = self._make_exporter(tmp_path)
-
-        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1, lost_pause_gen_0=1))
 
         assert any(isinstance(e, ProcessMeta) for e in exporter._buffer)
         assert not any(isinstance(e, ThreadMeta) for e in exporter._buffer)
 
+    def test_two_interpreters_get_two_loss_tracks(self, tmp_path: Path) -> None:
+        exporter = self._make_exporter(tmp_path)
+
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1, lost_pause_gen_0=1))
+        exporter.add_loss_event(100, LossMsg(iid=1, ts_start=1, ts_stop=2, lost_gen_0=1, lost_pause_gen_0=1))
+
+        assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {loss_tid(0), loss_tid(1)}
+
     def test_the_loss_and_rss_sentinels_do_not_collide(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
 
-        exporter.add_rss_sample(100, 4096, 1_000_000)
-        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
+        exporter.add_rss_sample(100, 4096, 1_000)
+        exporter.add_loss_event(100, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1, lost_pause_gen_0=1))
 
-        counter = next(e for e in exporter._buffer if isinstance(e, CounterEvent))
-        begin = next(e for e in exporter._buffer if isinstance(e, BeginEvent))
-        assert counter.tid != begin.tid
+        assert loss_tid(0) != RSS_TID

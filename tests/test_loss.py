@@ -11,6 +11,7 @@ no durations, so it checks gap counts against real slot data instead.
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from itertools import groupby, pairwise
 
+import msgspec.structs
 import pytest
 
 from gcmon.data import GCStatsInfo, secs_to_ns
@@ -20,6 +21,7 @@ from gcmon.loss import (
     MergedLoss,
     confirmed_by_interpreter,
     merge_windows,
+    split_around,
     to_loss_msg,
 )
 from tests.helpers import create_mock_stats_item
@@ -105,6 +107,8 @@ class Ingested:
     def __init__(self) -> None:
         self.cursors: dict[tuple[int, int], KeyAccumulator] = {}
         self.windows: dict[tuple[int, int], list[LossWindow]] = {}
+        self.observed: dict[int, list[tuple[int, int]]] = {}
+        self.in_flight: dict[int, int] = {}
 
     def poll(self, batch: Sequence[GCStatsInfo]) -> dict[int, list[LossWindow]]:
         """Fold one whole ring buffer; return the windows it opened, by iid.
@@ -115,9 +119,18 @@ class Ingested:
         already passed, and hand the rest over as one run.
         """
         confirmed = confirmed_by_interpreter(self.cursors)
+        for iid, since in self.in_flight.items():
+            confirmed[iid] = max(confirmed.get(iid, 0), since)
+            finished = [e.ts_stop for e in batch if e.iid == iid and e.ts_start < e.ts_stop and e.ts_start <= since]
+            if finished:
+                confirmed[iid] = max(confirmed[iid], max(finished))
+        self.in_flight = {
+            e.iid: max(self.in_flight.get(e.iid, 0), e.ts_start) for e in batch if e.ts_start >= e.ts_stop
+        }
+
         ordered = sorted(
             (event for event in batch if event.ts_start < event.ts_stop),
-            key=lambda e: (e.iid, e.gen, e.ts_start),
+            key=lambda e: (e.iid, e.gen, e.collections),
         )
 
         opened: dict[int, list[LossWindow]] = {}
@@ -130,8 +143,16 @@ class Ingested:
             if window is not None:
                 opened.setdefault(key[0], []).append(window)
                 self.windows.setdefault(key, []).append(window)
+            if run:
+                self.observed.setdefault(key[0], []).extend((e.ts_start, e.ts_stop) for e in run)
 
         return opened
+
+    def pieces(self, iid: int = 0) -> list[MergedLoss]:
+        """What `_ingest` would draw: the merged spans, cut around the
+        collections observed inside them."""
+        windows = [w for key, ws in self.windows.items() if key[0] == iid for w in ws]
+        return [p for merged in merge_windows(windows) for p in split_around(merged, self.observed.get(iid, ()))]
 
     def __getitem__(self, key: tuple[int, int]) -> KeyAccumulator:
         return self.cursors[key]
@@ -244,6 +265,25 @@ class TestGapDetection:
         assert gap is not None
         assert gap.ts_start == events[0].ts_stop
         assert gap.ts_stop == events[4].ts_start
+
+    def test_a_pause_shortfall_floors_at_zero(self, accumulator: KeyAccumulator) -> None:
+        """``duration`` is a cumulative float of seconds while the bounds are
+        ns timestamps, so a gap holding almost no pause can subtract to a hair
+        below zero. Negative pause has no meaning downstream: it would drag
+        the exact sum under the one gcmon measured, and make the scale factor
+        shrink what it exists to grow."""
+        first = create_mock_stats_item(gen=0, collections=1, ts_start=TS0, ts_stop=TS0 + 100_000, duration=100e-6)
+        # Record 2 is lost. Record 3's own pause is 200 us, but the target's
+        # accumulator has only moved 199 us since record 1.
+        third = create_mock_stats_item(
+            gen=0, collections=3, ts_start=TS0 + 10_000_000, ts_stop=TS0 + 10_200_000, duration=299e-6
+        )
+
+        accumulator.observe_batch([first])
+        gap = accumulator.observe_batch([third])
+
+        assert gap is not None
+        assert gap.lost_pause_ns == 0
 
     def test_the_window_carries_its_generation(self, accumulator: KeyAccumulator) -> None:
         events = build_run(3, gen=1)
@@ -372,6 +412,27 @@ class TestReconstructionAgainstGroundTruth:
         corrected = acc.sampled_pause_ns * acc.scale_factor
         assert corrected == pytest.approx(acc.exact_pause_ns, rel=1e-9)
 
+    @pytest.mark.parametrize(("capacity", "per_tick"), [(11, 87), (3, 8), (1, 5), (11, 11)])
+    def test_every_window_holds_the_pause_it_reports(self, capacity: int, per_tick: int) -> None:
+        """A window narrower than the collections it says ran inside it says
+        something that cannot be true. Bounding it by this key's own records
+        is what rules that out."""
+        ingested = observe_all(ring_polls(build_run(400), capacity, per_tick))
+
+        for w in ingested.windows_for((0, 0)):
+            assert w.lost_pause_ns <= w.ts_stop - w.ts_start
+
+    @pytest.mark.parametrize(("capacity", "per_tick"), [(11, 87), (3, 8), (1, 5), (11, 11)])
+    def test_the_pieces_carry_the_whole_loss(self, capacity: int, per_tick: int) -> None:
+        """Splitting is a drawing decision, so it must not change the totals."""
+        ingested = observe_all(ring_polls(build_run(400), capacity, per_tick))
+
+        pieces = ingested.pieces()
+        assert sum(p.lost_count.get(0, 0) for p in pieces) == ingested[(0, 0)].lost_count
+        assert sum(p.lost_pause_ns.get(0, 0) for p in pieces) == sum(
+            w.lost_pause_ns for w in ingested.windows_for((0, 0))
+        )
+
 
 class TestCaptureFixture:
     """Gap counts against the verbatim two-poll capture in test_monitor_cursor.
@@ -401,15 +462,36 @@ class TestCaptureFixture:
         assert captured.windows_for((0, 2)) == []
 
     def test_the_window_spans_the_unobserved_interval(self, captured: Ingested) -> None:
-        """From the newest gen-0 record in the first poll to the oldest in the
-        second, 90.0 ms of a 100 ms tick. Both bounds come from time order,
-        not slot order: 563 sits at the head of the second batch and 553 at
-        its tail."""
+        """From the newest record in the first poll to gen 0's own oldest in
+        the second: 90 ms of a 100 ms tick. Both bounds come from time order,
+        not slot order, and both are what the two polls prove about gen 0."""
         gap = captured.windows_for((0, 0))[0]
 
-        assert gap.ts_start == 294787154918900  # collections=476, newest in POLL_0
-        assert gap.ts_stop == 294787244879600  # collections=553, oldest in POLL_1
+        assert gap.ts_start == 294787154918900  # gen 0 collections=476, newest in POLL_0
+        assert gap.ts_stop == 294787244879600  # gen 0 collections=488, oldest in POLL_1
         assert gap.ts_stop - gap.ts_start == pytest.approx(90_000_000, rel=0.01)
+
+    def test_both_generations_start_where_the_poll_confirmed(self, captured: Ingested) -> None:
+        """One bulk read gives every key in an interpreter the same
+        confirmation point, so two keys losing records across one poll are
+        blind from the same instant."""
+        assert captured.windows_for((0, 0))[0].ts_start == captured.windows_for((0, 1))[0].ts_start
+
+    def test_the_span_is_cut_around_every_observed_collection(self, captured: Ingested) -> None:
+        """POLL_1 recovered two gen-1 records inside gen 0's window. No lost
+        record ran during either, so the span owes them holes."""
+        pieces = captured.pieces()
+        observed = [(e.ts_start, e.ts_stop) for e in build_batch(POLL_1) if e.ts_start < e.ts_stop]
+
+        assert len(pieces) == 3
+        assert all(not (p.ts_start < start < p.ts_stop) for p in pieces for start, _stop in observed)
+
+    def test_the_pieces_add_back_up(self, captured: Ingested) -> None:
+        """Splitting shares the loss out; it does not invent or drop any."""
+        pieces = captured.pieces()
+
+        assert sum(p.lost_count.get(0, 0) for p in pieces) == 76
+        assert sum(p.lost_count.get(1, 0) for p in pieces) == 5
 
     def test_the_two_generations_merge_into_one_span(self, captured: Ingested) -> None:
         """Real data producing the shape §5.1 of the spec is about: both
@@ -418,6 +500,99 @@ class TestCaptureFixture:
 
         assert len(merged) == 1
         assert merged[0].lost_count == {0: 76, 1: 5}
+
+
+class TestARecordReadIncompleteThenComplete:
+    """A slot caught mid-write is dropped, and arrives one poll late.
+
+    `_is_complete` filters it before the cursor ever sees it, so the next poll
+    returns it finished and *fresh* — emitted then, drawn where it ran, which
+    is before that poll's window would otherwise open.
+
+    Its `ts_stop` is a confirmation, not a hole. The GC was inside that
+    collection at the earlier read, and nothing newer had finished — a lost
+    record would have been the newest one that read saw. Collections in an
+    interpreter are serialized, so everything lost since ran after it ended.
+    The window opens there, and no loss is attributed to the stretch before
+    it.
+    """
+
+    def polls(self) -> tuple[Ingested, GCStatsInfo, list[GCStatsInfo]]:
+        gen0 = build_run(4, gen=0, spacing_ns=44_000_000)
+        done = build_run(1, gen=1, ts0=TS0 + 66_000_000)[0]
+        # The same slot as the poll caught it: `ts_start` published, `ts_stop`
+        # still carrying the value memcpy'd from the record before it.
+        mid_write = msgspec.structs.replace(done, ts_stop=done.ts_start - 1_000)
+
+        ingested = Ingested()
+        ingested.poll([gen0[0], mid_write])
+        ingested.poll([done, gen0[2], gen0[3]])
+        return ingested, done, gen0
+
+    def test_the_dropped_record_is_emitted_by_the_later_poll(self) -> None:
+        ingested, done, _gen0 = self.polls()
+
+        assert ingested[(0, 1)].last == done.collections
+        assert ingested[(0, 1)].sampled_count == 1
+
+    def test_it_opens_no_window_of_its_own(self) -> None:
+        """Dropping it left the cursor untouched, so nothing looks lost."""
+        ingested, _done, _gen0 = self.polls()
+
+        assert ingested.windows_for((0, 1)) == []
+
+    def test_the_window_opens_where_it_finished(self) -> None:
+        ingested, done, gen0 = self.polls()
+
+        gap = ingested.windows_for((0, 0))[0]
+
+        assert gap.ts_start == done.ts_stop
+        assert gap.ts_stop == gen0[2].ts_start
+
+    def test_it_draws_as_one_span_after_the_record(self) -> None:
+        """Not two around it. Nothing lost precedes it, so there is no
+        stretch on its left to draw and nothing to apportion there."""
+        ingested, done, gen0 = self.polls()
+
+        assert [(p.ts_start, p.ts_stop) for p in ingested.pieces()] == [(done.ts_stop, gen0[2].ts_start)]
+
+    def test_the_window_does_not_reach_back_before_it(self) -> None:
+        ingested, done, gen0 = self.polls()
+
+        gap = ingested.windows_for((0, 0))[0]
+
+        assert gap.ts_start > gen0[0].ts_stop
+        assert gap.ts_start > done.ts_start
+
+    def test_the_start_alone_confirms_even_if_the_record_never_returns(self) -> None:
+        """The slot can be overwritten before the next read, and often is —
+        that is the whole problem this spec is about. `ts_start` was published
+        and read, so the bound survives losing the record itself."""
+        gen0 = build_run(4, gen=0, spacing_ns=44_000_000)
+        gen1 = build_run(1, gen=1, ts0=TS0 + 66_000_000)[0]
+        mid_write = msgspec.structs.replace(gen1, ts_stop=gen1.ts_start - 1_000)
+
+        ingested = Ingested()
+        ingested.poll([gen0[0], mid_write])
+        ingested.poll([gen0[2], gen0[3]])  # the gen-1 slot is gone
+
+        gap = ingested.windows_for((0, 0))[0]
+        assert gap.ts_start == gen1.ts_start
+        assert ingested.windows_for((0, 1)) == []
+
+    def test_learning_where_it_ended_raises_the_bound_further(self) -> None:
+        ingested, done, _gen0 = self.polls()
+
+        gap = ingested.windows_for((0, 0))[0]
+
+        assert gap.ts_start == done.ts_stop
+        assert gap.ts_start > done.ts_start
+
+    def test_the_loss_is_still_counted_in_full(self) -> None:
+        """A narrower window changes where it is drawn, never how much."""
+        ingested, _done, _gen0 = self.polls()
+
+        assert sum(p.lost_count.get(0, 0) for p in ingested.pieces()) == 1
 
 
 class TestMergeWindows:
@@ -582,14 +757,13 @@ class TestQuietGeneration:
 
     def test_the_window_starts_where_the_last_poll_confirmed(self) -> None:
         gen0 = build_run(9, gen=0)
-        gen2 = build_run(7, gen=2, spacing_ns=3 * SPACING_NS)
         ingested = self.polls()
 
         gap = ingested.windows_for((0, 2))[0]
 
         assert gap.lost_count == 3
-        assert gap.ts_start == gen0[5].ts_stop
-        assert gap.ts_stop == gen2[4].ts_start
+        assert gap.ts_start == gen0[5].ts_stop  # newest record in the confirming poll
+        assert gap.ts_stop == build_run(7, gen=2, spacing_ns=3 * SPACING_NS)[4].ts_start
 
     def test_it_does_not_reach_back_to_the_generation_own_last_record(self) -> None:
         gen2 = build_run(7, gen=2, spacing_ns=3 * SPACING_NS)
@@ -599,17 +773,167 @@ class TestQuietGeneration:
 
         assert gap.ts_start > gen2[0].ts_stop
 
-    def test_the_window_stays_inside_one_tick(self) -> None:
-        """Which is what lets `_ingest` merge and emit per poll: a window that
-        could reach back would overlap spans already written."""
-        ingested = self.polls()
-
-        gen0_windows = ingested.windows_for((0, 0))
-        gap = ingested.windows_for((0, 2))[0]
-
-        assert all(w.ts_stop <= gap.ts_start for w in gen0_windows)
-
     def test_an_unchanged_counter_opens_nothing(self) -> None:
         ingested = self.polls()
 
         assert len(ingested.windows_for((0, 2))) == 1
+
+
+class TestSplittingAroundAnObservedCollection:
+    """A window bracketing a collection that *was* observed draws as two
+    pieces, not as one bar over the top of it and not as a bar stopping at it.
+
+    Traced from a real capture: gen 0 collected every ~45 ms, nine records
+    were lost, and an observed gen-1 collection sat 76 ms into the gap. Nine
+    collections at that rate cannot fit in 76 ms, so the loss reaches past it;
+    and none of them ran during it, since collections in an interpreter are
+    serialized. Both halves of the gap are blind, the middle is not.
+    """
+
+    GEN0 = 5
+    SPACING_NS = 44_000_000
+    GEN1_TS = TS0 + 66_000_000
+
+    def gen0(self) -> list[GCStatsInfo]:
+        return build_run(self.GEN0, gen=0, spacing_ns=self.SPACING_NS)
+
+    def gen1(self) -> GCStatsInfo:
+        return build_run(1, gen=1, ts0=self.GEN1_TS)[0]
+
+    def polls(self) -> Ingested:
+        """Two records lost, one either side of an observed gen-1 collection
+        once the split shares them out."""
+        gen0 = self.gen0()
+
+        ingested = Ingested()
+        ingested.poll([gen0[0]])
+        ingested.poll([self.gen1(), gen0[3], gen0[4]])
+        return ingested
+
+    def test_the_window_reaches_its_own_next_record(self) -> None:
+        gap = self.polls().windows_for((0, 0))[0]
+
+        assert gap.lost_count == 2
+        assert gap.ts_stop == self.gen0()[3].ts_start
+
+    def test_it_draws_as_two_pieces(self) -> None:
+        gen0, gen1 = self.gen0(), self.gen1()
+
+        pieces = self.polls().pieces()
+
+        assert [(p.ts_start, p.ts_stop) for p in pieces] == [
+            (gen0[0].ts_stop, gen1.ts_start),
+            (gen1.ts_stop, gen0[3].ts_start),
+        ]
+
+    def test_neither_piece_covers_the_observed_collection(self) -> None:
+        gen1 = self.gen1()
+
+        pieces = self.polls().pieces()
+
+        assert all(not (p.ts_start < gen1.ts_start < p.ts_stop) for p in pieces)
+
+    def test_the_pieces_are_disjoint_and_in_order(self) -> None:
+        """They share the loss track, so they have to stay a stack."""
+        pieces = self.polls().pieces()
+
+        assert all(a.ts_stop <= b.ts_start for a, b in pairwise(pieces))
+
+    def test_the_loss_is_shared_out_not_duplicated(self) -> None:
+        """Nothing says which side of the observed collection each lost record
+        fell, so the split follows width — the one apportionment that adds
+        back up."""
+        pieces = self.polls().pieces()
+
+        assert sum(p.lost_count.get(0, 0) for p in pieces) == 2
+
+    def test_a_piece_holding_no_record_is_not_drawn(self) -> None:
+        """One lost record cannot be in two places. The piece that does not
+        get it would otherwise draw a bar reporting no loss at all, with a
+        share of the pause attached to it."""
+        gen0 = self.gen0()
+
+        ingested = Ingested()
+        ingested.poll([gen0[0]])
+        ingested.poll([self.gen1(), gen0[2], gen0[3]])
+
+        pieces = ingested.pieces()
+        assert len(pieces) == 1
+        assert pieces[0].lost_count == {0: 1}
+        assert sum(pieces[0].lost_pause_ns.values()) > 0
+
+    def test_a_window_with_nothing_inside_it_stays_whole(self) -> None:
+        gen0 = build_run(4, gen=0, spacing_ns=44_000_000)
+
+        ingested = Ingested()
+        ingested.poll([gen0[0]])
+        ingested.poll([gen0[2], gen0[3]])
+
+        assert [(p.ts_start, p.ts_stop) for p in ingested.pieces()] == [(gen0[0].ts_stop, gen0[2].ts_start)]
+
+    def test_splitting_leaves_the_arithmetic_alone(self) -> None:
+        """The window still reports what the counters say, whatever the
+        pieces drawn from it look like."""
+        gap = self.polls().windows_for((0, 0))[0]
+
+        assert gap.lost_count == 2
+
+
+class TestASpanWithNoRoomLeft:
+    """An observation can cover a span end to end, leaving nowhere blind.
+
+    A key's own neighbours bound its windows, and collections are serialized,
+    so reaching this takes a hand-built span. It still has to drop rather than
+    fall back to the uncut bounds: a bar over a collection gcmon watched is
+    the one thing the split exists to prevent. The totals were recorded when
+    the window opened, so nothing is lost by not drawing it.
+    """
+
+    def span(self) -> MergedLoss:
+        return MergedLoss(ts_start=100, ts_stop=500, lost_count={0: 2}, lost_pause_ns={0: 70})
+
+    def test_a_covering_observation_drops_the_span(self) -> None:
+        assert split_around(self.span(), [(100, 500)]) == []
+
+    def test_an_observation_reaching_past_both_ends_drops_it_too(self) -> None:
+        assert split_around(self.span(), [(90, 600)]) == []
+
+    def test_a_sliver_left_over_is_still_drawn(self) -> None:
+        pieces = split_around(self.span(), [(100, 490)])
+
+        assert [(p.ts_start, p.ts_stop) for p in pieces] == [(490, 500)]
+        assert pieces[0].lost_count == {0: 2}
+
+
+class TestCounterOrderNotClockOrder:
+    """``observe_batch`` folds a run by counter: the run's first record is the
+    only one that can sit across a gap, and its last one settles the cursor.
+
+    ``_ingest`` sorts on ``collections`` to give it that. A healthy ring makes
+    the two orders agree, so this is the invariant holding rather than a bug
+    reproducing — but the cursor means a counter, and a batch where the clock
+    disagrees must not walk it backwards.
+    """
+
+    def skewed(self, events: Sequence[GCStatsInfo], nth: int) -> GCStatsInfo:
+        """*nth* with the earliest ``ts_start`` in the run, counter intact."""
+        return msgspec.structs.replace(events[nth], ts_start=events[0].ts_start - 1)
+
+    def test_the_cursor_lands_on_the_highest_counter(self) -> None:
+        events = build_run(3)
+
+        ingested = Ingested()
+        ingested.poll([events[0], events[1], self.skewed(events, 2)])
+
+        assert ingested[(0, 0)].last == 3
+
+    def test_the_next_poll_finds_no_phantom_gap(self) -> None:
+        """A cursor left short reports the records past it as lost, and
+        re-emits them once they are read again."""
+        events = build_run(5)
+
+        ingested = Ingested()
+        ingested.poll([events[0], events[1], self.skewed(events, 2)])
+        ingested.poll([events[3]])
+
+        assert ingested.windows_for((0, 0)) == []

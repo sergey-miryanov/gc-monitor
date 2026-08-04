@@ -567,23 +567,44 @@ class TestConvertLoss:
         assert isinstance(end, EndEvent)
         return begin, end
 
-    def test_one_pair_spanning_the_interval(self) -> None:
-        begin, end = self._pair(self._msg(lost_gen_0=76))
+    def test_the_bar_is_the_whole_window(self) -> None:
+        """What is known is the interval, not where inside it the records
+        ran. A bar sized to the pause would put all of the uncertainty at the
+        window's left edge."""
+        begin, end = self._pair(self._msg(lost_gen_0=1, lost_pause_gen_0=200))
 
-        assert (begin.name, begin.ts, begin.pid, begin.tid) == ("GC Loss", 1_000, 42, loss_tid(0))
-        assert (end.name, end.ts, end.pid, end.tid) == ("GC Loss", 2_000, 42, loss_tid(0))
+        assert (begin.name, begin.ts) == ("GC Loss", 1_000)
+        assert end.ts == 2_000
+
+    def test_the_pause_it_swallowed_rides_in_the_args(self) -> None:
+        begin, _ = self._pair(self._msg(lost_gen_0=2, lost_pause_gen_0=200, lost_gen_1=1, lost_pause_gen_1=300))
+
+        assert begin.args["lost_pause_total"] == 500
+
+    def test_it_lands_on_the_interpreters_loss_track(self) -> None:
+        begin, end = self._pair(self._msg(iid=2, lost_gen_0=1, lost_pause_gen_0=200))
+
+        assert begin.tid == loss_tid(2)
+        assert end.tid == loss_tid(2)
+
+    def test_the_track_is_the_interpreters_alone(self) -> None:
+        """A flat sentinel would collapse every interpreter's loss onto one
+        row, where windows from different interpreters can cross."""
+        first, _ = self._pair(self._msg(iid=0, lost_gen_0=1))
+        second, _ = self._pair(self._msg(iid=1, lost_gen_0=1))
+
+        assert first.tid != second.tid
 
     def test_silent_generations_are_left_out_of_the_args(self) -> None:
-        """Six rows to find the one that moved is worse than three."""
         begin, _ = self._pair(self._msg(lost_gen_0=76, lost_pause_gen_0=81))
 
-        assert begin.args == {"iid": 0, "lost_gen_0": 76, "lost_pause_gen_0": 81, "lost_total": 76}
-
-    def test_every_generation_that_lost_is_reported(self) -> None:
-        begin, _ = self._pair(self._msg(lost_gen_0=76, lost_gen_1=5, lost_gen_2=2))
-
-        assert begin.args["lost_gen_1"] == 5
-        assert begin.args["lost_total"] == 83
+        assert begin.args == {
+            "iid": 0,
+            "lost_gen_0": 76,
+            "lost_pause_gen_0": 81,
+            "lost_total": 76,
+            "lost_pause_total": 81,
+        }
 
     def test_a_batch_routes_loss_through_the_same_converter(self) -> None:
         """ADR-0007: Chrome, Perfetto and JSONL all read this one output, so
@@ -594,8 +615,11 @@ class TestConvertLoss:
 
         assert any(isinstance(e, BeginEvent) and e.name == "GC Loss" for e in events)
 
-    def test_loss_claims_no_thread_meta(self) -> None:
-        items: dict[int, list[TItem]] = {42: [self._msg(lost_gen_0=76)]}
+    def test_loss_declares_no_thread(self) -> None:
+        """A `ThreadMeta` at the loss tid would have Perfetto draw the track as
+        `Thread -5`, an OS thread that does not exist. Its descriptor comes
+        off the slices instead."""
+        items: dict[int, list[TItem]] = {42: [self._msg(iid=3, lost_gen_0=76)]}
 
         events = convert_to_trace_format(items)
 

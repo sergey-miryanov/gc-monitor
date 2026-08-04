@@ -301,12 +301,20 @@ _GENERATIONS = (0, 1, 2)
 
 
 def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
-    """One ``GC Loss`` slice for an interval whose records were overwritten.
+    """One ``GC Loss`` slice covering an interval gcmon could not observe.
 
-    Drawn on the interpreter's own loss track rather than beside its GC
-    slices, which a loss span would cross; see ADR-0015. Generations that
-    lost nothing are left out of the args so a reader is not made to scan
-    six rows to find the one that moved.
+    Drawn as the whole window, because that is what is known: the records are
+    gone and nothing says where inside it they ran. A bar sized to the lost
+    pause would be narrower than the uncertainty and would put all of it at
+    the window's left edge, which is a claim the ring cannot support. The
+    pause sum rides in the args instead, where it reads as a magnitude rather
+    than as a position.
+
+    On interpreter *iid*'s loss track, not among its collections. A window can
+    span an observed collection of another generation, so this would cross the
+    slices on a thread track; a row of its own also keeps what is
+    reconstructed apart from what was measured. Generations that lost nothing
+    are left out of the args.
     """
     tid = loss_tid(item.iid)
     counts = (item.lost_gen_0, item.lost_gen_1, item.lost_gen_2)
@@ -318,6 +326,7 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
             args[f"lost_gen_{gen}"] = counts[gen]
             args[f"lost_pause_gen_{gen}"] = pauses[gen]
     args["lost_total"] = sum(counts)
+    args["lost_pause_total"] = sum(pauses)
 
     return [
         begin_event(pid, tid, "GC Loss", "gc.loss", item.ts_start, args),
@@ -335,6 +344,8 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
             if is_instant(item):
                 pid_events.append(instant_event(pid, item.name, item.ts))
             elif is_loss(item):
+                # No `thread_meta`: the loss track is not a thread, and
+                # `perfetto_format` describes it off the slices themselves.
                 pid_events.extend(convert_loss_to_trace_format(pid, item))
             elif is_gc_stats(item):
                 threads.add(item.iid)

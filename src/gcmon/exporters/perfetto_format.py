@@ -103,6 +103,8 @@ _TOPLEVEL_COUNTER_METRICS: frozenset[str] = frozenset({"heap_size", "rss"})
 # on OS-scoped (process/thread) tracks, but honors them on plain custom
 # child tracks.
 _COUNTER_GROUP_NAME: str = "GC Metrics"
+
+# Name of the per-(pid, iid) track holding the reconstructed loss spans.
 _LOSS_TRACK_NAME: str = "GC Loss"
 # Below the interpreter's own thread track, which ranks 0.
 _LOSS_TRACK_RANK: int = 1

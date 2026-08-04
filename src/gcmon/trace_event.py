@@ -26,25 +26,27 @@ __all__ = [
 ]
 
 # A track is `(pid, tid)` and nothing else in the Chrome format, so anything
-# wanting a track of its own needs a tid no interpreter will claim. Negative
-# ones also skip `thread_meta`, which is what keeps them from being drawn and
-# named as threads.
-RSS_TID: int = -1  # one sample stream per process, no interpreter to attach to
-LOSS_TID_BASE: int = -2  # one track per interpreter, counting downwards
+# that is not an interpreter needs a tid no interpreter will claim. A negative
+# one also skips `thread_meta`, which keeps it from being drawn and named as a
+# thread.
+#
+# RSS is process-wide with no interpreter behind it at all.
+RSS_TID: int = -1
+
+# Loss is an interpreter's, but it gets a row of its own: a row that holds
+# nothing else is the one you can find, and a red bar among the GC slices is
+# the one you have to hunt for. One row per interpreter is enough — a poll
+# merges its windows before export, so they never overlap.
+LOSS_TID_BASE: int = -2
 
 
 def loss_tid(iid: int) -> int:
-    """The track interpreter *iid* draws its loss spans on.
-
-    Not `iid` itself: that is where its GC slices go, and a loss span crosses
-    them whenever the records bounding a gap span two generations. See
-    ADR-0015.
-    """
+    """The tid interpreter *iid*'s loss track is drawn on: -2, -3, ..."""
     return LOSS_TID_BASE - iid
 
 
 def loss_iid(tid: int) -> int:
-    """The interpreter behind a loss tid."""
+    """The interpreter behind a loss tid. A `TraceEvent` carries no `iid`."""
     return LOSS_TID_BASE - tid
 
 

@@ -7,6 +7,7 @@ import pytest
 from gcmon.data import GCStatsInfo
 from gcmon.stats import Stats, StreamingStats
 from gcmon.stats_output import TableFormat, _build_rows, _print_table, print_stats
+from tests.helpers import create_mock_stats_item
 
 
 class TestStatsOutput:
@@ -107,7 +108,7 @@ class TestPrintTable:
 
     def test_column_width_calculation(self, capsys: pytest.CaptureFixture[str]) -> None:
         rows = [
-            ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000"],
+            ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000", "1.00", "1.00"],
         ]
         _print_table(rows)
         captured = capsys.readouterr()
@@ -116,7 +117,7 @@ class TestPrintTable:
 
     def test_separator_full_format(self, capsys: pytest.CaptureFixture[str]) -> None:
         rows = [
-            ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000"],
+            ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000", "1.00", "1.00"],
         ]
         _print_table(rows, table_format=TableFormat.PLAIN)
         captured = capsys.readouterr()
@@ -126,9 +127,9 @@ class TestPrintTable:
         from gcmon.stats_output import _SEP_PHASE
 
         rows = [
-            ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000"],
+            ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000", "1.00", "1.00"],
             _SEP_PHASE,
-            ["12345", "1", "200", "2000.000", "20.000", "30.000", "40.000", "50.000", "60.000"],
+            ["12345", "1", "200", "2000.000", "20.000", "30.000", "40.000", "50.000", "60.000", "1.00", "1.00"],
         ]
         _print_table(rows, table_format=TableFormat.PLAIN)
         captured = capsys.readouterr()
@@ -139,9 +140,9 @@ class TestPrintTable:
         from gcmon.stats_output import _SEP_GROUP
 
         rows = [
-            ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000"],
+            ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000", "1.00", "1.00"],
             _SEP_GROUP,
-            ["22222", "0", "200", "2000.000", "20.000", "30.000", "40.000", "50.000", "60.000"],
+            ["22222", "0", "200", "2000.000", "20.000", "30.000", "40.000", "50.000", "60.000", "1.00", "1.00"],
         ]
         _print_table(rows, table_format=TableFormat.MARKDOWN)
         captured = capsys.readouterr()
@@ -155,7 +156,7 @@ class TestBuildRows:
 
     def test_skips_zero_count_stats(self) -> None:
         stats = {0: Stats()}
-        rows = _build_rows(stats, "Test")
+        rows = _build_rows(stats, "Test", StreamingStats(), None, False)
         assert len(rows) == 0
 
     def test_formats_values_correctly(self) -> None:
@@ -164,7 +165,7 @@ class TestBuildRows:
             s.update(v)
         s.materialize()
 
-        rows = _build_rows({0: s}, "Test")
+        rows = _build_rows({0: s}, "Test", StreamingStats(), None, False)
         assert len(rows) == 1
         row = rows[0]
         assert row[0] == "Test(0)"
@@ -179,7 +180,7 @@ class TestBuildRows:
             s.update(1000.0)
             stats_dict[gen] = s
 
-        rows = _build_rows(stats_dict, "Test")
+        rows = _build_rows(stats_dict, "Test", StreamingStats(), None, False)
         generations = [int(r[0].split("(")[1].rstrip(")")) for r in rows]
         assert generations == [0, 1, 2]
 
@@ -316,3 +317,113 @@ class TestPrintStatsEdgeCases:
         assert len(lines) >= 2
         assert lines[0].startswith("|")
         assert lines[1].startswith("|")
+
+
+class TestLossColumns:
+    def _lossy(self) -> StreamingStats:
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        stats.record_loss(1, 0, 7, 7_000_000)
+        return stats
+
+    def test_count_and_sum_carry_both_numbers(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._lossy())
+        out = capsys.readouterr().out
+
+        assert "3/10" in out
+        assert "3.000/10.000" in out
+
+    def test_cov_and_f_are_columns(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._lossy())
+        out = capsys.readouterr().out
+
+        assert "Cov" in out
+        assert "30.0%" in out
+        assert "3.333" in out
+
+    def test_a_lossless_run_shows_one_number_per_cell(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """`3/3` in every cell would say nothing was lost twice over."""
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+
+        print_stats(stats)
+        out = capsys.readouterr().out
+
+        assert "3/3" not in out
+        assert "100.0%" in out
+
+    def test_a_lossless_run_prints_no_footer(self, capsys: pytest.CaptureFixture[str]) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+
+        print_stats(stats)
+
+        assert "Coverage:" not in capsys.readouterr().out
+
+    def test_the_footer_names_the_coverage(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._lossy())
+        out = capsys.readouterr().out
+
+        assert "Coverage: gen 0 30.0%" in out
+        assert "percentiles are sampled and read high" in out
+
+    def test_the_footer_separates_lifetime_from_the_session(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """It is not loss and must not read as part of `Cov`."""
+        stats = self._lossy()
+        stats.record_lifetime(1, 0, 0, 5_000, 5.0)
+
+        print_stats(stats)
+        out = capsys.readouterr().out
+
+        assert "Since interpreter start" in out
+        assert "gen 0 5000" in out
+
+    def test_read_time_leaves_cov_and_f_blank(self, capsys: pytest.CaptureFixture[str]) -> None:
+        stats = self._lossy()
+        stats.record_read_time(500_000)
+
+        print_stats(stats)
+        lines = [ln for ln in capsys.readouterr().out.splitlines() if "Read Time" in ln]
+
+        assert lines[0].rstrip().endswith("|      |      |") or lines[0].count("|") == 12
+
+    def test_cov_never_rounds_up_past_a_visible_gap(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """1763 of 1771 is 99.5%, but a coarser format would print 100% beside
+        a `Count` cell plainly showing eight missing."""
+        stats = StreamingStats()
+        for _ in range(1763):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        stats.record_loss(1, 0, 8, 8_000_000)
+
+        print_stats(stats)
+        out = capsys.readouterr().out
+
+        assert "1763/1771" in out
+        assert "99.5%" in out
+        assert "100.0%" not in out
+
+    def test_a_gap_too_small_to_show_still_says_so(self, capsys: pytest.CaptureFixture[str]) -> None:
+        stats = StreamingStats()
+        for _ in range(1_000_000):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(1, 0, 1, 1_000)
+
+        print_stats(stats)
+        out = capsys.readouterr().out
+
+        assert "<100.0%" in out
+        assert ">1.000" in out
+
+    def test_the_footer_matches_the_column(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Two roundings of one number that disagree are worse than either."""
+        stats = StreamingStats()
+        for _ in range(1763):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        stats.record_loss(1, 0, 8, 8_000_000)
+
+        print_stats(stats)
+        out = capsys.readouterr().out
+
+        assert "Coverage: gen 0 99.5%" in out
