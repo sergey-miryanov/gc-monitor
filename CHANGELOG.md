@@ -9,11 +9,20 @@
 - `PerfettoTrackState.update_process_lifetime()` loses its `extends_end` keyword; it is now a plain min/max
 - Perfetto `Processes` slices now span observed liveness rather than observed GC activity
 - `EventsMonitor.get_child_pids()` returns `None` instead of `[]` when the process tree cannot be read
+- `Count` and `Sum` in the `--stats` table, and the pyperf `gc_pause_gen_N_sum` / `_count` / `gc_pause_count` metrics, now report every collection in the monitored window rather than the subset gcmon sampled; histories spanning this change are not comparable
 
 ### Features
 
 - Add `EventsExporter.add_process_liveness()`: `MonitorLoop` reports the PIDs that answered each poll (Perfetto only)
 - A process gcmon polled but that never collected now gets a `Processes` slice, and a run in which nothing collected now writes a trace instead of no file
+- Detect GC records lost to ring-buffer wrap and draw each unobserved interval as a `GC Loss` slice, on one track per `(pid, iid)`
+- Cut a loss span around the collections observed inside it, sharing its counts across the pieces
+- Add `Cov` and `F` columns to the `--stats` table and a `gc_pause_gen_N_coverage` pyperf metric
+- Show `Count` and `Sum` as `sampled/exact`, with a leading `~` where the second number is `F`-scaled
+- Warn once per run when coverage falls below 90%, naming the read-cost floor that bounds `--rate`
+- Report per-generation totals since the interpreter started, as `gc_pause_gen_N_lifetime_count` / `_lifetime_sum` and a `--stats` footer
+- Add `EventsExporter.add_loss_event()`, the `LossMsg` record type, and `loss_tid()` / `loss_iid()` for the `tid = -2 - iid` sentinel
+- Carry loss records through Chrome, Perfetto, JSONL and stdout; `gcmon combine` reproduces the spans from a JSONL capture
 
 ### Bugfixes
 
@@ -21,6 +30,14 @@
 - Drop poll state when the wait policy gives up on a PID or the PID leaves the process tree, so a reused PID does not inherit its predecessor's counter
 - Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting
 - Every `Processes` slice now records the span gcmon observed in `real_start_ts` / `real_end_ts` annotations
+
+### Documentation
+
+- Add [ADR-0015](docs/adr/0015-gc-loss-spans-on-their-own-track.md) on the `GC Loss` track, the per-poll merge, and what gcmon trusts the target for
+- Rewrite `docs/statistics.md` around the three intervals a cell can report, `Cov`, `F`, and why percentiles read high
+- Document the `GC Loss` track and the JSONL loss record in `docs/formats.md`; a slice's width is the interval the records were lost in, not the pause they took
+- Document the changed pyperf metrics, and that the lifetime metrics are not benchmark-scoped
+- Add a README limitation for the ring-buffer bound and the read-cost floor
 
 ## Version 0.4.0 (2026-07-31)
 
