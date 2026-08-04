@@ -246,8 +246,8 @@ class TestStatsPercentileValidation:
 
 
 class TestExactTotals:
-    """Loss arrives per poll, so the exact totals follow from §4's invariant:
-    what gcmon saw plus what the target's counters say it missed."""
+    """Loss arrives per poll, so the exact totals follow from ADR-0015's
+    invariant: what gcmon saw plus what the target's counters say it missed."""
 
     def _stats(self, sampled: int = 3, lost: int = 7) -> StreamingStats:
         stats = StreamingStats()
@@ -414,7 +414,7 @@ class TestAggregateExactness:
         assert stats.aggregate()["pause_gen_0_lifetime_count"] == 5_000
 
     def test_p99_stays_sampled(self) -> None:
-        """No scale factor corrects a quantile; §5.5."""
+        """No scale factor corrects a quantile; see ADR-0015."""
         stats = StreamingStats()
         stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
         without = stats.aggregate()["pause_gen_0_p99"]

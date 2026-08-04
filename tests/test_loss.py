@@ -349,7 +349,7 @@ class TestObserveBatch:
         to be contiguous because a ring holds consecutive records; only a read
         torn by two collections landing inside one ~1 KB copy could break that.
         The ends still give the right counts, but nothing carries the hole's
-        pause, so the §4 invariant does not hold. See ADR-0015."""
+        pause, so ADR-0015's invariant does not hold."""
         events = build_run(10)
         torn = events[:4] + events[6:]
         batched = KeyAccumulator()
@@ -494,8 +494,8 @@ class TestCaptureFixture:
         assert sum(p.lost_count.get(1, 0) for p in pieces) == 5
 
     def test_the_two_generations_merge_into_one_span(self, captured: Ingested) -> None:
-        """Real data producing the shape §5.1 of the spec is about: both
-        windows sit inside one tick and overlap."""
+        """Real data producing the shape ADR-0015 is about: both windows sit
+        inside one tick and overlap."""
         merged = merge_windows(captured.windows_for((0, 0)) + captured.windows_for((0, 1)))
 
         assert len(merged) == 1

@@ -21,6 +21,50 @@ Drawing that interval is where the decisions are. Nothing in the ring says where
 interval the missing collections ran, and two generations of one interpreter can lose records
 across stretches that overlap.
 
+## The arithmetic
+
+Per key, `KeyAccumulator` carries `first`, `first_pause_ns` and `first_duration` from the first
+record gcmon observed, `last`, `last_duration` and `last_ts_stop` from the most recent one, and
+the running `sampled_count` and `sampled_pause_ns`. On the first record `r` of a poll's run,
+with `r.collections = c`, the previous cursor at `p`, and `confirmed` the newest evidence from
+anywhere in the interpreter before this poll:
+
+```
+gap        = c - p - 1
+window     = (max(last_ts_stop, confirmed), r.ts_start)
+lost_pause = round((r.duration - last_duration) * 1e9) - (r.ts_stop - r.ts_start)
+```
+
+`Δduration` spans records `p+1 .. c` inclusive. gcmon read record `c`, so taking its own pause
+back out leaves the pause sum of the `gap` records nobody saw. `observe_batch` tests the run's
+first record alone, since a ring holds consecutive records and nothing inside a run can be
+missing.
+
+At close, per key:
+
+```
+exact_count    = last - first + 1
+exact_pause_ns = round((last_duration - first_duration) * 1e9) + first_pause_ns
+```
+
+`first_duration` is already cumulative through the first record, so the delta over the span
+misses that record's own pause. Adding `first_pause_ns` back is the fencepost rule, and it makes
+`exact_count` and `exact_pause_ns` describe the same set of collections. One invariant ties them
+together, and the suite asserts it:
+
+```
+exact_pause_ns == sampled_pause_ns + Σ lost_pause over all windows on the key
+```
+
+That one assertion catches a fencepost error, a wrong window, and a `duration` that does not
+share a clock with the timestamps.
+
+Lifetime totals need no arithmetic. `collections` and `duration` are cumulative from interpreter
+start, and the chain survives the ring wrapping, because `gc_get_prev_stats` reads the immediate
+predecessor rather than the slot about to be overwritten: the record being destroyed has already
+handed its totals forward. So `lifetime_count = last` and
+`lifetime_pause_ns = round(last_duration * 1e9)`, both exact.
+
 ## Decision
 
 **Loss spans go on a `GC Loss` track of their own, one per `(pid, iid)`, at
@@ -114,7 +158,7 @@ run handed to `observe_batch` has no hole inside it. A gap can only sit ahead of
 the seam between two polls. `observe_batch` folds the run's tail from its last record alone,
 without checking.
 
-Producing a hole requires the single ~1.1 KB read to be torn by **two or more** collections
+Producing such a hole requires the single ~1.1 KB read to be torn by **two or more** collections
 completing inside it, positioned so the target's write cursor crosses the reader's. One
 collection during the copy always yields a contiguous window whichever side of the cursor it
 lands on, and under `Py_GIL_DISABLED` both ring sizes are 1, so a run is a single record and a
@@ -123,6 +167,11 @@ the run's two ends, but no window would carry the hole's pause and the invariant
 pause equals sampled plus lost would break without a sound. Accepted without a guard: the
 property belongs to the ring, and a check that never fires costs more in code than the failure
 costs in practice.
+
+**3. `round(seconds * 1e9)` agrees with the nanosecond timestamps to within a nanosecond.**
+`duration` is a `double`, `ts_start` and `ts_stop` are `PyTime_t`, and the arithmetic above
+subtracts one from the other. The invariant tests it. A failure there means the two fields do
+not share a clock, which would leave the whole reconstruction unsound.
 
 ## Consequences
 
@@ -151,6 +200,24 @@ costs in practice.
   cannot share the interpreter's thread track. There they would cross real `GC Pause` slices.
 - **`combine` reproduces loss spans from JSONL but not from Chrome.** A Chrome trace carries
   them as slices, so re-converting preserves the drawing and loses the record type.
+- **The intervals either side of the observed span draw nothing.** No poll measured a
+  `Δcollections` across them, so no evidence of loss exists, and gcmon cannot tell "ran before
+  we attached" from "lost". Both fall outside the span rather than counting against coverage.
+- **`Δduration` inherits CPython's float accumulator.** `duration` is a `double` taking one
+  addition per collection. Over 10^5 collections the relative error runs around 10^-11, below
+  the nanosecond resolution of the fields it is compared against, so the reconstruction is exact
+  to that accumulator's precision.
+- **A pid reused inside one tick is measured against its predecessor's counter.** If a child
+  dies and the OS hands its pid to a new CPython process between two polls, the pid never leaves
+  `children` and `retain` never fires, so the successor stays invisible until its own counter
+  passes the dead one's. gcmon then reports a gap and an `exact_count` belonging to neither
+  process. Accepted without code: reuse that fast needs the pid allocator to wrap, and a
+  successor gcmon cannot read returns `INVALID_PROCESS`, which clears the cursor through
+  `forget`.
+- **A duplicated export can push `Cov` above 1.0.** When a wait policy gives up on a pid that
+  later answers again, `forget` has dropped its cursors and the next poll re-exports the whole
+  ring. Those duplicates inflate `sampled_count`, which now divides into an exact count.
+  Clamping the ratio would hide the duplication, so this decision leaves it alone.
 
 ## Alternatives considered
 

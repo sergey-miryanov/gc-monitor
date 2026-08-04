@@ -250,9 +250,10 @@ class StreamingStats:
         self._materialized_metrics: dict[int, TStatsData] = {}
         self._heap_size: dict[int, int] = {}
         self._read_time: Stats = Stats()
-        # Loss arrives as a per-poll increment, so exact totals follow from the
-        # §4 invariant without holding the monitor's cursors: what gcmon saw
-        # plus what it missed. A pid dropped by `forget` keeps what it recorded.
+        # Loss arrives as a per-poll increment, so exact totals follow from
+        # ADR-0015's invariant without holding the monitor's cursors: what
+        # gcmon saw plus what it missed. A pid dropped by `forget` keeps what
+        # it recorded.
         self._lost_count: dict[tuple[int, int], int] = {}
         self._lost_pause_ns: dict[tuple[int, int], int] = {}
         # Lifetime is a running total, not an increment, so it is stored per
@@ -339,7 +340,7 @@ class StreamingStats:
         return self._sampled(pid, gen).count() + self.lost_count(pid, gen)
 
     def exact_pause_ns(self, pid: int | None, gen: int) -> float:
-        """Pause time over the same span. See §4's invariant."""
+        """Pause time over the same span: sampled plus lost, per ADR-0015."""
         return self._sampled(pid, gen).sum() + self.lost_pause_ns(pid, gen)
 
     def coverage(self, pid: int | None, gen: int) -> float:
@@ -401,9 +402,9 @@ class StreamingStats:
         """Summarize pause metrics, with durations converted to milliseconds.
 
         Sums and counts are exact: what gcmon saw plus what the target's own
-        counters say it missed. ``p99`` stays sampled, and reads high — a long
-        collection delays its successors, so it survives in the ring more often
-        than a short one, and no scale factor corrects a quantile.
+        counters say it missed. ``p99`` stays sampled and reads high, since a
+        long collection delays its successors and so survives in the ring more
+        often than a short one. No scale factor corrects a quantile.
         """
         result: dict[str, int | float] = {}
         for gen in self.GENS:
