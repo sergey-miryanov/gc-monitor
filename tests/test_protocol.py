@@ -480,3 +480,21 @@ class TestIsLoss:
         assert is_gc_stats(loss_item) is False
         assert is_instant(loss_item) is False
         assert has_gen(loss_item) is False
+
+
+class TestGuardsAreMutuallyExclusive:
+    def test_exactly_one_guard_claims_each_record_type(
+        self,
+        simple_item: GCStatsInfo,
+        incremental_item: GCStatsInfo,
+        instant_item: InstantMsg,
+        loss_item: LossMsg,
+    ) -> None:
+        """No two call sites dispatch in the same order — ``_replay`` asks
+        ``is_gc_stats`` first, the converters ask ``is_loss`` first — so a
+        record that two guards claim would take a different branch depending
+        on who asked, silently. Exactly one may hold, for every record type,
+        whatever fields those types grow later."""
+        for item in (simple_item, incremental_item, instant_item, loss_item):
+            claims = [is_gc_stats(item), is_instant(item), is_loss(item)]
+            assert claims.count(True) == 1, f"{type(item).__name__} matched {claims}"

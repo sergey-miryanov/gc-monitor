@@ -45,8 +45,8 @@ class LossMsg(msgspec.Struct):
 
     Per-generation totals are flat rather than nested because a JSONL value
     has to be a scalar, and all six are always written so ``from_mapping``
-    can tell the record apart. Carries neither ``gen`` nor ``type``, so
-    ``is_gc_stats`` and ``is_instant`` both reject it.
+    can tell the record apart. Carries neither ``collections`` nor ``type``,
+    so ``is_gc_stats`` and ``is_instant`` both reject it.
     """
 
     iid: int

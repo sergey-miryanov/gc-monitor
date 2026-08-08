@@ -155,8 +155,8 @@ can span several generations at once, and no `collections`:
 | `lost_gen_N` | Collections of generation *N* that ran unobserved in the interval |
 | `lost_pause_gen_N` | Pause time those collections took, in nanoseconds |
 
-Tell the record types apart by field presence: a GC event has `gen`, a loss record
-has `lost_gen_0`, an instant event has `type`. `gcmon combine` reads loss records
+Tell the record types apart by field presence: a GC event has `collections`, a loss
+record has `lost_gen_0`, an instant event has `type`. `gcmon combine` reads loss records
 back and reproduces the spans in Chrome or Perfetto output. `--normalize` shifts
 them with everything else, and a loss record can be the earliest thing in a
 capture, since a window opens before the record that closes it.

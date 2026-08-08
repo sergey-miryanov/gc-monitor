@@ -152,11 +152,24 @@ def has_delete_garbage(item: object) -> TypeGuard[TDeleteGarbageInfo]:
 
 
 def has_gen(item: object) -> TypeGuard[TGCStatsInfo]:
+    """Literally: does this object carry a ``gen``? Not a record-type test —
+    ask ``is_gc_stats`` for that, and see why it no longer asks this."""
     return hasattr(item, "gen")
 
 
 def is_gc_stats(item: object) -> TypeGuard[TGCStatsInfo]:
-    return hasattr(item, "gen")
+    """A GC record is the one record type built around ``collections``.
+
+    Not around ``gen``: a loss window can be attributed to a generation, so
+    the loss record is free to grow a ``gen`` of its own, and on that day
+    every loss record would answer to a ``gen``-based guard. Call sites do
+    not agree on an order — ``_replay`` asks this before ``is_loss``, the
+    converters ask ``is_loss`` first — so the same record would take a
+    different branch depending on who asked. ``collections`` cannot collide:
+    a loss window counts records that were never read, and names that
+    counter ``lost_from``.
+    """
+    return hasattr(item, "collections")
 
 
 def is_instant(item: object) -> TypeGuard[TInstantMsg]:
@@ -188,7 +201,7 @@ def to_mapping(item: TItem) -> TMapping:
             "lost_pause_gen_2": item.lost_pause_gen_2,
         }
 
-    if has_gen(item):
+    if is_gc_stats(item):
         m: dict[str, str | int | float] = {
             "gen": item.gen,
             "iid": item.iid,
