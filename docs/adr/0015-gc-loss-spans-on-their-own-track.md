@@ -26,8 +26,8 @@ across stretches that overlap.
 Per key, `KeyAccumulator` carries `first`, `first_pause_ns` and `first_duration` from the first
 record gcmon observed, `last`, `last_duration` and `last_ts_stop` from the most recent one, and
 the running `sampled_count` and `sampled_pause_ns`. On the first record `r` of a poll's run,
-with `r.collections = c`, the previous cursor at `p`, and `confirmed` the newest evidence from
-anywhere in the interpreter before this poll:
+with `r.collections = c`, the previous cursor at `p`, and `confirmed` the newest record the
+previous poll saw finish anywhere in the interpreter:
 
 ```
 gap        = c - p - 1
@@ -274,9 +274,11 @@ not share a clock, which would leave the whole reconstruction unsound.
   `confirmed_by_interpreter`, `merge_windows` and `to_loss_msg`. Pure functions and structs,
   no I/O.
 - `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
-  key, folds them, then merges that poll's windows and emits them. `_in_flight`
-  keeps one `ts_start` per interpreter across polls, since a collection a read caught mid-write
-  confirms the whole interpreter; `forget` and `retain` drop it alongside the cursors.
+  key, folds them, then merges that poll's windows and emits them. The confirmation point comes
+  from `confirmed_by_interpreter` alone, so it is one bound per interpreter rather than one per
+  ring, and every window a poll opens for an interpreter shares a left edge. A record a read
+  catches part-written is dropped by `_is_complete` and returns complete a poll later; it
+  neither opens a window nor bounds one, which costs width rather than accuracy.
 - `src/gcmon/trace_event.py`, `LOSS_TID_BASE = -2` with `loss_tid` and `loss_iid`.
 - `src/gcmon/exporters/trace_converter.py`, `convert_loss_to_trace_format`, the third record
   type through the shared pipeline. `src/gcmon/exporters/perfetto_format.py`,

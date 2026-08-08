@@ -168,7 +168,6 @@ class Ingested:
     def __init__(self) -> None:
         self.cursors: dict[tuple[int, int], KeyAccumulator] = {}
         self.windows: dict[tuple[int, int], list[LossWindow]] = {}
-        self.in_flight: dict[int, int] = {}
 
     def poll(self, batch: Sequence[GCStatsInfo]) -> dict[int, list[LossWindow]]:
         """Fold one whole ring buffer; return the windows it opened, by iid.
@@ -179,14 +178,6 @@ class Ingested:
         already passed, and hand the rest over as one run.
         """
         confirmed = confirmed_by_interpreter(self.cursors)
-        for iid, since in self.in_flight.items():
-            confirmed[iid] = max(confirmed.get(iid, 0), since)
-            finished = [e.ts_stop for e in batch if e.iid == iid and e.ts_start < e.ts_stop and e.ts_start <= since]
-            if finished:
-                confirmed[iid] = max(confirmed[iid], max(finished))
-        self.in_flight = {
-            e.iid: max(self.in_flight.get(e.iid, 0), e.ts_start) for e in batch if e.ts_start >= e.ts_stop
-        }
 
         ordered = sorted(
             (event for event in batch if event.ts_start < event.ts_stop),
@@ -636,98 +627,56 @@ class TestCaptureFixture:
         assert merged[0].lost_count == {0: 76, 1: 5}
 
 
-class TestARecordReadIncompleteThenComplete:
-    """A slot caught mid-write is dropped, and arrives one poll late.
+class TestOneLeftEdgePerPoll:
+    """Every window a poll opens for one interpreter starts at the same
+    instant.
 
-    `_is_complete` filters it before the cursor ever sees it, so the next poll
-    returns it finished and fresh: emitted then, drawn where it ran, which is
-    before that poll's window would otherwise open.
-
-    Its `ts_stop` confirms rather than holes. The GC was inside that collection
-    at the earlier read and nothing newer had finished, so a lost record would
-    have been the newest one that read saw. Collections in an interpreter are
-    serialized, so everything lost since ran after it ended.
-    The window opens there, and no loss is attributed to the stretch before
-    it.
+    A bulk read covers all of an interpreter's generations, so they share one
+    confirmation point and a window can only open at it. Nothing else may
+    raise the bound for one ring alone: two windows opening at different
+    instants would cross rather than nest, and the loss track is a stack.
     """
 
-    def polls(self) -> tuple[Ingested, GCStatsInfo, list[GCStatsInfo]]:
+    def test_two_generations_losing_across_one_poll_share_the_edge(self) -> None:
+        gen0 = build_run(9, gen=0)
+        gen1 = build_run(9, gen=1, spacing_ns=SPACING_NS // 2, ts0=TS0 + 300_000)
+
+        ingested = Ingested()
+        ingested.poll([gen0[0], gen1[0]])
+        opened = ingested.poll([gen0[5], gen1[6]])
+
+        assert len(opened[0]) == 2
+        assert len({w.ts_start for w in opened[0]}) == 1
+
+    @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
+    def test_it_holds_over_a_whole_interpreter(self, gap_ns: int, per_tick: int) -> None:
+        run = build_interleaved_run(2_000, gap_ns=gap_ns)
+
+        ingested = Ingested()
+        polls = [ingested.poll(batch) for batch in interpreter_polls(run, per_tick)]
+
+        assert any(len(opened.get(0, [])) > 1 for opened in polls)
+        for opened in polls:
+            for windows in opened.values():
+                assert len({w.ts_start for w in windows}) <= 1
+
+    def test_a_mid_write_slot_does_not_move_one_ring_edge(self) -> None:
+        """A record caught part-written is dropped and comes back a poll
+        later; the cursor never sees it, so it neither opens a window nor
+        bounds one. Its generation's window opens where every other one does.
+        """
         gen0 = build_run(4, gen=0, spacing_ns=44_000_000)
-        done = build_run(1, gen=1, ts0=TS0 + 66_000_000)[0]
-        # The same slot as the poll caught it: `ts_start` published, `ts_stop`
-        # still carrying the value memcpy'd from the record before it.
-        mid_write = msgspec.structs.replace(done, ts_stop=done.ts_start - 1_000)
+        gen1 = build_run(3, gen=1, spacing_ns=44_000_000, ts0=TS0 + 10_000_000)
+        # The slot as the poll caught it: `ts_start` published, `ts_stop` still
+        # carrying the value memcpy'd from the record before it.
+        mid_write = msgspec.structs.replace(gen1[0], ts_stop=gen1[0].ts_start - 1_000)
 
         ingested = Ingested()
         ingested.poll([gen0[0], mid_write])
-        ingested.poll([done, gen0[2], gen0[3]])
-        return ingested, done, gen0
-
-    def test_the_dropped_record_is_emitted_by_the_later_poll(self) -> None:
-        ingested, done, _gen0 = self.polls()
-
-        assert ingested[(0, 1)].last == done.collections
-        assert ingested[(0, 1)].sampled_count == 1
-
-    def test_it_opens_no_window_of_its_own(self) -> None:
-        """Dropping it left the cursor untouched, so nothing looks lost."""
-        ingested, _done, _gen0 = self.polls()
+        opened = ingested.poll([gen1[0], gen0[2], gen0[3]])
 
         assert ingested.windows_for((0, 1)) == []
-
-    def test_the_window_opens_where_it_finished(self) -> None:
-        ingested, done, gen0 = self.polls()
-
-        gap = ingested.windows_for((0, 0))[0]
-
-        assert gap.ts_start == done.ts_stop
-        assert gap.ts_stop == gen0[2].ts_start
-
-    def test_it_draws_as_one_span_starting_after_the_record(self) -> None:
-        """The bound is what keeps the span off the stretch on its left, and
-        it is evidence rather than geometry: the record proves nothing was
-        lost before it ended."""
-        ingested, done, gen0 = self.polls()
-
-        assert [(s.ts_start, s.ts_stop) for s in ingested.spans()] == [(done.ts_stop, gen0[2].ts_start)]
-
-    def test_the_window_does_not_reach_back_before_it(self) -> None:
-        ingested, done, gen0 = self.polls()
-
-        gap = ingested.windows_for((0, 0))[0]
-
-        assert gap.ts_start > gen0[0].ts_stop
-        assert gap.ts_start > done.ts_start
-
-    def test_the_start_alone_confirms_even_if_the_record_never_returns(self) -> None:
-        """The slot can be overwritten before the next read, and often is,
-        which is the whole problem here. gcmon published and read `ts_start`,
-        so the bound survives losing the record itself."""
-        gen0 = build_run(4, gen=0, spacing_ns=44_000_000)
-        gen1 = build_run(1, gen=1, ts0=TS0 + 66_000_000)[0]
-        mid_write = msgspec.structs.replace(gen1, ts_stop=gen1.ts_start - 1_000)
-
-        ingested = Ingested()
-        ingested.poll([gen0[0], mid_write])
-        ingested.poll([gen0[2], gen0[3]])  # the gen-1 slot is gone
-
-        gap = ingested.windows_for((0, 0))[0]
-        assert gap.ts_start == gen1.ts_start
-        assert ingested.windows_for((0, 1)) == []
-
-    def test_learning_where_it_ended_raises_the_bound_further(self) -> None:
-        ingested, done, _gen0 = self.polls()
-
-        gap = ingested.windows_for((0, 0))[0]
-
-        assert gap.ts_start == done.ts_stop
-        assert gap.ts_start > done.ts_start
-
-    def test_the_loss_is_still_counted_in_full(self) -> None:
-        """A narrower window changes where it is drawn, never how much."""
-        ingested, _done, _gen0 = self.polls()
-
-        assert sum(s.lost_count.get(0, 0) for s in ingested.spans()) == 1
+        assert [w.ts_start for w in opened[0]] == [gen0[0].ts_stop]
 
 
 class TestMergeWindows:

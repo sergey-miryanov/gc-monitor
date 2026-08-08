@@ -32,22 +32,6 @@ def _is_complete(event: TGCStatsInfo) -> bool:
     return event.ts_start < event.ts_stop
 
 
-def _in_flight(events: Sequence[TGCStatsInfo]) -> dict[int, int]:
-    """Per interpreter, the ``ts_start`` of the collection running at the read.
-
-    A slot with ``ts_start`` published and no ``ts_stop`` yet is one the GC is
-    inside. Collections in an interpreter are serialized, so there is at most
-    one, and taking the newest ``ts_start`` picks it out from slots that were
-    never written at all.
-    """
-    started: dict[int, int] = {}
-    for event in events:
-        if not _is_complete(event):
-            started[event.iid] = max(started.get(event.iid, 0), event.ts_start)
-
-    return {iid: ts for iid, ts in started.items() if ts > 0}
-
-
 class EventsMonitor:
     def __init__(
         self,
@@ -60,7 +44,6 @@ class EventsMonitor:
         self._exporter = exporter
         self._enabled = True
         self._cursors: dict[int, dict[CursorKey, KeyAccumulator]] = {}
-        self._in_flight_starts: dict[int, dict[int, int]] = {}
         self._stats = stats
 
     def get_child_pids(self) -> list[int] | None:
@@ -107,7 +90,6 @@ class EventsMonitor:
         """Drop every cursor held for *pid*, so a reused pid inherits no
         counter."""
         self._cursors.pop(pid, None)
-        self._in_flight_starts.pop(pid, None)
 
     def retain(self, pids: Set[int]) -> None:
         """Drop the cursors of every pid outside *pids*.
@@ -117,8 +99,6 @@ class EventsMonitor:
         """
         for pid in self._cursors.keys() - pids:
             del self._cursors[pid]
-        for pid in self._in_flight_starts.keys() - pids:
-            del self._in_flight_starts[pid]
 
     def _ingest(self, pid: int, events: Sequence[TGCStatsInfo]) -> None:
         """Emit the records in *events* not seen yet.
@@ -127,27 +107,12 @@ class EventsMonitor:
         identifies a record.
         """
         cursors = self._cursors.setdefault(pid, {})
+        # One bound per interpreter, not one per ring: a bulk read covers every
+        # generation at once, so each of them is confirmed up to the newest
+        # record any of them returned. Every window this poll opens for an
+        # interpreter therefore shares that left edge, which is what keeps the
+        # merged spans nesting rather than crossing.
         confirmed = confirmed_by_interpreter(cursors)
-
-        # A collection the previous read caught mid-flight confirms that
-        # interpreter, whatever generation it belongs to. The GC was inside it
-        # then and nothing newer had finished: a record lost since carries a
-        # higher counter than anything the read saw, and had it completed
-        # before the read it would have been what the read saw. Collections
-        # are serialized, so everything lost since ran after it.
-        #
-        # Its `ts_start` is the bound, and the strongest one available, since a
-        # collection that had started is later evidence than the newest one
-        # that had finished. It also survives the record never coming back: the
-        # slot can be overwritten before the next read and the interval stays
-        # bounded. Learning where it ended raises the bound further, so both
-        # apply.
-        for iid, since in self._in_flight_starts.get(pid, {}).items():
-            confirmed[iid] = max(confirmed.get(iid, 0), since)
-            finished = [e.ts_stop for e in events if e.iid == iid and _is_complete(e) and e.ts_start <= since]
-            if finished:
-                confirmed[iid] = max(confirmed[iid], max(finished))
-        self._in_flight_starts[pid] = _in_flight(events)
 
         # Slot order is not time order: the batch arrives rotated around the
         # ring's write position, with the generations concatenated. Sorting
