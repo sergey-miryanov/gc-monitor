@@ -64,15 +64,15 @@ Each slice carries:
 Only generations that lost something get a `lost_gen_N` / `lost_pause_gen_N` pair;
 `lost_total` and `lost_pause_total` are always present.
 
-Where a window brackets a collection gcmon did observe, it draws as several slices
-with a hole around that collection instead of one bar over the top of it, since no
-lost record can have run during an observed one. gcmon then shares the counts
-across the pieces in proportion to width, so **a piece's `lost_gen_N` is a share
-rather than a measurement**. A piece reading "1 lost, 8.75 ms" means that of the
-records this window lost, this stretch covers 15% of the blind time. Add up the
-pieces of one window and the totals are exact; only their distribution is
-estimated. How a span draws leaves the `--stats` table's `Cov` and `F` columns
-untouched.
+Where a window brackets a collection gcmon did observe, the slice is drawn straight
+over it. No lost record can have run during that collection, since an interpreter
+serializes them, but cutting the bar around it meant dividing the window's counts and
+pause between the stretches left over, with nothing in the ring to say how — and a
+stretch could end up carrying more pause than it was wide. The bar spans the whole
+interval instead, so **every `lost_gen_N` and `lost_pause_gen_N` on it is a
+measurement**, taken from the target's own counters. The observed collection is drawn
+on the interpreter's row directly above, which is where you narrow the interval down
+from. How a span draws leaves the `--stats` table's `Cov` and `F` columns untouched.
 
 At default settings the track reads as a near-solid bar, because gcmon is blind for
 most of every tick. Lower `--rate` or a calmer workload thins it out. See

@@ -16,7 +16,6 @@
 - Add `EventsExporter.add_process_liveness()`: `MonitorLoop` reports the PIDs that answered each poll (Perfetto only)
 - A process gcmon polled but that never collected now gets a `Processes` slice, and a run in which nothing collected now writes a trace instead of no file
 - Detect GC records lost to ring-buffer wrap and draw each unobserved interval as a `GC Loss` slice, on one track per `(pid, iid)`
-- Cut a loss span around the collections observed inside it, sharing its counts across the pieces
 - Add `Cov` and `F` columns to the `--stats` table and a `gc_pause_gen_N_coverage` pyperf metric
 - Show `Count` and `Sum` as `sampled/exact`, with a leading `~` where the second number is `F`-scaled
 - Warn once per run when coverage falls below 90%, naming the read-cost floor that bounds `--rate`

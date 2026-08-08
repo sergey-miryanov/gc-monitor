@@ -22,7 +22,6 @@ __all__ = [
     "MergedLoss",
     "confirmed_by_interpreter",
     "merge_windows",
-    "split_around",
     "to_loss_msg",
 ]
 
@@ -47,7 +46,12 @@ class LossWindow(msgspec.Struct):
 class MergedLoss(msgspec.Struct):
     """Overlapping windows of one interpreter collapsed into one span.
 
-    ``lost_count`` and ``lost_pause_ns`` are keyed by generation.
+    ``lost_count`` and ``lost_pause_ns`` are keyed by generation, and both
+    come from the target's own counters: the span is drawn as the whole
+    interval its bounding records describe, so no number on it is a share of
+    anything. It can therefore cover a collection of another generation that
+    gcmon did observe. That collection is drawn on the interpreter's own row
+    directly above, which is where a reader narrows the span from.
     """
 
     ts_start: int
@@ -216,86 +220,6 @@ def merge_windows(windows: Iterable[LossWindow]) -> list[MergedLoss]:
         current.lost_pause_ns[gen] = current.lost_pause_ns.get(gen, 0) + window.lost_pause_ns
 
     return merged
-
-
-def _apportion(total: int, weights: Sequence[int]) -> list[int]:
-    """Share *total* out in proportion to *weights*, largest remainder first.
-
-    The parts add back up to *total*, so a split neither invents a collection
-    nor loses one.
-    """
-    span = sum(weights)
-    if total <= 0 or span <= 0:
-        return [0] * len(weights)
-
-    parts = [total * weight // span for weight in weights]
-    order = sorted(range(len(weights)), key=lambda i: (total * weights[i]) % span, reverse=True)
-    for i in order[: total - sum(parts)]:
-        parts[i] += 1
-
-    return parts
-
-
-def _cut(ts_start: int, ts_stop: int, observed: Iterable[tuple[int, int]]) -> list[tuple[int, int]]:
-    """``[ts_start, ts_stop]`` with each observed interval removed from it."""
-    pieces: list[tuple[int, int]] = []
-    cursor = ts_start
-
-    for obs_start, obs_stop in sorted(observed):
-        if obs_stop <= cursor or obs_start >= ts_stop:
-            continue
-        if obs_start > cursor:
-            pieces.append((cursor, obs_start))
-        cursor = obs_stop
-        if cursor >= ts_stop:
-            return pieces
-
-    pieces.append((cursor, ts_stop))
-    return pieces
-
-
-def split_around(span: MergedLoss, observed: Iterable[tuple[int, int]]) -> list[MergedLoss]:
-    """Cut *span* into the stretches where gcmon was blind.
-
-    Collections in an interpreter are serialized, so no lost record ran
-    during one the poll observed, and a span holding such a collection owes
-    it a hole. What is left is where the missing records must be: a gen-0
-    window bracketing an observed gen-1 collection becomes two pieces, one
-    either side of it, instead of one bar over the top of it.
-
-    Counts and pause split across the pieces in proportion to width. Nothing
-    in the ring says where inside the span the records ran, so no split is
-    truer than another; proportional is the one that adds back up and keeps a
-    piece from claiming more pause than it has room for. A piece left holding
-    nothing is dropped rather than drawn as a bar reporting no loss.
-    """
-    pieces = _cut(span.ts_start, span.ts_stop, observed)
-    if not pieces:
-        # An observation covers the span end to end, leaving nowhere it could
-        # have been blind. Drawing the bar anyway would put it on top of a
-        # collection gcmon watched; the totals are recorded either way.
-        return []
-    if len(pieces) == 1:
-        span.ts_start, span.ts_stop = pieces[0]
-        return [span]
-
-    widths = [stop - start for start, stop in pieces]
-    out = [MergedLoss(ts_start=start, ts_stop=stop) for start, stop in pieces]
-    kept: set[int] = set()
-
-    for gen, count in span.lost_count.items():
-        # Pause follows the records, not the clock: a piece holding none of
-        # the collections holds none of their pause either, and is dropped
-        # rather than drawn as a bar reporting no loss.
-        shares = _apportion(count, widths)
-        pauses = _apportion(span.lost_pause_ns.get(gen, 0), shares)
-        for i, (share, pause) in enumerate(zip(shares, pauses, strict=True)):
-            if share or pause:
-                out[i].lost_count[gen] = share
-                out[i].lost_pause_ns[gen] = pause
-                kept.add(i)
-
-    return [piece for i, piece in enumerate(out) if i in kept]
 
 
 def to_loss_msg(iid: int, merged: MergedLoss) -> LossMsg:

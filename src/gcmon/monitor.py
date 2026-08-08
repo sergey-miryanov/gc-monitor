@@ -14,7 +14,6 @@ from .loss import (
     LossWindow,
     confirmed_by_interpreter,
     merge_windows,
-    split_around,
     to_loss_msg,
 )
 from .poll_status import PollStatus
@@ -160,7 +159,6 @@ class EventsMonitor:
 
         fresh: list[TGCStatsInfo] = []
         windows: dict[int, list[LossWindow]] = {}
-        observed: dict[int, list[tuple[int, int]]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = cursors.setdefault((iid, gen), KeyAccumulator())
             seen = accumulator.last
@@ -175,21 +173,20 @@ class EventsMonitor:
                 self._stats.record_loss(pid, gen, window.lost_count, window.lost_pause_ns)
             if run:
                 self._stats.record_lifetime(pid, iid, gen, accumulator.last, accumulator.last_duration)
-                observed.setdefault(iid, []).extend((event.ts_start, event.ts_stop) for event in run)
             fresh.extend(run)
 
         # A window runs to the next record on its own key, the last thing the
-        # two polls prove about that key. Collections observed inside it earn
-        # a hole rather than a bound: no lost record ran during one that was
-        # seen, so what is left after the holes is where the missing records
-        # must be. One gen-0 window bracketing an observed gen-1 collection
-        # therefore draws as two pieces, one either side of it.
+        # two polls prove about that key, and it draws at that full width. The
+        # span is a bound on where the missing records are, not a claim about
+        # each one, so every number on it stays the counters' own. It can cover
+        # a collection of another generation that gcmon did observe; that one
+        # is drawn on the interpreter's row above, and a reader narrows the
+        # span from it.
         for iid, opened in windows.items():
             # Every window that can overlap another opened in this same poll,
             # so merging here is enough to keep the loss track laminar.
             for merged in merge_windows(opened):
-                for piece in split_around(merged, observed.get(iid, ())):
-                    self._exporter.add_loss_event(pid, to_loss_msg(iid, piece))
+                self._exporter.add_loss_event(pid, to_loss_msg(iid, merged))
 
         # One interpreter's generations share a track, so they go out in time
         # order. Two interpreters share no track and collect concurrently, so

@@ -116,18 +116,28 @@ through the shared converter, so Chrome, Perfetto and JSONL get them from one pl
 [ADR-0007](0007-shared-trace-converter-pipeline.md) holds. `combine` can then reproduce loss
 spans from a JSONL capture, which a Perfetto-only finalize path could not.
 
-**A merged span is cut around the collections observed inside it.** The span claims the
-missing records are somewhere in it. Where the poll recovered a collection inside that
-stretch, the claim is too strong, because collections in an interpreter are serialized and no
-lost record ran during one that was seen. `split_around` removes those intervals and draws
-what is left. Counts and pause are shared across the pieces in proportion to width,
-largest-remainder first, so the pieces sum to the window's totals exactly. **That share is a
-guess**, and it is the only estimated quantity in the drawing. A piece left holding nothing is
-dropped rather than drawn as a bar reporting no loss.
+**A merged span is drawn whole, over the collections observed inside it.** The span claims
+the missing records are somewhere in it, and where the poll recovered a collection inside
+that stretch the claim is too strong: collections in an interpreter are serialized, so no
+lost record ran during one that was seen.
 
-Splitting touches nothing but the picture. `StreamingStats` records each window before any of
-it, so coverage, the scale factor and every aggregate come out the same whether a span draws
-as one piece or four.
+This was originally answered by cutting the span around those intervals and sharing the
+counts and pause across the pieces in proportion to width. That is reversed. Neither pass
+asked whether a piece had room for what it was handed, and a piece taking a zero share by
+width was dropped, which put its neighbour's whole pause on a bar too narrow to hold it. On a
+GC-bound target the split drew bars reporting more lost pause than they were wide, which is
+not uncertainty but arithmetic that cannot be true. Nothing in the ring says how the records
+divide across the pieces, so every division was a guess, and the guess was the only estimated
+quantity in the drawing.
+
+Drawn whole, **every number on a span is the target's own counter over the span's own
+bounds**, and the invariant that no bar reports more pause than it covers holds by
+construction. The narrowing the split performed is still available to a reader: the observed
+collection is drawn on the interpreter's thread row directly above, from evidence already on
+screen, and it costs nothing to see.
+
+Drawing touches nothing but the picture. `StreamingStats` records each window as it opens,
+before anything is drawn, so coverage, the scale factor and every aggregate are unaffected.
 
 ## What gcmon trusts the target for
 
@@ -180,10 +190,10 @@ not share a clock, which would leave the whole reconstruction unsound.
   args either way.
 - **One extra row per `(pid, iid)`**, on top of the process track, thread track and
   `GC Metrics` group each process already has.
-- **A piece's `lost_gen_N` is a share, not a measurement.** A bar reading "1 lost, 8.75 ms"
-  means that of the 9 records and 57.45 ms this window lost, this stretch covers 15% of the
-  blind time. No collection took 8.75 ms. The unsplit window's totals are exact; only their
-  distribution across pieces is estimated.
+- **Every `lost_gen_N` and `lost_pause_gen_N` on a bar is a measurement.** Nothing in the
+  drawing is estimated, and no bar reports more lost pause than its own duration. The cost is
+  paid in width: a span reaches over collections gcmon did observe, and is wider than the
+  stretch the missing records can actually be in.
 - **Sums and counts become exact; percentiles do not.** `Count` and `Sum` are recoverable from
   the target's own counters. Quantiles are not: gcmon holds only the durations it sampled, and
   that sample is biased in a knowable direction, since a long collection delays its successors,
@@ -246,9 +256,10 @@ not share a clock, which would leave the whole reconstruction unsound.
   collection can have run after an observed gen-2 one. On a real capture, clipping produced 5
   windows of 98 narrower than the pause they reported. One was 37 ms carrying 53 ms of lost
   collections, while the key's own next record sat 537 ms out.
-- **Bounding a split piece by how many collections it could hold**, taking the shortest
-  interval ever measured between two consecutive records of that key as a floor on the period.
-  On the trace it removed the pieces that look wrong. Rejected: the floor is a lifetime
+- **Bounding a split piece by how many collections it could hold**, while the split still
+  existed, taking the shortest interval ever measured between two consecutive records of that
+  key as a floor on the period. On the trace it removed the pieces that look wrong. It is what
+  a narrowing rule would have to be built on if one is ever wanted again. Rejected: the floor is a lifetime
   minimum, so one fast burst weakens it for the whole run, and a target whose pace shifts
   between phases inherits the fastest phase's floor. It also errs in the dangerous direction,
   since a piece narrower than the floor that did hold a record loses it to a neighbour, and
@@ -260,10 +271,10 @@ not share a clock, which would leave the whole reconstruction unsound.
 
 - `src/gcmon/loss.py` holds the arithmetic and the geometry: `KeyAccumulator` (one per
   `(pid, iid, gen)`, carrying the fencepost fields), `LossWindow`, `MergedLoss`,
-  `confirmed_by_interpreter`, `merge_windows`, `_apportion` / `_cut` / `split_around`, and
-  `to_loss_msg`. Pure functions and structs, no I/O.
+  `confirmed_by_interpreter`, `merge_windows` and `to_loss_msg`. Pure functions and structs,
+  no I/O.
 - `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
-  key, folds them, then merges and splits that poll's windows and emits them. `_in_flight`
+  key, folds them, then merges that poll's windows and emits them. `_in_flight`
   keeps one `ts_start` per interpreter across polls, since a collection a read caught mid-write
   confirms the whole interpreter; `forget` and `retain` drop it alongside the cursors.
 - `src/gcmon/trace_event.py`, `LOSS_TID_BASE = -2` with `loss_tid` and `loss_iid`.
