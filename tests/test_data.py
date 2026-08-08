@@ -94,38 +94,40 @@ class TestFromMapping:
 
 
 class TestLossMsg:
-    def test_absent_generations_default_to_zero(self) -> None:
-        msg = LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_0=76)
+    def test_it_carries_the_one_generation_it_lost(self) -> None:
+        msg = LossMsg(iid=0, gen=1, ts_start=1_000, ts_stop=2_000, lost_count=76)
 
-        assert msg.lost_gen_1 == 0
-        assert msg.lost_pause_gen_2 == 0
+        assert msg.gen == 1
+        assert msg.lost_pause_ns == 0
 
     def test_neither_a_gc_record_nor_an_instant(self) -> None:
         """What keeps the existing branches in ``to_mapping``,
-        ``convert_to_trace_format`` and the normalizers from claiming it."""
-        msg = LossMsg(iid=0, ts_start=1_000, ts_stop=2_000)
+        ``convert_to_trace_format`` and the normalizers from claiming it. It
+        carries a ``gen`` like a GC record does, so ``collections`` is what
+        tells the two apart."""
+        msg = LossMsg(iid=0, gen=0, ts_start=1_000, ts_stop=2_000)
 
-        assert not hasattr(msg, "gen")
+        assert not hasattr(msg, "collections")
         assert not hasattr(msg, "type")
 
     def test_from_mapping_returns_loss_msg(self) -> None:
         result = from_mapping(
-            {"pid": 42, "tid": -2, "iid": 1, "ts_start": 1_000, "ts_stop": 2_000, "lost_gen_0": 76, "lost_gen_1": 5}
+            {"pid": 42, "tid": -2, "iid": 1, "gen": 2, "ts_start": 1_000, "ts_stop": 2_000, "lost_count": 76}
         )
 
         assert isinstance(result, LossMsg)
-        assert result.iid == 1
-        assert result.lost_gen_0 == 76
-        assert result.lost_gen_1 == 5
+        assert (result.iid, result.gen) == (1, 2)
+        assert result.lost_count == 76
 
     def test_round_trips_through_a_mapping(self) -> None:
-        msg = LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=76, lost_gen_1=5, lost_pause_gen_0=8_100_000)
+        msg = LossMsg(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=76, lost_pause_ns=8_100_000)
 
         assert from_mapping(to_mapping(msg)) == msg
 
     def test_a_zeroed_record_still_decodes_as_loss(self) -> None:
-        """``from_mapping`` discriminates on ``lost_gen_0`` being present, not
-        truthy, so a span where gen 0 lost nothing must still round-trip."""
-        msg = LossMsg(iid=0, ts_start=1_000, ts_stop=2_000, lost_gen_1=5)
+        """``from_mapping`` discriminates on ``lost_count`` being present, not
+        truthy, so a record reporting nothing must still round-trip rather
+        than come back as a GC record missing every field."""
+        msg = LossMsg(iid=0, gen=1, ts_start=1_000, ts_stop=2_000)
 
         assert from_mapping(to_mapping(msg)) == msg

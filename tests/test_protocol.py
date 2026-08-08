@@ -9,7 +9,6 @@ from gcmon.protocol import (
     has_deduce_unreachable,
     has_delete_garbage,
     has_finalize_garbage,
-    has_gen,
     has_handle_resurrected,
     has_handle_weakrefs,
     has_incremental,
@@ -25,7 +24,7 @@ from tests.helpers import create_mock_stats_item
 
 @pytest.fixture
 def loss_item() -> LossMsg:
-    return LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=76, lost_gen_1=5, lost_pause_gen_0=8_100_000)
+    return LossMsg(iid=1, gen=1, ts_start=1_000, ts_stop=2_000, lost_count=5, lost_pause_ns=8_100_000)
 
 
 class TestIsGC:
@@ -216,12 +215,6 @@ class TestHasGuards:
 
     def test_has_delete_garbage_false(self) -> None:
         assert not has_delete_garbage(create_mock_stats_item())
-
-    def test_has_gen_true(self) -> None:
-        assert has_gen(create_mock_stats_item())
-
-    def test_has_gen_false(self) -> None:
-        assert not has_gen(SimpleNamespace(other=42))
 
 
 class TestToMappingPartial:
@@ -452,15 +445,18 @@ class TestToMapping:
         assert result["iid"] == 1
         assert result["ts_start"] == 1_000
         assert result["ts_stop"] == 2_000
-        assert result["lost_gen_0"] == 76
-        assert result["lost_gen_1"] == 5
-        assert result["lost_gen_2"] == 0
-        assert result["lost_pause_gen_0"] == 8_100_000
+        assert result["lost_count"] == 5
+        assert result["lost_pause_ns"] == 8_100_000
 
-    def test_loss_item_carries_no_generation(self, loss_item: LossMsg) -> None:
-        """A merged span covers every generation at once, so a single ``gen``
-        would have to lie about which."""
-        assert "gen" not in to_mapping(loss_item)
+    def test_loss_item_names_the_generation_it_lost(self, loss_item: LossMsg) -> None:
+        """One span per generation, so the record says which one rather than
+        carrying three sets of counts and naming none of them."""
+        assert to_mapping(loss_item)["gen"] == 1
+
+    def test_a_loss_item_carries_no_collections(self, loss_item: LossMsg) -> None:
+        """What keeps ``is_gc_stats`` off it now that both types carry a
+        ``gen``."""
+        assert "collections" not in to_mapping(loss_item)
 
 
 class TestIsLoss:
@@ -479,7 +475,6 @@ class TestIsLoss:
         first."""
         assert is_gc_stats(loss_item) is False
         assert is_instant(loss_item) is False
-        assert has_gen(loss_item) is False
 
 
 class TestGuardsAreMutuallyExclusive:

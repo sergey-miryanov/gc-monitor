@@ -1,4 +1,4 @@
-# ADR-0015: Draw reconstructed GC loss on a per-interpreter track, merged per poll
+# ADR-0015: Draw reconstructed GC loss on a per-interpreter track, one span per generation
 
 - **Status:** Accepted
 - **Date:** 2026-08-05
@@ -79,8 +79,15 @@ track as an OS thread that does not exist.
 **The slice spans the whole unobserved interval**, abutting the observed collection before it
 and the one after. That interval is what gcmon knows. A bar sized to the reconstructed pause
 would be narrower than the uncertainty, and would put all of it at the window's left edge
-where the data does not support it. The pause sum rides in the args as `lost_pause_gen_N` and
-`lost_pause_total`, reading as a magnitude rather than as a placement.
+where the data does not support it. The pause sum rides in the args as `lost_pause_ns`,
+reading as a magnitude rather than as a placement.
+
+**One span per generation, named `GC Loss (gen={gen})`.** Each ring wraps on its own
+schedule, so a poll blind in all three draws three bars and each says how long *that*
+generation went unobserved. One bar carrying three generations' counts said gcmon was blind
+here without saying which generation went blind or for how long. The naming mirrors
+`GC Pause (gen={gen})`, which is also what gives each generation a stable colour: Perfetto
+derives a slice's colour from a hash of its name.
 
 The width is therefore not GC time. One lost 5 ms collection can draw a 130 ms bar, which is
 the main reason these spans are not inline. Beside 5 ms `GC Pause` slices a window-width bar
@@ -88,26 +95,28 @@ reads as a very long pause, and what is drawn here is reconstructed rather than 
 A row holding nothing but loss is also a row you can find; inline, a loss span is one more bar
 among thousands with only its name to distinguish it.
 
-**The track has to stay laminar, and merging is what keeps it there.** Slices on one Perfetto
-track are a stack, so an END force-closes everything above the slice it closes and two spans
-that merely cross cannot be expressed. ADR-0011 hit this with process lifetimes and answered
-it with a clipping sweep. Observed GC slices never need one, since CPython serializes
-collections within an interpreter, but loss spans inherit none of that. They are synthetic
-intervals, and a poll that loses gen-0 and gen-1 records over overlapping stretches produces
-two windows that cross.
+**The track has to stay laminar, and the windows already are.** Slices on one Perfetto track
+are a stack, so an END force-closes everything above the slice it closes and two spans that
+merely cross cannot be expressed. ADR-0011 hit this with process lifetimes and answered it
+with a clipping sweep. Loss spans need neither that nor a merge, because of where their
+bounds come from.
 
-So `merge_windows` collapses one poll's windows, per `(pid, iid)`, into a disjoint set of
-maximal spans before export. The union of overlapping intervals is disjoint by construction,
-so the track is laminar with **no sweep and nothing shortened**. Each merged span carries the
-per-generation counts and pause sums of every window inside it, and attribution stays
-unambiguous: a merged span is a union of input windows, so each window lies inside exactly one.
+**One poll is one left edge.** A single bulk `_Py_RemoteDebug_ReadRemoteMemory` returns every
+generation of an interpreter at once, so all its keys share one confirmation point, and a key
+whose counter came back unchanged proves it lost nothing up to that read.
+`confirmed_by_interpreter` takes the maximum `last_ts_stop` across the interpreter's rings, so
+it dominates any single ring's own value and every window a poll opens for that interpreter
+starts at the same instant. They differ only in where each generation's next observed record
+sits. A shared left edge with differing right edges is **nesting, never crossing**. Across
+polls they are disjoint: poll N+1 opens at or after the newest record poll N saw, which is at
+or after every window poll N closed. Per-poll nested plus cross-poll disjoint is laminar with
+**no sweep, no merge and nothing shortened**.
 
-**One poll is the whole scope of the merge.** A single bulk
-`_Py_RemoteDebug_ReadRemoteMemory` returns every generation of an interpreter at once, so all
-its keys share one confirmation point, and a key whose counter came back unchanged proves it
-lost nothing up to that read. Every window opened at poll N therefore starts at or after poll
-N-1's confirmation and ends at one of poll N's own fresh records. Windows from different polls
-cannot overlap, and nothing later exists to merge with.
+**What is left is the order, and it is load-bearing.** An END closes the most recently opened
+slice, so spans sharing a left edge have to open widest first. `stack_order` sorts a poll's
+windows by `ts_start` ascending, then `ts_stop` descending, and `_ingest` emits them in that
+order; `groupby` hands it the keys in generation order, which is unrelated to width and
+happens to be exactly wrong when the older generations reach further out.
 
 That buys a short list of absences: no window is retained, there is no flush at `stop()`,
 `forget()` or `retain()`, no unbounded buffer on a long run, and loss spans reach the exporter
@@ -116,7 +125,7 @@ through the shared converter, so Chrome, Perfetto and JSONL get them from one pl
 [ADR-0007](0007-shared-trace-converter-pipeline.md) holds. `combine` can then reproduce loss
 spans from a JSONL capture, which a Perfetto-only finalize path could not.
 
-**A merged span is drawn whole, over the collections observed inside it.** The span claims
+**A span is drawn whole, over the collections observed inside it.** The span claims
 the missing records are somewhere in it, and where the poll recovered a collection inside
 that stretch the claim is too strong: collections in an interpreter are serialized, so no
 lost record ran during one that was seen.
@@ -190,7 +199,7 @@ not share a clock, which would leave the whole reconstruction unsound.
   args either way.
 - **One extra row per `(pid, iid)`**, on top of the process track, thread track and
   `GC Metrics` group each process already has.
-- **Every `lost_gen_N` and `lost_pause_gen_N` on a bar is a measurement.** Nothing in the
+- **Every `lost_count` and `lost_pause_ns` on a bar is a measurement.** Nothing in the
   drawing is estimated, and no bar reports more lost pause than its own duration. The cost is
   paid in width: a span reaches over collections gcmon did observe, and is wider than the
   stretch the missing records can actually be in.
@@ -202,10 +211,17 @@ not share a clock, which would leave the whole reconstruction unsound.
   two totals: applying it to a quantile assumes the sampled and unsampled distributions have
   the same shape, which is the assumption the bias violates. Documented rather than corrected,
   in [`docs/statistics.md`](../statistics.md).
-- **Crossing loss spans corrupt silently if the merge is ever skipped.** The trace processor
-  reports `misplaced_end_event = 0` and reads the crossing span as nested, so nothing in the
-  output flags it. The fuzz suite asserts that corruption directly, so the positive test cannot
-  pass in a world where merging did nothing.
+- **A loss row emitted in the wrong order corrupts silently.** Open a poll's spans narrowest
+  first and the first END closes the widest, handing every generation another's width. The
+  trace processor reports `misplaced_end_event = 0` and reads the crossing as nesting, so
+  nothing in the output flags it. `tests/exporters/test_loss_track_stack.py` walks the
+  converter's output as a stack in the default suite, since the `fuzz` job that runs the same
+  claim against the real trace processor is gated off `main`; the fuzz suite's negative control
+  asserts the corruption directly, so its positive test cannot pass in a world where the
+  ordering did nothing.
+- **One extra row is still enough for three generations.** A poll's three spans nest, so they
+  read as one blind stretch with the shorter generations' bars inside it. A reader who wants
+  gen 2 alone reads the outermost bar; the depth is not a sub-interval of anything.
 - **A window can span an observed collection of another generation**, which is why the spans
   cannot share the interpreter's thread track. There they would cross real `GC Pause` slices.
 - **`combine` reproduces loss spans from JSONL but not from Chrome.** A Chrome trace carries
@@ -234,17 +250,23 @@ not share a clock, which would leave the whole reconstruction unsound.
 - **Inline on the interpreter's thread track (`tid = iid`), with an ADR-0011-style clipping
   sweep.** One row cheaper. Rejected twice over: a window-width bar beside 5 ms pauses invites
   the misreading the separate track exists to prevent, and clipping would shorten spans whose
-  width is the claim being made. Merging reaches laminarity with no clipping at all, because
-  loss windows may be unioned where process lifetimes may not.
+  width is the claim being made. The windows are laminar on their own, so a dedicated row needs
+  no clipping at all — only the emission order.
 - **Inline, snapped to the adjacent observed records.** Rejected: it draws the loss as a pause
   of known extent, which is the one thing the data does not support.
-- **One track per `(pid, iid, gen)`.** Rejected: a poll's windows for two generations start at
-  the same confirmation point and overlap, so three rows would draw the same stretch three
-  times where one merged span says it once.
+- **One track per `(pid, iid, gen)`.** Three rows say the same thing the nesting says, at three
+  times the vertical cost, and a process with several interpreters would carry nine. Rejected:
+  the spans share a left edge, so stacking them on one row already reads as one blind stretch
+  with each generation's own reach inside it.
 - **A flat `-2` for every interpreter.** Rejected: interpreters collect concurrently and
   nothing serializes their windows, so two interpreters' spans can cross for real. One row
   would need a clipping sweep to hold them.
-- **Retaining windows and merging at `stop()`.** Correct, and rejected: it buffers without
+- **Merging one poll's windows into a single maximal span per `(pid, iid)`.** What this
+  decision originally did, on the grounds that two generations losing records over overlapping
+  stretches produce windows that cross. They do not, once the confirmation bound gives every
+  window of a poll the same left edge. Rejected: the merged bar named no generation and gave
+  no generation its own width, and merging cannot be undone by a reader.
+- **Retaining windows and emitting at `stop()`.** Correct, and rejected: it buffers without
   bound on a long run and emits every loss span in a lump after every GC event. The per-poll
   confirmation point makes it unnecessary.
 - **Emitting the track from a `finalize_perfetto_packets`-style hook**, as ADR-0011 does for
@@ -270,11 +292,10 @@ not share a clock, which would leave the whole reconstruction unsound.
 ## Implementation
 
 - `src/gcmon/loss.py` holds the arithmetic and the geometry: `KeyAccumulator` (one per
-  `(pid, iid, gen)`, carrying the fencepost fields), `LossWindow`, `MergedLoss`,
-  `confirmed_by_interpreter`, `merge_windows` and `to_loss_msg`. Pure functions and structs,
-  no I/O.
+  `(pid, iid, gen)`, carrying the fencepost fields), `LossWindow`, `confirmed_by_interpreter`,
+  `stack_order` and `to_loss_msg`. Pure functions and structs, no I/O.
 - `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
-  key, folds them, then merges that poll's windows and emits them. The confirmation point comes
+  key, folds them, then emits that poll's windows in `stack_order`. The confirmation point comes
   from `confirmed_by_interpreter` alone, so it is one bound per interpreter rather than one per
   ring, and every window a poll opens for an interpreter shares a left edge. A record a read
   catches part-written is dropped by `_is_complete` and returns complete a poll later; it
@@ -286,6 +307,8 @@ not share a clock, which would leave the whole reconstruction unsound.
   hangs off the slices rather than off a meta event.
 - `tests/test_loss.py` checks the arithmetic against synthetic runs with known ground truth
   and against a verbatim two-poll capture in `tests/test_monitor_cursor.py`.
+  `tests/exporters/test_loss_track_stack.py` walks the converter's output as a stack in the
+  default suite, over records `_ingest` produced from a lossy read.
   `tests/exporters/test_perfetto_loss_track.py`, marked `fuzz`, settles the track-layout and
-  laminarity claims against the real trace processor per
+  nesting claims against the real trace processor per
   [ADR-0014](0014-perfetto-integration-test-strategy.md).

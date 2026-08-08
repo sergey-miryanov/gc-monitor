@@ -41,29 +41,28 @@ class InstantMsg(msgspec.Struct):
 
 
 class LossMsg(msgspec.Struct):
-    """An interval in which the target's ring overwrote records unread.
+    """An interval in which the target's ring overwrote one generation's
+    records unread.
 
-    Per-generation totals are flat rather than nested because a JSONL value
-    has to be a scalar, and all six are always written so ``from_mapping``
-    can tell the record apart. Carries neither ``collections`` nor ``type``,
-    so ``is_gc_stats`` and ``is_instant`` both reject it.
+    One record per generation. A poll that lost records in all three writes
+    three of these, sharing a left edge and nesting on the interpreter's loss
+    row, so each generation keeps its own width and its own counts. Carries
+    neither ``collections`` nor ``type``, so ``is_gc_stats`` and ``is_instant``
+    both reject it; ``lost_count`` is the field that claims it.
     """
 
     iid: int
+    gen: int
     ts_start: int
     ts_stop: int
-    lost_gen_0: int = 0
-    lost_gen_1: int = 0
-    lost_gen_2: int = 0
-    lost_pause_gen_0: int = 0
-    lost_pause_gen_1: int = 0
-    lost_pause_gen_2: int = 0
+    lost_count: int = 0
+    lost_pause_ns: int = 0
 
 
 def from_mapping(data: TMapping) -> GCStatsInfo | InstantMsg | LossMsg:
     if data.get("type") == "i":
         return msgspec.convert(data, InstantMsg)
-    if "lost_gen_0" in data:
+    if "lost_count" in data:
         return msgspec.convert(data, LossMsg)
     return msgspec.convert(data, GCStatsInfo)
 

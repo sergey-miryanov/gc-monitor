@@ -18,9 +18,8 @@ from gcmon.data import GCStatsInfo, secs_to_ns
 from gcmon.loss import (
     KeyAccumulator,
     LossWindow,
-    MergedLoss,
     confirmed_by_interpreter,
-    merge_windows,
+    stack_order,
     to_loss_msg,
 )
 from tests.helpers import create_mock_stats_item
@@ -29,17 +28,19 @@ from tests.test_monitor_cursor import POLL_0, POLL_1, build_batch
 TS0 = 1_000_000_000
 SPACING_NS = 1_150_000  # measured gap between gen-0 collections
 
-# (gen, ts_start, ts_stop) triples: single, crossing, touching, nested,
-# disjoint, zero-length, and a run mixing several of those.
+# (gen, ts_start, ts_stop) triples a poll can actually produce, given that its
+# windows for one interpreter share a left edge and later polls open after
+# earlier ones close: nothing, one window, three generations on one edge and
+# the same shuffled, two of equal width, three polls in a row, and a
+# zero-length pair.
 SHAPES: list[list[tuple[int, int, int]]] = [
     [],
     [(0, 10, 20)],
-    [(0, 10, 20), (1, 15, 25), (2, 24, 40)],
-    [(0, 10, 20), (1, 20, 30), (2, 30, 40)],
-    [(0, 0, 100), (1, 10, 20), (2, 30, 40)],
-    [(0, 10, 20), (1, 100, 110), (2, 200, 210)],
+    [(0, 10, 40), (1, 10, 30), (2, 10, 20)],
+    [(2, 10, 20), (0, 10, 40), (1, 10, 30)],
+    [(0, 10, 20), (1, 10, 20)],
+    [(0, 10, 20), (1, 10, 15), (0, 30, 60), (1, 30, 45), (2, 80, 90)],
     [(0, 5, 5), (1, 5, 5)],
-    [(0, 1, 20), (1, 2, 25), (0, 30, 45), (1, 44, 50), (2, 80, 90)],
 ]
 
 
@@ -160,9 +161,9 @@ def fold_singly(events: Sequence[GCStatsInfo]) -> KeyAccumulator:
 class Ingested:
     """What a sequence of polls left behind.
 
-    Mirrors ``EventsMonitor._ingest``, which merges and emits each poll's
-    windows rather than retaining them, so a test that wants to look at a
-    window has to collect it on the way past.
+    Mirrors ``EventsMonitor._ingest``, which emits each poll's windows rather
+    than retaining them, so a test that wants to look at a window has to
+    collect it on the way past.
     """
 
     def __init__(self) -> None:
@@ -197,14 +198,17 @@ class Ingested:
 
         return opened
 
-    def spans(self, iid: int = 0) -> list[MergedLoss]:
-        """What `_ingest` would draw: this interpreter's windows, merged.
+    def spans(self, iid: int = 0) -> list[LossWindow]:
+        """What `_ingest` would draw: this interpreter's windows, each as
+        itself, in the order the loss track's stack can take them.
 
-        Each span is drawn at the full width of the windows inside it, so
-        every number on it is the one the target's counters gave.
+        `_ingest` orders one poll's windows at a time. Sorting every poll's at
+        once gives the same sequence, since a poll opens its windows at or
+        after the newest record the poll before it saw, and that is at or
+        after every window that poll closed.
         """
         windows = [w for key, ws in self.windows.items() if key[0] == iid for w in ws]
-        return merge_windows(windows)
+        return stack_order(windows)
 
     def __getitem__(self, key: tuple[int, int]) -> KeyAccumulator:
         return self.cursors[key]
@@ -229,6 +233,30 @@ def window(
     gen: int = 0, ts_start: int = 0, ts_stop: int = 0, lost_count: int = 1, lost_pause_ns: int = 0
 ) -> LossWindow:
     return LossWindow(ts_start=ts_start, ts_stop=ts_stop, gen=gen, lost_count=lost_count, lost_pause_ns=lost_pause_ns)
+
+
+def depths(windows: Sequence[LossWindow]) -> list[int]:
+    """Walk an emission order as the loss track does, and report each span's
+    nesting depth.
+
+    A track is a stack: a span opens on top of whatever is still open and an
+    END closes the topmost. Raises for an order the track cannot express — a
+    span that neither nests inside the one still open nor starts after it
+    closes — which is the failure that leaves the trace parsing fine and
+    every span reparented.
+    """
+    stack: list[LossWindow] = []
+    found: list[int] = []
+
+    for w in windows:
+        while stack and stack[-1].ts_stop <= w.ts_start:
+            stack.pop()
+        if stack:
+            assert w.ts_stop <= stack[-1].ts_stop, f"{w} crosses {stack[-1]}"
+        found.append(len(stack))
+        stack.append(w)
+
+    return found
 
 
 @pytest.fixture
@@ -476,14 +504,12 @@ class TestReconstructionAgainstGroundTruth:
 
     @pytest.mark.parametrize(("capacity", "per_tick"), [(11, 87), (3, 8), (1, 5), (11, 11)])
     def test_the_drawn_spans_carry_the_whole_loss(self, capacity: int, per_tick: int) -> None:
-        """Merging is a drawing decision, so it must not change the totals."""
+        """Drawing is a picture decision, so it must not change the totals."""
         ingested = observe_all(ring_polls(build_run(400), capacity, per_tick))
 
         spans = ingested.spans()
-        assert sum(s.lost_count.get(0, 0) for s in spans) == ingested[(0, 0)].lost_count
-        assert sum(s.lost_pause_ns.get(0, 0) for s in spans) == sum(
-            w.lost_pause_ns for w in ingested.windows_for((0, 0))
-        )
+        assert sum(s.lost_count for s in spans) == ingested[(0, 0)].lost_count
+        assert sum(s.lost_pause_ns for s in spans) == sum(w.lost_pause_ns for w in ingested.windows_for((0, 0)))
 
 
 # (gap between collections, collections per tick). The first pace is the
@@ -504,11 +530,10 @@ class TestNoSpanOverstatesItsPause:
     uncertain, it is impossible, and the split produced exactly that whenever
     a piece was dropped for taking a zero share by width.
 
-    It holds now because every number on a span comes from the target's
-    counters over the span's own bounds. A window's pause is what the target
-    collected between two of that key's own records; merged windows lie inside
-    the union they merge into; and collections in an interpreter are
-    serialized, so nothing is charged twice and all of it fits.
+    It holds because every number on a span comes from the target's counters
+    over the span's own bounds. A window's pause is what the target collected
+    between two of that key's own records, and collections in an interpreter
+    are serialized, so nothing is charged twice and all of it fits.
     """
 
     @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
@@ -519,7 +544,7 @@ class TestNoSpanOverstatesItsPause:
 
         assert spans
         for span in spans:
-            assert sum(span.lost_pause_ns.values()) <= span.ts_stop - span.ts_start
+            assert span.lost_pause_ns <= span.ts_stop - span.ts_start
 
     @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
     def test_no_span_is_drawn_reporting_nothing(self, gap_ns: int, per_tick: int) -> None:
@@ -530,15 +555,28 @@ class TestNoSpanOverstatesItsPause:
 
         spans = observe_all(interpreter_polls(run, per_tick)).spans()
 
-        assert all(sum(span.lost_count.values()) > 0 for span in spans)
+        assert all(span.lost_count > 0 for span in spans)
 
-    def test_the_run_puts_two_generations_on_one_span(self) -> None:
-        """Otherwise the check above would only ever see single-generation
-        spans, whose bound each window already carries on its own, and the
-        merge would go untested where it matters."""
+    @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
+    def test_the_emitted_order_is_a_stack(self, gap_ns: int, per_tick: int) -> None:
+        """Over a whole synthesised interpreter, not one shape. The generations
+        share a row, the row is a stack, and an order that crosses still parses
+        and still renders — so nothing but this says a word about it."""
+        run = build_interleaved_run(2_000, gap_ns=gap_ns)
+
+        spans = observe_all(interpreter_polls(run, per_tick)).spans()
+
+        assert max(depths(spans)) > 0
+
+    def test_the_run_nests_two_generations_at_one_instant(self) -> None:
+        """Otherwise the check above would only ever see spans at depth 0,
+        where any order at all is a stack, and the ordering would go untested
+        where it matters."""
         spans = observe_all(interpreter_polls(build_interleaved_run(2_000), 87)).spans()
 
-        assert any(len(span.lost_count) > 1 for span in spans)
+        shared = [(a, b) for a, b in pairwise(spans) if a.ts_start == b.ts_start]
+        assert shared
+        assert all(a.gen != b.gen and a.ts_stop >= b.ts_stop for a, b in shared)
 
     def test_a_span_reaches_over_a_collection_gcmon_observed(self) -> None:
         """The consequence accepted in exchange. The span bounds where the
@@ -595,36 +633,37 @@ class TestCaptureFixture:
         blind from the same instant."""
         assert captured.windows_for((0, 0))[0].ts_start == captured.windows_for((0, 1))[0].ts_start
 
-    def test_the_span_is_drawn_at_the_full_width_of_its_windows(self, captured: Ingested) -> None:
-        """POLL_1 recovered two gen-1 records inside gen 0's window, and the
-        span is drawn over them rather than cut around them. Where the missing
-        records ran is what the span leaves open; those two collections are
-        drawn on the interpreter's own row, so a reader can see them."""
+    def test_each_span_is_drawn_at_the_full_width_of_its_own_window(self, captured: Ingested) -> None:
+        """POLL_1 recovered two gen-1 records inside gen 0's window, and gen
+        0's span is drawn over them rather than cut around them. Where the
+        missing records ran is what the span leaves open; those two collections
+        are drawn on the interpreter's own row, so a reader can see them."""
         gen0, gen1 = captured.windows_for((0, 0))[0], captured.windows_for((0, 1))[0]
         observed = [(e.ts_start, e.ts_stop) for e in build_batch(POLL_1) if e.ts_start < e.ts_stop]
 
         spans = captured.spans()
 
-        assert len(spans) == 1
-        assert (spans[0].ts_start, spans[0].ts_stop) == (
-            min(gen0.ts_start, gen1.ts_start),
-            max(gen0.ts_stop, gen1.ts_stop),
-        )
+        assert [(s.ts_start, s.ts_stop) for s in spans] == [
+            (gen0.ts_start, gen0.ts_stop),
+            (gen1.ts_start, gen1.ts_stop),
+        ]
         assert any(spans[0].ts_start < start < spans[0].ts_stop for start, _stop in observed)
 
-    def test_the_whole_loss_lands_on_the_one_span(self, captured: Ingested) -> None:
-        """Both generations' totals ride on it, each still the counters' own."""
+    def test_each_generation_gets_a_span_carrying_its_own_loss(self, captured: Ingested) -> None:
+        """Two bars rather than one, and the row now says which generation
+        went blind and for how long."""
         spans = captured.spans()
 
-        assert spans[0].lost_count == {0: 76, 1: 5}
+        assert [(s.gen, s.lost_count) for s in spans] == [(0, 76), (1, 5)]
 
-    def test_the_two_generations_merge_into_one_span(self, captured: Ingested) -> None:
-        """Real data producing the shape ADR-0015 is about: both windows sit
-        inside one tick and overlap."""
-        merged = merge_windows(captured.windows_for((0, 0)) + captured.windows_for((0, 1)))
+    def test_the_two_generations_nest_widest_first(self, captured: Ingested) -> None:
+        """Real data producing the shape the ordering is for: both windows sit
+        inside one tick and open at the same instant, so gen 0's wider span has
+        to go out first or gen 1's END closes it."""
+        spans = captured.spans()
 
-        assert len(merged) == 1
-        assert merged[0].lost_count == {0: 76, 1: 5}
+        assert spans[0].ts_start == spans[1].ts_start
+        assert depths(spans) == [0, 1]
 
 
 class TestOneLeftEdgePerPoll:
@@ -679,121 +718,92 @@ class TestOneLeftEdgePerPoll:
         assert [w.ts_start for w in opened[0]] == [gen0[0].ts_stop]
 
 
-class TestMergeWindows:
-    def test_nothing_merges_to_nothing(self) -> None:
-        assert merge_windows([]) == []
+class TestStackOrder:
+    """The one job is the order, and getting it wrong is silent.
 
-    def test_disjoint_windows_stay_apart(self) -> None:
-        merged = merge_windows([window(ts_start=10, ts_stop=20), window(ts_start=30, ts_stop=40)])
+    Nothing here reshapes a window: a poll's windows for one interpreter share
+    a left edge, so they nest already. What the sort settles is which of two
+    spans opening at the same instant goes out first, and a track is a stack.
+    """
 
-        assert [(m.ts_start, m.ts_stop) for m in merged] == [(10, 20), (30, 40)]
+    def test_nothing_orders_to_nothing(self) -> None:
+        assert stack_order([]) == []
 
-    def test_crossing_windows_merge(self) -> None:
-        """The shape that forced the dedicated track: gen 0 was the last
-        record observed before the gap, gen 1 the first observed after it."""
-        merged = merge_windows(
+    def test_a_shared_left_edge_goes_widest_first(self) -> None:
+        """Three generations blind across one poll. Narrowest first would have
+        gen 2's END close gen 0's span, and the trace would say nothing."""
+        ordered = stack_order(
             [
-                window(gen=0, ts_start=1, ts_stop=20, lost_count=76),
-                window(gen=1, ts_start=2, ts_stop=25, lost_count=5),
+                window(gen=0, ts_start=10, ts_stop=20),
+                window(gen=1, ts_start=10, ts_stop=30),
+                window(gen=2, ts_start=10, ts_stop=40),
             ]
         )
 
-        assert len(merged) == 1
-        assert (merged[0].ts_start, merged[0].ts_stop) == (1, 25)
-        assert merged[0].lost_count == {0: 76, 1: 5}
-
-    def test_a_nested_window_does_not_extend_the_span(self) -> None:
-        merged = merge_windows(
-            [window(gen=0, ts_start=1, ts_stop=100), window(gen=1, ts_start=10, ts_stop=20)],
-        )
-
-        assert (merged[0].ts_start, merged[0].ts_stop) == (1, 100)
-
-    def test_touching_windows_merge(self) -> None:
-        """Left apart they would draw two slices with nothing between them."""
-        merged = merge_windows([window(ts_start=10, ts_stop=20), window(gen=1, ts_start=20, ts_stop=30)])
-
-        assert len(merged) == 1
-        assert (merged[0].ts_start, merged[0].ts_stop) == (10, 30)
+        assert [w.gen for w in ordered] == [2, 1, 0]
+        assert depths(ordered) == [0, 1, 2]
 
     def test_input_order_does_not_matter(self) -> None:
+        """`_ingest` walks its keys in `groupby` order, which is generation
+        order, which has nothing to do with width."""
         windows = [
-            window(gen=1, ts_start=2, ts_stop=25, lost_count=5),
-            window(gen=0, ts_start=1, ts_stop=20, lost_count=76),
-            window(gen=2, ts_start=90, ts_stop=99, lost_count=1),
+            window(gen=1, ts_start=10, ts_stop=30),
+            window(gen=2, ts_start=10, ts_stop=40),
+            window(gen=0, ts_start=10, ts_stop=20),
         ]
 
-        assert merge_windows(windows) == merge_windows(list(reversed(windows)))
+        assert stack_order(windows) == stack_order(list(reversed(windows)))
 
-    def test_pause_sums_accumulate_per_generation(self) -> None:
-        merged = merge_windows(
-            [
-                window(gen=0, ts_start=1, ts_stop=20, lost_pause_ns=700),
-                window(gen=0, ts_start=15, ts_stop=30, lost_pause_ns=300),
-                window(gen=1, ts_start=2, ts_stop=25, lost_pause_ns=50),
-            ]
-        )
+    def test_disjoint_windows_come_back_in_time_order(self) -> None:
+        ordered = stack_order([window(ts_start=50, ts_stop=60), window(ts_start=10, ts_stop=20)])
 
-        assert merged[0].lost_pause_ns == {0: 1000, 1: 50}
+        assert [w.ts_start for w in ordered] == [10, 50]
 
-    def test_spans_come_back_in_time_order(self) -> None:
-        merged = merge_windows([window(ts_start=50, ts_stop=60), window(ts_start=10, ts_stop=20)])
+    def test_a_nested_window_follows_the_one_around_it(self) -> None:
+        ordered = stack_order([window(gen=1, ts_start=10, ts_stop=20), window(gen=0, ts_start=10, ts_stop=100)])
 
-        assert [m.ts_start for m in merged] == [10, 50]
+        assert [(w.ts_start, w.ts_stop) for w in ordered] == [(10, 100), (10, 20)]
+
+    def test_touching_windows_stay_two_spans(self) -> None:
+        """One poll's, then the next poll's. Each says what its own counters
+        say, and neither reaches into the other."""
+        ordered = stack_order([window(ts_start=10, ts_stop=20), window(gen=1, ts_start=20, ts_stop=30)])
+
+        assert [(w.ts_start, w.ts_stop) for w in ordered] == [(10, 20), (20, 30)]
+        assert depths(ordered) == [0, 0]
 
 
-class TestMergeProperties:
-    """Properties the emission side depends on, over a spread of shapes."""
-
-    @pytest.mark.parametrize("shape", SHAPES)
-    def test_merged_spans_are_pairwise_disjoint(self, shape: list[tuple[int, int, int]]) -> None:
-        """The whole reason for merging: a track is a stack, so two spans on
-        it must nest or not touch."""
-        merged = merge_windows([window(gen=g, ts_start=a, ts_stop=b) for g, a, b in shape])
-
-        for earlier, later in pairwise(merged):
-            assert earlier.ts_stop < later.ts_start
+class TestStackOrderProperties:
+    """Properties the loss track depends on, over a spread of shapes."""
 
     @pytest.mark.parametrize("shape", SHAPES)
-    def test_every_window_lands_inside_exactly_one_span(self, shape: list[tuple[int, int, int]]) -> None:
-        """What makes attribution of the per-generation counts unambiguous."""
-        windows = [window(gen=g, ts_start=a, ts_stop=b) for g, a, b in shape]
-        merged = merge_windows(windows)
+    def test_the_order_is_one_a_stack_can_take(self, shape: list[tuple[int, int, int]]) -> None:
+        ordered = stack_order([window(gen=g, ts_start=a, ts_stop=b) for g, a, b in shape])
 
-        for w in windows:
-            containing = [m for m in merged if m.ts_start <= w.ts_start and w.ts_stop <= m.ts_stop]
-            assert len(containing) == 1
+        depths(ordered)
 
     @pytest.mark.parametrize("shape", SHAPES)
-    def test_no_count_is_dropped_or_double_counted(self, shape: list[tuple[int, int, int]]) -> None:
+    def test_every_window_is_drawn_exactly_once(self, shape: list[tuple[int, int, int]]) -> None:
+        """Ordering is all that happens: nothing merges, splits or drops."""
         windows = [window(gen=g, ts_start=a, ts_stop=b, lost_count=g + 1) for g, a, b in shape]
-        merged = merge_windows(windows)
 
-        total = sum(sum(m.lost_count.values()) for m in merged)
-        assert total == sum(w.lost_count for w in windows)
+        ordered = stack_order(windows)
+
+        assert sorted(ordered, key=id) == sorted(windows, key=id)
+        assert sum(w.lost_count for w in ordered) == sum(w.lost_count for w in windows)
 
 
 class TestToLossMsg:
-    def test_carries_the_span_and_its_per_generation_totals(self) -> None:
-        msg = to_loss_msg(1, MergedLoss(ts_start=10, ts_stop=99, lost_count={0: 76, 1: 5}, lost_pause_ns={0: 81, 1: 7}))
+    def test_carries_the_window_and_the_generation_it_belongs_to(self) -> None:
+        msg = to_loss_msg(1, window(gen=1, ts_start=10, ts_stop=99, lost_count=5, lost_pause_ns=7))
 
-        assert (msg.iid, msg.ts_start, msg.ts_stop) == (1, 10, 99)
-        assert (msg.lost_gen_0, msg.lost_gen_1) == (76, 5)
-        assert (msg.lost_pause_gen_0, msg.lost_pause_gen_1) == (81, 7)
+        assert (msg.iid, msg.gen, msg.ts_start, msg.ts_stop) == (1, 1, 10, 99)
+        assert (msg.lost_count, msg.lost_pause_ns) == (5, 7)
 
-    def test_a_generation_outside_the_span_reads_zero(self) -> None:
-        """The span is real and gen 2 lost nothing in it, which is a different
-        statement from gen 2 being unknown."""
-        msg = to_loss_msg(0, MergedLoss(ts_start=10, ts_stop=99, lost_count={0: 76}))
+    def test_a_capture_yields_one_record_per_generation(self, captured: Ingested) -> None:
+        msgs = [to_loss_msg(0, w) for w in captured.spans()]
 
-        assert msg.lost_gen_2 == 0
-        assert msg.lost_pause_gen_2 == 0
-
-    def test_a_merged_capture_flattens(self, captured: Ingested) -> None:
-        merged = merge_windows(captured.windows_for((0, 0)) + captured.windows_for((0, 1)))
-        msg = to_loss_msg(0, merged[0])
-
-        assert (msg.lost_gen_0, msg.lost_gen_1, msg.lost_gen_2) == (76, 5, 0)
+        assert [(m.gen, m.lost_count) for m in msgs] == [(0, 76), (1, 5)]
 
 
 class TestConfirmedByInterpreter:
@@ -925,7 +935,7 @@ class TestASpanCoveringAnObservedCollection:
         than the pause handed to it."""
         span = self.polls().spans()[0]
 
-        assert sum(span.lost_pause_ns.values()) <= span.ts_stop - span.ts_start
+        assert span.lost_pause_ns <= span.ts_stop - span.ts_start
 
     def test_the_spans_are_disjoint_and_in_order(self) -> None:
         """They share the loss track, so they have to stay a stack."""
@@ -938,7 +948,7 @@ class TestASpanCoveringAnObservedCollection:
         fell, and the span no longer guesses: it carries both."""
         spans = self.polls().spans()
 
-        assert [s.lost_count.get(0, 0) for s in spans] == [2]
+        assert [s.lost_count for s in spans] == [2]
 
     def test_a_window_holding_one_record_is_drawn_whole_too(self) -> None:
         """The cut left this one as a single piece and dropped the other,
@@ -952,8 +962,8 @@ class TestASpanCoveringAnObservedCollection:
 
         spans = ingested.spans()
         assert [(s.ts_start, s.ts_stop) for s in spans] == [(gen0[0].ts_stop, gen0[2].ts_start)]
-        assert spans[0].lost_count == {0: 1}
-        assert sum(spans[0].lost_pause_ns.values()) > 0
+        assert spans[0].lost_count == 1
+        assert spans[0].lost_pause_ns > 0
 
     def test_a_window_with_nothing_inside_it_is_unchanged(self) -> None:
         gen0 = build_run(4, gen=0, spacing_ns=44_000_000)
@@ -1005,7 +1015,7 @@ class TestAWindowAnObservationCoversEndToEnd:
     def test_it_carries_the_loss_the_counters_reported(self) -> None:
         ingested, _gen0, _covering = self.polls()
 
-        assert ingested.spans()[0].lost_count == {0: 1}
+        assert ingested.spans()[0].lost_count == 1
 
 
 class TestCounterOrderNotClockOrder:

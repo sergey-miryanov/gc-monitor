@@ -35,8 +35,9 @@ RSS_TID: int = -1
 
 # Loss is an interpreter's, but it gets a row of its own: a row that holds
 # nothing else is the one you can find, and a red bar among the GC slices is
-# the one you have to hunt for. One row per interpreter is enough — a poll
-# merges its windows before export, so they never overlap.
+# the one you have to hunt for. One row per interpreter is enough — a poll's
+# windows share a left edge, so its generations' spans nest rather than cross,
+# and `stack_order` puts them out widest first.
 LOSS_TID_BASE: int = -2
 
 

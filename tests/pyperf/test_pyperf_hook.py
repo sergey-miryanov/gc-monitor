@@ -83,12 +83,9 @@ def _make_jsonl_loss(**kwargs: Any) -> dict[str, Any]:
         "iid": 0,
         "ts_start": 1_005_000_000,
         "ts_stop": 1_020_000_000,
-        "lost_gen_0": 0,
-        "lost_gen_1": 0,
-        "lost_gen_2": 0,
-        "lost_pause_gen_0": 0,
-        "lost_pause_gen_1": 0,
-        "lost_pause_gen_2": 0,
+        "gen": 0,
+        "lost_count": 0,
+        "lost_pause_ns": 0,
     }
     return {**defaults, **kwargs}
 
@@ -355,7 +352,7 @@ class TestTeardownReplaysLossAndLifetime:
     every GC record are the target's own cumulative totals.
     """
 
-    LOST = _make_jsonl_loss(lost_gen_0=2, lost_pause_gen_0=7_000_000)
+    LOST = _make_jsonl_loss(lost_count=2, lost_pause_ns=7_000_000)
 
     def observed(self) -> list[dict[str, Any]]:
         """Two gen-0 records of 5 ms each, three collections apart."""
@@ -431,7 +428,7 @@ class TestTeardownReplaysLossAndLifetime:
             for n in range(1, 21)
         ]
 
-        metadata = self.metadata(tmp_path, _make_jsonl_loss(lost_gen_0=1, lost_pause_gen_0=5_000_000), *records)
+        metadata = self.metadata(tmp_path, _make_jsonl_loss(lost_count=1, lost_pause_ns=5_000_000), *records)
 
         assert metadata["gc_pause_gen_0_coverage"] > 0.9
         assert "of collections observed" not in caplog.text

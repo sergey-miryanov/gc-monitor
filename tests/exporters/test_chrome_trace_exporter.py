@@ -406,7 +406,7 @@ class TestGCMonitorStreamsLoss:
         return assert_valid_chrome_trace_format(path)
 
     def losses(self, data: list[dict[str, ChromeTraceValue]]) -> list[dict[str, ChromeTraceValue]]:
-        return [e for e in data if e["name"] == "GC Loss" and e["ph"] == "B"]
+        return [e for e in data if e["name"] == "GC Loss (gen=0)" and e["ph"] == "B"]
 
     def test_a_wrapped_ring_draws_a_slice(
         self,
@@ -429,9 +429,9 @@ class TestGCMonitorStreamsLoss:
 
         args = self.losses(data)[0]["args"]
         assert isinstance(args, dict)
-        assert args["lost_gen_0"] == 3
-        assert args["lost_pause_gen_0"] == 15_000_000
-        assert args["lost_total"] == 3
+        assert args["generation"] == 0
+        assert args["lost_count"] == 3
+        assert args["lost_pause_ns"] == 15_000_000
 
     def test_it_lands_on_the_loss_track(
         self,
@@ -455,7 +455,9 @@ class TestGCMonitorStreamsLoss:
 
         first = self.losses(data)[0]
         assert first["ts"] == ts_to_us(1_505_000_000)
-        assert next(e["ts"] for e in data if e["name"] == "GC Loss" and e["ph"] == "E") == ts_to_us(1_600_000_000)
+        assert next(e["ts"] for e in data if e["name"] == "GC Loss (gen=0)" and e["ph"] == "E") == ts_to_us(
+            1_600_000_000
+        )
 
     def test_a_run_that_lost_nothing_draws_none(
         self, mock_gc_stats: None, monitor_with_exporter: tuple[EventsMonitor, Path]

@@ -263,7 +263,7 @@ class TestJsonlLossRecords:
         come back as the same record, so a converted capture carries the spans
         the live run drew."""
         exporter, path = jsonl_exporter()
-        msg = LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=76, lost_gen_1=5, lost_pause_gen_0=8_100_000)
+        msg = LossMsg(iid=1, gen=1, ts_start=1_000, ts_stop=2_000, lost_count=5, lost_pause_ns=8_100_000)
 
         exporter.add_loss_event(DEFAULT_PID, msg)
         exporter.close()
@@ -273,7 +273,7 @@ class TestJsonlLossRecords:
     def test_it_is_written_on_the_loss_track(self, jsonl_exporter: ExporterFactory) -> None:
         exporter, path = jsonl_exporter()
 
-        exporter.add_loss_event(DEFAULT_PID, LossMsg(iid=1, ts_start=1_000, ts_stop=2_000, lost_gen_0=76))
+        exporter.add_loss_event(DEFAULT_PID, LossMsg(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=76))
         exporter.close()
 
         assert json.loads(path.read_text(encoding="utf-8"))["tid"] == loss_tid(1)
@@ -283,7 +283,7 @@ class TestJsonlLossRecords:
         item = create_mock_stats_item(iid=0)
 
         exporter.add_event(DEFAULT_PID, item)
-        exporter.add_loss_event(DEFAULT_PID, LossMsg(iid=0, ts_start=1, ts_stop=2, lost_gen_0=1))
+        exporter.add_loss_event(DEFAULT_PID, LossMsg(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1))
         exporter.close()
 
         assert read_jsonl(path)[DEFAULT_PID][0] == item

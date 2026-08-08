@@ -41,35 +41,44 @@ CPython exports GC records through a small ring buffer of 11 slots for generatio
 and 3 for the older two, so a target collecting faster than gcmon polls overwrites
 records before anyone reads them. gcmon detects this from CPython's cumulative
 `collections` and `duration` counters and marks each blind interval with a slice
-named `GC Loss`, on a `GC Loss {iid}` track of its own.
+named `GC Loss (gen=N)`, on a `GC Loss {iid}` track of its own.
 
-**The slice's width is the interval the records were lost in rather than the pause
+**One span per generation.** Each generation's ring wraps on its own schedule, so a
+poll that lost records in all three draws three bars — `GC Loss (gen=0)`,
+`GC Loss (gen=1)`, `GC Loss (gen=2)` — and each one says how long *that* generation
+was unobserved. They are named the way the `GC Pause (gen={gen})` slices are, which
+is what gives each generation a stable colour of its own.
+
+The three **nest inside one another** rather than sitting side by side. A single bulk
+read confirms every generation of an interpreter at once, so all of a poll's spans
+open at the same instant and differ only in where each generation's next observed
+record sits. The widest is drawn as the parent; a narrower one inside it is not a
+sub-interval of the loss but a different generation's own, shorter blind stretch.
+
+**A slice's width is the interval the records were lost in rather than the pause
 they took.** Nothing in the ring says where inside that interval the missing
 collections ran, so the bar spans the whole stretch gcmon could not see: from the
-last thing it observed to the next record it recovered. One lost 5 ms collection
-can draw a 130 ms bar. Read the magnitude from the args and not from the width.
-That gap between the two is why these slices sit on a row of their own, since
-among the `GC Pause` slices a window-width bar would read as a very long pause.
+last thing it observed to the next record it recovered on that generation's ring.
+One lost 5 ms collection can draw a 130 ms bar. Read the magnitude from the args and
+not from the width. That gap between the two is why these slices sit on a row of
+their own, since among the `GC Pause` slices a window-width bar would read as a very
+long pause.
 
 Each slice carries:
 
 | Arg | Meaning |
 |---|---|
 | `iid` | Interpreter the records were lost from |
-| `lost_gen_N` | Collections of generation *N* that ran unobserved in this interval |
-| `lost_pause_gen_N` | Pause time those collections took, in nanoseconds — exact, from the target's own counter |
-| `lost_total` | Collections lost across all generations |
-| `lost_pause_total` | **Read this for the magnitude.** Total pause time lost in the interval, in nanoseconds |
-
-Only generations that lost something get a `lost_gen_N` / `lost_pause_gen_N` pair;
-`lost_total` and `lost_pause_total` are always present.
+| `generation` | Generation whose ring overwrote them |
+| `lost_count` | Collections of that generation that ran unobserved in this interval |
+| `lost_pause_ns` | **Read this for the magnitude.** Pause time those collections took, in nanoseconds — exact, from the target's own counter |
 
 Where a window brackets a collection gcmon did observe, the slice is drawn straight
 over it. No lost record can have run during that collection, since an interpreter
 serializes them, but cutting the bar around it meant dividing the window's counts and
 pause between the stretches left over, with nothing in the ring to say how — and a
 stretch could end up carrying more pause than it was wide. The bar spans the whole
-interval instead, so **every `lost_gen_N` and `lost_pause_gen_N` on it is a
+interval instead, so **every `lost_count` and `lost_pause_ns` on it is a
 measurement**, taken from the target's own counters. The observed collection is drawn
 on the interpreter's row directly above, which is where you narrow the interval down
 from. How a span draws leaves the `--stats` table's `Cov` and `F` columns untouched.
@@ -140,23 +149,29 @@ each line is a JSON object representing one GC event:
 ### Loss records
 
 A run that lost records to ring-buffer wrap also writes one line per blind
-interval, alongside the GC events. A loss record carries no `gen` field, since it
-can span several generations at once, and no `collections`:
+interval per generation, alongside the GC events. A loss record carries a `gen`
+like a GC event does, but no `collections`:
 
 ```jsonl
-{"pid": 12345, "tid": -2, "iid": 0, "ts_start": 1700000001500000, "ts_stop": 1700000098000000, "lost_gen_0": 9, "lost_gen_1": 1, "lost_gen_2": 0, "lost_pause_gen_0": 57450000, "lost_pause_gen_1": 8100000, "lost_pause_gen_2": 0}
+{"pid": 12345, "tid": -2, "iid": 0, "gen": 0, "ts_start": 1700000001500000, "ts_stop": 1700000098000000, "lost_count": 9, "lost_pause_ns": 57450000}
+{"pid": 12345, "tid": -2, "iid": 0, "gen": 1, "ts_start": 1700000001500000, "ts_stop": 1700000060000000, "lost_count": 1, "lost_pause_ns": 8100000}
 ```
 
 | Field | Description |
 |-------|-------------|
 | `tid` | `-2 - iid`, the sentinel the trace formats draw the `GC Loss` track on. `-1` is reserved for `rss` |
 | `iid` | Interpreter the records were lost from |
+| `gen` | Generation whose ring overwrote them |
 | `ts_start`, `ts_stop` | The blind interval (nanoseconds). Its width is uncertainty, not pause time |
-| `lost_gen_N` | Collections of generation *N* that ran unobserved in the interval |
-| `lost_pause_gen_N` | Pause time those collections took, in nanoseconds |
+| `lost_count` | Collections of that generation that ran unobserved in the interval |
+| `lost_pause_ns` | Pause time those collections took, in nanoseconds |
+
+Records written by one poll for one interpreter share a `ts_start` and are written
+widest first, which is the order the trace formats need to nest them on the loss
+row.
 
 Tell the record types apart by field presence: a GC event has `collections`, a loss
-record has `lost_gen_0`, an instant event has `type`. `gcmon combine` reads loss records
+record has `lost_count`, an instant event has `type`. `gcmon combine` reads loss records
 back and reproduces the spans in Chrome or Perfetto output. `--normalize` shifts
 them with everything else, and a loss record can be the earliest thing in a
 capture, since a window opens before the record that closes it.

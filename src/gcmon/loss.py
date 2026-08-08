@@ -5,7 +5,7 @@ reads them. Two cumulative fields make the loss measurable: ``collections``
 counts what was missed, and ``duration`` gives the pause time nobody saw.
 
 ``EventsMonitor`` owns one ``KeyAccumulator`` per ``(pid, iid, gen)``; see
-ADR-0015 for why the merged spans need a track of their own.
+ADR-0015 for why the spans need a track of their own.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -19,9 +19,8 @@ __all__ = [
     "CursorKey",
     "KeyAccumulator",
     "LossWindow",
-    "MergedLoss",
     "confirmed_by_interpreter",
-    "merge_windows",
+    "stack_order",
     "to_loss_msg",
 ]
 
@@ -33,7 +32,13 @@ class LossWindow(msgspec.Struct):
     """An interval on one key in which records were overwritten unread.
 
     Bounded by the ``ts_stop`` of the last observed record before the gap and
-    the ``ts_start`` of the first one after it.
+    the ``ts_start`` of the first one after it, and drawn as itself: one span
+    for one generation, at the full width its bounding records describe. Every
+    number on it is the target's own counter over those bounds, so none of it
+    is a share of anything. The span can therefore cover a collection of
+    another generation that gcmon did observe. That collection is drawn on the
+    interpreter's own row directly above, which is where a reader narrows the
+    span from.
     """
 
     ts_start: int
@@ -41,23 +46,6 @@ class LossWindow(msgspec.Struct):
     gen: int
     lost_count: int
     lost_pause_ns: int
-
-
-class MergedLoss(msgspec.Struct):
-    """Overlapping windows of one interpreter collapsed into one span.
-
-    ``lost_count`` and ``lost_pause_ns`` are keyed by generation, and both
-    come from the target's own counters: the span is drawn as the whole
-    interval its bounding records describe, so no number on it is a share of
-    anything. It can therefore cover a collection of another generation that
-    gcmon did observe. That collection is drawn on the interpreter's own row
-    directly above, which is where a reader narrows the span from.
-    """
-
-    ts_start: int
-    ts_stop: int
-    lost_count: dict[int, int] = msgspec.field(default_factory=dict)
-    lost_pause_ns: dict[int, int] = msgspec.field(default_factory=dict)
 
 
 class KeyAccumulator(msgspec.Struct):
@@ -81,7 +69,7 @@ class KeyAccumulator(msgspec.Struct):
 
         A ring holds consecutive records, so only the run's first record can
         sit across a gap and only its last one settles the cursor. Returns
-        the window that gap opened, if any, for the caller to merge and emit.
+        the window that gap opened, if any, for the caller to emit.
 
         *confirmed_ts* is the latest record seen anywhere in this interpreter
         before this poll. A poll that found the counter unchanged proves
@@ -190,56 +178,38 @@ class KeyAccumulator(msgspec.Struct):
         return self.exact_pause_ns / self.sampled_pause_ns
 
 
-def merge_windows(windows: Iterable[LossWindow]) -> list[MergedLoss]:
-    """Collapse one poll's windows for one interpreter into disjoint spans.
+def stack_order(windows: Iterable[LossWindow]) -> list[LossWindow]:
+    """One poll's windows for one interpreter, in the order a stack can take
+    them: ``ts_start`` ascending, then ``ts_stop`` descending.
 
-    Windows on one key never overlap, being consecutive gaps in one sequence,
-    but windows from different generations cross whenever the records bounding
-    them interleave. Merging keeps their shared track laminar without clipping
-    a span the way ADR-0011's sweep has to.
+    The windows are laminar before they are sorted, and nothing here reshapes
+    them. Every window a poll opens for one interpreter starts at the same
+    instant, because ``confirmed_by_interpreter`` takes the maximum
+    ``last_ts_stop`` across that interpreter's rings and so dominates any one
+    ring's own value: the windows differ only in where each generation's next
+    observed record sits. A shared left edge with differing right edges nests,
+    it cannot cross. Across polls they are disjoint, poll N+1 opening at or
+    after the newest record poll N saw.
 
-    One poll is the whole of it. A single bulk read gives every generation of
-    an interpreter the same confirmation point, so windows opened in later
-    polls start after these end and cannot reach back into them.
-
-    Touching windows merge: apart they would draw two slices with nothing
-    between them.
+    Ordering is the whole job, and it is load-bearing. Slices on one Perfetto
+    track are a stack, so an END closes the most recently opened slice: three
+    BEGINs at one timestamp have to go out widest first or the first END
+    closes the wrong span. A trace built the other way still parses and still
+    renders — the trace processor reports ``misplaced_end_event = 0`` and
+    reads the crossing as nesting — so nothing downstream would say a word.
     """
-    merged: list[MergedLoss] = []
-
-    for window in sorted(windows, key=lambda w: (w.ts_start, w.ts_stop)):
-        if merged and window.ts_start <= merged[-1].ts_stop:
-            current = merged[-1]
-            current.ts_stop = max(current.ts_stop, window.ts_stop)
-        else:
-            current = MergedLoss(ts_start=window.ts_start, ts_stop=window.ts_stop)
-            merged.append(current)
-
-        gen = window.gen
-        current.lost_count[gen] = current.lost_count.get(gen, 0) + window.lost_count
-        current.lost_pause_ns[gen] = current.lost_pause_ns.get(gen, 0) + window.lost_pause_ns
-
-    return merged
+    return sorted(windows, key=lambda w: (w.ts_start, -w.ts_stop))
 
 
-def to_loss_msg(iid: int, merged: MergedLoss) -> LossMsg:
-    """Flatten a merged span into the record the exporters carry.
-
-    A generation absent from the span contributes zero, which is also what a
-    reader should see: the span exists, that generation lost nothing in it.
-    """
-    counts = merged.lost_count
-    pauses = merged.lost_pause_ns
+def to_loss_msg(iid: int, window: LossWindow) -> LossMsg:
+    """The record the exporters carry, for one window of one generation."""
     return LossMsg(
         iid=iid,
-        ts_start=merged.ts_start,
-        ts_stop=merged.ts_stop,
-        lost_gen_0=counts.get(0, 0),
-        lost_gen_1=counts.get(1, 0),
-        lost_gen_2=counts.get(2, 0),
-        lost_pause_gen_0=pauses.get(0, 0),
-        lost_pause_gen_1=pauses.get(1, 0),
-        lost_pause_gen_2=pauses.get(2, 0),
+        gen=window.gen,
+        ts_start=window.ts_start,
+        ts_stop=window.ts_stop,
+        lost_count=window.lost_count,
+        lost_pause_ns=window.lost_pause_ns,
     )
 
 

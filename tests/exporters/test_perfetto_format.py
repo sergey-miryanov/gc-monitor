@@ -885,7 +885,7 @@ class TestLossTrackDescriptor:
         return descriptors
 
     def _msg(self, iid: int = 0) -> LossMsg:
-        return LossMsg(iid=iid, ts_start=1_000, ts_stop=2_000, lost_gen_0=1, lost_pause_gen_0=200)
+        return LossMsg(iid=iid, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
 
     def _loss_descriptors(self, descriptors: list[bytes]) -> list[TrackDescriptor]:
         parsed = [parse_track_descriptor(d) for d in descriptors]

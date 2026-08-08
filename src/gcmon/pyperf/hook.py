@@ -114,11 +114,8 @@ def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> Non
                 if ring not in newest or item.collections > newest[ring].collections:
                     newest[ring] = item
             elif is_loss(item):
-                counts = (item.lost_gen_0, item.lost_gen_1, item.lost_gen_2)
-                pauses = (item.lost_pause_gen_0, item.lost_pause_gen_1, item.lost_pause_gen_2)
-                for gen, (count, pause_ns) in enumerate(zip(counts, pauses, strict=True)):
-                    seen_count, seen_pause = lost.get((pid, gen), (0, 0))
-                    lost[(pid, gen)] = (seen_count + count, seen_pause + pause_ns)
+                seen_count, seen_pause = lost.get((pid, item.gen), (0, 0))
+                lost[(pid, item.gen)] = (seen_count + item.lost_count, seen_pause + item.lost_pause_ns)
 
     for (pid, iid, gen), record in newest.items():
         stats.record_lifetime(pid, iid, gen, record.collections, record.duration)

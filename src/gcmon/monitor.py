@@ -13,7 +13,7 @@ from .loss import (
     KeyAccumulator,
     LossWindow,
     confirmed_by_interpreter,
-    merge_windows,
+    stack_order,
     to_loss_msg,
 )
 from .poll_status import PollStatus
@@ -110,8 +110,8 @@ class EventsMonitor:
         # One bound per interpreter, not one per ring: a bulk read covers every
         # generation at once, so each of them is confirmed up to the newest
         # record any of them returned. Every window this poll opens for an
-        # interpreter therefore shares that left edge, which is what keeps the
-        # merged spans nesting rather than crossing.
+        # interpreter therefore shares that left edge, which is what makes the
+        # spans nest rather than cross.
         confirmed = confirmed_by_interpreter(cursors)
 
         # Slot order is not time order: the batch arrives rotated around the
@@ -141,17 +141,19 @@ class EventsMonitor:
             fresh.extend(run)
 
         # A window runs to the next record on its own key, the last thing the
-        # two polls prove about that key, and it draws at that full width. The
-        # span is a bound on where the missing records are, not a claim about
-        # each one, so every number on it stays the counters' own. It can cover
-        # a collection of another generation that gcmon did observe; that one
-        # is drawn on the interpreter's row above, and a reader narrows the
-        # span from it.
+        # two polls prove about that key, and it draws at that full width, one
+        # span per generation. The span is a bound on where the missing records
+        # are, not a claim about each one, so every number on it stays the
+        # counters' own. It can cover a collection of another generation that
+        # gcmon did observe; that one is drawn on the interpreter's row above,
+        # and a reader narrows the span from it.
         for iid, opened in windows.items():
-            # Every window that can overlap another opened in this same poll,
-            # so merging here is enough to keep the loss track laminar.
-            for merged in merge_windows(opened):
-                self._exporter.add_loss_event(pid, to_loss_msg(iid, merged))
+            # Widest first: the generations share a row, the row is a stack,
+            # and they all open at this poll's confirmation point. `groupby`
+            # walked them narrowest-generation-first, which is not the same
+            # thing and is silently wrong. See `stack_order`.
+            for window in stack_order(opened):
+                self._exporter.add_loss_event(pid, to_loss_msg(iid, window))
 
         # One interpreter's generations share a track, so they go out in time
         # order. Two interpreters share no track and collect concurrently, so

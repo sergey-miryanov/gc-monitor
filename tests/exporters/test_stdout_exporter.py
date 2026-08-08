@@ -148,7 +148,7 @@ class TestStdoutLossRecords:
     against later."""
 
     def _loss(self) -> LossMsg:
-        return LossMsg(iid=3, ts_start=1_000, ts_stop=9_000, lost_gen_0=76, lost_pause_gen_0=8_100_000)
+        return LossMsg(iid=3, gen=1, ts_start=1_000, ts_stop=9_000, lost_count=76, lost_pause_ns=8_100_000)
 
     def _emit(self, capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
         exporter = StdoutExporter()
@@ -167,9 +167,9 @@ class TestStdoutLossRecords:
     def test_it_carries_the_counts_and_the_pause(self, capsys: pytest.CaptureFixture[str]) -> None:
         data = self._emit(capsys)
 
-        assert data["lost_gen_0"] == 76
-        assert data["lost_pause_gen_0"] == 8_100_000
-        assert data["lost_gen_1"] == 0
+        assert data["gen"] == 1
+        assert data["lost_count"] == 76
+        assert data["lost_pause_ns"] == 8_100_000
 
     def test_it_is_tagged_with_the_loss_tid(self, capsys: pytest.CaptureFixture[str]) -> None:
         """The same sentinel the trace formats use, so a stream and a capture

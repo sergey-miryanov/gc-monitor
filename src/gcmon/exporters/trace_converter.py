@@ -297,11 +297,9 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     return events
 
 
-_GENERATIONS = (0, 1, 2)
-
-
 def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
-    """One ``GC Loss`` slice covering an interval gcmon could not observe.
+    """One ``GC Loss (gen=N)`` slice covering an interval gcmon could not
+    observe on one generation's ring.
 
     Drawn as the whole window, because that is what is known: the records are
     gone and nothing says where inside it they ran. A bar sized to the lost
@@ -310,27 +308,31 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     pause sum rides in the args instead, where it reads as a magnitude rather
     than as a position.
 
+    Named for its generation the way ``GC Pause (gen={gen})`` is, so each one
+    keeps a stable colour of its own — Perfetto hashes the slice name. A poll
+    blind in all three generations draws three of these, nested inside one
+    another on the interpreter's loss row, and the row says which generation
+    went blind and for how long rather than only that gcmon went blind.
+
     On interpreter *iid*'s loss track, not among its collections. A window can
     span an observed collection of another generation, so this would cross the
     slices on a thread track; a row of its own also keeps what is
-    reconstructed apart from what was measured. Generations that lost nothing
-    are left out of the args.
+    reconstructed apart from what was measured.
     """
     tid = loss_tid(item.iid)
-    counts = (item.lost_gen_0, item.lost_gen_1, item.lost_gen_2)
-    pauses = (item.lost_pause_gen_0, item.lost_pause_gen_1, item.lost_pause_gen_2)
-
-    args: dict[str, int] = {"iid": item.iid}
-    for gen in _GENERATIONS:
-        if counts[gen]:
-            args[f"lost_gen_{gen}"] = counts[gen]
-            args[f"lost_pause_gen_{gen}"] = pauses[gen]
-    args["lost_total"] = sum(counts)
-    args["lost_pause_total"] = sum(pauses)
+    gen = item.gen
+    name = f"GC Loss (gen={gen})"
+    category = f"gc.loss(gen={gen})"
+    args: dict[str, int] = {
+        "iid": item.iid,
+        "generation": gen,
+        "lost_count": item.lost_count,
+        "lost_pause_ns": item.lost_pause_ns,
+    }
 
     return [
-        begin_event(pid, tid, "GC Loss", "gc.loss", item.ts_start, args),
-        end_event(pid, tid, "GC Loss", "gc.loss", item.ts_stop),
+        begin_event(pid, tid, name, category, item.ts_start, args),
+        end_event(pid, tid, name, category, item.ts_stop),
     ]
 
 

@@ -559,7 +559,13 @@ class TestConvertToTraceFormatWithInstant:
 
 class TestConvertLoss:
     def _msg(self, **kw: int) -> LossMsg:
-        return LossMsg(iid=kw.pop("iid", 0), ts_start=kw.pop("ts_start", 1_000), ts_stop=kw.pop("ts_stop", 2_000), **kw)
+        return LossMsg(
+            iid=kw.pop("iid", 0),
+            gen=kw.pop("gen", 0),
+            ts_start=kw.pop("ts_start", 1_000),
+            ts_stop=kw.pop("ts_stop", 2_000),
+            **kw,
+        )
 
     def _pair(self, msg: LossMsg, pid: int = 42) -> tuple[BeginEvent, EndEvent]:
         begin, end = convert_loss_to_trace_format(pid, msg)
@@ -571,18 +577,21 @@ class TestConvertLoss:
         """What is known is the interval, not where inside it the records
         ran. A bar sized to the pause would put all of the uncertainty at the
         window's left edge."""
-        begin, end = self._pair(self._msg(lost_gen_0=1, lost_pause_gen_0=200))
+        begin, end = self._pair(self._msg(lost_count=1, lost_pause_ns=200))
 
-        assert (begin.name, begin.ts) == ("GC Loss", 1_000)
+        assert (begin.name, begin.ts) == ("GC Loss (gen=0)", 1_000)
         assert end.ts == 2_000
 
-    def test_the_pause_it_swallowed_rides_in_the_args(self) -> None:
-        begin, _ = self._pair(self._msg(lost_gen_0=2, lost_pause_gen_0=200, lost_gen_1=1, lost_pause_gen_1=300))
+    def test_the_name_and_category_carry_the_generation(self) -> None:
+        """Mirroring `GC Pause (gen={gen})`, which is what gives each
+        generation a stable colour: Perfetto hashes the slice name."""
+        begin, end = self._pair(self._msg(gen=2, lost_count=1))
 
-        assert begin.args["lost_pause_total"] == 500
+        assert (begin.name, begin.cat) == ("GC Loss (gen=2)", "gc.loss(gen=2)")
+        assert (end.name, end.cat) == ("GC Loss (gen=2)", "gc.loss(gen=2)")
 
     def test_it_lands_on_the_interpreters_loss_track(self) -> None:
-        begin, end = self._pair(self._msg(iid=2, lost_gen_0=1, lost_pause_gen_0=200))
+        begin, end = self._pair(self._msg(iid=2, lost_count=1, lost_pause_ns=200))
 
         assert begin.tid == loss_tid(2)
         assert end.tid == loss_tid(2)
@@ -590,36 +599,35 @@ class TestConvertLoss:
     def test_the_track_is_the_interpreters_alone(self) -> None:
         """A flat sentinel would collapse every interpreter's loss onto one
         row, where windows from different interpreters can cross."""
-        first, _ = self._pair(self._msg(iid=0, lost_gen_0=1))
-        second, _ = self._pair(self._msg(iid=1, lost_gen_0=1))
+        first, _ = self._pair(self._msg(iid=0, lost_count=1))
+        second, _ = self._pair(self._msg(iid=1, lost_count=1))
 
         assert first.tid != second.tid
 
-    def test_silent_generations_are_left_out_of_the_args(self) -> None:
-        begin, _ = self._pair(self._msg(lost_gen_0=76, lost_pause_gen_0=81))
+    def test_the_args_describe_that_generation_alone(self) -> None:
+        begin, _ = self._pair(self._msg(gen=1, lost_count=76, lost_pause_ns=81))
 
         assert begin.args == {
             "iid": 0,
-            "lost_gen_0": 76,
-            "lost_pause_gen_0": 81,
-            "lost_total": 76,
-            "lost_pause_total": 81,
+            "generation": 1,
+            "lost_count": 76,
+            "lost_pause_ns": 81,
         }
 
     def test_a_batch_routes_loss_through_the_same_converter(self) -> None:
         """ADR-0007: Chrome, Perfetto and JSONL all read this one output, so
         `combine` reproduces loss spans from a JSONL capture."""
-        items: dict[int, list[TItem]] = {42: [create_mock_stats_item(iid=0), self._msg(lost_gen_0=76)]}
+        items: dict[int, list[TItem]] = {42: [create_mock_stats_item(iid=0), self._msg(lost_count=76)]}
 
         events = convert_to_trace_format(items)
 
-        assert any(isinstance(e, BeginEvent) and e.name == "GC Loss" for e in events)
+        assert any(isinstance(e, BeginEvent) and e.name == "GC Loss (gen=0)" for e in events)
 
     def test_loss_declares_no_thread(self) -> None:
         """A `ThreadMeta` at the loss tid would have Perfetto draw the track as
         `Thread -5`, an OS thread that does not exist. Its descriptor comes
         off the slices instead."""
-        items: dict[int, list[TItem]] = {42: [self._msg(iid=3, lost_gen_0=76)]}
+        items: dict[int, list[TItem]] = {42: [self._msg(iid=3, lost_count=76)]}
 
         events = convert_to_trace_format(items)
 

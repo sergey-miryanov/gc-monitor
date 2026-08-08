@@ -694,11 +694,17 @@ class TestJsonlLossRoundTrip:
     silently loses the spans the live run drew."""
 
     def _msg(self, **kw: int) -> LossMsg:
-        return LossMsg(iid=kw.pop("iid", 1), ts_start=kw.pop("ts_start", 5_000), ts_stop=kw.pop("ts_stop", 6_000), **kw)
+        return LossMsg(
+            iid=kw.pop("iid", 1),
+            gen=kw.pop("gen", 0),
+            ts_start=kw.pop("ts_start", 5_000),
+            ts_stop=kw.pop("ts_stop", 6_000),
+            **kw,
+        )
 
     def test_write_then_read(self, tmp_path: Path) -> None:
         path = tmp_path / "loss.jsonl"
-        msg = self._msg(lost_gen_0=76, lost_gen_1=5, lost_pause_gen_0=8_100_000)
+        msg = self._msg(gen=1, lost_count=5, lost_pause_ns=8_100_000)
 
         write_jsonl(path, {42: [msg]})
 
@@ -707,14 +713,14 @@ class TestJsonlLossRoundTrip:
     def test_written_on_the_loss_track(self, tmp_path: Path) -> None:
         path = tmp_path / "loss.jsonl"
 
-        write_jsonl(path, {42: [self._msg(lost_gen_0=76)]})
+        write_jsonl(path, {42: [self._msg(lost_count=76)]})
 
         assert json.loads(path.read_text(encoding="utf-8"))["tid"] == loss_tid(1)
 
     def test_normalize_shifts_a_loss_span(self) -> None:
         """It is neither a GC record nor an instant, so without a branch of its
         own it would keep raw timestamps while everything around it moved."""
-        msg = self._msg(ts_start=7_000, ts_stop=8_000, lost_gen_0=76)
+        msg = self._msg(ts_start=7_000, ts_stop=8_000, lost_count=76)
         item = create_mock_stats_item(ts_start=5_000, ts_stop=6_000)
 
         _normalize_jsonl_timestamps({1: [item, msg]})
@@ -725,7 +731,7 @@ class TestJsonlLossRoundTrip:
     def test_a_loss_span_can_set_the_origin(self) -> None:
         """A window opens before the record that closes it, so the earliest
         thing in a capture can be a loss span."""
-        msg = self._msg(ts_start=3_000, ts_stop=5_000, lost_gen_0=76)
+        msg = self._msg(ts_start=3_000, ts_stop=5_000, lost_count=76)
         item = create_mock_stats_item(ts_start=5_000, ts_stop=6_000)
 
         _normalize_jsonl_timestamps({1: [msg, item]})
@@ -736,17 +742,17 @@ class TestJsonlLossRoundTrip:
     def test_combine_carries_loss_into_a_chrome_trace(self, tmp_path: Path) -> None:
         source = tmp_path / "in.jsonl"
         out = tmp_path / "out.json"
-        write_jsonl(source, {42: [create_mock_stats_item(iid=1), self._msg(lost_gen_0=76)]})
+        write_jsonl(source, {42: [create_mock_stats_item(iid=1), self._msg(lost_count=76)]})
 
         combine_files([source], out, input_format="jsonl", output_format="chrome")
 
         names = {e["name"] for e in json.loads(out.read_text(encoding="utf-8"))}
-        assert "GC Loss" in names
+        assert "GC Loss (gen=0)" in names
 
     def test_combine_jsonl_to_jsonl_keeps_the_span(self, tmp_path: Path) -> None:
         source = tmp_path / "in.jsonl"
         out = tmp_path / "out.jsonl"
-        msg = self._msg(lost_gen_0=76)
+        msg = self._msg(lost_count=76)
         write_jsonl(source, {42: [msg]})
 
         combine_files([source], out, input_format="jsonl", output_format="jsonl")

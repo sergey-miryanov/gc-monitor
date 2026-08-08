@@ -19,7 +19,6 @@ __all__ = [
     "has_deduce_unreachable",
     "has_delete_garbage",
     "has_finalize_garbage",
-    "has_gen",
     "has_handle_resurrected",
     "has_handle_weakrefs",
     "has_incremental",
@@ -99,14 +98,11 @@ class TInstantMsg(Protocol):
 
 class TLossMsg(Protocol):
     iid: int
+    gen: int
     ts_start: int
     ts_stop: int
-    lost_gen_0: int
-    lost_gen_1: int
-    lost_gen_2: int
-    lost_pause_gen_0: int
-    lost_pause_gen_1: int
-    lost_pause_gen_2: int
+    lost_count: int
+    lost_pause_ns: int
 
 
 TMapping = Mapping[str, str | int | float]
@@ -151,23 +147,16 @@ def has_delete_garbage(item: object) -> TypeGuard[TDeleteGarbageInfo]:
     return getattr(item, "ts_delete_garbage_start", None) is not None
 
 
-def has_gen(item: object) -> TypeGuard[TGCStatsInfo]:
-    """Literally: does this object carry a ``gen``? Not a record-type test —
-    ask ``is_gc_stats`` for that, and see why it no longer asks this."""
-    return hasattr(item, "gen")
-
-
 def is_gc_stats(item: object) -> TypeGuard[TGCStatsInfo]:
     """A GC record is the one record type built around ``collections``.
 
-    Not around ``gen``: a loss window can be attributed to a generation, so
-    the loss record is free to grow a ``gen`` of its own, and on that day
-    every loss record would answer to a ``gen``-based guard. Call sites do
-    not agree on an order — ``_replay`` asks this before ``is_loss``, the
-    converters ask ``is_loss`` first — so the same record would take a
-    different branch depending on who asked. ``collections`` cannot collide:
-    a loss window counts records that were never read, and names that
-    counter ``lost_from``.
+    Not around ``gen``: a loss window is attributed to one generation and the
+    loss record carries a ``gen`` of its own, so a ``gen``-based guard claims
+    both record types. Call sites do not agree on an order — ``_replay`` asks
+    this before ``is_loss``, the converters ask ``is_loss`` first — so the
+    same record would take a different branch depending on who asked.
+    ``collections`` cannot collide: a loss record counts records that were
+    never read, and names that counter ``lost_count``.
     """
     return hasattr(item, "collections")
 
@@ -177,7 +166,7 @@ def is_instant(item: object) -> TypeGuard[TInstantMsg]:
 
 
 def is_loss(item: object) -> TypeGuard[TLossMsg]:
-    return hasattr(item, "lost_gen_0")
+    return hasattr(item, "lost_count")
 
 
 def to_mapping(item: TItem) -> TMapping:
@@ -191,14 +180,11 @@ def to_mapping(item: TItem) -> TMapping:
     if is_loss(item):
         return {
             "iid": item.iid,
+            "gen": item.gen,
             "ts_start": item.ts_start,
             "ts_stop": item.ts_stop,
-            "lost_gen_0": item.lost_gen_0,
-            "lost_gen_1": item.lost_gen_1,
-            "lost_gen_2": item.lost_gen_2,
-            "lost_pause_gen_0": item.lost_pause_gen_0,
-            "lost_pause_gen_1": item.lost_pause_gen_1,
-            "lost_pause_gen_2": item.lost_pause_gen_2,
+            "lost_count": item.lost_count,
+            "lost_pause_ns": item.lost_pause_ns,
         }
 
     if is_gc_stats(item):
