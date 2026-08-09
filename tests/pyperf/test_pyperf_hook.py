@@ -3,7 +3,7 @@ import os
 import sys
 from collections.abc import Callable, Generator, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, override
 from unittest.mock import Mock, patch
 
 import pytest
@@ -137,6 +137,7 @@ class _RecordingStats(StreamingStats):
         self.updated: list[TGCStatsInfo] = []
         self.losses: list[tuple[int, int, int, int]] = []
 
+    @override
     def update(self, pid: int, item: TGCStatsInfo) -> None:
         self.updated.append(item)
         if is_loss(item):
@@ -147,6 +148,7 @@ class _RecordingStats(StreamingStats):
             return
         super().update(pid, item)
 
+    @override
     def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
         self.losses.append((pid, gen, lost_count, lost_pause_ns))
         super().record_loss(pid, gen, lost_count, lost_pause_ns)
