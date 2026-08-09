@@ -103,6 +103,7 @@ class TLossMsg(Protocol):
     ts_stop: int
     lost_count: int
     lost_pause_ns: int
+    lost_from: int
 
 
 TMapping = Mapping[str, str | int | float]
@@ -183,6 +184,9 @@ def to_mapping(item: TItem) -> TMapping:
             "gen": item.gen,
             "ts_start": item.ts_start,
             "ts_stop": item.ts_stop,
+            # `lost_from` alone: the far end is derived, and a stored pair
+            # could come back out of step with `lost_count`.
+            "lost_from": item.lost_from,
             "lost_count": item.lost_count,
             "lost_pause_ns": item.lost_pause_ns,
         }

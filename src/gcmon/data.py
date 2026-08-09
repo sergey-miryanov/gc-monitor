@@ -49,6 +49,14 @@ class LossMsg(msgspec.Struct):
     row, so each generation keeps its own width and its own counts. Carries
     neither ``collections`` nor ``type``, so ``is_gc_stats`` and ``is_instant``
     both reject it; ``lost_count`` is the field that claims it.
+
+    ``lost_from`` names the first collection the window is missing, so the
+    record says *which* collections went unread and not only how many. The far
+    end is :func:`lost_to`, derived rather than stored: two stored ends could
+    disagree with the count, and the count is what ``--stats`` sums. Zero means
+    a producer that predates the field, the one value no counter takes — this
+    is the record JSONL and ``gcmon combine`` carry, so it has to decode from
+    older captures.
     """
 
     iid: int
@@ -57,6 +65,7 @@ class LossMsg(msgspec.Struct):
     ts_stop: int
     lost_count: int = 0
     lost_pause_ns: int = 0
+    lost_from: int = 0
 
 
 def from_mapping(data: TMapping) -> GCStatsInfo | InstantMsg | LossMsg:
@@ -84,3 +93,14 @@ def dur_to_ms(dur_ns: float) -> float:
 def secs_to_ns(dur_s: float) -> int:
     """Convert duration from seconds to nanoseconds"""
     return round(dur_s * 1_000_000_000)
+
+
+def lost_to(lost_from: int, lost_count: int) -> int:
+    """The last collection a loss window is missing, counting both ends.
+
+    Derived and never stored, so the range cannot drift from the count it was
+    cut to: ``lost_from`` through here inclusive is exactly ``lost_count``
+    counters. That identity is what lets every collection on a ring be charged
+    to one drawn ``GC Pause`` slice or to one loss span and to nothing else.
+    """
+    return lost_from + lost_count - 1

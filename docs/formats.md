@@ -72,6 +72,17 @@ Each slice carries:
 | `generation` | Generation whose ring overwrote them |
 | `lost_count` | Collections of that generation that ran unobserved in this interval |
 | `lost_pause_ns` | **Read this for the magnitude.** Pause time those collections took, in nanoseconds — exact, from the target's own counter |
+| `collections_from` | First collection the ring overwrote, on that generation's `collections` counter |
+| `collections_to` | Last one, inclusive. `collections_to - collections_from + 1` is `lost_count` |
+
+**The range says *which* collections went missing, not just how many.** gcmon finds
+the gap by subtracting two of the ring's own cumulative counters, so both ends are
+already known: a bar reading `lost_count = 19` also reads `#413` through `#431`.
+Unlike the width, the range is not uncertainty — the collections in it are named, and
+the collections outside it are on the row above as `GC Pause` slices. That makes the
+whole reconstruction checkable: between the first and last record gcmon observed on a
+ring, every collection is either drawn as a `GC Pause` slice or covered by exactly one
+loss span's range. None is counted twice and none is unaccounted for.
 
 Where a window brackets a collection gcmon did observe, the slice is drawn straight
 over it. No lost record can have run during that collection, since an interpreter
@@ -153,8 +164,8 @@ interval per generation, alongside the GC events. A loss record carries a `gen`
 like a GC event does, but no `collections`:
 
 ```jsonl
-{"pid": 12345, "tid": -2, "iid": 0, "gen": 0, "ts_start": 1700000001500000, "ts_stop": 1700000098000000, "lost_count": 9, "lost_pause_ns": 57450000}
-{"pid": 12345, "tid": -2, "iid": 0, "gen": 1, "ts_start": 1700000001500000, "ts_stop": 1700000060000000, "lost_count": 1, "lost_pause_ns": 8100000}
+{"pid": 12345, "tid": -2, "iid": 0, "gen": 0, "ts_start": 1700000001500000, "ts_stop": 1700000098000000, "lost_from": 413, "lost_count": 9, "lost_pause_ns": 57450000}
+{"pid": 12345, "tid": -2, "iid": 0, "gen": 1, "ts_start": 1700000001500000, "ts_stop": 1700000060000000, "lost_from": 27, "lost_count": 1, "lost_pause_ns": 8100000}
 ```
 
 | Field | Description |
@@ -163,8 +174,15 @@ like a GC event does, but no `collections`:
 | `iid` | Interpreter the records were lost from |
 | `gen` | Generation whose ring overwrote them |
 | `ts_start`, `ts_stop` | The blind interval (nanoseconds). Its width is uncertainty, not pause time |
+| `lost_from` | First collection the ring overwrote, on that generation's `collections` counter |
 | `lost_count` | Collections of that generation that ran unobserved in the interval |
 | `lost_pause_ns` | Pause time those collections took, in nanoseconds |
+
+Only the near end of the range is written. The far end is `lost_from + lost_count - 1`,
+which is what the `collections_to` arg on a `GC Loss` slice carries; storing both would
+let the two disagree, and `lost_count` is the number `--stats` sums. `lost_from` is
+optional on the way in and defaults to `0`, a value no `collections` counter takes, so a
+capture written before the field existed still reads back.
 
 Records written by one poll for one interpreter share a `ts_start` and are written
 widest first, which is the order the trace formats need to nest them on the loss

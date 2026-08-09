@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 
+from ..data import lost_to
 from ..protocol import (
     TGCStatsInfo,
     TItem,
@@ -318,6 +319,13 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     span an observed collection of another generation, so this would cross the
     slices on a thread track; a row of its own also keeps what is
     reconstructed apart from what was measured.
+
+    ``collections_from`` and ``collections_to`` name the missing collections on
+    that generation's counter, both ends included. Where the bar's width is
+    uncertainty, the range is not: it comes from subtracting two of the ring's
+    own cumulative counters, so it says exactly which collections the ring
+    overwrote and lets a reader check the span against the ``GC Pause`` slices
+    on the row above rather than take the count on faith.
     """
     tid = loss_tid(item.iid)
     gen = item.gen
@@ -328,6 +336,8 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
         "generation": gen,
         "lost_count": item.lost_count,
         "lost_pause_ns": item.lost_pause_ns,
+        "collections_from": item.lost_from,
+        "collections_to": lost_to(item.lost_from, item.lost_count),
     }
 
     return [

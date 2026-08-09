@@ -22,6 +22,7 @@
 - Report per-generation totals since the interpreter started, as `gc_pause_gen_N_lifetime_count` / `_lifetime_sum` and a `--stats` footer
 - Add `EventsExporter.add_loss_event()`, the `LossMsg` record type, and `loss_tid()` / `loss_iid()` for the `tid = -2 - iid` sentinel
 - Carry loss records through Chrome, Perfetto, JSONL and stdout; `gcmon combine` reproduces the spans from a JSONL capture
+- Name the collections a `GC Loss` span is missing: `collections_from` / `collections_to` on the slice, `lost_from` on the record. Every collection between the first and last observed on a ring is now either a drawn `GC Pause` slice or inside exactly one loss span's range
 
 ### Bugfixes
 

@@ -8,13 +8,14 @@ actually happened. The capture fixture from ``test_monitor_cursor`` carries
 no durations, so it checks gap counts against real slot data instead.
 """
 
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from itertools import groupby, pairwise
 
 import msgspec.structs
 import pytest
 
-from gcmon.data import GCStatsInfo, secs_to_ns
+from gcmon.data import GCStatsInfo, lost_to, secs_to_ns
 from gcmon.loss import (
     KeyAccumulator,
     LossWindow,
@@ -163,12 +164,16 @@ class Ingested:
 
     Mirrors ``EventsMonitor._ingest``, which emits each poll's windows rather
     than retaining them, so a test that wants to look at a window has to
-    collect it on the way past.
+    collect it on the way past. ``observed`` retains the same way, standing in
+    for the ``fresh`` list ``_ingest`` hands to the exporter: those are the
+    records that become drawn ``GC Pause`` slices, and the partition needs to
+    know which counters they were.
     """
 
     def __init__(self) -> None:
         self.cursors: dict[tuple[int, int], KeyAccumulator] = {}
         self.windows: dict[tuple[int, int], list[LossWindow]] = {}
+        self.observed: dict[tuple[int, int], list[int]] = {}
 
     def poll(self, batch: Sequence[GCStatsInfo]) -> dict[int, list[LossWindow]]:
         """Fold one whole ring buffer; return the windows it opened, by iid.
@@ -195,6 +200,9 @@ class Ingested:
             if window is not None:
                 opened.setdefault(key[0], []).append(window)
                 self.windows.setdefault(key, []).append(window)
+            # `_ingest` does `fresh.extend(run)` here, and every record in
+            # `fresh` is drawn.
+            self.observed.setdefault(key, []).extend(event.collections for event in run)
 
         return opened
 
@@ -216,6 +224,10 @@ class Ingested:
     def windows_for(self, key: tuple[int, int]) -> list[LossWindow]:
         return self.windows.get(key, [])
 
+    def observed_for(self, key: tuple[int, int]) -> list[int]:
+        """The counters of the records that reached the exporter on this key."""
+        return self.observed.get(key, [])
+
 
 def observe_all(batches: Iterable[Sequence[GCStatsInfo]]) -> Ingested:
     ingested = Ingested()
@@ -230,9 +242,21 @@ def true_pause_ns(events: Sequence[GCStatsInfo], first: int, last: int) -> int:
 
 
 def window(
-    gen: int = 0, ts_start: int = 0, ts_stop: int = 0, lost_count: int = 1, lost_pause_ns: int = 0
+    gen: int = 0,
+    ts_start: int = 0,
+    ts_stop: int = 0,
+    lost_count: int = 1,
+    lost_pause_ns: int = 0,
+    lost_from: int = 1,
 ) -> LossWindow:
-    return LossWindow(ts_start=ts_start, ts_stop=ts_stop, gen=gen, lost_count=lost_count, lost_pause_ns=lost_pause_ns)
+    return LossWindow(
+        ts_start=ts_start,
+        ts_stop=ts_stop,
+        gen=gen,
+        lost_from=lost_from,
+        lost_count=lost_count,
+        lost_pause_ns=lost_pause_ns,
+    )
 
 
 def depths(windows: Sequence[LossWindow]) -> list[int]:
@@ -336,6 +360,31 @@ class TestGapDetection:
         assert gap is not None
         assert gap.lost_count == 1
         assert gap.lost_pause_ns == events[1].ts_stop - events[1].ts_start
+
+    def test_the_window_names_the_collections_it_is_missing(self, accumulator: KeyAccumulator) -> None:
+        """The gap is found by subtracting the ring's own counters, so both
+        bounds are in hand before the count is. Records 2, 3 and 4 were
+        overwritten: the window says so rather than saying "three of them"."""
+        events = build_run(6)
+        accumulator.observe_batch([events[0]])
+        gap = accumulator.observe_batch([events[4]])
+
+        assert gap is not None
+        assert (gap.lost_from, gap.lost_count) == (2, 3)
+        assert lost_to(gap.lost_from, gap.lost_count) == 4
+        assert [e.collections for e in events[1:4]] == [2, 3, 4]
+
+    def test_the_range_stops_short_of_the_records_that_bound_it(self, accumulator: KeyAccumulator) -> None:
+        """Both fences, in the smallest case that has them: the record before
+        the gap and the record after it were observed and are drawn, so a range
+        reaching either would charge a collection twice."""
+        events = build_run(3)
+        accumulator.observe_batch([events[0]])
+        gap = accumulator.observe_batch([events[2]])
+
+        assert gap is not None
+        assert gap.lost_from == events[0].collections + 1
+        assert lost_to(gap.lost_from, gap.lost_count) == events[2].collections - 1
 
     def test_the_window_is_bounded_by_observed_records(self, accumulator: KeyAccumulator) -> None:
         events = build_run(6)
@@ -590,6 +639,98 @@ class TestNoSpanOverstatesItsPause:
         assert any(s.ts_start < e.ts_start and e.ts_stop < s.ts_stop for s in spans for e in observed.values())
 
 
+def charges(ingested: Ingested, key: tuple[int, int]) -> Counter[int]:
+    """Every collection the trace claims on one ring, and how often.
+
+    A reader adding a ring up has two sources: the ``GC Pause`` slices, one
+    per record that reached the exporter, and the ``GC Loss`` spans, each
+    naming a range of counters. Charging a counter to both, or to two spans,
+    double-counts it; charging it to neither loses it with nothing on screen
+    to say so.
+    """
+    charged: Counter[int] = Counter(ingested.observed_for(key))
+    for w in ingested.windows_for(key):
+        charged.update(range(w.lost_from, lost_to(w.lost_from, w.lost_count) + 1))
+    return charged
+
+
+class TestTheRingSpanIsPartitioned:
+    """Every collection between the first and last gcmon observed on a ring is
+    either drawn as a ``GC Pause`` slice or inside exactly one loss span's
+    range. No collection twice, none unaccounted for.
+
+    This is what ``lost_from`` buys, and it is the strongest statement
+    available about the loss arithmetic: the counts alone can only be checked
+    against themselves, whereas a partition is checked against the collections
+    the target actually performed. A fencepost anywhere — the near fence of a
+    range, its far fence, the count it was cut to — shows up here as an
+    overlap or a hole, and nothing else in the suite would notice.
+
+    Over a whole synthesised interpreter across several paces rather than one
+    fixture, because the property is about every ring under every rate: the
+    three generations lose records over stretches that cross, and only a run
+    that fast makes a ring wrap at all.
+    """
+
+    @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
+    def test_every_collection_is_accounted_for_exactly_once(self, gap_ns: int, per_tick: int) -> None:
+        run = build_interleaved_run(2_000, gap_ns=gap_ns)
+
+        ingested = observe_all(interpreter_polls(run, per_tick))
+
+        for (iid, gen), acc in ingested.cursors.items():
+            # Ground truth: the collections the target really performed on this
+            # ring, over the stretch gcmon can speak for. What ran before the
+            # first observed record is outside the span, since nothing tells
+            # "ran before we attached" from "lost".
+            truth = {e.collections for e in run if e.gen == gen and acc.first <= e.collections <= acc.last}
+            charged = charges(ingested, (iid, gen))
+
+            assert truth
+            assert set(charged) == truth, f"gen {gen} charges {set(charged) ^ truth} it should not"
+            assert [c for c in truth if charged[c] != 1] == [], f"gen {gen} charges a collection twice"
+
+    @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
+    def test_the_partition_has_loss_in_it_to_get_wrong(self, gap_ns: int, per_tick: int) -> None:
+        """Otherwise the check above would pass on a run that lost nothing,
+        where the observed records partition the span on their own and no
+        range is exercised at all."""
+        run = build_interleaved_run(2_000, gap_ns=gap_ns)
+
+        ingested = observe_all(interpreter_polls(run, per_tick))
+
+        assert any(ingested.windows_for(key) for key in ingested.cursors)
+        for key, acc in ingested.cursors.items():
+            assert sum(w.lost_count for w in ingested.windows_for(key)) == acc.lost_count
+
+    @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
+    def test_each_range_abuts_the_records_that_bound_it(self, gap_ns: int, per_tick: int) -> None:
+        """The fences, stated directly rather than as a consequence. A window
+        opens one counter past the last record gcmon saw before it and closes
+        one short of the first it saw after, and both of those are drawn."""
+        run = build_interleaved_run(2_000, gap_ns=gap_ns)
+
+        ingested = observe_all(interpreter_polls(run, per_tick))
+
+        for key, windows in ingested.windows.items():
+            seen = set(ingested.observed_for(key))
+            for w in windows:
+                assert w.lost_from - 1 in seen
+                assert lost_to(w.lost_from, w.lost_count) + 1 in seen
+
+    def test_the_capture_names_the_records_it_lost(self) -> None:
+        """The same partition on the verbatim two-poll capture, where the
+        counters are real. gen 0 ran 466 through 563 and gcmon saw 22 of
+        them."""
+        captured = observe_all([build_batch(POLL_0), build_batch(POLL_1)])
+
+        acc = captured[(0, 0)]
+        gap = captured.windows_for((0, 0))[0]
+
+        assert (gap.lost_from, lost_to(gap.lost_from, gap.lost_count)) == (477, 552)
+        assert charges(captured, (0, 0)) == Counter(range(acc.first, acc.last + 1))
+
+
 class TestCaptureFixture:
     """Gap counts against the verbatim two-poll capture in test_monitor_cursor.
 
@@ -799,6 +940,14 @@ class TestToLossMsg:
 
         assert (msg.iid, msg.gen, msg.ts_start, msg.ts_stop) == (1, 1, 10, 99)
         assert (msg.lost_count, msg.lost_pause_ns) == (5, 7)
+
+    def test_the_range_survives_the_handover_to_the_exporters(self) -> None:
+        """The record is the only thing past this point: a window dropped here
+        would leave every span in the trace back to counting alone."""
+        msg = to_loss_msg(0, window(lost_from=413, lost_count=19))
+
+        assert msg.lost_from == 413
+        assert lost_to(msg.lost_from, msg.lost_count) == 431
 
     def test_a_capture_yields_one_record_per_generation(self, captured: Ingested) -> None:
         msgs = [to_loss_msg(0, w) for w in captured.spans()]

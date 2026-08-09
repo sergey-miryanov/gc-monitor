@@ -39,11 +39,20 @@ class LossWindow(msgspec.Struct):
     another generation that gcmon did observe. That collection is drawn on the
     interpreter's own row directly above, which is where a reader narrows the
     span from.
+
+    ``lost_from`` names the missing collections rather than just counting
+    them. The gap is found by subtracting two of the ring's own cumulative
+    counters, so both bounds are already in hand; keeping the near one costs a
+    field and makes the reconstruction checkable, since every collection
+    between the first and last gcmon observed on a ring then falls in exactly
+    one place — a drawn ``GC Pause`` slice, or one window's
+    ``lost_from``..:func:`lost_to <gcmon.data.lost_to>` range.
     """
 
     ts_start: int
     ts_stop: int
     gen: int
+    lost_from: int
     lost_count: int
     lost_pause_ns: int
 
@@ -107,7 +116,11 @@ class KeyAccumulator(msgspec.Struct):
             self.first_duration = first.duration
             return None
 
-        lost = first.collections - self.last - 1
+        # `last` is the newest counter this key returned, so the ring
+        # overwrote `last + 1` onward up to the one before `first`. Both fences
+        # are the target's own counters; neither is inferred from a timestamp.
+        lost_from = self.last + 1
+        lost = first.collections - lost_from
         if lost <= 0:
             return None
 
@@ -122,6 +135,7 @@ class KeyAccumulator(msgspec.Struct):
             ts_start=max(self.last_ts_stop, confirmed_ts),
             ts_stop=first.ts_start,
             gen=first.gen,
+            lost_from=lost_from,
             lost_count=lost,
             lost_pause_ns=max(0, spanned_ns - (first.ts_stop - first.ts_start)),
         )
@@ -208,6 +222,7 @@ def to_loss_msg(iid: int, window: LossWindow) -> LossMsg:
         gen=window.gen,
         ts_start=window.ts_start,
         ts_stop=window.ts_stop,
+        lost_from=window.lost_from,
         lost_count=window.lost_count,
         lost_pause_ns=window.lost_pause_ns,
     )

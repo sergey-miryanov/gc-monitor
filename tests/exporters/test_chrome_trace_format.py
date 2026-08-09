@@ -1,6 +1,7 @@
 """Tests for Chrome Trace Event format types and conversion utilities."""
 
 import msgspec
+import pytest
 from msgspec import structs
 
 from gcmon.data import GCStatsInfo, LossMsg
@@ -605,14 +606,36 @@ class TestConvertLoss:
         assert first.tid != second.tid
 
     def test_the_args_describe_that_generation_alone(self) -> None:
-        begin, _ = self._pair(self._msg(gen=1, lost_count=76, lost_pause_ns=81))
+        begin, _ = self._pair(self._msg(gen=1, lost_from=413, lost_count=76, lost_pause_ns=81))
 
         assert begin.args == {
             "iid": 0,
             "generation": 1,
             "lost_count": 76,
             "lost_pause_ns": 81,
+            "collections_from": 413,
+            "collections_to": 488,
         }
+
+    def test_the_args_name_the_missing_collections(self) -> None:
+        """Both ends, so the bar says *which* collections the ring overwrote.
+        The far one is derived from the count rather than carried, which is
+        what keeps the range and the count from ever disagreeing."""
+        begin, _ = self._pair(self._msg(lost_from=413, lost_count=19))
+
+        assert (begin.args["collections_from"], begin.args["collections_to"]) == (413, 431)
+
+    @pytest.mark.parametrize(("lost_from", "lost_count"), [(1, 1), (413, 19), (2, 76), (99, 2)])
+    def test_the_range_holds_exactly_the_collections_the_span_counts(self, lost_from: int, lost_count: int) -> None:
+        """A reader takes the count off one arg and the identities off the
+        other two. An off-by-one at either fence makes a bar that contradicts
+        itself, and both ends are inclusive, so the width is one more than the
+        difference."""
+        begin, _ = self._pair(self._msg(lost_from=lost_from, lost_count=lost_count))
+
+        args = begin.args
+        assert args["collections_to"] - args["collections_from"] + 1 == args["lost_count"]
+        assert args["collections_from"] == lost_from
 
     def test_a_batch_routes_loss_through_the_same_converter(self) -> None:
         """ADR-0007: Chrome, Perfetto and JSONL all read this one output, so
