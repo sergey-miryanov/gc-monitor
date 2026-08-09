@@ -497,3 +497,52 @@ class TestUndrawableWindowsInTheFooter:
         drawn = capsys.readouterr().out.splitlines()
 
         assert [line for line in held if "not drawn" not in line] == drawn
+
+
+class TestTheFooterNotesAreNumbered:
+    """Which notes appear depends on the run, so their order teaches a reader
+    nothing. The number is what separates one from the next once two of them
+    wrap across a narrow terminal.
+    """
+
+    def _notes(self, out: str) -> list[str]:
+        return [line for line in out.splitlines() if line[:1].isdigit()]
+
+    def test_every_note_present_is_numbered_in_order(self, capsys: pytest.CaptureFixture[str]) -> None:
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        stats.record_loss(1, 0, 7, 7_000_000)
+        stats.record_lifetime(1, 0, 0, 18, 0.02)
+        stats.record_undrawable(1, 0)
+
+        print_stats(stats)
+        notes = self._notes(capsys.readouterr().out)
+
+        assert [note.split(".", 1)[0] for note in notes] == ["1", "2", "3"]
+        assert "Coverage:" in notes[0]
+        assert "Since interpreter start" in notes[1]
+        assert "not drawn" in notes[2]
+
+    def test_a_lone_note_is_still_numbered(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Numbering that appeared only above some threshold would make the
+        footer's shape depend on its length, which is harder to scan than a
+        `1.` with nothing under it."""
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        stats.record_loss(1, 0, 7, 7_000_000)
+
+        print_stats(stats)
+        notes = self._notes(capsys.readouterr().out)
+
+        assert len(notes) == 1
+        assert notes[0].startswith("1. Coverage:")
+
+    def test_a_run_with_nothing_to_explain_numbers_nothing(self, capsys: pytest.CaptureFixture[str]) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+
+        print_stats(stats)
+
+        assert self._notes(capsys.readouterr().out) == []

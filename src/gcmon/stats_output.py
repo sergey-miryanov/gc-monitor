@@ -198,27 +198,39 @@ def _print_footer(stats: StreamingStats) -> None:
     gcmon losing data lowers `--rate` and changes nothing. It stays one line
     like the two above it, so the mechanism lives in ADR-0015 rather than
     here. That ADR also notes a run without ``--stats`` is told nothing.
+
+    The notes are numbered because which of them appear depends on the run,
+    so a reader cannot learn their order: the number is what separates one
+    from the next when two wrap across a narrow terminal. Numbering starts at
+    1 whatever the mix, and a lone note is still ``1.`` — a footer whose shape
+    changes with its length is harder to scan than one that repeats itself.
     """
     covered = [gen for gen in stats.GENS if stats.lost_count(None, gen)]
     lifetime = [gen for gen in stats.GENS if stats.lifetime_count(None, gen)]
     undrawn = [gen for gen in stats.GENS if stats.undrawable_count(None, gen)]
-    if not covered and not lifetime and not undrawn:
-        return
 
-    print("")
+    notes: list[str] = []
     if covered:
         parts = " ".join(
             f"gen {gen} {_coverage_cell(stats.coverage(None, gen), stats.lost_count(None, gen))}" for gen in covered
         )
-        print(f"Coverage: {parts}. Count and Sum read sampled/exact; percentiles are sampled and read high.")
+        notes.append(f"Coverage: {parts}. Count and Sum read sampled/exact; percentiles are sampled and read high.")
     if lifetime:
         parts = " ".join(
             f"gen {gen} {stats.lifetime_count(None, gen)} in {dur_to_ms(stats.lifetime_pause_ns(None, gen)):.3f} ms"
             for gen in lifetime
         )
-        print(f"Since interpreter start, outside the monitored window: {parts}.")
+        notes.append(f"Since interpreter start, outside the monitored window: {parts}.")
     if undrawn:
         parts = " ".join(f"gen {gen} {stats.undrawable_count(None, gen)}" for gen in undrawn)
-        print(
-            f"Loss spans not drawn: {parts} (start and end arrived reversed, from the target). Counts above are unaffected."
+        notes.append(
+            f"Loss spans not drawn: {parts} (start and end arrived reversed, from the target). "
+            "Counts above are unaffected."
         )
+
+    if not notes:
+        return
+
+    print("")
+    for number, note in enumerate(notes, start=1):
+        print(f"{number}. {note}")
