@@ -702,13 +702,44 @@ class TestJsonlLossRoundTrip:
             **kw,
         )
 
+    def test_the_line_carries_every_field(self, tmp_path: Path) -> None:
+        """Read off the wire rather than through `read_jsonl`, which would be
+        equally happy with a field gcmon writes and reads under one wrong name.
+        Every value is distinct, so a pair swapped in transit shows up."""
+        path = tmp_path / "loss.jsonl"
+
+        write_jsonl(path, {42: [self._msg(gen=1, lost_from=413, lost_count=5, lost_pause_ns=8_100_000)]})
+
+        assert json.loads(path.read_text(encoding="utf-8")) == {
+            "pid": 42,
+            "tid": loss_tid(1),
+            "iid": 1,
+            "gen": 1,
+            "ts_start": 5_000,
+            "ts_stop": 6_000,
+            "lost_from": 413,
+            "lost_count": 5,
+            "lost_pause_ns": 8_100_000,
+        }
+
     def test_write_then_read(self, tmp_path: Path) -> None:
         path = tmp_path / "loss.jsonl"
-        msg = self._msg(gen=1, lost_count=5, lost_pause_ns=8_100_000)
+        msg = self._msg(gen=1, lost_from=413, lost_count=5, lost_pause_ns=8_100_000)
 
         write_jsonl(path, {42: [msg]})
 
         assert read_jsonl(path) == {42: [msg]}
+
+    def test_the_range_survives_into_the_drawing(self, tmp_path: Path) -> None:
+        """`lost_from` earns its place on the wire by naming collections in the
+        trace. A record that came back with it defaulted still draws a span, so
+        the args are where the loss of the field would be visible."""
+        path = tmp_path / "loss.jsonl"
+        write_jsonl(path, {42: [self._msg(lost_from=413, lost_count=19)]})
+
+        args = [e.args for e in convert_jsonl_to_trace_format(path) if e.ph == "B"]
+
+        assert [(a["collections_from"], a["collections_to"]) for a in args] == [(413, 431)]
 
     def test_written_on_the_loss_track(self, tmp_path: Path) -> None:
         path = tmp_path / "loss.jsonl"
@@ -729,15 +760,36 @@ class TestJsonlLossRoundTrip:
         assert item.ts_start == 0
 
     def test_a_loss_span_can_set_the_origin(self) -> None:
-        """A window opens before the record that closes it, so the earliest
-        thing in a capture can be a loss span."""
+        """A window opens at the record before the gap and closes at the one
+        after it, so a capture whose first poll already lost records starts on
+        a loss span. If the origin were taken from GC records alone every
+        timestamp in the combined trace would be off by the difference, and
+        the span itself would go negative."""
         msg = self._msg(ts_start=3_000, ts_stop=5_000, lost_count=76)
         item = create_mock_stats_item(ts_start=5_000, ts_stop=6_000)
 
         _normalize_jsonl_timestamps({1: [msg, item]})
 
-        assert msg.ts_start == 0
-        assert item.ts_start == 2_000
+        assert (msg.ts_start, msg.ts_stop) == (0, 2_000)
+        assert (item.ts_start, item.ts_stop) == (2_000, 3_000)
+
+    def test_combine_normalizes_from_a_loss_span(self, tmp_path: Path) -> None:
+        """The same claim down the path an operator takes, and read back off
+        the trace rather than off the structs `combine` mutated in place."""
+        source = tmp_path / "in.jsonl"
+        out = tmp_path / "out.json"
+        msg = self._msg(ts_start=3_000_000, ts_stop=5_000_000, lost_count=76)
+        write_jsonl(source, {42: [msg, create_mock_stats_item(iid=1, ts_start=5_000_000, ts_stop=6_000_000)]})
+
+        combine_files([source], out, input_format="jsonl", output_format="chrome", normalize=True)
+
+        events = json.loads(out.read_text(encoding="utf-8"))
+        assert [(e["name"], e["ph"], e["ts"]) for e in events if e["name"].startswith("GC ")] == [
+            ("GC Loss (gen=0)", "B", 0),
+            ("GC Loss (gen=0)", "E", 2_000),
+            ("GC Pause (gen=0)", "B", 2_000),
+            ("GC Pause (gen=0)", "E", 3_000),
+        ]
 
     def test_combine_carries_loss_into_a_chrome_trace(self, tmp_path: Path) -> None:
         source = tmp_path / "in.jsonl"
@@ -758,3 +810,79 @@ class TestJsonlLossRoundTrip:
         combine_files([source], out, input_format="jsonl", output_format="jsonl")
 
         assert read_jsonl(out) == {42: [msg]}
+
+
+class TestAnOldFormatLossRecord:
+    """A capture from before the record went one-per-generation.
+
+    That gcmon flattened three generations into `lost_gen_0`..`lost_gen_2` and
+    wrote no `lost_count`, which is the field `from_mapping` now discriminates
+    on. Such a line therefore falls through to the GC-record branch, and the
+    danger is that it lands there quietly: an interval gcmon was blind in would
+    be read back as a collection it observed, and counted into `--stats` and
+    drawn on an interpreter's own row as a `GC Pause`.
+
+    It cannot. A GC record is built around counters a loss record never had —
+    `gen`, `collections`, `heap_size` — so the conversion fails on the first of
+    them. Pinned here because "it happens to be missing a required field" is a
+    property of the two shapes, not a decision anything states, and a later
+    default on `GCStatsInfo.gen` would turn the failure into a silent misread.
+    """
+
+    def _line(self, **kw: int) -> dict[str, int]:
+        return {
+            "pid": 42,
+            "tid": loss_tid(1),
+            "iid": 1,
+            "ts_start": 5_000,
+            "ts_stop": 6_000,
+            "lost_gen_0": kw.pop("lost_gen_0", 76),
+            "lost_gen_1": 5,
+            "lost_gen_2": 0,
+            "lost_pause_gen_0": 8_100_000,
+            "lost_pause_gen_1": 0,
+            "lost_pause_gen_2": 0,
+            **kw,
+        }
+
+    def _write(self, tmp_path: Path) -> Path:
+        path = tmp_path / "old.jsonl"
+        path.write_bytes(msgspec.json.encode(self._line()) + b"\n")
+        return path
+
+    def test_it_is_not_read_as_a_collection(self) -> None:
+        with pytest.raises(msgspec.ValidationError) as excinfo:
+            json_to_item(self._line())
+
+        assert "gen" in str(excinfo.value)
+
+    def test_reading_the_file_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(msgspec.ValidationError):
+            read_jsonl(self._write(tmp_path))
+
+    def test_combine_refuses_the_capture(self, tmp_path: Path) -> None:
+        """The path an operator actually takes. Nothing here catches the error,
+        so `combine` stops rather than writing a trace with a phantom pause on
+        it."""
+        with pytest.raises(msgspec.ValidationError):
+            combine_files(
+                [self._write(tmp_path)],
+                tmp_path / "out.json",
+                input_format="jsonl",
+                output_format="chrome",
+            )
+
+    def test_a_capture_from_before_lost_from_still_combines(self, tmp_path: Path) -> None:
+        """The break is at `lost_count`, not at the whole record. A capture
+        written once the record was already per-generation but before
+        `lost_from` existed carries the discriminator, so it reads back with the
+        field defaulted to the zero no `collections` counter takes."""
+        source = tmp_path / "no_lost_from.jsonl"
+        line = {"pid": 42, "tid": loss_tid(1), "iid": 1, "gen": 1, "ts_start": 5_000, "ts_stop": 6_000}
+        source.write_bytes(msgspec.json.encode({**line, "lost_count": 5, "lost_pause_ns": 8_100_000}) + b"\n")
+        out = tmp_path / "out.json"
+
+        combine_files([source], out, input_format="jsonl", output_format="chrome")
+
+        args = [e["args"] for e in json.loads(out.read_text(encoding="utf-8")) if e["ph"] == "B"]
+        assert [(a["lost_count"], a["collections_from"]) for a in args] == [(5, 0)]

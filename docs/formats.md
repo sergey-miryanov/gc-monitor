@@ -184,12 +184,23 @@ let the two disagree, and `lost_count` is the number `--stats` sums. `lost_from`
 optional on the way in and defaults to `0`, a value no `collections` counter takes, so a
 capture written before the field existed still reads back.
 
-Records written by one poll for one interpreter share a `ts_start` and are written
-widest first, which is the order the trace formats need to nest them on the loss
-row.
+**Line order is part of the record.** The lines one poll writes for one interpreter
+share a `ts_start` and are written widest first, which is the order the trace formats
+need to nest them on the loss row. Nothing on a record says which span contains which,
+so a tool that rewrites a capture must keep the lines in the order it found them:
+reordering them draws every generation at another's width, in a trace that parses
+cleanly and reports nothing wrong.
 
 Tell the record types apart by field presence: a GC event has `collections`, a loss
 record has `lost_count`, an instant event has `type`. `gcmon combine` reads loss records
-back and reproduces the spans in Chrome or Perfetto output. `--normalize` shifts
-them with everything else, and a loss record can be the earliest thing in a
-capture, since a window opens before the record that closes it.
+back and reproduces the spans — same generations, same nesting, same counts — in Chrome
+or Perfetto output. `--normalize` shifts them with everything else, and a loss record can
+be the earliest thing in a capture, since a window opens before the record that closes
+it, so a run that lost records on its first poll takes its origin from one.
+
+Captures from before the record went one-per-generation are **not** readable. That gcmon
+flattened all three into `lost_gen_0`..`lost_gen_2` and wrote no `lost_count`, so the
+discriminator above does not claim the line and nothing else in it looks like a GC event
+either. `gcmon combine` stops on such a file with a decoding error naming the first
+field it could not find, rather than reading a blind interval back as a collection that
+was observed. Re-capture, or convert with the gcmon that wrote it.
