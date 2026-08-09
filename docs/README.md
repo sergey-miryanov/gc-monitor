@@ -22,4 +22,6 @@ how to read the result.
 | Page | What it covers |
 |---|---|
 | [adr/README.md](adr/README.md) | Architecture decision records — why the design looks the way it does |
+| [../specs/README.md](../specs/README.md) | Open work — what has been specified but not yet built, and the conventions a spec follows |
+| [agents/](agents/issue-tracker.md) | How agent skills work in this repo — issue tracker, triage labels, domain docs |
 | [RELEASE.md](RELEASE.md) | The release process |
