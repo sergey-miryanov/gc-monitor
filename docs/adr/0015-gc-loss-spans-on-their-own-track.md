@@ -14,14 +14,13 @@ overwrites records before anyone reads them, and the read itself gives no sign o
 capture this work was built against, gen 0 collected about 87 times per 100 ms tick against
 11 slots.
 
-Two cumulative fields make the loss measurable. `collections` counts what was missed, and
+Two cumulative fields make the loss measurable: `collections` counts what was missed, and
 `duration`, a running total of pause seconds, gives the pause time nobody saw. The gap between
 one poll's last counter and the next poll's first is an interval in which records were lost,
 with an exact count and an exact pause sum attached to it.
 
-Drawing that interval is where the decisions are. Nothing in the ring says where inside the
-interval the missing collections ran, and two generations of one interpreter can lose records
-across stretches that overlap.
+Nothing in the ring says where inside that interval the missing collections ran, and two
+generations of one interpreter can lose records across stretches that overlap.
 
 ## The arithmetic
 
@@ -62,7 +61,7 @@ exact_pause_ns == sampled_pause_ns + Σ lost_pause over all windows on the key
 That one assertion catches a fencepost error, a wrong window, and a `duration` that does not
 share a clock with the timestamps.
 
-Lifetime totals need no arithmetic. `collections` and `duration` are cumulative from interpreter
+Lifetime totals need no arithmetic: `collections` and `duration` are cumulative from interpreter
 start, and the chain survives the ring wrapping, because `gc_get_prev_stats` reads the immediate
 predecessor rather than the slot about to be overwritten: the record being destroyed has already
 handed its totals forward. So `lifetime_count = last` and
@@ -92,8 +91,8 @@ here without saying which generation went blind or for how long. The naming mirr
 `GC Pause({gen})`, which is also what gives each generation a stable colour: Perfetto
 derives a slice's colour from a hash of its name.
 
-The width is therefore not GC time. One lost 5 ms collection can draw a 130 ms bar, which is
-the main reason these spans are not inline. Beside 5 ms `GC Pause` slices a window-width bar
+The width is not GC time: one lost 5 ms collection can draw a 130 ms bar, which is the main
+reason these spans are not inline. Beside 5 ms `GC Pause` slices a window-width bar
 reads as a very long pause, and what is drawn here is reconstructed rather than measured.
 A row holding nothing but loss is also a row you can find; inline, a loss span is one more bar
 among thousands with only its name to distinguish it.
@@ -157,13 +156,13 @@ reconstruction checkable: between the first and last record gcmon observed on a 
 collection is either a drawn `GC Pause` slice or inside exactly one span's range, none twice
 and none unaccounted for.
 
-Drawing touches nothing but the picture. `StreamingStats` records each window as it opens,
-before anything is drawn, so coverage, the scale factor and every aggregate are unaffected.
+`StreamingStats` records each window as it opens, before anything is drawn, so coverage, the
+scale factor and every aggregate are unaffected by how the window is drawn.
 
 ## What gcmon trusts the target for
 
-Three properties hold the reconstruction up. The first two are assumed rather than checked,
-both being CPython's to guarantee; the invariant above tests the third. `observe_batch` and
+Three properties hold the reconstruction up. The first two are CPython's to guarantee and are
+assumed rather than checked; the invariant above tests the third. `observe_batch` and
 `LossWindow.is_drawable` cite this section rather than restating it.
 
 **1. The publish-last contract survives to the reader.** `add_stats`

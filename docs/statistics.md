@@ -93,7 +93,7 @@ The `Cov` column gathered across every PID, plus the rule for reading the two-nu
 2. Since interpreter start, monitored window included: Gen0 4820 in 6231.400 ms.
 ```
 
-The third interval above. It covers each interpreter's whole history including the monitored part, so it neither adds to nor subtracts from any cell, and it stays out of `Cov` and `F`.
+The third interval above covers each interpreter's whole history including the monitored part, so it neither adds to nor subtracts from any cell, and it stays out of `Cov` and `F`.
 
 **3. Loss spans held back.**
 
@@ -126,4 +126,4 @@ This installs [DDSketch](https://github.com/DataDog/sketches-py), which:
 
 For long-running processes or high-frequency polling, the `[stats]` extra is recommended.
 
-The buffer bounds the percentiles alone. `Count`, `Sum`, `Cov`, `F` and the lifetime totals are running values, and do not depend on how many samples the buffer retains.
+`Count`, `Sum`, `Cov`, `F` and the lifetime totals are running values, and do not depend on how many samples the buffer retains.

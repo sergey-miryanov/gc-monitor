@@ -178,8 +178,8 @@ like a GC event does, but no `collections`:
 | `lost_count` | Collections of that generation that ran unobserved in the interval |
 | `lost_pause_ns` | Pause time those collections took, in nanoseconds |
 
-Only the near end of the range is written. The far end is `lost_from + lost_count - 1`,
-which is what the `collections_to` arg on a `GC Loss` slice carries; storing both would
+The far end is `lost_from + lost_count - 1`, which is what the `collections_to` arg on a
+`GC Loss` slice carries; storing both would
 let the two disagree, and `lost_count` is the number `--stats` sums. `lost_from` is
 optional on the way in and defaults to `0`, a value no `collections` counter takes, so a
 capture written before the field existed still reads back.

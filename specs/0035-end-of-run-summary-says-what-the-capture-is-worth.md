@@ -151,7 +151,7 @@ and the coverage advisory fires on stderr. The gate discards a correct answer ra
 to compute one.
 
 It stays as it is. A run that sampled nothing has no percentiles, so publishing `pause_count`
-beside a `coverage` of zero is arguably noisier than silence, and the case is rare enough not to
+beside a `coverage` of zero is noisier than silence, and the case is rare enough not to
 earn a change to what lands in benchmark metadata. The behaviour is pinned by
 `tests/pyperf/test_pyperf_hook.py::TestLossIsNeverReplayedAsACollection::test_a_loss_only_capture_publishes_nothing_rather_than_zeroes`,
 so reversing it later means updating that test deliberately.
