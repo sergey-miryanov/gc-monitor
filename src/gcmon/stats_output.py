@@ -192,21 +192,20 @@ def _print_footer(stats: StreamingStats) -> None:
     attached, or a window came back with bounds describing no interval. A run
     that saw everything has nothing to explain.
 
-    The last of the three is the only place a run ever hears about
-    `LossWindow.is_drawable` biting. It names no culprit on purpose: two
-    causes reach it and gcmon cannot tell them apart, one a target bug and one
-    an ordinary consequence of reading the rings over ~0.6 ms while the target
-    runs. See `LossWindow.is_drawable`. What it must not read as is gcmon
-    having lost something, which would send a reader to `--rate` for a figure
-    `--rate` does not move. It stays one line like the two above it, so the
-    mechanism lives there and in ADR-0015 rather than here. That ADR also
-    notes a run without ``--stats`` is told nothing.
+    The third note is the only place a run hears that
+    `LossWindow.is_drawable` bit. It names no culprit: two causes reach it and
+    gcmon cannot separate them, one a target bug and one an ordinary
+    consequence of reading the rings over ~0.6 ms while the target runs. It
+    must not read as gcmon having lost something, which sends a reader to
+    `--rate` for a figure `--rate` does not move. Keeping it to one line puts
+    the mechanism in `LossWindow.is_drawable` and ADR-0015 instead. That ADR
+    also notes a run without ``--stats`` is told nothing.
 
-    The notes are numbered because which of them appear depends on the run,
-    so a reader cannot learn their order: the number is what separates one
-    from the next when two wrap across a narrow terminal. Numbering starts at
-    1 whatever the mix, and a lone note is still ``1.`` — a footer whose shape
-    changes with its length is harder to scan than one that repeats itself.
+    Which notes appear depends on the run, so their order teaches a reader
+    nothing, and the number is what separates two that wrap across a narrow
+    terminal. Numbering starts at 1 whatever the mix. A lone note still reads
+    ``1.``, since a footer whose shape changes with its length is harder to
+    scan than one that repeats itself.
     """
     covered = [gen for gen in stats.GENS if stats.lost_count(None, gen)]
     lifetime = [gen for gen in stats.GENS if stats.lifetime_count(None, gen)]

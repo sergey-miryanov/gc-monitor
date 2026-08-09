@@ -67,19 +67,19 @@ class LossWindow(msgspec.Struct):
         is a Perfetto stack, and :func:`stack_order` sorts windows it takes to
         be well-formed.
 
-        Two things reach here, and gcmon cannot tell them apart. ``ts_stop``
-        is a timestamp this ring published, but ``ts_start`` is
+        Two things reach here and gcmon cannot separate them. ``ts_stop`` is a
+        timestamp this ring published. ``ts_start`` is
         :func:`confirmed_by_interpreter`, a maximum across *all* of the
-        interpreter's rings. A poll copies those rings over ~0.6 ms and the
-        target runs throughout, so a collection finishing after its own ring
-        was copied but before a later ring's is missed by that poll while the
-        later ring carries a newer ``ts_stop`` — and the window opens after
-        the record it is meant to precede, with nothing anywhere misbehaving.
-        ADR-0015 §"What gcmon trusts the target for" reaches for the same
-        non-atomicity to explain a torn read. The other cause is that section's
-        barrier-free stores exposing a record assembled from two collections,
-        which is a genuine target bug. Neither leaves a fingerprint the other
-        does not, so nothing here may name a culprit.
+        interpreter's rings, which is what lets the first one in. A poll
+        copies those rings over ~0.6 ms while the target keeps collecting, so
+        a collection finishing after its own ring was copied but before a
+        later ring's is missed by that poll, and the later ring carries a
+        newer ``ts_stop``. The window then opens after the record it bounds
+        with nothing misbehaving. ADR-0015 §"What gcmon trusts the target for"
+        reaches for the same non-atomicity to explain a torn read. The second
+        cause is that section's barrier-free stores exposing a record
+        assembled from two collections, which is a target bug. Neither leaves
+        a fingerprint the other does not, so nothing here names a culprit.
 
         Only the drawing is at stake. ``lost_count`` and ``lost_from`` are
         counter arithmetic with no timestamp in them, so ``_ingest`` records

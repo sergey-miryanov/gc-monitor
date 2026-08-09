@@ -313,11 +313,11 @@ class StreamingStats:
 
         Called after a poll has folded both its loss and its records, never
         from `record_loss`. `_ingest` records loss for every key before it
-        updates any of them, so a check inside `record_loss` divides that
-        poll's gap into the sample as it stood *before* the poll — a run whose
-        first gap lands early would latch a figure it never comes back to.
-        Two polls of 2 then 100 records with one lost warned "only 67%" of a
-        run that ended at 99%.
+        updates any of them, so a check inside `record_loss` would divide that
+        poll's gap into the sample as it stood before the poll. A run whose
+        first gap lands early then latches a figure it never revisits: two
+        polls of 2 then 100 records with one lost warned "only 67%" of a run
+        that ended at 99%.
         """
         if self._coverage_warned:
             return
@@ -358,7 +358,7 @@ class StreamingStats:
         self._lifetime[(pid, iid, gen)] = (collections, duration_s)
 
     def _sampled(self, pid: int | None, gen: int) -> Stats:
-        """The pause durations gcmon actually saw, for one pid or all of them."""
+        """The pause durations gcmon sampled, for one pid or all of them."""
         if pid is None:
             return self.metrics["pause"][gen]
         pid_data = self.get_pid_stats(pid)

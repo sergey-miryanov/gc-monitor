@@ -103,13 +103,13 @@ def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> Non
     sees the whole sample rather than however much of it happened to precede
     a loss record in the file.
 
-    Which guard is asked first is immaterial, and deliberately not aligned
-    with the converters, which ask ``is_loss`` first: ``is_gc_stats`` tests
+    Which guard is asked first does not matter here, and does not match the
+    converters, which ask ``is_loss`` first. ``is_gc_stats`` tests
     ``collections`` and ``is_loss`` tests ``lost_count``, so no record
-    answers to both. The branches read in frequency order instead. Should
-    the two guards ever come to overlap, a loss record would be folded into
-    the sample here as a collection, inflating the very numbers the loss it
-    carries is meant to correct.
+    answers to both, and the branches read in frequency order instead.
+    Should the two guards ever come to overlap, a loss record folds into
+    the sample here as a collection, inflating the numbers the loss it
+    carries is there to correct.
     """
     lost: dict[tuple[int, int], tuple[int, int]] = {}
     newest: dict[tuple[int, int, int], TGCStatsInfo] = {}

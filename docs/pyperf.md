@@ -25,7 +25,7 @@ The hook collects and reports the following GC metrics in pyperf metadata:
 - `gc_pause_gen_0_sum`, `gc_pause_gen_1_sum`, `gc_pause_gen_2_sum` - Total GC pause time by generation (milliseconds)
 - `gc_pause_gen_0_count`, `gc_pause_gen_1_count`, `gc_pause_gen_2_count` - Number of GC pauses by generation
 - `gc_pause_count` - Total number of GC pauses across all generations and monitored processes
-- `gc_pause_gen_0_coverage`, `gc_pause_gen_1_coverage`, `gc_pause_gen_2_coverage` - Share of that generation's collections gcmon actually read, in `[0, 1]`
+- `gc_pause_gen_0_coverage`, `gc_pause_gen_1_coverage`, `gc_pause_gen_2_coverage` - Share of that generation's collections gcmon read, in `[0, 1]`
 - `gc_pause_gen_N_lifetime_count`, `gc_pause_gen_N_lifetime_sum` - Collections and pause time since the *interpreter* started, not since the benchmark did
 - `gc_heap_size_p99` - P99 across the per-process peak live object counts
 

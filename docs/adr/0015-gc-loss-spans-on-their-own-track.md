@@ -215,7 +215,7 @@ not share a clock, which would leave the whole reconstruction unsound.
 - **Every `lost_count` and `lost_pause_ns` on a bar is a measurement.** Nothing in the
   drawing is estimated, and no bar reports more lost pause than its own duration. The cost is
   paid in width: a span reaches over collections gcmon did observe, and is wider than the
-  stretch the missing records can actually be in.
+  stretch the missing records can be in.
 - **Sums and counts become exact; percentiles do not.** `Count` and `Sum` are recoverable from
   the target's own counters. Quantiles are not: gcmon holds only the durations it sampled, and
   that sample is biased in a knowable direction, since a long collection delays its successors,
