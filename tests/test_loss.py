@@ -1470,3 +1470,68 @@ class TestTheMonitorHoldsBackTheWindowItself:
         ]
         assert stats.undrawable_count(PID, 0) == mirrored.undrawable_count()
         assert stats.lost_count(PID, 0) == sum(w.lost_count for w in mirrored.measured())
+
+
+class TestADuplicateCounterInOnePoll:
+    """Two slots reporting one `collections` value, and which one survives.
+
+    `_ingest` keys a poll's run on the counter, so a duplicate pair collapses
+    to one record. A dict keeps the last, which the sort leaves in slot order.
+    Nothing in the suite distinguished the two before this class, and the
+    choice is not inert: the run's last record sets `last_ts_stop` and
+    `last_duration`, which become the next poll's window bound and its pause
+    base.
+
+    It cannot matter on truthful data. `add_stats` memcpy's a record forward
+    before touching a field, so until the new `ts_start` lands the twin is
+    byte-identical, and from that store until `collections` is incremented the
+    slot carries a start later than its stale stop, which `_is_complete`
+    rejects. These tests pin the resolution anyway, so a change to it is
+    deliberate rather than silent.
+    """
+
+    def _pair(self) -> tuple[GCStatsInfo, GCStatsInfo]:
+        first = build_run(1, gen=0)[0]
+        later = msgspec.structs.replace(
+            first, ts_start=first.ts_start + 5_000, ts_stop=first.ts_stop + 5_000, duration=first.duration + 0.000_005
+        )
+        return first, later
+
+    def test_the_later_slot_wins(self) -> None:
+        first, later = self._pair()
+
+        ingested = Ingested()
+        ingested.poll([first, later])
+
+        assert ingested[(0, 0)].last_ts_stop == later.ts_stop
+
+    def test_only_one_of_the_pair_is_counted(self) -> None:
+        """A duplicate must not inflate the sample it is measured against."""
+        first, later = self._pair()
+
+        ingested = Ingested()
+        ingested.poll([first, later])
+
+        assert ingested[(0, 0)].sampled_count == 1
+
+    def test_the_pair_opens_no_window(self) -> None:
+        first, later = self._pair()
+
+        ingested = Ingested()
+        ingested.poll([first, later])
+
+        assert ingested.windows_for((0, 0)) == []
+
+    def test_a_byte_identical_twin_leaves_no_trace(self) -> None:
+        """What the target actually produces: the copy before the overwrite.
+        Either resolution gives the same answer, which is why the choice has
+        never shown up."""
+        first = build_run(1, gen=0)[0]
+
+        one = Ingested()
+        one.poll([first])
+        two = Ingested()
+        two.poll([first, msgspec.structs.replace(first)])
+
+        assert two[(0, 0)].last_ts_stop == one[(0, 0)].last_ts_stop
+        assert two[(0, 0)].sampled_count == one[(0, 0)].sampled_count

@@ -8,6 +8,10 @@ of the design looks the way it does.
 An ADR does not document *what* the code does. The code and its tests are the authority on
 that. Each ADR anchors into the current source so you can check the two against each other.
 
+Forward-looking work that has been specified but not yet built lives in
+[`specs/`](../../specs/README.md), not here — one file per open item, deleted when it lands.
+A spec that settles a durable design question graduates into a record below.
+
 ## Conventions
 
 - **Filename:** `NNNN-kebab-case-title.md`. Assign numbers in order and **never
@@ -52,4 +56,6 @@ and 0015 are individual features. 0014 explains how any of it is verified.
 *These records were extracted from a set of implementation specs that lived in
 a git-ignored working directory. Those specs were forward-looking plans with step-by-step
 instructions. The part worth keeping, meaning the decisions and their rationale, is here
-under version control, and the original specs were removed once extracted.*
+under version control, and the original specs were removed once extracted. What remained of
+that folder was re-verified and rewritten on 2026-08-05, and `specs/` is now tracked — see
+[its README](../../specs/README.md#provenance).*

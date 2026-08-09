@@ -193,11 +193,14 @@ def _print_footer(stats: StreamingStats) -> None:
     that saw everything has nothing to explain.
 
     The last of the three is the only place a run ever hears about
-    `LossWindow.is_drawable` biting. "from the target" is the load-bearing
-    phrase: nothing gcmon dropped produces it, and a reader who takes it for
-    gcmon losing data lowers `--rate` and changes nothing. It stays one line
-    like the two above it, so the mechanism lives in ADR-0015 rather than
-    here. That ADR also notes a run without ``--stats`` is told nothing.
+    `LossWindow.is_drawable` biting. It names no culprit on purpose: two
+    causes reach it and gcmon cannot tell them apart, one a target bug and one
+    an ordinary consequence of reading the rings over ~0.6 ms while the target
+    runs. See `LossWindow.is_drawable`. What it must not read as is gcmon
+    having lost something, which would send a reader to `--rate` for a figure
+    `--rate` does not move. It stays one line like the two above it, so the
+    mechanism lives there and in ADR-0015 rather than here. That ADR also
+    notes a run without ``--stats`` is told nothing.
 
     The notes are numbered because which of them appear depends on the run,
     so a reader cannot learn their order: the number is what separates one
@@ -220,12 +223,15 @@ def _print_footer(stats: StreamingStats) -> None:
             f"gen {gen} {stats.lifetime_count(None, gen)} in {dur_to_ms(stats.lifetime_pause_ns(None, gen)):.3f} ms"
             for gen in lifetime
         )
-        notes.append(f"Since interpreter start, outside the monitored window: {parts}.")
+        # "Since interpreter start" covers the monitored window rather than
+        # excluding it, so the note must not read as a figure to add to
+        # `Count`. `lifetime_count` is the target's own cumulative counter.
+        notes.append(f"Since interpreter start, monitored window included: {parts}.")
     if undrawn:
         parts = " ".join(f"gen {gen} {stats.undrawable_count(None, gen)}" for gen in undrawn)
         notes.append(
-            f"Loss spans not drawn: {parts} (start and end arrived reversed, from the target). "
-            "Counts above are unaffected."
+            f"Loss spans not drawn: {parts} (bounds arrived reversed, so the interval could not "
+            "be placed). Counts above are unaffected."
         )
 
     if not notes:

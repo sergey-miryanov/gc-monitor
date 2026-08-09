@@ -253,18 +253,22 @@ not share a clock, which would leave the whole reconstruction unsound.
   successor gcmon cannot read returns `INVALID_PROCESS`, which clears the cursor through
   `forget`.
 - **A window whose bounds describe no interval is counted, not drawn.** A `ts_stop` at or
-  before its `ts_start` says the lost records had nowhere to run, which no truthful pair of
-  records can say, and drawing it would put a backwards or sub-pixel slice on a row whose
-  nesting `stack_order` depends on. It is the one fingerprint of hazard 1 above that reaches
-  gcmon at all, and it reaches it by accident rather than by looking; the fix stays upstream.
-  `_ingest` records the loss first — `lost_count` is counter arithmetic with no timestamp in
-  it, so `Cov`, `F` and the exact totals are the same either way — then holds the window back
-  on `LossWindow.is_drawable` before `stack_order` sees it, and `StreamingStats.record_loss` is
+  before its `ts_start` says the lost records had nowhere to run, and drawing it would put a
+  backwards or sub-pixel slice on a row whose nesting `stack_order` depends on. `_ingest`
+  records the loss first — `lost_count` is counter arithmetic with no timestamp in it, so
+  `Cov`, `F` and the exact totals are the same either way — then holds the window back on
+  `LossWindow.is_drawable` before `stack_order` sees it, and `StreamingStats.record_loss` is
   never the thing skipped. `undrawable_count` carries the tally and the `--stats` footer names
-  it, attributing it to the target's record ordering rather than to gcmon dropping anything: the
-  two have different fixes, and a reader who assumes the second lowers `--rate` for no effect. A
-  run without `--stats` is told nothing at all; that gap belongs to the separate decision on
-  end-of-run reporting, not to this one.
+  it. **Two causes reach it and neither leaves a fingerprint the other does not**, so the
+  footer names no culprit. One is hazard 1 above, a genuine target bug. The other is ordinary
+  and was missed when this was first written: the same non-atomicity §2 relies on to explain a
+  torn read applies across rings, so a collection finishing after its own ring was copied but
+  before a later ring's is missed by that poll while the later ring raises `confirmed` past it,
+  and the window opens after the record it bounds with nothing misbehaving. `ts_start` is a
+  maximum across the interpreter, not a timestamp this ring published, which is what makes the
+  second cause possible at all. What the footer does rule out is gcmon having dropped
+  something, since `--rate` moves neither cause. A run without `--stats` is told nothing at
+  all; that gap belongs to the separate decision on end-of-run reporting, not to this one.
 - **A duplicated export can push `Cov` above 1.0.** When a wait policy gives up on a pid that
   later answers again, `forget` has dropped its cursors and the next poll re-exports the whole
   ring. Those duplicates inflate `sampled_count`, which now divides into an exact count.

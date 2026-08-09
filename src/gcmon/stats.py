@@ -235,6 +235,16 @@ def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
         stats[metric_name][gen].update(ts_stop - ts_start)
 
 
+def _ring_size(gen: int) -> str:
+    """How many records the target's ring for *gen* holds, for the advisory.
+
+    `GC_YOUNG_STATS_SIZE` is 11 and `GC_OLD_STATS_SIZE` is 3, and both are 1
+    under `Py_GIL_DISABLED`. gcmon does not know which build it is attached
+    to, so the free-threaded case is named rather than guessed at.
+    """
+    return f"{11 if gen == 0 else 3} records, or 1 on a free-threaded build"
+
+
 class StreamingStats:
     MAX_ACTIVE_PIDS = 64
     GENS = (0, 1, 2)
@@ -298,18 +308,35 @@ class StreamingStats:
         self._lost_count[key] = self._lost_count.get(key, 0) + lost_count
         self._lost_pause_ns[key] = self._lost_pause_ns.get(key, 0) + lost_pause_ns
 
-        if not self._coverage_warned and self.coverage(pid, gen) < self.COVERAGE_ADVISORY:
+    def check_coverage_advisory(self, pid: int) -> None:
+        """Warn once if *pid* is reading too little of its target to trust.
+
+        Called after a poll has folded both its loss and its records, never
+        from `record_loss`. `_ingest` records loss for every key before it
+        updates any of them, so a check inside `record_loss` divides that
+        poll's gap into the sample as it stood *before* the poll — a run whose
+        first gap lands early would latch a figure it never comes back to.
+        Two polls of 2 then 100 records with one lost warned "only 67%" of a
+        run that ended at 99%.
+        """
+        if self._coverage_warned:
+            return
+
+        for gen in self.GENS:
+            if not self.lost_count(pid, gen) or self.coverage(pid, gen) >= self.COVERAGE_ADVISORY:
+                continue
             self._coverage_warned = True
             logger.warning(
                 "PID %s generation %s: only %.0f%% of collections observed. The ring buffer CPython "
-                "exports holds %s records, and a poll costs ~0.6 ms, so a target collecting faster "
+                "exports holds %s, and a poll costs ~0.6 ms, so a target collecting faster "
                 "than that overwrites records before they can be read. Counts and sums below are "
                 "reconstructed and exact; percentiles cover only what was sampled and read high.",
                 pid,
                 gen,
                 self.coverage(pid, gen) * 100,
-                "11 (gen 0) or 3" if gen == 0 else "3",
+                _ring_size(gen),
             )
+            return
 
     def record_undrawable(self, pid: int, gen: int) -> None:
         """Record one loss window whose bounds did not describe an interval.

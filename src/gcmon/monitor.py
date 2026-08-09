@@ -130,6 +130,17 @@ class EventsMonitor:
             # Keying on the counter drops the copy the target makes of a record
             # ahead of overwriting it: both slots report the same counter, so no
             # threshold tells them apart.
+            #
+            # A dict keeps the last of a duplicate pair, which the sort leaves
+            # in slot order. Which one survives cannot matter: `add_stats`
+            # memcpy's the record forward before touching any field, so until
+            # it stores the new `ts_start` the twin is byte-identical, and from
+            # that store until it increments `collections` the slot carries a
+            # start later than its stale stop, which `_is_complete` rejects.
+            # A duplicate that reaches here is therefore a copy of its twin.
+            # The choice would matter if that ever stopped holding: this run's
+            # last record sets `last_ts_stop` and `last_duration`, which are
+            # the next poll's window bound and pause base.
             run = list({event.collections: event for event in group if event.collections > seen}.values())
 
             window = accumulator.observe_batch(run, confirmed.get(iid, 0))
@@ -172,6 +183,12 @@ class EventsMonitor:
         for event in sorted(fresh, key=lambda event: (event.iid, event.ts_start)):
             self._exporter.add_event(pid, event)
             self._stats.update(pid, event)
+
+        # Both halves of this poll are folded now: the gaps above, the records
+        # just here. Coverage divides one into the other, so asking any earlier
+        # measures a gap against a sample missing the very records that came
+        # back with it.
+        self._stats.check_coverage_advisory(pid)
 
     def stop(self) -> None:
         """Stop monitoring and close the handler and exporter.

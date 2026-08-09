@@ -319,6 +319,7 @@ class TestCoverageAdvisory:
         self._sampled(stats, 3)
 
         stats.record_loss(1, 0, 7, 7_000)
+        stats.check_coverage_advisory(1)
 
         assert self.ADVISORY in caplog.text
         assert "ring buffer" in caplog.text
@@ -328,6 +329,7 @@ class TestCoverageAdvisory:
         self._sampled(stats, 99)
 
         stats.record_loss(1, 0, 1, 1_000)
+        stats.check_coverage_advisory(1)
 
         assert stats.coverage(1, 0) > StreamingStats.COVERAGE_ADVISORY
         assert self.ADVISORY not in caplog.text
@@ -338,6 +340,7 @@ class TestCoverageAdvisory:
 
         for _ in range(20):
             stats.record_loss(1, 0, 7, 7_000)
+            stats.check_coverage_advisory(1)
 
         assert caplog.text.count(self.ADVISORY) == 1
 
@@ -350,8 +353,51 @@ class TestCoverageAdvisory:
         stats.record_loss(1, 0, 7, 7_000)
         stats.record_loss(1, 1, 7, 7_000)
         stats.record_loss(2, 0, 7, 7_000)
+        stats.check_coverage_advisory(1)
+        stats.check_coverage_advisory(2)
 
         assert caplog.text.count(self.ADVISORY) == 1
+
+    def test_the_polls_own_records_count_before_it_fires(self, caplog: pytest.LogCaptureFixture) -> None:
+        """`_ingest` records every key's gap before it updates any of them, so
+        a check inside `record_loss` would divide this poll's gap into the
+        sample as it stood before this poll.
+
+        Two polls, 2 records then 100 with 1 lost: measured at `record_loss`
+        the coverage reads 2/3, and the latch would keep that figure for a run
+        that ends at 99%.
+        """
+        stats = StreamingStats()
+        self._sampled(stats, 2)
+        stats.check_coverage_advisory(1)
+
+        stats.record_loss(1, 0, 1, 1_000)
+        self._sampled(stats, 100)
+        stats.check_coverage_advisory(1)
+
+        assert stats.coverage(1, 0) > StreamingStats.COVERAGE_ADVISORY
+        assert self.ADVISORY not in caplog.text
+
+    def test_a_run_that_is_genuinely_blind_still_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The guard above must not buy its quiet by never firing."""
+        stats = StreamingStats()
+        self._sampled(stats, 1)
+
+        stats.record_loss(1, 0, 50, 50_000)
+        stats.check_coverage_advisory(1)
+
+        assert self.ADVISORY in caplog.text
+
+    def test_it_names_the_free_threaded_ring(self, caplog: pytest.LogCaptureFixture) -> None:
+        """gcmon cannot see which build it is attached to, and both ring sizes
+        are 1 under `Py_GIL_DISABLED`."""
+        stats = StreamingStats()
+        self._sampled(stats, 3)
+
+        stats.record_loss(1, 0, 7, 7_000)
+        stats.check_coverage_advisory(1)
+
+        assert "11 records, or 1 on a free-threaded build" in caplog.text
 
 
 class TestLifetimeTotals:

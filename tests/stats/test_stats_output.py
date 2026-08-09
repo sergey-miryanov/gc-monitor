@@ -479,9 +479,19 @@ class TestUndrawableWindowsInTheFooter:
         print_stats(self._held_back())
         out = capsys.readouterr().out
 
-        assert "start and end arrived reversed" in out
-        assert "from the target" in out
+        assert "bounds arrived reversed" in out
         assert "Counts above are unaffected" in out
+
+    def test_it_names_no_culprit(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Two causes reach `LossWindow.is_drawable` and gcmon cannot tell
+        them apart: a target publishing a record's fields out of order, and a
+        poll reading the rings over ~0.6 ms while the target keeps
+        collecting. Naming either one sends some readers to the wrong fix."""
+        print_stats(self._held_back())
+        out = capsys.readouterr().out
+
+        assert "from the target" not in out
+        assert "--rate" not in out
 
     def test_holding_a_span_back_moves_no_cell(self, capsys: pytest.CaptureFixture[str]) -> None:
         """`Cov`, `F`, `Count` and `Sum` come off the counters, which the
