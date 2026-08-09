@@ -67,19 +67,13 @@ class LossWindow(msgspec.Struct):
         is a Perfetto stack, and :func:`stack_order` sorts windows it takes to
         be well-formed.
 
-        Two things reach here and gcmon cannot separate them. ``ts_stop`` is a
-        timestamp this ring published. ``ts_start`` is
-        :func:`confirmed_by_interpreter`, a maximum across *all* of the
-        interpreter's rings, which is what lets the first one in. A poll
-        copies those rings over ~0.6 ms while the target keeps collecting, so
-        a collection finishing after its own ring was copied but before a
-        later ring's is missed by that poll, and the later ring carries a
-        newer ``ts_stop``. The window then opens after the record it bounds
-        with nothing misbehaving. ADR-0015 §"What gcmon trusts the target for"
-        reaches for the same non-atomicity to explain a torn read. The second
-        cause is that section's barrier-free stores exposing a record
-        assembled from two collections, which is a target bug. Neither leaves
-        a fingerprint the other does not, so nothing here names a culprit.
+        Two causes reach here and gcmon cannot separate them, so nothing
+        names one. ``ts_start`` is :func:`confirmed_by_interpreter`, a maximum
+        across *all* the interpreter's rings, and a poll copies those over
+        ~0.6 ms while the target collects: a collection finishing after its
+        own ring was copied but before a later ring's is missed by that poll,
+        and the later ring's ``ts_stop`` overtakes it. The other cause is the
+        barrier-free stores in ADR-0015 §"What gcmon trusts the target for".
 
         Only the drawing is at stake. ``lost_count`` and ``lost_from`` are
         counter arithmetic with no timestamp in them, so ``_ingest`` records

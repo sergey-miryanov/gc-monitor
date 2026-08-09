@@ -226,13 +226,10 @@ mid-`close()` can raise `RuntimeError: dictionary changed size during iteration`
 - Consumers enumerating slices must filter `track.name == 'Processes'`, as the equivalence
   test does, since these slices are Perfetto-only.
 - **The crossing-spans analysis above generalises to any synthetic track.**
-  [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) reuses it for reconstructed GC loss
-  spans, and needs no remedy at all: a poll's loss windows share a left edge, so they nest
-  where process lifetimes cross, and that track is laminar before anything touches it. Emission
-  order alone keeps it so, with no sweep and nothing shortened. Its `GC Loss` track also
-  follows the `Processes` precedent for
-  parenting a plain custom slice track — no `process` / `thread` / `counter` sub-message — to
-  a process track.
+  [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) needs no sweep for it: a poll's loss
+  windows share a left edge, so they nest where process lifetimes cross, and emission order
+  keeps the track laminar. Its `GC Loss` track follows the `Processes` precedent for parenting
+  a plain custom slice track to a process track.
 
 ## Alternatives considered
 

@@ -101,13 +101,11 @@ The third interval above. It covers each interpreter's whole history including t
 3. Loss spans not drawn: gen 0 2 (bounds arrived reversed, so the interval could not be placed). Counts above are unaffected.
 ```
 
-A loss window is bounded at one end by the `ts_start` of the first record read after the blind interval, and at the other by the newest `ts_stop` seen anywhere in that interpreter. When the second does not precede the first, the window describes no interval, the overwritten records had nowhere to run, and gcmon draws no slice for it. The count is spans held back per generation, not collections.
+A loss window runs from the newest `ts_stop` seen anywhere in that interpreter to the `ts_start` of the first record read after the blind interval. When the second does not follow the first the window describes no interval, so gcmon draws nothing and counts it. The count is spans, not collections.
 
-**The note names no cause, because two reach it and gcmon cannot tell them apart.** One is ordinary. A poll copies an interpreter's rings over about 0.6 ms while the target keeps collecting, so a collection finishing after its own ring was copied but before a later ring's is missed by that poll, while the later ring carries a newer `ts_stop`. The window then opens after the record it bounds, with nothing misbehaving. The other is a target bug: CPython publishes `ts_stop` last so a remote reader never selects a half-written record, but those stores carry no memory barrier, and a weakly-ordered machine can hand the reader a record assembled from two collections. Neither leaves a fingerprint the other does not.
+The note names no cause because two reach it and gcmon cannot tell them apart: a poll copies an interpreter's rings over about 0.6 ms while the target keeps collecting, and separately, CPython's `ts_stop`-last stores carry no memory barrier. It does rule out gcmon having dropped anything, so `--rate` will not move it.
 
-The line does rule out gcmon having dropped something, so lowering `--rate` will not change it.
-
-**Counts above are unaffected** is exact rather than a hedge. gcmon counted the collections the window measured before it looked at the bounds, since `lost_count` is arithmetic on the ring's own counters with no timestamp in it. `Count`, `Sum`, `Cov` and `F` read the same as they would had the span been drawn; only the trace is a bar short. See [ADR-0015](adr/0015-gc-loss-spans-on-their-own-track.md) for why it is held back rather than drawn backwards.
+**Counts above are unaffected** is exact. `lost_count` is arithmetic on the ring's own counters with no timestamp in it, so `Count`, `Sum`, `Cov` and `F` read the same as they would had the span been drawn, and only the trace is a bar short. See [ADR-0015](adr/0015-gc-loss-spans-on-their-own-track.md).
 
 ## Without `[stats]` extra
 

@@ -193,19 +193,13 @@ def _print_footer(stats: StreamingStats) -> None:
     that saw everything has nothing to explain.
 
     The third note is the only place a run hears that
-    `LossWindow.is_drawable` bit. It names no culprit: two causes reach it and
-    gcmon cannot separate them, one a target bug and one an ordinary
-    consequence of reading the rings over ~0.6 ms while the target runs. It
-    must not read as gcmon having lost something, which sends a reader to
-    `--rate` for a figure `--rate` does not move. Keeping it to one line puts
-    the mechanism in `LossWindow.is_drawable` and ADR-0015 instead. That ADR
-    also notes a run without ``--stats`` is told nothing.
+    `LossWindow.is_drawable` bit. It names no culprit, for the reasons there,
+    and must not read as gcmon having lost something: that sends a reader to
+    `--rate` for a figure `--rate` does not move.
 
-    Which notes appear depends on the run, so their order teaches a reader
-    nothing, and the number is what separates two that wrap across a narrow
-    terminal. Numbering starts at 1 whatever the mix. A lone note still reads
-    ``1.``, since a footer whose shape changes with its length is harder to
-    scan than one that repeats itself.
+    Which notes appear depends on the run, so the number, not the order, is
+    what separates two that wrap on a narrow terminal. A lone note still
+    reads ``1.``.
     """
     covered = [gen for gen in stats.GENS if stats.lost_count(None, gen)]
     lifetime = [gen for gen in stats.GENS if stats.lifetime_count(None, gen)]
