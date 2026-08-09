@@ -144,9 +144,6 @@ def _normalize_jsonl_timestamps(items: Mapping[int, Sequence[TItem]]) -> None:
             if is_instant(item):
                 item.ts -= min_ts
             elif is_loss(item):
-                # Neither a GC record nor an instant, so the branch below will
-                # not claim it and it would keep raw timestamps while
-                # everything around it shifted to zero.
                 item.ts_start -= min_ts
                 item.ts_stop -= min_ts
             elif is_gc_stats(item):
