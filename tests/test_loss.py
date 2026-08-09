@@ -11,11 +11,13 @@ no durations, so it checks gap counts against real slot data instead.
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from itertools import groupby, pairwise
+from typing import override
 
 import msgspec.structs
 import pytest
 
 from gcmon.data import GCStatsInfo, lost_to, secs_to_ns
+from gcmon.exporters.exporter import EventsExporter
 from gcmon.loss import (
     KeyAccumulator,
     LossWindow,
@@ -23,6 +25,10 @@ from gcmon.loss import (
     stack_order,
     to_loss_msg,
 )
+from gcmon.monitor import EventsMonitor
+from gcmon.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
+from gcmon.stats import StreamingStats
+from gcmon.target_process import ExternalProcess
 from tests.helpers import create_mock_stats_item
 from tests.test_monitor_cursor import POLL_0, POLL_1, build_batch
 
@@ -168,11 +174,17 @@ class Ingested:
     for the ``fresh`` list ``_ingest`` hands to the exporter: those are the
     records that become drawn ``GC Pause`` slices, and the partition needs to
     know which counters they were.
+
+    ``windows`` holds every window a poll measured, drawable or not, because
+    that is what ``_ingest`` hands to ``StreamingStats.record_loss``.
+    ``undrawable`` holds the ones it then held back, and ``spans`` draws the
+    rest.
     """
 
     def __init__(self) -> None:
         self.cursors: dict[tuple[int, int], KeyAccumulator] = {}
         self.windows: dict[tuple[int, int], list[LossWindow]] = {}
+        self.undrawable: dict[tuple[int, int], list[LossWindow]] = {}
         self.observed: dict[tuple[int, int], list[int]] = {}
 
     def poll(self, batch: Sequence[GCStatsInfo]) -> dict[int, list[LossWindow]]:
@@ -198,8 +210,14 @@ class Ingested:
 
             window = accumulator.observe_batch(run, confirmed.get(key[0], 0))
             if window is not None:
-                opened.setdefault(key[0], []).append(window)
+                # `_ingest` records the loss here, then draws the window only
+                # if its bounds describe an interval. Mirror both halves: the
+                # measurement is unconditional, the span is not.
                 self.windows.setdefault(key, []).append(window)
+                if window.is_drawable:
+                    opened.setdefault(key[0], []).append(window)
+                else:
+                    self.undrawable.setdefault(key, []).append(window)
             # `_ingest` does `fresh.extend(run)` here, and every record in
             # `fresh` is drawn.
             self.observed.setdefault(key, []).extend(event.collections for event in run)
@@ -215,7 +233,7 @@ class Ingested:
         after the newest record the poll before it saw, and that is at or
         after every window that poll closed.
         """
-        windows = [w for key, ws in self.windows.items() if key[0] == iid for w in ws]
+        windows = [w for key, ws in self.windows.items() if key[0] == iid for w in ws if w.is_drawable]
         return stack_order(windows)
 
     def __getitem__(self, key: tuple[int, int]) -> KeyAccumulator:
@@ -223,6 +241,14 @@ class Ingested:
 
     def windows_for(self, key: tuple[int, int]) -> list[LossWindow]:
         return self.windows.get(key, [])
+
+    def measured(self, iid: int = 0) -> list[LossWindow]:
+        """Every window this interpreter's polls measured, drawn or not."""
+        return [w for key, ws in self.windows.items() if key[0] == iid for w in ws]
+
+    def undrawable_count(self, iid: int = 0) -> int:
+        """What `StreamingStats.undrawable_count` would hold for *iid*."""
+        return sum(len(ws) for key, ws in self.undrawable.items() if key[0] == iid)
 
     def observed_for(self, key: tuple[int, int]) -> list[int]:
         """The counters of the records that reached the exporter on this key."""
@@ -1199,3 +1225,248 @@ class TestCounterOrderNotClockOrder:
         ingested.poll([events[3]])
 
         assert ingested.windows_for((0, 0)) == []
+
+
+class TestIsDrawable:
+    """The predicate alone, on hand-built bounds.
+
+    Everything below it goes through a poll; this pins what the poll's result
+    is being tested against.
+    """
+
+    def test_an_interval_with_room_in_it_is_drawable(self) -> None:
+        assert window(ts_start=10, ts_stop=20).is_drawable
+
+    def test_one_nanosecond_is_room_enough(self) -> None:
+        assert window(ts_start=10, ts_stop=11).is_drawable
+
+    def test_bounds_running_backwards_are_not(self) -> None:
+        assert not window(ts_start=20, ts_stop=10).is_drawable
+
+    def test_equal_bounds_are_not(self) -> None:
+        """Zero width is not a narrow interval, it is no interval: the lost
+        records had nowhere to run, and the slice would draw sub-pixel."""
+        assert not window(ts_start=10, ts_stop=10).is_drawable
+
+    def test_it_reads_the_bounds_and_nothing_else(self) -> None:
+        """The counts come from the ring's own counters and stay true across
+        bounds that are not, so they cannot be allowed to vote here."""
+        assert not window(ts_start=20, ts_stop=10, lost_count=5, lost_pause_ns=99).is_drawable
+
+
+# gen 1's single record, moved about while its pause length stays put. Where
+# it lands decides `confirmed` for the whole interpreter, and so where the
+# gen-0 window opens; it changes nothing gcmon counts.
+GEN1_PAUSE_NS = varied_pause(1)
+GEN0_SPACING_NS = 1_000_000
+GEN0_FOURTH_TS = TS0 + 3 * GEN0_SPACING_NS  # `gen0[3].ts_start`, the window's far end
+
+
+def inverting_polls(gen1_ts0: int) -> Ingested:
+    """Two polls losing two gen-0 records, with gen 1 parked at *gen1_ts0*.
+
+    `confirmed_by_interpreter` takes the maximum ``last_ts_stop`` across the
+    interpreter's rings, so parking gen 1 past the gen-0 record that closes
+    the window opens that window after it ends. Nothing gcmon reads is
+    inconsistent taken one record at a time; the pair is.
+    """
+    gen0 = build_run(5, gen=0, spacing_ns=GEN0_SPACING_NS)
+    gen1 = build_run(1, gen=1, ts0=gen1_ts0)[0]
+
+    ingested = Ingested()
+    ingested.poll([gen0[0], gen1])
+    ingested.poll([gen0[3], gen0[4]])
+    return ingested
+
+
+# Three placements of that one gen-1 record: behind everything, so the window
+# comes out ordinary; exactly on the window's far end, so it comes out
+# zero-width; and past it, so it comes out backwards.
+DRAWABLE_GEN1_TS = TS0 - 5_000_000
+TOUCHING_GEN1_TS = GEN0_FOURTH_TS - GEN1_PAUSE_NS
+INVERTED_GEN1_TS = TS0 + 10_000_000
+
+
+class TestAWindowWithNoRoomInIt:
+    """A poll can hand back a window whose bounds describe no interval.
+
+    ``confirmed`` is one maximum across the interpreter's rings, so a fresh
+    record starting behind a record another ring already returned opens a
+    window that closes before it opens. Truthful data cannot produce that:
+    collections in an interpreter are serialized and ``add_stats`` publishes
+    ``ts_stop`` last so a remote reader never selects a half-written record.
+    ADR-0015 §"What gcmon trusts the target for" leaves the fix upstream and
+    records that gcmon detects none of it — this window is the one
+    client-side sign of it there is, and one gcmon trips over rather than
+    looks for.
+
+    What the poll does with it: count the loss, draw nothing. The record
+    counters carry no timestamp, so the loss survives bounds that do not.
+    """
+
+    def test_a_backwards_window_is_measured(self) -> None:
+        gap = inverting_polls(INVERTED_GEN1_TS).windows_for((0, 0))[0]
+
+        assert gap.ts_stop < gap.ts_start
+        assert (gap.lost_from, gap.lost_count) == (2, 2)
+
+    def test_it_is_not_drawn(self) -> None:
+        assert inverting_polls(INVERTED_GEN1_TS).spans() == []
+
+    def test_it_is_counted(self) -> None:
+        assert inverting_polls(INVERTED_GEN1_TS).undrawable_count() == 1
+
+    def test_a_window_of_no_width_goes_the_same_way(self) -> None:
+        """Equal bounds draw as an invisible sliver rather than a backwards
+        slice, which is worse: the row looks whole."""
+        ingested = inverting_polls(TOUCHING_GEN1_TS)
+        gap = ingested.windows_for((0, 0))[0]
+
+        assert gap.ts_start == gap.ts_stop == GEN0_FOURTH_TS
+        assert ingested.spans() == []
+        assert ingested.undrawable_count() == 1
+
+    def test_the_same_polls_draw_the_window_when_it_has_room(self) -> None:
+        """The control. Only the gen-1 record moves, and it is what decides
+        whether the gen-0 window has an interval in it."""
+        ingested = inverting_polls(DRAWABLE_GEN1_TS)
+
+        assert [(s.ts_start, s.ts_stop) for s in ingested.spans()] == [(TS0 + GEN1_PAUSE_NS, GEN0_FOURTH_TS)]
+        assert ingested.undrawable_count() == 0
+
+    def test_the_loss_is_the_same_either_way(self) -> None:
+        """What the accumulator holds cannot depend on whether a span was
+        drawn: `Cov`, `F` and the exact totals all come off these."""
+        inverted = inverting_polls(INVERTED_GEN1_TS)[(0, 0)]
+        drawable = inverting_polls(DRAWABLE_GEN1_TS)[(0, 0)]
+
+        assert inverted.exact_count == drawable.exact_count == 5
+        assert inverted.lost_count == drawable.lost_count == 2
+        assert inverted.exact_pause_ns == drawable.exact_pause_ns
+        assert inverted.coverage == drawable.coverage
+        assert inverted.scale_factor == drawable.scale_factor
+
+
+class TestOneSpanPerMeasuredWindow:
+    """Every window a poll measured reaches the loss track as exactly one
+    span, and the only shortfall permitted is the undrawable one.
+
+    The count has to close the gap exactly, or a window could go missing with
+    nothing anywhere saying so — which is the failure a silent discard would
+    introduce in place of the one it prevents.
+    """
+
+    @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
+    def test_a_run_of_sound_records_draws_all_of_them(self, gap_ns: int, per_tick: int) -> None:
+        ingested = observe_all(interpreter_polls(build_interleaved_run(2_000, gap_ns=gap_ns), per_tick))
+
+        assert ingested.measured()
+        assert ingested.undrawable_count() == 0
+        assert len(ingested.spans()) == len(ingested.measured())
+
+    @pytest.mark.parametrize("gen1_ts0", [DRAWABLE_GEN1_TS, TOUCHING_GEN1_TS, INVERTED_GEN1_TS])
+    def test_the_count_closes_the_gap_exactly(self, gen1_ts0: int) -> None:
+        ingested = inverting_polls(gen1_ts0)
+
+        assert all(span.is_drawable for span in ingested.spans())
+        assert len(ingested.spans()) + ingested.undrawable_count() == len(ingested.measured())
+
+
+PID = 12345
+
+
+class LossRecorder(EventsExporter):
+    """Every loss record `_ingest` handed an exporter, in emission order."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.losses: list[TLossMsg] = []
+
+    @override
+    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+        pass
+
+    @override
+    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+        self.losses.append(item)
+
+    @override
+    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+        pass
+
+    @override
+    def close(self) -> None:
+        pass
+
+
+def ingest_for_real(gen1_ts0: int) -> tuple[LossRecorder, StreamingStats]:
+    """`inverting_polls` again, through `EventsMonitor._ingest` itself."""
+    gen0 = build_run(5, gen=0, spacing_ns=GEN0_SPACING_NS)
+    gen1 = build_run(1, gen=1, ts0=gen1_ts0)[0]
+
+    recorder = LossRecorder()
+    stats = StreamingStats()
+    monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, stats)
+    monitor._ingest(PID, [gen0[0], gen1])
+    monitor._ingest(PID, [gen0[3], gen0[4]])
+    return recorder, stats
+
+
+class TestTheMonitorHoldsBackTheWindowItself:
+    """The same two polls down the real path, since `Ingested` only mirrors
+    it and the split between recording and drawing is what is under test.
+
+    `_ingest` has to record the loss and then decline to draw it, in that
+    order. Rejecting in `_open_run` would take `record_loss` with it and lose
+    the collections from every total; filtering in `stack_order` would hide
+    the rejection where nothing counts it.
+    """
+
+    def test_the_backwards_window_reaches_no_exporter(self) -> None:
+        recorder, _stats = ingest_for_real(INVERTED_GEN1_TS)
+
+        assert recorder.losses == []
+
+    def test_the_monitor_counts_it(self) -> None:
+        _recorder, stats = ingest_for_real(INVERTED_GEN1_TS)
+
+        assert stats.undrawable_count(PID, 0) == 1
+
+    def test_the_collections_are_recorded_all_the_same(self) -> None:
+        _recorder, stats = ingest_for_real(INVERTED_GEN1_TS)
+
+        assert stats.lost_count(PID, 0) == 2
+        assert stats.lost_pause_ns(PID, 0) > 0
+
+    def test_the_same_polls_export_a_span_when_the_window_has_room(self) -> None:
+        recorder, stats = ingest_for_real(DRAWABLE_GEN1_TS)
+
+        assert [(m.gen, m.lost_count) for m in recorder.losses] == [(0, 2)]
+        assert stats.undrawable_count(PID, 0) == 0
+
+    def test_nothing_the_table_shows_moves(self) -> None:
+        """Every cell of the `--stats` row comes from counters, so holding a
+        span back cannot shift one. Checked rather than assumed: it is the
+        claim that lets the discard be silent outside the footer."""
+        _held, held_stats = ingest_for_real(INVERTED_GEN1_TS)
+        _drawn, drawn_stats = ingest_for_real(DRAWABLE_GEN1_TS)
+
+        assert held_stats.exact_count(PID, 0) == drawn_stats.exact_count(PID, 0) == 5
+        assert held_stats.lost_count(PID, 0) == drawn_stats.lost_count(PID, 0)
+        assert held_stats.lost_pause_ns(PID, 0) == drawn_stats.lost_pause_ns(PID, 0)
+        assert held_stats.exact_pause_ns(PID, 0) == drawn_stats.exact_pause_ns(PID, 0)
+        assert held_stats.coverage(PID, 0) == drawn_stats.coverage(PID, 0)
+        assert held_stats.scale_factor(PID, 0) == drawn_stats.scale_factor(PID, 0)
+
+    @pytest.mark.parametrize("gen1_ts0", [DRAWABLE_GEN1_TS, TOUCHING_GEN1_TS, INVERTED_GEN1_TS])
+    def test_the_mirror_still_mirrors(self, gen1_ts0: int) -> None:
+        """`Ingested` stands in for `_ingest` throughout this file, so where
+        both can be run the two have to agree."""
+        recorder, stats = ingest_for_real(gen1_ts0)
+        mirrored = inverting_polls(gen1_ts0)
+
+        assert [(m.gen, m.ts_start, m.ts_stop) for m in recorder.losses] == [
+            (s.gen, s.ts_start, s.ts_stop) for s in mirrored.spans()
+        ]
+        assert stats.undrawable_count(PID, 0) == mirrored.undrawable_count()
+        assert stats.lost_count(PID, 0) == sum(w.lost_count for w in mirrored.measured())

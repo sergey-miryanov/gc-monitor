@@ -28,6 +28,7 @@
 
 - Fix GC events discarded by the poll loop. The cursor now tracks the target's `collections` counter per process, interpreter and generation
 - Drop poll state when the wait policy gives up on a PID or the PID leaves the process tree, so a reused PID does not inherit its predecessor's counter
+- Draw no `GC Loss` span for a window whose `ts_stop` does not follow its `ts_start`, which says the lost records had nowhere to run and can only mean the target's record ordering did not reach gcmon. The collections still count toward `Count`, `Sum`, `Cov` and `F`, and the `--stats` footer names how many spans were held back
 - Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting
 - Every `Processes` slice now records the span gcmon observed in `real_start_ts` / `real_end_ts` annotations
 

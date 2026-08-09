@@ -188,12 +188,21 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
 def _print_footer(stats: StreamingStats) -> None:
     """What the table's two number kinds mean, and the third it cannot show.
 
-    Only printed when something was lost or the target collected before gcmon
-    attached. A run that saw everything has nothing to explain.
+    Only printed when something was lost, the target collected before gcmon
+    attached, or a window came back with bounds describing no interval. A run
+    that saw everything has nothing to explain.
+
+    The last of the three is the only place a run ever hears about
+    `LossWindow.is_drawable` biting. "from the target" is the load-bearing
+    phrase: nothing gcmon dropped produces it, and a reader who takes it for
+    gcmon losing data lowers `--rate` and changes nothing. It stays one line
+    like the two above it, so the mechanism lives in ADR-0015 rather than
+    here. That ADR also notes a run without ``--stats`` is told nothing.
     """
     covered = [gen for gen in stats.GENS if stats.lost_count(None, gen)]
     lifetime = [gen for gen in stats.GENS if stats.lifetime_count(None, gen)]
-    if not covered and not lifetime:
+    undrawn = [gen for gen in stats.GENS if stats.undrawable_count(None, gen)]
+    if not covered and not lifetime and not undrawn:
         return
 
     print("")
@@ -208,3 +217,8 @@ def _print_footer(stats: StreamingStats) -> None:
             for gen in lifetime
         )
         print(f"Since interpreter start, outside the monitored window: {parts}.")
+    if undrawn:
+        parts = " ".join(f"gen {gen} {stats.undrawable_count(None, gen)}" for gen in undrawn)
+        print(
+            f"Loss spans not drawn: {parts} (start and end arrived reversed, from the target). Counts above are unaffected."
+        )

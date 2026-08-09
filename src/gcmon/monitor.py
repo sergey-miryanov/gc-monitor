@@ -134,8 +134,19 @@ class EventsMonitor:
 
             window = accumulator.observe_batch(run, confirmed.get(iid, 0))
             if window is not None:
-                windows.setdefault(iid, []).append(window)
+                # Record first, draw second, and never the other way round.
+                # The counts are the ring's own counters and hold whatever the
+                # bounds turn out to say, so `Cov`, `F` and the exact totals
+                # are the same whether or not a span came of this window.
                 self._stats.record_loss(pid, gen, window.lost_count, window.lost_pause_ns)
+                if window.is_drawable:
+                    windows.setdefault(iid, []).append(window)
+                else:
+                    # Bounds that describe no interval: the loss is real, the
+                    # geometry is not. Held back here rather than in
+                    # `stack_order`, whose job is ordering and which would
+                    # hide the rejection. See `LossWindow.is_drawable`.
+                    self._stats.record_undrawable(pid, gen)
             if run:
                 self._stats.record_lifetime(pid, iid, gen, accumulator.last, accumulator.last_duration)
             fresh.extend(run)

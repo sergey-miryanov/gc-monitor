@@ -240,6 +240,19 @@ not share a clock, which would leave the whole reconstruction unsound.
   process. Accepted without code: reuse that fast needs the pid allocator to wrap, and a
   successor gcmon cannot read returns `INVALID_PROCESS`, which clears the cursor through
   `forget`.
+- **A window whose bounds describe no interval is counted, not drawn.** A `ts_stop` at or
+  before its `ts_start` says the lost records had nowhere to run, which no truthful pair of
+  records can say, and drawing it would put a backwards or sub-pixel slice on a row whose
+  nesting `stack_order` depends on. It is the one fingerprint of hazard 1 above that reaches
+  gcmon at all, and it reaches it by accident rather than by looking; the fix stays upstream.
+  `_ingest` records the loss first — `lost_count` is counter arithmetic with no timestamp in
+  it, so `Cov`, `F` and the exact totals are the same either way — then holds the window back
+  on `LossWindow.is_drawable` before `stack_order` sees it, and `StreamingStats.record_loss` is
+  never the thing skipped. `undrawable_count` carries the tally and the `--stats` footer names
+  it, attributing it to the target's record ordering rather than to gcmon dropping anything: the
+  two have different fixes, and a reader who assumes the second lowers `--rate` for no effect. A
+  run without `--stats` is told nothing at all; that gap belongs to the separate decision on
+  end-of-run reporting, not to this one.
 - **A duplicated export can push `Cov` above 1.0.** When a wait policy gives up on a pid that
   later answers again, `forget` has dropped its cursors and the next poll re-exports the whole
   ring. Those duplicates inflate `sampled_count`, which now divides into an exact count.

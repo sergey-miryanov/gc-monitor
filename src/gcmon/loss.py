@@ -56,6 +56,31 @@ class LossWindow(msgspec.Struct):
     lost_count: int
     lost_pause_ns: int
 
+    @property
+    def is_drawable(self) -> bool:
+        """Whether the bounds leave the lost records room to have run in.
+
+        A ``ts_stop`` that does not follow ``ts_start`` contradicts the window
+        on its face: records were overwritten unread, and records take time.
+        Equal bounds say the same thing and would draw as an invisible
+        sub-pixel slice. Either way the span belongs on no track: the loss row
+        is a Perfetto stack, and :func:`stack_order` sorts windows it takes to
+        be well-formed.
+
+        Truthful data cannot reach here. Both bounds are timestamps the target
+        published, and ``add_stats`` publishes ``ts_stop`` last precisely so a
+        remote reader never selects a half-written record. ADR-0015
+        §"What gcmon trusts the target for" records that those stores carry no
+        barrier, so a weakly-ordered target can in principle expose a record
+        assembled from two collections, and puts the fix upstream. This is the
+        one fingerprint of that hazard gcmon has any client-side sign of.
+
+        Only the drawing is at stake. ``lost_count`` and ``lost_from`` are
+        counter arithmetic with no timestamp in them, so ``_ingest`` records
+        the loss whatever this says and skips only the span.
+        """
+        return self.ts_start < self.ts_stop
+
 
 class KeyAccumulator(msgspec.Struct):
     """What one ring buffer did, against what gcmon saw of it.
