@@ -69,12 +69,12 @@ class TestBeginEvent:
         event = begin_event(
             pid=123,
             tid=1,
-            name="GC Pause (gen=0)",
+            name="GC Pause(0)",
             cat="gc.pause(gen=0)",
             ts_ns=1_000_000,
             args=args,
         )
-        assert event.name == "GC Pause (gen=0)"
+        assert event.name == "GC Pause(0)"
         assert event.cat == "gc.pause(gen=0)"
         assert event.ph == "B"
         assert event.ts == 1_000_000
@@ -88,11 +88,11 @@ class TestEndEvent:
         event = end_event(
             pid=123,
             tid=1,
-            name="GC Pause (gen=0)",
+            name="GC Pause(0)",
             cat="gc.pause(gen=0)",
             ts_ns=2_000_000,
         )
-        assert event.name == "GC Pause (gen=0)"
+        assert event.name == "GC Pause(0)"
         assert event.cat == "gc.pause(gen=0)"
         assert event.ph == "E"
         assert event.ts == 2_000_000
@@ -181,7 +181,7 @@ class TestConvertItemToTraceFormat:
         counters = [e for e in events if e.ph == "C"]
         assert len(begins) == 1
         assert len(counters) == 2
-        assert begins[0].name == "GC Pause (gen=0)"
+        assert begins[0].name == "GC Pause(0)"
         assert {c.name for c in counters} == {"G0", "heap_size"}
 
     def test_preserves_timestamps_in_nanoseconds(self) -> None:
@@ -196,15 +196,15 @@ class TestConvertItemToTraceFormat:
         item = _make_incremental_item(gen=0)
         events = convert_item_to_trace_format(pid=12345, item=item)
         names = {e.name for e in events if e.ph == "B"}
-        assert "GC Pause (gen=0)" in names
-        assert "Mark Alive (gen=0)" in names
-        assert "Fill increment (gen=0)" in names
-        assert "Deduce Unreachable (gen=0)" in names
-        assert "Handle Weakrefs Callbacks (gen=0)" in names
-        assert "Finalize Garbage (gen=0)" in names
-        assert "Handle Resurrected (gen=0)" in names
-        assert "Clear Weakrefs (gen=0)" in names
-        assert "Delete Garbage (gen=0)" in names
+        assert "GC Pause(0)" in names
+        assert "Mark Alive(0)" in names
+        assert "Fill increment(0)" in names
+        assert "Deduce Unreachable(0)" in names
+        assert "Handle Weakrefs Callbacks(0)" in names
+        assert "Finalize Garbage(0)" in names
+        assert "Handle Resurrected(0)" in names
+        assert "Clear Weakrefs(0)" in names
+        assert "Delete Garbage(0)" in names
 
     def test_incremental_gen0_pause_data_has_increment_size(self) -> None:
         item = _make_incremental_item(gen=0, increment_size=1000)
@@ -215,7 +215,7 @@ class TestConvertItemToTraceFormat:
     def test_deduce_unreachable_slice_args_has_candidates(self) -> None:
         item = _make_incremental_item(gen=0)
         events = convert_item_to_trace_format(pid=12345, item=item)
-        deduce = next(e for e in events if e.ph == "B" and e.name == "Deduce Unreachable (gen=0)")
+        deduce = next(e for e in events if e.ph == "B" and e.name == "Deduce Unreachable(0)")
         assert deduce.args["candidates"] == item.candidates
         assert deduce.args["generation"] == 0
 
@@ -286,14 +286,14 @@ class TestConvertItemToTraceFormat:
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
         names = {e.name for e in events if e.ph == "B"}
-        assert "Mark Alive (gen=0)" not in names
-        assert "Fill increment (gen=0)" in names
-        assert "Deduce Unreachable (gen=0)" not in names
-        assert "Handle Weakrefs Callbacks (gen=0)" not in names
-        assert "Finalize Garbage (gen=0)" not in names
-        assert "Handle Resurrected (gen=0)" not in names
-        assert "Clear Weakrefs (gen=0)" not in names
-        assert "Delete Garbage (gen=0)" in names
+        assert "Mark Alive(0)" not in names
+        assert "Fill increment(0)" in names
+        assert "Deduce Unreachable(0)" not in names
+        assert "Handle Weakrefs Callbacks(0)" not in names
+        assert "Finalize Garbage(0)" not in names
+        assert "Handle Resurrected(0)" not in names
+        assert "Clear Weakrefs(0)" not in names
+        assert "Delete Garbage(0)" in names
 
     def test_pause_data_has_all_required_fields(self) -> None:
         item = create_mock_stats_item()
@@ -455,7 +455,7 @@ class TestConvertItemToTraceFormat:
             clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
-        begin = next(e for e in events if e.ph == "B" and e.name == "Finalize Garbage (gen=0)")
+        begin = next(e for e in events if e.ph == "B" and e.name == "Finalize Garbage(0)")
         assert begin.args["finalized_garbage_count"] == 42
         assert "deleted_garbage_count" not in begin.args
         assert "clear_weakrefs_count" not in begin.args
@@ -468,7 +468,7 @@ class TestConvertItemToTraceFormat:
             clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
-        begin = next(e for e in events if e.ph == "B" and e.name == "Clear Weakrefs (gen=0)")
+        begin = next(e for e in events if e.ph == "B" and e.name == "Clear Weakrefs(0)")
         assert begin.args["clear_weakrefs_count"] == 7
         assert "finalized_garbage_count" not in begin.args
         assert "deleted_garbage_count" not in begin.args
@@ -481,7 +481,7 @@ class TestConvertItemToTraceFormat:
             clear_weakrefs_count=7,
         )
         events = convert_item_to_trace_format(pid=12345, item=item)
-        begin = next(e for e in events if e.ph == "B" and e.name == "Delete Garbage (gen=0)")
+        begin = next(e for e in events if e.ph == "B" and e.name == "Delete Garbage(0)")
         assert begin.args["deleted_garbage_count"] == 13
         assert "finalized_garbage_count" not in begin.args
         assert "clear_weakrefs_count" not in begin.args
@@ -580,16 +580,16 @@ class TestConvertLoss:
         window's left edge."""
         begin, end = self._pair(self._msg(lost_count=1, lost_pause_ns=200))
 
-        assert (begin.name, begin.ts) == ("GC Loss (gen=0)", 1_000)
+        assert (begin.name, begin.ts) == ("GC Loss(0)", 1_000)
         assert end.ts == 2_000
 
     def test_the_name_and_category_carry_the_generation(self) -> None:
-        """Mirroring `GC Pause (gen={gen})`, which is what gives each
+        """Mirroring `GC Pause({gen})`, which is what gives each
         generation a stable colour: Perfetto hashes the slice name."""
         begin, end = self._pair(self._msg(gen=2, lost_count=1))
 
-        assert (begin.name, begin.cat) == ("GC Loss (gen=2)", "gc.loss(gen=2)")
-        assert (end.name, end.cat) == ("GC Loss (gen=2)", "gc.loss(gen=2)")
+        assert (begin.name, begin.cat) == ("GC Loss(2)", "gc.loss(gen=2)")
+        assert (end.name, end.cat) == ("GC Loss(2)", "gc.loss(gen=2)")
 
     def test_it_lands_on_the_interpreters_loss_track(self) -> None:
         begin, end = self._pair(self._msg(iid=2, lost_count=1, lost_pause_ns=200))
@@ -644,7 +644,7 @@ class TestConvertLoss:
 
         events = convert_to_trace_format(items)
 
-        assert any(isinstance(e, BeginEvent) and e.name == "GC Loss (gen=0)" for e in events)
+        assert any(isinstance(e, BeginEvent) and e.name == "GC Loss(0)" for e in events)
 
     def test_loss_declares_no_thread(self) -> None:
         """A `ThreadMeta` at the loss tid would have Perfetto draw the track as

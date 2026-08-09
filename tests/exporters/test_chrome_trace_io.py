@@ -785,10 +785,10 @@ class TestJsonlLossRoundTrip:
 
         events = json.loads(out.read_text(encoding="utf-8"))
         assert [(e["name"], e["ph"], e["ts"]) for e in events if e["name"].startswith("GC ")] == [
-            ("GC Loss (gen=0)", "B", 0),
-            ("GC Loss (gen=0)", "E", 2_000),
-            ("GC Pause (gen=0)", "B", 2_000),
-            ("GC Pause (gen=0)", "E", 3_000),
+            ("GC Loss(0)", "B", 0),
+            ("GC Loss(0)", "E", 2_000),
+            ("GC Pause(0)", "B", 2_000),
+            ("GC Pause(0)", "E", 3_000),
         ]
 
     def test_combine_carries_loss_into_a_chrome_trace(self, tmp_path: Path) -> None:
@@ -799,7 +799,7 @@ class TestJsonlLossRoundTrip:
         combine_files([source], out, input_format="jsonl", output_format="chrome")
 
         names = {e["name"] for e in json.loads(out.read_text(encoding="utf-8"))}
-        assert "GC Loss (gen=0)" in names
+        assert "GC Loss(0)" in names
 
     def test_combine_jsonl_to_jsonl_keeps_the_span(self, tmp_path: Path) -> None:
         source = tmp_path / "in.jsonl"

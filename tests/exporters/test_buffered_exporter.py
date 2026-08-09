@@ -146,7 +146,7 @@ class TestAddLossEvent:
 
         begin = next(e for e in exporter._buffer if isinstance(e, BeginEvent))
         end = next(e for e in exporter._buffer if isinstance(e, EndEvent))
-        assert (begin.name, begin.ts) == ("GC Loss (gen=0)", 1_000)
+        assert (begin.name, begin.ts) == ("GC Loss(0)", 1_000)
         assert end.ts == 2_000
 
     def test_it_lands_on_the_loss_track(self, tmp_path: Path) -> None:

@@ -41,12 +41,12 @@ CPython exports GC records through a small ring buffer of 11 slots for generatio
 and 3 for the older two, so a target collecting faster than gcmon polls overwrites
 records before anyone reads them. gcmon detects this from CPython's cumulative
 `collections` and `duration` counters and marks each blind interval with a slice
-named `GC Loss (gen=N)`, on a `GC Loss {iid}` track of its own.
+named `GC Loss(N)`, on a `GC Loss {iid}` track of its own.
 
 **One span per generation.** Each generation's ring wraps on its own schedule, so a
-poll that lost records in all three draws three bars — `GC Loss (gen=0)`,
-`GC Loss (gen=1)`, `GC Loss (gen=2)` — and each one says how long *that* generation
-was unobserved. They are named the way the `GC Pause (gen={gen})` slices are, which
+poll that lost records in all three draws three bars — `GC Loss(0)`,
+`GC Loss(1)`, `GC Loss(2)` — and each one says how long *that* generation
+was unobserved. They are named the way the `GC Pause({gen})` slices are, which
 is what gives each generation a stable colour of its own.
 
 The three **nest inside one another** rather than sitting side by side. A single bulk

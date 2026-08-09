@@ -38,7 +38,7 @@ since Chrome's trace processor derives the track name as `f"{event_name} {arg_ke
 Metrics in this set are parented directly to the process track, outside the collapsible
 `GC Metrics` group. Adding a metric to the set moves it out of the group.
 
-`heap_size` stays on the `GC Pause (gen=N)` slice's args as well, so it remains queryable
+`heap_size` stays on the `GC Pause(N)` slice's args as well, so it remains queryable
 per-pause from the slice `args` table.
 
 ## Consequences

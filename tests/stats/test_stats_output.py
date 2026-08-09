@@ -366,7 +366,7 @@ class TestLossColumns:
         print_stats(self._lossy())
         out = capsys.readouterr().out
 
-        assert "Coverage: gen 0 30.0%" in out
+        assert "Coverage: Gen0 30.0%" in out
         assert "percentiles are sampled and read high" in out
 
     def test_the_footer_separates_lifetime_from_the_session(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -378,7 +378,7 @@ class TestLossColumns:
         out = capsys.readouterr().out
 
         assert "Since interpreter start" in out
-        assert "gen 0 5000" in out
+        assert "Gen0 5000" in out
 
     def test_read_time_leaves_cov_and_f_blank(self, capsys: pytest.CaptureFixture[str]) -> None:
         stats = self._lossy()
@@ -426,7 +426,7 @@ class TestLossColumns:
         print_stats(stats)
         out = capsys.readouterr().out
 
-        assert "Coverage: gen 0 99.5%" in out
+        assert "Coverage: Gen0 99.5%" in out
 
 
 class TestUndrawableWindowsInTheFooter:
@@ -471,7 +471,7 @@ class TestUndrawableWindowsInTheFooter:
         out = capsys.readouterr().out
 
         assert "not drawn" in out
-        assert "gen 0 2" in out
+        assert "Gen0 2" in out
 
     def test_it_sends_the_reader_at_the_target(self, capsys: pytest.CaptureFixture[str]) -> None:
         """The one line that must not read as gcmon having lost something:

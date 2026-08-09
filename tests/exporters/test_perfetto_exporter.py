@@ -126,10 +126,10 @@ class TestPerfettoExporter:
             track_event = _get_track_event(packet)
             if track_event and track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
                 name = track_event.name
-                if name == "GC Pause (gen=0)":
+                if name == "GC Pause(0)":
                     hit = True
                     break
-        assert hit, "GC Pause (gen=0) not found"
+        assert hit, "GC Pause(0) not found"
 
         # Verify descriptors present
         assert _count_descriptors(packets) >= 2
@@ -181,7 +181,7 @@ class TestPerfettoExporter:
                 name = track_event.name
                 if name and "GC Pause" in name:
                     names.add(name)
-        assert names == {"GC Pause (gen=0)", "GC Pause (gen=1)", "GC Pause (gen=2)"}
+        assert names == {"GC Pause(0)", "GC Pause(1)", "GC Pause(2)"}
 
     def test_add_instant_event_writes_instant_event(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
@@ -275,15 +275,15 @@ class TestPerfettoExporter:
                 if name:
                     begin_names.add(name)
         expected = {
-            "GC Pause (gen=0)",
-            "Mark Alive (gen=0)",
-            "Fill increment (gen=0)",
-            "Deduce Unreachable (gen=0)",
-            "Handle Weakrefs Callbacks (gen=0)",
-            "Finalize Garbage (gen=0)",
-            "Handle Resurrected (gen=0)",
-            "Clear Weakrefs (gen=0)",
-            "Delete Garbage (gen=0)",
+            "GC Pause(0)",
+            "Mark Alive(0)",
+            "Fill increment(0)",
+            "Deduce Unreachable(0)",
+            "Handle Weakrefs Callbacks(0)",
+            "Finalize Garbage(0)",
+            "Handle Resurrected(0)",
+            "Clear Weakrefs(0)",
+            "Delete Garbage(0)",
         }
         assert expected.issubset(begin_names)
 

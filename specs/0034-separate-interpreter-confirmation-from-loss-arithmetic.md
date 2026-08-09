@@ -10,7 +10,7 @@
 
 ## 1. Problem statement
 
-Open a trace and a `GC Loss (gen=0)` bar starts earlier than it needs to, covering a stretch
+Open a trace and a `GC Loss(0)` bar starts earlier than it needs to, covering a stretch
 the trace itself shows was not blind. The count on the bar stays exact. The interval is looser
 than the evidence supports, which is the only thing a loss span claims.
 

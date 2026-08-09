@@ -157,12 +157,12 @@ class TestThreeGenerationsOnOneRow:
         """One bar carrying three generations' counts said gcmon was blind
         here without saying which generation went blind, or for how long."""
         assert [name for name, _s, _e, _d in self.row()] == [
-            "GC Loss (gen=2)",
-            "GC Loss (gen=1)",
-            "GC Loss (gen=0)",
-            "GC Loss (gen=2)",
-            "GC Loss (gen=1)",
-            "GC Loss (gen=0)",
+            "GC Loss(2)",
+            "GC Loss(1)",
+            "GC Loss(0)",
+            "GC Loss(2)",
+            "GC Loss(1)",
+            "GC Loss(0)",
         ]
 
     def test_they_nest_outermost_first(self) -> None:
@@ -182,9 +182,9 @@ class TestThreeGenerationsOnOneRow:
         first_poll = [(name, ts_stop) for name, _s, ts_stop, _d in self.row()][:3]
 
         assert first_poll == [
-            ("GC Loss (gen=2)", 9_000_000),
-            ("GC Loss (gen=1)", 7_000_000),
-            ("GC Loss (gen=0)", 5_000_000),
+            ("GC Loss(2)", 9_000_000),
+            ("GC Loss(1)", 7_000_000),
+            ("GC Loss(0)", 5_000_000),
         ]
 
     def test_spans_from_different_polls_do_not_nest(self) -> None:
@@ -203,8 +203,8 @@ class TestTheVerbatimCapture:
 
     def test_the_two_generations_nest(self) -> None:
         assert self.row() == [
-            ("GC Loss (gen=0)", 294787154918900, 294787244879600, 0),
-            ("GC Loss (gen=1)", 294787154918900, 294787228540400, 1),
+            ("GC Loss(0)", 294787154918900, 294787244879600, 0),
+            ("GC Loss(1)", 294787154918900, 294787228540400, 1),
         ]
 
     def test_the_counts_ride_on_the_generation_that_lost_them(self) -> None:

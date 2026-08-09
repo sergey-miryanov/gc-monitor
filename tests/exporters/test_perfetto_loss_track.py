@@ -145,9 +145,9 @@ def test_a_loss_span_lands_on_its_own_track(tmp_path: Path) -> None:
 
     assert misplaced == 0
     assert slices == [
-        ("Thread 0", "GC Pause (gen=0)", 1_000, 1_000),
-        ("GC Loss 0", "GC Loss (gen=0)", 2_000, 7_000),
-        ("Thread 0", "GC Pause (gen=0)", 9_000, 1_000),
+        ("Thread 0", "GC Pause(0)", 1_000, 1_000),
+        ("GC Loss 0", "GC Loss(0)", 2_000, 7_000),
+        ("Thread 0", "GC Pause(0)", 9_000, 1_000),
     ]
 
 
@@ -156,7 +156,7 @@ def test_the_bar_fills_the_gap_between_two_collections(tmp_path: Path) -> None:
     the interval, not where in it the lost records ran."""
     _, slices = _load(_events(_loss(2_000, 9_000, 500)), tmp_path, "fills_gap")
 
-    loss = next((ts, dur) for _t, name, ts, dur in slices if name == "GC Loss (gen=0)")
+    loss = next((ts, dur) for _t, name, ts, dur in slices if name == "GC Loss(0)")
     assert loss == (2_000, 7_000)
 
 
@@ -202,9 +202,9 @@ def test_the_generations_nest_outermost_first(tmp_path: Path) -> None:
 
     assert misplaced == 0
     assert slices == [
-        ("GC Loss (gen=2)", 2_000, 7_000, 0),
-        ("GC Loss (gen=1)", 2_000, 5_000, 1),
-        ("GC Loss (gen=0)", 2_000, 3_000, 2),
+        ("GC Loss(2)", 2_000, 7_000, 0),
+        ("GC Loss(1)", 2_000, 5_000, 1),
+        ("GC Loss(0)", 2_000, 3_000, 2),
     ]
 
 
@@ -222,7 +222,7 @@ def test_narrowest_first_is_silently_reshaped(tmp_path: Path) -> None:
 
     assert misplaced == 0
     assert slices == [
-        ("GC Loss (gen=0)", 2_000, 7_000, 0),
-        ("GC Loss (gen=1)", 2_000, 5_000, 1),
-        ("GC Loss (gen=2)", 2_000, 3_000, 2),
+        ("GC Loss(0)", 2_000, 7_000, 0),
+        ("GC Loss(1)", 2_000, 5_000, 1),
+        ("GC Loss(2)", 2_000, 3_000, 2),
     ]

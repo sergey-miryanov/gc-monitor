@@ -49,7 +49,7 @@ class TestTraceExporter:
         assert len(begins) == num_items
         # per-gen counter (with duration folded in) + shared heap_size
         assert len(counters) == 2 * num_items
-        assert all(e["name"] == "GC Pause (gen=0)" for e in begins)
+        assert all(e["name"] == "GC Pause(0)" for e in begins)
         per_gen_counters = [e for e in counters if e["name"] == "G0"]
         # The shared heap_size counter: the JSON encoder rewrites its event
         # name to "" so the trace processor produces a single track named
@@ -100,7 +100,7 @@ class TestTraceExporter:
             if event["ph"] == "B":
                 assert_is_begin(
                     event,
-                    name="GC Pause (gen=0)",
+                    name="GC Pause(0)",
                     cat="gc.pause(gen=0)",
                     ts=1_500_000,
                     pid=12345,
@@ -163,7 +163,7 @@ class TestTraceExporter:
         event = next(e for e in data if e["ph"] == "B")
         assert_is_begin(
             event,
-            name="GC Pause (gen=0)",
+            name="GC Pause(0)",
             cat="gc.pause(gen=0)",
             ts=1_500_000,
             pid=12345,
@@ -406,7 +406,7 @@ class TestGCMonitorStreamsLoss:
         return assert_valid_chrome_trace_format(path)
 
     def losses(self, data: list[dict[str, ChromeTraceValue]]) -> list[dict[str, ChromeTraceValue]]:
-        return [e for e in data if e["name"] == "GC Loss (gen=0)" and e["ph"] == "B"]
+        return [e for e in data if e["name"] == "GC Loss(0)" and e["ph"] == "B"]
 
     def test_a_wrapped_ring_draws_a_slice(
         self,
@@ -455,9 +455,7 @@ class TestGCMonitorStreamsLoss:
 
         first = self.losses(data)[0]
         assert first["ts"] == ts_to_us(1_505_000_000)
-        assert next(e["ts"] for e in data if e["name"] == "GC Loss (gen=0)" and e["ph"] == "E") == ts_to_us(
-            1_600_000_000
-        )
+        assert next(e["ts"] for e in data if e["name"] == "GC Loss(0)" and e["ph"] == "E") == ts_to_us(1_600_000_000)
 
     def test_a_run_that_lost_nothing_draws_none(
         self, mock_gc_stats: None, monitor_with_exporter: tuple[EventsMonitor, Path]
@@ -483,7 +481,7 @@ class TestGCMonitorStreaming:
             pid=12345,
             args={"name": "Process 12345"},
         )
-        assert any(e["name"] == "GC Pause (gen=1)" for e in data)
+        assert any(e["name"] == "GC Pause(1)" for e in data)
         # At least one begin event per poll
         assert len([e for e in data if e["ph"] == "B"]) >= 4
         assert len([e for e in data if e["ph"] == "C"]) >= 4

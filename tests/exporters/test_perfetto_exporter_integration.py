@@ -20,7 +20,7 @@ from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
 
-_PAUSE_NAME: str = "GC Pause (gen=0)"
+_PAUSE_NAME: str = "GC Pause(0)"
 _INSTANT_NAME: str = "GC monitor started"
 _SECOND_PID: int = 67890
 _THIRD_PID: int = 54321
@@ -462,10 +462,10 @@ class TestSliceArgs:
     ) -> None:
         rows = list(
             trace_processor.query(
-                f"SELECT s.name FROM slice s {_process_filter(DEFAULT_PID)} AND s.name = 'GC Pause (gen=1)'"
+                f"SELECT s.name FROM slice s {_process_filter(DEFAULT_PID)} AND s.name = 'GC Pause(1)'"
             )
         )
-        assert len(rows) == 1, f"expected exactly one 'GC Pause (gen=1)' slice, got {rows}"
+        assert len(rows) == 1, f"expected exactly one 'GC Pause(1)' slice, got {rows}"
 
     @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_full_fields_pause_encodes_all_optional_fields(
@@ -474,14 +474,14 @@ class TestSliceArgs:
         trace_processor: TraceProcessor,
     ) -> None:
         expected_sub_slices = [
-            "Mark Alive (gen=1)",
-            "Fill increment (gen=1)",
-            "Deduce Unreachable (gen=1)",
-            "Handle Weakrefs Callbacks (gen=1)",
-            "Finalize Garbage (gen=1)",
-            "Handle Resurrected (gen=1)",
-            "Clear Weakrefs (gen=1)",
-            "Delete Garbage (gen=1)",
+            "Mark Alive(1)",
+            "Fill increment(1)",
+            "Deduce Unreachable(1)",
+            "Handle Weakrefs Callbacks(1)",
+            "Finalize Garbage(1)",
+            "Handle Resurrected(1)",
+            "Clear Weakrefs(1)",
+            "Delete Garbage(1)",
         ]
         slice_names = {
             r.name for r in trace_processor.query(f"SELECT DISTINCT s.name FROM slice s {_process_filter(DEFAULT_PID)}")
@@ -503,13 +503,13 @@ class TestSliceArgs:
                 "WHERE arg_set_id IN ("
                 f"  SELECT s.arg_set_id FROM slice s "
                 f"  {_process_filter(DEFAULT_PID)} "
-                "  AND s.name = 'Deduce Unreachable (gen=1)' AND s.dur > 0 "
+                "  AND s.name = 'Deduce Unreachable(1)' AND s.dur > 0 "
                 f"  AND th.name = 'Thread 1'"
                 ")"
             )
         }
         assert f"{prefix}.candidates" in rows, (
-            f"missing {prefix}.candidates on Deduce Unreachable (gen=1); got {sorted(rows)}"
+            f"missing {prefix}.candidates on Deduce Unreachable(1); got {sorted(rows)}"
         )
 
         prefix = _ARG_PREFIX[fmt]
@@ -520,7 +520,7 @@ class TestSliceArgs:
                 "WHERE arg_set_id IN ("
                 "  SELECT s.arg_set_id FROM slice s "
                 f"  {_process_filter(DEFAULT_PID)} "
-                "  AND s.name = 'GC Pause (gen=1)' AND s.dur > 0 "
+                "  AND s.name = 'GC Pause(1)' AND s.dur > 0 "
                 "  AND th.name = 'Thread 1'"
                 ")"
             )

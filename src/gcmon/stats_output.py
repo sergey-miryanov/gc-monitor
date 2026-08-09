@@ -207,13 +207,13 @@ def _print_footer(stats: StreamingStats) -> None:
 
     notes: list[str] = []
     if covered:
-        parts = " ".join(
-            f"gen {gen} {_coverage_cell(stats.coverage(None, gen), stats.lost_count(None, gen))}" for gen in covered
+        parts = ", ".join(
+            f"Gen{gen} {_coverage_cell(stats.coverage(None, gen), stats.lost_count(None, gen))}" for gen in covered
         )
         notes.append(f"Coverage: {parts}. Count and Sum read sampled/exact; percentiles are sampled and read high.")
     if lifetime:
-        parts = " ".join(
-            f"gen {gen} {stats.lifetime_count(None, gen)} in {dur_to_ms(stats.lifetime_pause_ns(None, gen)):.3f} ms"
+        parts = ", ".join(
+            f"Gen{gen} {stats.lifetime_count(None, gen)} in {dur_to_ms(stats.lifetime_pause_ns(None, gen)):.3f} ms"
             for gen in lifetime
         )
         # "Since interpreter start" covers the monitored window rather than
@@ -221,7 +221,7 @@ def _print_footer(stats: StreamingStats) -> None:
         # `Count`. `lifetime_count` is the target's own cumulative counter.
         notes.append(f"Since interpreter start, monitored window included: {parts}.")
     if undrawn:
-        parts = " ".join(f"gen {gen} {stats.undrawable_count(None, gen)}" for gen in undrawn)
+        parts = ", ".join(f"Gen{gen} {stats.undrawable_count(None, gen)}" for gen in undrawn)
         notes.append(
             f"Loss spans not drawn: {parts} (bounds arrived reversed, so the interval could not "
             "be placed). Counts above are unaffected."

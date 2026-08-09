@@ -27,7 +27,7 @@ $ gcmon 12345 --stats --table-format md
 |       |                          |         |                 |        |        |        |        |        |        |        |
 |       | Read Time                |     300 |         750.000 |  2.500 |  2.400 |  3.100 |  3.600 |  5.200 |        |        |
 
-1. Coverage: gen 0 20.0% gen 1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
+1. Coverage: Gen0 20.0%, Gen1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
 ```
 
 *Values shown in milliseconds. Metrics are reported per GC generation (0, 1, 2).*
@@ -82,7 +82,7 @@ Below the table gcmon prints a numbered note for each thing the cells cannot say
 **1. Coverage.**
 
 ```
-1. Coverage: gen 0 20.0% gen 1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
+1. Coverage: Gen0 20.0%, Gen1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
 ```
 
 The `Cov` column gathered across every PID, plus the rule for reading the two-number cells. It appears whenever anything was lost, and only the generations that lost something are listed.
@@ -90,7 +90,7 @@ The `Cov` column gathered across every PID, plus the rule for reading the two-nu
 **2. Lifetime totals.**
 
 ```
-2. Since interpreter start, monitored window included: gen 0 4820 in 6231.400 ms.
+2. Since interpreter start, monitored window included: Gen0 4820 in 6231.400 ms.
 ```
 
 The third interval above. It covers each interpreter's whole history including the monitored part, so it neither adds to nor subtracts from any cell, and it stays out of `Cov` and `F`.
@@ -98,7 +98,7 @@ The third interval above. It covers each interpreter's whole history including t
 **3. Loss spans held back.**
 
 ```
-3. Loss spans not drawn: gen 0 2 (bounds arrived reversed, so the interval could not be placed). Counts above are unaffected.
+3. Loss spans not drawn: Gen0 2 (bounds arrived reversed, so the interval could not be placed). Counts above are unaffected.
 ```
 
 A loss window runs from the newest `ts_stop` seen anywhere in that interpreter to the `ts_start` of the first record read after the blind interval. When the second does not follow the first the window describes no interval, so gcmon draws nothing and counts it. The count is spans, not collections.

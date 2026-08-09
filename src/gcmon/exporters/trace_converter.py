@@ -82,7 +82,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         begin_event(
             pid,
             tid,
-            f"GC Pause (gen={gen})",
+            f"GC Pause({gen})",
             f"gc.pause(gen={gen})",
             ts_start_ns,
             pause_data,
@@ -95,7 +95,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             begin_event(
                 pid,
                 tid,
-                f"Mark Alive (gen={gen})",
+                f"Mark Alive({gen})",
                 f"gc.mark.alive(gen={gen})",
                 item.ts_mark_alive_start,
                 inc_data,
@@ -105,7 +105,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             end_event(
                 pid,
                 tid,
-                f"Mark Alive (gen={gen})",
+                f"Mark Alive({gen})",
                 f"gc.mark.alive(gen={gen})",
                 item.ts_mark_alive_stop,
             )
@@ -117,7 +117,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             begin_event(
                 pid,
                 tid,
-                f"Fill increment (gen={gen})",
+                f"Fill increment({gen})",
                 f"gc.increment(gen={gen})",
                 item.ts_fill_increment_start,
                 inc_data,
@@ -127,7 +127,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             end_event(
                 pid,
                 tid,
-                f"Fill increment (gen={gen})",
+                f"Fill increment({gen})",
                 f"gc.increment(gen={gen})",
                 item.ts_fill_increment_stop,
             )
@@ -139,7 +139,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             begin_event(
                 pid,
                 tid,
-                f"Deduce Unreachable (gen={gen})",
+                f"Deduce Unreachable({gen})",
                 f"gc.deduce(gen={gen})",
                 item.ts_deduce_unreachable_start,
                 inc_data,
@@ -149,7 +149,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             end_event(
                 pid,
                 tid,
-                f"Deduce Unreachable (gen={gen})",
+                f"Deduce Unreachable({gen})",
                 f"gc.deduce(gen={gen})",
                 item.ts_deduce_unreachable_stop,
             )
@@ -161,7 +161,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             begin_event(
                 pid,
                 tid,
-                f"Handle Weakrefs Callbacks (gen={gen})",
+                f"Handle Weakrefs Callbacks({gen})",
                 f"gc.weakrefs(gen={gen})",
                 item.ts_handle_weakref_callbacks_start,
                 inc_data,
@@ -171,7 +171,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             end_event(
                 pid,
                 tid,
-                f"Handle Weakrefs Callbacks (gen={gen})",
+                f"Handle Weakrefs Callbacks({gen})",
                 f"gc.weakrefs(gen={gen})",
                 item.ts_handle_weakref_callbacks_stop,
             )
@@ -183,7 +183,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             begin_event(
                 pid,
                 tid,
-                f"Finalize Garbage (gen={gen})",
+                f"Finalize Garbage({gen})",
                 f"gc.finalize(gen={gen})",
                 item.ts_handle_weakref_callbacks_stop,
                 inc_data,
@@ -193,7 +193,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             end_event(
                 pid,
                 tid,
-                f"Finalize Garbage (gen={gen})",
+                f"Finalize Garbage({gen})",
                 f"gc.finalize(gen={gen})",
                 item.ts_finalize_garbage_stop,
             )
@@ -205,7 +205,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             begin_event(
                 pid,
                 tid,
-                f"Handle Resurrected (gen={gen})",
+                f"Handle Resurrected({gen})",
                 f"gc.resurrect(gen={gen})",
                 item.ts_finalize_garbage_stop,
                 inc_data,
@@ -215,7 +215,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             end_event(
                 pid,
                 tid,
-                f"Handle Resurrected (gen={gen})",
+                f"Handle Resurrected({gen})",
                 f"gc.resurrect(gen={gen})",
                 item.ts_handle_resurrected_stop,
             )
@@ -227,7 +227,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             begin_event(
                 pid,
                 tid,
-                f"Clear Weakrefs (gen={gen})",
+                f"Clear Weakrefs({gen})",
                 f"gc.clear_weakrefs(gen={gen})",
                 item.ts_handle_resurrected_stop,
                 inc_data,
@@ -237,7 +237,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             end_event(
                 pid,
                 tid,
-                f"Clear Weakrefs (gen={gen})",
+                f"Clear Weakrefs({gen})",
                 f"gc.clear_weakrefs(gen={gen})",
                 item.ts_clear_weakrefs_stop,
             )
@@ -249,7 +249,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             begin_event(
                 pid,
                 tid,
-                f"Delete Garbage (gen={gen})",
+                f"Delete Garbage({gen})",
                 f"gc.delete(gen={gen})",
                 item.ts_delete_garbage_start,
                 inc_data,
@@ -259,7 +259,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             end_event(
                 pid,
                 tid,
-                f"Delete Garbage (gen={gen})",
+                f"Delete Garbage({gen})",
                 f"gc.delete(gen={gen})",
                 item.ts_delete_garbage_stop,
             )
@@ -269,7 +269,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         end_event(
             pid,
             tid,
-            f"GC Pause (gen={gen})",
+            f"GC Pause({gen})",
             f"gc.pause(gen={gen})",
             ts_stop_ns,
         )
@@ -299,7 +299,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
 
 
 def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
-    """One ``GC Loss (gen=N)`` slice covering an interval gcmon could not
+    """One ``GC Loss(N)`` slice covering an interval gcmon could not
     observe on one generation's ring.
 
     Drawn as the whole window, because that is what is known: the records are
@@ -309,7 +309,7 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     pause sum rides in the args instead, where it reads as a magnitude rather
     than as a position.
 
-    Named for its generation the way ``GC Pause (gen={gen})`` is, so each one
+    Named for its generation the way ``GC Pause({gen})`` is, so each one
     keeps a stable colour of its own — Perfetto hashes the slice name. A poll
     blind in all three generations draws three of these, nested inside one
     another on the interpreter's loss row, and the row says which generation
@@ -329,7 +329,7 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     """
     tid = loss_tid(item.iid)
     gen = item.gen
-    name = f"GC Loss (gen={gen})"
+    name = f"GC Loss({gen})"
     category = f"gc.loss(gen={gen})"
     args: dict[str, int] = {
         "iid": item.iid,

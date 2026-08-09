@@ -43,12 +43,12 @@ from tests.exporters.test_loss_track_stack import (
 LOSS_TID = loss_tid(IID)
 
 LIVE_ROW: list[Slice] = [
-    ("GC Loss (gen=2)", 1_500, 9_000, 0),
-    ("GC Loss (gen=1)", 1_500, 7_000, 1),
-    ("GC Loss (gen=0)", 1_500, 5_000, 2),
-    ("GC Loss (gen=2)", 9_100, 16_000, 0),
-    ("GC Loss (gen=1)", 9_100, 14_000, 1),
-    ("GC Loss (gen=0)", 9_100, 12_000, 2),
+    ("GC Loss(2)", 1_500, 9_000, 0),
+    ("GC Loss(1)", 1_500, 7_000, 1),
+    ("GC Loss(0)", 1_500, 5_000, 2),
+    ("GC Loss(2)", 9_100, 16_000, 0),
+    ("GC Loss(1)", 9_100, 14_000, 1),
+    ("GC Loss(0)", 9_100, 12_000, 2),
 ]
 """The row `three_generations` draws, in the microseconds a Chrome trace uses.
 
@@ -117,12 +117,12 @@ class TestTheCombinedRowIsTheLiveRow:
         a file that lost the emission order reparents every span here — and
         would have passed a check that only looked for six loss slices."""
         assert [(name, depth) for name, _s, _e, depth in self.combined(tmp_path)] == [
-            ("GC Loss (gen=2)", 0),
-            ("GC Loss (gen=1)", 1),
-            ("GC Loss (gen=0)", 2),
-            ("GC Loss (gen=2)", 0),
-            ("GC Loss (gen=1)", 1),
-            ("GC Loss (gen=0)", 2),
+            ("GC Loss(2)", 0),
+            ("GC Loss(1)", 1),
+            ("GC Loss(0)", 2),
+            ("GC Loss(2)", 0),
+            ("GC Loss(1)", 1),
+            ("GC Loss(0)", 2),
         ]
 
     def test_every_span_keeps_its_own_width(self, tmp_path: Path) -> None:
@@ -243,12 +243,12 @@ class TestTheTraceProcessorAgrees:
 
         assert misplaced == 0
         assert slices == [
-            ("GC Loss (gen=2)", 1_500_000, 7_500_000, 0),
-            ("GC Loss (gen=1)", 1_500_000, 5_500_000, 1),
-            ("GC Loss (gen=0)", 1_500_000, 3_500_000, 2),
-            ("GC Loss (gen=2)", 9_100_000, 6_900_000, 0),
-            ("GC Loss (gen=1)", 9_100_000, 4_900_000, 1),
-            ("GC Loss (gen=0)", 9_100_000, 2_900_000, 2),
+            ("GC Loss(2)", 1_500_000, 7_500_000, 0),
+            ("GC Loss(1)", 1_500_000, 5_500_000, 1),
+            ("GC Loss(0)", 1_500_000, 3_500_000, 2),
+            ("GC Loss(2)", 9_100_000, 6_900_000, 0),
+            ("GC Loss(1)", 9_100_000, 4_900_000, 1),
+            ("GC Loss(0)", 9_100_000, 2_900_000, 2),
         ]
 
     def test_a_shuffled_file_is_reshaped_without_complaint(self, tmp_path: Path) -> None:
@@ -258,10 +258,10 @@ class TestTheTraceProcessorAgrees:
 
         assert misplaced == 0
         assert [(name, depth) for name, _ts, _dur, depth in slices] == [
-            ("GC Loss (gen=0)", 0),
-            ("GC Loss (gen=1)", 1),
-            ("GC Loss (gen=2)", 2),
-            ("GC Loss (gen=0)", 0),
-            ("GC Loss (gen=1)", 1),
-            ("GC Loss (gen=2)", 2),
+            ("GC Loss(0)", 0),
+            ("GC Loss(1)", 1),
+            ("GC Loss(2)", 2),
+            ("GC Loss(0)", 0),
+            ("GC Loss(1)", 1),
+            ("GC Loss(2)", 2),
         ]

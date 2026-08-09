@@ -359,13 +359,13 @@ class TestCombineChromeToPerfettoIntegration:
         # 1 gen-0 slice for pid=2002 (iid 10) -> total 4 pause slices.
         rows = list(
             loaded_trace_processor.query(
-                f"SELECT s.name FROM slice s {_process_filter(_PID_A)} AND s.name LIKE 'GC Pause (gen=%)'",
+                f"SELECT s.name FROM slice s {_process_filter(_PID_A)} AND s.name LIKE 'GC Pause(%)'",
             )
         )
         assert len(rows) == 3, f"expected 3 pause slices for pid={_PID_A}, got {rows}"
         rows_b = list(
             loaded_trace_processor.query(
-                f"SELECT s.name FROM slice s {_process_filter(_PID_B)} AND s.name LIKE 'GC Pause (gen=%)'",
+                f"SELECT s.name FROM slice s {_process_filter(_PID_B)} AND s.name LIKE 'GC Pause(%)'",
             )
         )
         assert len(rows_b) == 1, f"expected 1 pause slice for pid={_PID_B}, got {rows_b}"
@@ -385,7 +385,7 @@ class TestCombineJsonlToPerfettoIntegration:
                 "WHERE arg_set_id IN ("
                 f"  SELECT s.arg_set_id FROM slice s "
                 f"  {_process_filter(_PID_A)} "
-                "  AND s.name = 'GC Pause (gen=0)' AND s.dur > 0 "
+                "  AND s.name = 'GC Pause(0)' AND s.dur > 0 "
                 f"  AND th.name = 'Thread {_IID_A1}'"
                 ")"
             )
@@ -400,14 +400,14 @@ class TestCombineJsonlToPerfettoIntegration:
         loaded_trace_processor: TraceProcessor,
     ) -> None:
         expected_sub_slices = [
-            "Mark Alive (gen=1)",
-            "Fill increment (gen=1)",
-            "Deduce Unreachable (gen=1)",
-            "Handle Weakrefs Callbacks (gen=1)",
-            "Finalize Garbage (gen=1)",
-            "Handle Resurrected (gen=1)",
-            "Clear Weakrefs (gen=1)",
-            "Delete Garbage (gen=1)",
+            "Mark Alive(1)",
+            "Fill increment(1)",
+            "Deduce Unreachable(1)",
+            "Handle Weakrefs Callbacks(1)",
+            "Finalize Garbage(1)",
+            "Handle Resurrected(1)",
+            "Clear Weakrefs(1)",
+            "Delete Garbage(1)",
         ]
         slice_names = {
             r.name

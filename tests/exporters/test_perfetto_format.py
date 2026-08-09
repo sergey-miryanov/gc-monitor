@@ -211,7 +211,7 @@ class TestConvertItemToPerfettoPackets:
             if (
                 packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
                 and packet.track_event.track_uuid != lifetime_uuid
-                and packet.track_event.name == "GC Pause (gen=0)"
+                and packet.track_event.name == "GC Pause(0)"
             ):
                 begin_packet = p
                 break
@@ -221,7 +221,7 @@ class TestConvertItemToPerfettoPackets:
         assert first_packet.timestamp == 1_000
         assert first_packet.HasField("track_event")
         assert first_packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
-        assert first_packet.track_event.name == "GC Pause (gen=0)"
+        assert first_packet.track_event.name == "GC Pause(0)"
 
     def test_basic_item_emits_counter_events(self) -> None:
         state = PerfettoTrackState()
@@ -349,15 +349,15 @@ class TestConvertItemToPerfettoPackets:
             packet.ParseFromString(p)
             if packet.HasField("track_event") and packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
                 slice_begins.append(packet.track_event.name or None)
-        assert "GC Pause (gen=1)" in slice_begins
-        assert "Mark Alive (gen=1)" in slice_begins
-        assert "Fill increment (gen=1)" in slice_begins
-        assert "Deduce Unreachable (gen=1)" in slice_begins
-        assert "Handle Weakrefs Callbacks (gen=1)" in slice_begins
-        assert "Finalize Garbage (gen=1)" in slice_begins
-        assert "Handle Resurrected (gen=1)" in slice_begins
-        assert "Clear Weakrefs (gen=1)" in slice_begins
-        assert "Delete Garbage (gen=1)" in slice_begins
+        assert "GC Pause(1)" in slice_begins
+        assert "Mark Alive(1)" in slice_begins
+        assert "Fill increment(1)" in slice_begins
+        assert "Deduce Unreachable(1)" in slice_begins
+        assert "Handle Weakrefs Callbacks(1)" in slice_begins
+        assert "Finalize Garbage(1)" in slice_begins
+        assert "Handle Resurrected(1)" in slice_begins
+        assert "Clear Weakrefs(1)" in slice_begins
+        assert "Delete Garbage(1)" in slice_begins
 
     def test_uncollectable_counter_omitted_when_zero(self) -> None:
         state = PerfettoTrackState()
@@ -525,21 +525,21 @@ class TestConvertItemToPerfettoPackets:
     def test_finalize_garbage_substep_has_count_annotation(self) -> None:
         state = PerfettoTrackState()
         _, packets = convert_item(100, self._make_full_incremental_item(), state, sequence_id=1)
-        anns = self._annotations_for_slice(packets, "Finalize Garbage (gen=1)")
+        anns = self._annotations_for_slice(packets, "Finalize Garbage(1)")
         assert ("finalized_garbage_count", 42) in anns
         assert all(name not in ("deleted_garbage_count", "clear_weakrefs_count") for name, _ in anns)
 
     def test_clear_weakrefs_substep_has_count_annotation(self) -> None:
         state = PerfettoTrackState()
         _, packets = convert_item(100, self._make_full_incremental_item(), state, sequence_id=1)
-        anns = self._annotations_for_slice(packets, "Clear Weakrefs (gen=1)")
+        anns = self._annotations_for_slice(packets, "Clear Weakrefs(1)")
         assert ("clear_weakrefs_count", 7) in anns
         assert all(name not in ("finalized_garbage_count", "deleted_garbage_count") for name, _ in anns)
 
     def test_delete_garbage_substep_has_count_annotation(self) -> None:
         state = PerfettoTrackState()
         _, packets = convert_item(100, self._make_full_incremental_item(), state, sequence_id=1)
-        anns = self._annotations_for_slice(packets, "Delete Garbage (gen=1)")
+        anns = self._annotations_for_slice(packets, "Delete Garbage(1)")
         assert ("deleted_garbage_count", 13) in anns
         assert all(name not in ("finalized_garbage_count", "clear_weakrefs_count") for name, _ in anns)
 
@@ -547,7 +547,7 @@ class TestConvertItemToPerfettoPackets:
         state = PerfettoTrackState()
         item = self._make_full_incremental_item()
         _, packets = convert_item(100, item, state, sequence_id=1)
-        anns = self._annotations_for_slice(packets, "Deduce Unreachable (gen=1)")
+        anns = self._annotations_for_slice(packets, "Deduce Unreachable(1)")
         assert ("candidates", item.candidates) in anns
         assert ("generation", 1) in anns
 
@@ -578,8 +578,8 @@ class TestConvertItemToPerfettoPackets:
             packet.ParseFromString(p)
             if packet.HasField("track_event") and packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
                 slice_names.append(packet.track_event.name or None)
-        assert "Mark Alive (gen=1)" not in slice_names
-        assert "Fill increment (gen=1)" in slice_names
+        assert "Mark Alive(1)" not in slice_names
+        assert "Fill increment(1)" in slice_names
 
     def test_multiple_threads(self) -> None:
         state = PerfettoTrackState()
@@ -641,7 +641,7 @@ class TestConvertItemToPerfettoPackets:
             if (
                 packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
                 and packet.track_event.track_uuid != lifetime_uuid
-                and packet.track_event.name == "GC Pause (gen=0)"
+                and packet.track_event.name == "GC Pause(0)"
             ):
                 begin_packet = packet
                 break
@@ -680,7 +680,7 @@ class TestConvertItemToPerfettoPackets:
             if (
                 packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
                 and packet.track_event.track_uuid != lifetime_uuid
-                and packet.track_event.name == "GC Pause (gen=0)"
+                and packet.track_event.name == "GC Pause(0)"
             ):
                 begin_packet = p
                 break

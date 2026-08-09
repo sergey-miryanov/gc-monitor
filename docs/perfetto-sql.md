@@ -15,7 +15,7 @@ The trace data is stored in a structured schema that you can query directly.
 gcmon traces use the standard Perfetto schema:
 
 - **`slice`** table: Contains slice events (GC pauses, sub-steps)
-  - `name`: Event name (e.g., "GC Pause (gen=0)")
+  - `name`: Event name (e.g., "GC Pause(0)")
   - `ts`: Start timestamp (nanoseconds)
   - `dur`: Duration (nanoseconds)
   - `arg_set_id`: Reference to arguments/annotations

@@ -85,11 +85,11 @@ would be narrower than the uncertainty, and would put all of it at the window's 
 where the data does not support it. The pause sum rides in the args as `lost_pause_ns`,
 reading as a magnitude rather than as a placement.
 
-**One span per generation, named `GC Loss (gen={gen})`.** Each ring wraps on its own
+**One span per generation, named `GC Loss({gen})`.** Each ring wraps on its own
 schedule, so a poll blind in all three draws three bars and each says how long *that*
 generation went unobserved. One bar carrying three generations' counts said gcmon was blind
 here without saying which generation went blind or for how long. The naming mirrors
-`GC Pause (gen={gen})`, which is also what gives each generation a stable colour: Perfetto
+`GC Pause({gen})`, which is also what gives each generation a stable colour: Perfetto
 derives a slice's colour from a hash of its name.
 
 The width is therefore not GC time. One lost 5 ms collection can draw a 130 ms bar, which is
