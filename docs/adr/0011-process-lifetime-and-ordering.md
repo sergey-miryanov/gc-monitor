@@ -4,8 +4,7 @@
 - **Date:** 2026-06-27 (ordering added 2026-06-28; laminar clipping added 2026-07-31; emission
   simplified to unnested BEGIN/END pairs 2026-08-01; sort moved into the sweep and the
   once-per-trace guard made explicit 2026-08-02; monitor-reported liveness landed and the
-  counter carve-out was removed 2026-08-02; pointer to ADR-0015 added 2026-08-05 and corrected
-  for the per-generation spans 2026-08-09)
+  counter carve-out was removed 2026-08-02; pointer to ADR-0015 added 2026-08-05)
 
 ## Context
 
@@ -225,11 +224,9 @@ mid-`close()` can raise `RuntimeError: dictionary changed size during iteration`
   resolves track references across the whole trace rather than in file order.
 - Consumers enumerating slices must filter `track.name == 'Processes'`, as the equivalence
   test does, since these slices are Perfetto-only.
-- **The crossing-spans analysis above generalises to any synthetic track.**
-  [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) needs no sweep for it: a poll's loss
-  windows share a left edge, so they nest where process lifetimes cross, and emission order
-  keeps the track laminar. Its `GC Loss` track follows the `Processes` precedent for parenting
-  a plain custom slice track to a process track.
+- [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) needs no sweep: it emits loss spans in
+  an order that keeps them nested. Its `GC Loss` track is separate so a reader can tell
+  intervals gcmon recorded from intervals it lost.
 
 ## Alternatives considered
 
