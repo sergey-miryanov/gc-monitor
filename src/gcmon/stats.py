@@ -417,6 +417,21 @@ class StreamingStats:
             return 1.0
         return self.exact_pause_ns(pid, gen) / sampled
 
+    def _lost_by_gen(self, totals: dict[tuple[int, int], int]) -> dict[int, int]:
+        """Fold a per-(pid, gen) total into a per-gen one in a single pass."""
+        by_gen: dict[int, int] = {}
+        for (_pid, gen), value in totals.items():
+            by_gen[gen] = by_gen.get(gen, 0) + value
+        return by_gen
+
+    def _lifetime_by_gen(self) -> dict[int, tuple[int, float]]:
+        """Every ring's lifetime totals, folded per generation in one pass."""
+        by_gen: dict[int, tuple[int, float]] = {}
+        for (_pid, _iid, gen), (collections, duration_s) in self._lifetime.items():
+            count, total_s = by_gen.get(gen, (0, 0.0))
+            by_gen[gen] = (count + collections, total_s + duration_s)
+        return by_gen
+
     def _lifetime_totals(self, pid: int | None, gen: int) -> tuple[int, float]:
         """Summed over the interpreters of *pid*, or of every pid."""
         count = 0
@@ -456,21 +471,33 @@ class StreamingStats:
         counters say it missed. ``p99`` stays sampled and reads high, since a
         long collection delays its successors and so survives in the ring more
         often than a short one. No scale factor corrects a quantile.
+
+        The loss and lifetime totals are folded per generation once, up front:
+        going through the per-pid accessors instead would rescan both dicts for
+        every field and dominate a call that is otherwise just three quantiles.
         """
         result: dict[str, int | float] = {}
+        pause = self.metrics["pause"]
+        lost_counts = self._lost_by_gen(self._lost_count)
+        lost_pause_ns = self._lost_by_gen(self._lost_pause_ns)
+        lifetime = self._lifetime_by_gen()
+        exact_total = 0
         for gen in self.GENS:
-            s = self.metrics["pause"][gen]
-            if s.count() > 0:
+            s = pause[gen]
+            sampled_count = s.count()
+            exact_count = sampled_count + lost_counts.get(gen, 0)
+            exact_total += exact_count
+            if sampled_count > 0:
                 result[f"pause_gen_{gen}_p99"] = dur_to_ms(s.percentile(99))
-                result[f"pause_gen_{gen}_sum"] = dur_to_ms(self.exact_pause_ns(None, gen))
-                result[f"pause_gen_{gen}_count"] = self.exact_count(None, gen)
-                result[f"pause_gen_{gen}_coverage"] = self.coverage(None, gen)
-            lifetime_count = self.lifetime_count(None, gen)
+                result[f"pause_gen_{gen}_sum"] = dur_to_ms(s.sum() + lost_pause_ns.get(gen, 0))
+                result[f"pause_gen_{gen}_count"] = exact_count
+                result[f"pause_gen_{gen}_coverage"] = sampled_count / exact_count
+            lifetime_count, lifetime_duration_s = lifetime.get(gen, (0, 0.0))
             if lifetime_count > 0:
                 result[f"pause_gen_{gen}_lifetime_count"] = lifetime_count
-                result[f"pause_gen_{gen}_lifetime_sum"] = dur_to_ms(self.lifetime_pause_ns(None, gen))
+                result[f"pause_gen_{gen}_lifetime_sum"] = dur_to_ms(secs_to_ns(lifetime_duration_s))
         if self._heap_size:
             sorted_heaps = sorted(self._heap_size.values())
             result["heap_size_p99"] = get_quantile_value(sorted_heaps, 99)
-        result["pause_count"] = sum(self.exact_count(None, gen) for gen in self.GENS)
+        result["pause_count"] = exact_total
         return result
