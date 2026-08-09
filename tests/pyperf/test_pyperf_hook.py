@@ -1,7 +1,7 @@
 import json
 import os
 import sys
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -9,8 +9,11 @@ from unittest.mock import Mock, patch
 import pytest
 
 from gcmon.data import GCStatsInfo
+from gcmon.exporters.chrome_trace_io import read_jsonl
+from gcmon.protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
 from gcmon.pyperf.hook import (
     _get_env_pyperf_hook_control_timeout,
+    _replay,
     gcmon_hook,
 )
 from gcmon.stats import StreamingStats
@@ -95,6 +98,70 @@ def _write_jsonl(path: Path, *events: dict[str, Any]) -> None:
     with open(path, "w") as f:
         for event in events:
             f.write(json.dumps(event) + "\n")
+
+
+def _parse_jsonl(tmp_path: Path, *lines: dict[str, Any]) -> dict[int, list[TItem]]:
+    """A capture as `_replay` meets it: decoded off a file, not hand-built.
+
+    Going through the file keeps the guards under test facing whatever
+    `from_mapping` actually returns for a line, rather than a struct the test
+    chose to construct.
+    """
+    path = tmp_path / "capture.jsonl"
+    _write_jsonl(path, *lines)
+    return read_jsonl(path)
+
+
+def _teardown_metadata(tmp_path: Path, name: str, *lines: dict[str, Any]) -> dict[str, Any]:
+    """Everything the hook publishes for one capture, via the real teardown."""
+    hook = gcmon_hook(temp_dir=tmp_path, pid=12345)
+    temp_file = tmp_path / f"gcmon_12345_{name}.jsonl"
+    hook._temp_files = [temp_file]
+    _write_jsonl(temp_file, *lines)
+
+    metadata: dict[str, Any] = {}
+    hook.teardown(metadata)
+    return metadata
+
+
+class _RecordingStats(StreamingStats):
+    """A `StreamingStats` that remembers what `_replay` handed it.
+
+    Subclassed rather than mocked because the question is what reaches
+    `update`, and a mock that intercepted the call would also swallow the
+    arithmetic the same tests read back out of `aggregate`.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.updated: list[TGCStatsInfo] = []
+        self.losses: list[tuple[int, int, int, int]] = []
+
+    def update(self, pid: int, item: TGCStatsInfo) -> None:
+        self.updated.append(item)
+        if is_loss(item):
+            # Folding one would die on the `heap_size` it does not have,
+            # and that AttributeError would surface before any assertion
+            # about `updated` got to run. Recording it and stopping lets a
+            # guard that stopped being disjoint fail as what it broke.
+            return
+        super().update(pid, item)
+
+    def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
+        self.losses.append((pid, gen, lost_count, lost_pause_ns))
+        super().record_loss(pid, gen, lost_count, lost_pause_ns)
+
+
+def _replay_asking_is_loss_first(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> None:
+    """`_replay` with its two guards asked in the opposite order.
+
+    Making `is_gc_stats` stand down for anything `is_loss` claims is exactly
+    what testing `is_loss` first would do, and changes nothing else, so the
+    patched and unpatched runs can only disagree about a record that answers
+    to both guards.
+    """
+    with patch("gcmon.pyperf.hook.is_gc_stats", lambda item: not is_loss(item) and is_gc_stats(item)):
+        _replay(stats, parsed)
 
 
 class TestGCMonitorHookInit:
@@ -432,6 +499,115 @@ class TestTeardownReplaysLossAndLifetime:
 
         assert metadata["gc_pause_gen_0_coverage"] > 0.9
         assert "of collections observed" not in caplog.text
+
+
+class TestLossIsNeverReplayedAsACollection:
+    """The one record type `_replay` must keep out of the sample.
+
+    `_replay` asks `is_gc_stats` before `is_loss`; every other call site in
+    the codebase asks the other way round. That stays harmless only while the
+    two guards are disjoint. A loss record claimed by `is_gc_stats` would be
+    folded in as a collection here and nowhere else, inflating the very
+    sample the loss it carries exists to correct — and the inflated sum would
+    still be published labelled exact. All that stands between the hook and
+    that is which field each guard reaches for, which is far too load-bearing
+    to leave resting on nobody having noticed.
+    """
+
+    LOST = _make_jsonl_loss(lost_count=2, lost_pause_ns=7_000_000)
+
+    def capture(self) -> list[dict[str, Any]]:
+        """Two gen-0 records of 5 ms and 20 ms, and one loss record."""
+        return [
+            _make_jsonl_event(collections=5, duration=0.005),
+            _make_jsonl_event(collections=8, ts_start=1_020_000_000, ts_stop=1_025_000_000, duration=0.020),
+            self.LOST,
+        ]
+
+    @pytest.mark.parametrize(
+        "line, claimant, impostor",
+        [
+            (_make_jsonl_event(), is_gc_stats, is_loss),
+            (_make_jsonl_loss(lost_count=2, lost_pause_ns=7_000_000), is_loss, is_gc_stats),
+        ],
+        ids=["gc-record", "loss-record"],
+    )
+    def test_exactly_one_guard_claims_each_record(
+        self,
+        tmp_path: Path,
+        line: dict[str, Any],
+        claimant: Callable[[object], bool],
+        impostor: Callable[[object], bool],
+    ) -> None:
+        """Guards that cannot both fire are what make the order immaterial.
+
+        A loss record carries a `gen`, a `ts_start` and a `ts_stop` of its
+        own, so a guard resting on any of those would claim both types.
+        """
+        (item,) = _parse_jsonl(tmp_path, line)[12345]
+
+        assert claimant(item)
+        assert not impostor(item)
+
+    def test_replay_does_not_fold_a_loss_record_into_the_sample(self, tmp_path: Path) -> None:
+        stats = _RecordingStats()
+
+        _replay(stats, _parse_jsonl(tmp_path, *self.capture()))
+
+        assert [item for item in stats.updated if is_loss(item)] == []
+        assert len(stats.updated) == 2
+        assert stats.losses == [(12345, 0, 2, 7_000_000)]
+
+    def test_the_guard_order_does_not_change_what_gets_folded(self, tmp_path: Path) -> None:
+        """Same capture, both branch orders, same statistics."""
+        parsed = _parse_jsonl(tmp_path, *self.capture())
+        as_written, reversed_order = _RecordingStats(), _RecordingStats()
+
+        _replay(as_written, parsed)
+        _replay_asking_is_loss_first(reversed_order, parsed)
+
+        assert as_written.updated == reversed_order.updated
+        assert as_written.losses == reversed_order.losses
+        assert as_written.aggregate() == reversed_order.aggregate()
+
+    def test_a_capture_of_nothing_but_loss_replays_and_still_counts_it(self, tmp_path: Path) -> None:
+        """Nothing was sampled, so there is no pause to describe — but the
+        collections nobody saw happened all the same."""
+        stats = _RecordingStats()
+
+        _replay(stats, _parse_jsonl(tmp_path, self.LOST))
+
+        assert stats.updated == []
+        assert stats.count() == 0
+        assert stats.lost_count(12345, 0) == 2
+        assert stats.exact_count(None, 0) == 2
+        assert stats.coverage(None, 0) == 0.0
+        assert stats.aggregate()["pause_count"] == 2
+
+    def test_a_loss_only_capture_publishes_nothing_rather_than_zeroes(
+        self,
+        tmp_path: Path,
+        mock_env_output: None,
+    ) -> None:
+        """`teardown` gates on having sampled something, so a session that
+        read no record at all stays out of the benchmark's metadata."""
+        assert _teardown_metadata(tmp_path, "loss-only", self.LOST) == {}
+
+    def test_loss_before_the_records_gives_the_same_metrics_as_loss_after(
+        self,
+        tmp_path: Path,
+        mock_env_output: None,
+    ) -> None:
+        """Loss is summed and applied once the whole sample is folded, so
+        where its record sits in the file cannot move a number."""
+        records = self.capture()[:-1]
+
+        after = _teardown_metadata(tmp_path, "after", *records, self.LOST)
+        before = _teardown_metadata(tmp_path, "before", self.LOST, *records)
+
+        assert before == after
+        assert after["gc_pause_gen_0_coverage"] == pytest.approx(0.5)
+        assert after["gc_pause_gen_0_sum"] == pytest.approx(17.0)
 
 
 class TestAggregateGcStats:
