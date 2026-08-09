@@ -23,6 +23,7 @@
 - Add `EventsExporter.add_loss_event()`, the `LossMsg` record type, and `loss_tid()` / `loss_iid()` for the `tid = -2 - iid` sentinel
 - Carry loss records through Chrome, Perfetto, JSONL and stdout; `gcmon combine` reproduces the spans from a JSONL capture
 - Name the collections a `GC Loss` span is missing: `collections_from` / `collections_to` on the slice, `lost_from` on the record. Every collection between the first and last observed on a ring is now either a drawn `GC Pause` slice or inside exactly one loss span's range
+- Number the notes printed under the `--stats` table, since which of them appear depends on the run
 
 ### Bugfixes
 
@@ -36,6 +37,7 @@
 
 - Add [ADR-0015](docs/adr/0015-gc-loss-spans-on-their-own-track.md) on the `GC Loss` track, the per-generation spans and the order they nest in, and what gcmon trusts the target for
 - Rewrite `docs/statistics.md` around the three intervals a cell can report, `Cov`, `F`, and why percentiles read high
+- Document the three notes under the `--stats` table in `docs/statistics.md`, including the spans held back for bounds that describe no interval
 - Document the `GC Loss` track and the JSONL loss record in `docs/formats.md`; a slice's width is the interval the records were lost in, not the pause they took
 - Document the changed pyperf metrics, and that the lifetime metrics are not benchmark-scoped
 - Add a README limitation for the ring-buffer bound and the read-cost floor

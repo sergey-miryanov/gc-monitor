@@ -1,7 +1,9 @@
 # ADR-0015: Draw reconstructed GC loss on a per-interpreter track, one span per generation
 
 - **Status:** Accepted
-- **Date:** 2026-08-05
+- **Date:** 2026-08-05 (splitting, merging and the in-flight bound removed, and the emission
+  order made load-bearing, for one span per generation 2026-08-09; the missing collections
+  named and a window describing no interval held back 2026-08-09)
 
 ## Context
 
@@ -30,7 +32,8 @@ with `r.collections = c`, the previous cursor at `p`, and `confirmed` the newest
 previous poll saw finish anywhere in the interpreter:
 
 ```
-gap        = c - p - 1
+lost_from  = p + 1
+gap        = c - lost_from
 window     = (max(last_ts_stop, confirmed), r.ts_start)
 lost_pause = round((r.duration - last_duration) * 1e9) - (r.ts_stop - r.ts_start)
 ```
@@ -145,13 +148,23 @@ construction. The narrowing the split performed is still available to a reader: 
 collection is drawn on the interpreter's thread row directly above, from evidence already on
 screen, and it costs nothing to see.
 
+**A span names the collections it is missing**, as `collections_from` and `collections_to` in
+the args, both ends included. The gap is found by subtracting two of the ring's own cumulative
+counters, so both fences are in hand already and only the near one is stored, as `lost_from`;
+the far end is derived from it and `lost_count`, since a stored pair could drift from the count
+`--stats` sums. Where the width is uncertainty the range is not, and it makes the
+reconstruction checkable: between the first and last record gcmon observed on a ring, every
+collection is either a drawn `GC Pause` slice or inside exactly one span's range, none twice
+and none unaccounted for.
+
 Drawing touches nothing but the picture. `StreamingStats` records each window as it opens,
 before anything is drawn, so coverage, the scale factor and every aggregate are unaffected.
 
 ## What gcmon trusts the target for
 
-Two properties are assumed rather than checked. Both belong to CPython. `observe_batch` and
-`_is_complete` cite this section rather than restating it.
+Three properties hold the reconstruction up. The first two are assumed rather than checked,
+both being CPython's to guarantee; the invariant above tests the third. `observe_batch` and
+`LossWindow.is_drawable` cite this section rather than restating it.
 
 **1. The publish-last contract survives to the reader.** `add_stats`
 (`Python/gc.c:1399-1418`) copies the previous record forward, overwrites `ts_start`,
@@ -214,11 +227,10 @@ not share a clock, which would leave the whole reconstruction unsound.
 - **A loss row emitted in the wrong order corrupts silently.** Open a poll's spans narrowest
   first and the first END closes the widest, handing every generation another's width. The
   trace processor reports `misplaced_end_event = 0` and reads the crossing as nesting, so
-  nothing in the output flags it. `tests/exporters/test_loss_track_stack.py` walks the
-  converter's output as a stack in the default suite, since the `fuzz` job that runs the same
-  claim against the real trace processor is gated off `main`; the fuzz suite's negative control
-  asserts the corruption directly, so its positive test cannot pass in a world where the
-  ordering did nothing.
+  nothing in the output flags it. The order is therefore pinned in the default suite and not
+  only the `fuzz` one, since the `fuzz` job that runs the same claim against the real trace
+  processor is gated off `main`; the fuzz suite's negative control asserts the corruption
+  directly, so its positive test cannot pass in a world where the ordering did nothing.
 - **One extra row is still enough for three generations.** A poll's three spans nest, so they
   read as one blind stretch with the shorter generations' bars inside it. A reader who wants
   gen 2 alone reads the outermost bar; the depth is not a sub-interval of anything.
@@ -269,8 +281,7 @@ not share a clock, which would leave the whole reconstruction unsound.
   of known extent, which is the one thing the data does not support.
 - **One track per `(pid, iid, gen)`.** Three rows say the same thing the nesting says, at three
   times the vertical cost, and a process with several interpreters would carry nine. Rejected:
-  the spans share a left edge, so stacking them on one row already reads as one blind stretch
-  with each generation's own reach inside it.
+  the spans share a left edge, so one row already carries what three would.
 - **A flat `-2` for every interpreter.** Rejected: interpreters collect concurrently and
   nothing serializes their windows, so two interpreters' spans can cross for real. One row
   would need a clipping sweep to hold them.
@@ -305,8 +316,11 @@ not share a clock, which would leave the whole reconstruction unsound.
 ## Implementation
 
 - `src/gcmon/loss.py` holds the arithmetic and the geometry: `KeyAccumulator` (one per
-  `(pid, iid, gen)`, carrying the fencepost fields), `LossWindow`, `confirmed_by_interpreter`,
-  `stack_order` and `to_loss_msg`. Pure functions and structs, no I/O.
+  `(pid, iid, gen)`, carrying the fencepost fields), `LossWindow` with `is_drawable`,
+  `confirmed_by_interpreter`, `stack_order` and `to_loss_msg`. Pure functions and structs, no
+  I/O.
+- `src/gcmon/data.py`, `LossMsg` with `lost_from`, and `lost_to` deriving the far fence from it
+  and `lost_count` rather than storing a second one.
 - `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
   key, folds them, then emits that poll's windows in `stack_order`. The confirmation point comes
   from `confirmed_by_interpreter` alone, so it is one bound per interpreter rather than one per
@@ -318,6 +332,9 @@ not share a clock, which would leave the whole reconstruction unsound.
   type through the shared pipeline. `src/gcmon/exporters/perfetto_format.py`,
   `_emit_loss_descriptor`, called from both the BEGIN and END branches, since the descriptor
   hangs off the slices rather than off a meta event.
+- `src/gcmon/stats.py`, `record_loss` for every window and `record_undrawable` for the ones
+  no span came of, read back through `undrawable_count`; `src/gcmon/stats_output.py`,
+  `_print_footer`, which prints that tally as one of the numbered notes under the table.
 - `tests/test_loss.py` checks the arithmetic against synthetic runs with known ground truth
   and against a verbatim two-poll capture in `tests/test_monitor_cursor.py`.
   `tests/exporters/test_loss_track_stack.py` walks the converter's output as a stack in the

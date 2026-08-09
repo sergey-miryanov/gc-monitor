@@ -27,7 +27,7 @@ $ gcmon 12345 --stats --table-format md
 |       |                          |         |                 |        |        |        |        |        |        |        |
 |       | Read Time                |     300 |         750.000 |  2.500 |  2.400 |  3.100 |  3.600 |  5.200 |        |        |
 
-Coverage: gen 0 20.0% gen 1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
+1. Coverage: gen 0 20.0% gen 1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
 ```
 
 *Values shown in milliseconds. Metrics are reported per GC generation (0, 1, 2).*
@@ -74,6 +74,38 @@ If coverage falls below 90%, gcmon logs one advisory per run naming the ring-buf
 On a low-`Cov` row, trust the counts and sums and distrust the shape.
 
 The trace draws where the missing collections were, on a `GC Loss` track. See [output formats](formats.md#gc-loss-slices).
+
+## The notes under the table
+
+Below the table gcmon prints a numbered note for each thing the cells cannot say. Which of the three appear depends on the run, and a run that saw every collection of a target that collected nothing before gcmon attached prints no footer at all. The numbers are there because that mix varies: a reader cannot learn the order, and the number is what separates one note from the next when two of them wrap across a narrow terminal. Numbering starts at 1 whatever the mix, so a lone note still reads `1.`.
+
+**1. Coverage.**
+
+```
+1. Coverage: gen 0 20.0% gen 1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
+```
+
+The `Cov` column gathered across every PID, plus the rule for reading the two-number cells. It appears whenever anything was lost, and only the generations that lost something are listed.
+
+**2. Lifetime totals.**
+
+```
+2. Since interpreter start, outside the monitored window: gen 0 4820 in 6231.400 ms.
+```
+
+The third interval above. It covers each interpreter's whole history including the monitored part, so it neither adds to nor subtracts from any cell, and it stays out of `Cov` and `F`.
+
+**3. Loss spans held back.**
+
+```
+3. Loss spans not drawn: gen 0 2 (start and end arrived reversed, from the target). Counts above are unaffected.
+```
+
+A loss window is bounded by two timestamps the target published: the `ts_stop` of the last record read before the blind interval, and the `ts_start` of the first one read after it. When the second does not follow the first, the window describes no interval — the overwritten records had nowhere to run — and gcmon draws no slice for it. The count is spans held back per generation, not collections.
+
+**`from the target` is the load-bearing part.** Nothing gcmon dropped produces this line, so lowering `--rate` will not change it. CPython publishes `ts_stop` last precisely so a remote reader never selects a half-written record, but those stores carry no memory barrier, and a weakly-ordered machine can hand the reader a record assembled from two collections. That is where reversed bounds come from, and the fix belongs upstream. This line is the only sign of it gcmon has.
+
+**Counts above are unaffected** is exact, not a hedge. The collections the window measured were counted before the bounds were looked at, since `lost_count` is arithmetic on the ring's own counters with no timestamp in it. `Count`, `Sum`, `Cov` and `F` read the same as they would had the span been drawn; only the trace is a bar short. See [ADR-0015](adr/0015-gc-loss-spans-on-their-own-track.md) for why it is held back rather than drawn backwards.
 
 ## Without `[stats]` extra
 
