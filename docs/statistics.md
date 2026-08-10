@@ -103,9 +103,9 @@ The third interval above covers each interpreter's whole history including the m
 
 A loss window runs from the newest `ts_stop` seen anywhere in that interpreter to the `ts_start` of the first record read after the blind interval. When the second does not follow the first the window describes no interval, so gcmon draws nothing and counts it. The count is spans, not collections.
 
-The note names no cause because gcmon cannot tell the causes apart. All of them come from reading a target that keeps collecting while the read runs, so gcmon dropped nothing and `--rate` will not move the count. [ADR-0015](adr/0015-gc-loss-spans-on-their-own-track.md) has the mechanism.
+The note names no cause because gcmon cannot tell the causes apart. All of them come from reading a target that keeps collecting while the read runs, so gcmon dropped nothing and `--rate` will not move the count.
 
-**Counts above are unaffected** is exact. `lost_count` is arithmetic on the ring's own counters with no timestamp in it, so `Count`, `Sum`, `Cov` and `F` read the same as they would had the span been drawn, and only the trace is a bar short. See [ADR-0015](adr/0015-gc-loss-spans-on-their-own-track.md).
+**Counts above are unaffected** is exact. `lost_count` is arithmetic on the ring's own counters with no timestamp in it, so `Count`, `Sum`, `Cov` and `F` read the same as they would had the span been drawn, and only the trace is a bar short.
 
 ## Without `[stats]` extra
 

@@ -96,7 +96,6 @@ from. How a span draws leaves the `--stats` table's `Cov` and `F` columns untouc
 
 At default settings the track reads as a near-solid bar, because gcmon is blind for
 most of every tick. Lower `--rate` or a calmer workload thins it out. See
-[ADR-0015](adr/0015-gc-loss-spans-on-their-own-track.md) for the reasoning, and
 [Statistics](statistics.md) for what the loss does to the numbers.
 
 ### Process command lines
@@ -114,7 +113,6 @@ both the UI and SQL:
 
 Queries for the latter two are in
 [Trace Analysis with Perfetto SQL](perfetto-sql.md#example-querying-process-command-lines).
-The rationale for the duplication is [ADR-0010](adr/0010-process-identity-cmdline-and-start-marker.md).
 
 Collection requires the [`[cmdline]` extra](rss.md#the-cmdline-extra) and
 degrades silently: if `psutil` is missing, or the process has already exited or
