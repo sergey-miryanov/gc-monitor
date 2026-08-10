@@ -84,8 +84,14 @@ Python. A consumer has to infer the write position by sorting on `collections`, 
 means the returned list is in raw slot order — rotated around a write position the caller cannot
 see, with the three generations concatenated. Every consumer will re-derive the same thing.
 
+The ring's capacity is in the same position. It is not returned either, but every slot comes back
+whether or not it holds a finished collection, so counting the records one poll gives back for a
+generation yields the size. gcmon does that to name it in the advisory it logs on a low-coverage
+run. The technique rests on unwritten slots being returned, which nothing documents.
+
 **Suggested fix.** Add `index` to the returned structure, or return the records rotated into
-chronological order. The first is a two-line change.
+chronological order. The first is a two-line change. Either way, document that unwritten slots
+come back, so counting them for the capacity is a supported technique rather than an observation.
 
 ### 3.3 The record publish is unsynchronized
 
@@ -146,7 +152,7 @@ lives in `gcmon.loss` and `EventsMonitor._ingest`.
 
 | Finding | gcmon's handling |
 | :------ | :--------------- |
-| 3.1 ring size | Reconstructs the exact count and pause sum from `Δcollections` and `Δduration`, and draws the unobserved intervals as explicit gaps. Recovers the aggregates; the individual records stay lost. |
+| 3.1 ring size | Reconstructs the exact count and pause sum from `Δcollections` and `Δduration`, and draws the unobserved intervals as explicit gaps. Recovers the aggregates; the individual records stay lost. Reads the capacity by counting the slots one poll returns, so the sizes above are not hardcoded. |
 | 3.2 write cursor | Sorts by `collections` per `(iid, gen)`. Works, costs a sort per poll. |
 | 3.3 publish ordering | Not handled. No sound client-side check exists — each reordering leaves a different fingerprint and any heuristic risks discarding real records. |
 | 3.4 duplicate slot | Deduplicates on `collections`. |
