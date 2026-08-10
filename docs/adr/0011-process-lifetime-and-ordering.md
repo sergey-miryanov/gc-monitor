@@ -142,6 +142,12 @@ every such child would draw a GC slice outside its own lifetime slice. Membershi
 `children` is **not** an observation: `get_child_pids` is the OS's claim about the process
 tree, and taking it as evidence reintroduces the `create_time()` approach rejected below.
 
+**A successful read is what makes the span mean anything.** `get_gc_stats` returns only once
+the runtime has finished initializing, so the first `OK` dates the process becoming ready
+rather than the OS creating it. A read that fails after earlier ones succeeded means the
+process has died or entered finalization, so the last `OK` dates the other end. That is the
+interval the slice draws, and it is why an unpolled or never-collecting process still has one.
+
 **The span means *liveness*, not *monitoring coverage*.** A pid the control server suppresses
 mid-run is not polled and so not observed, but if re-enabled it gets **one continuous span
 across the gap**, because the accumulator stores only a min and a max. Correct under

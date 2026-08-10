@@ -5,8 +5,8 @@
 ### Breaking changes
 
 - Slice names drop the `gen=` prefix: `GC Pause(0)`, `GC Loss(0)`, `Mark Alive(0)` and the rest. Categories are unchanged, so `gc.pause(gen=0)` still matches
-- Perfetto `Processes` slices now span observed liveness rather than observed GC activity
-- `Count` and `Sum` in the `--stats` table, and the pyperf `gc_pause_gen_N_sum` / `_count` / `gc_pause_count` metrics, now report every collection in the monitored window rather than the subset gcmon sampled; histories spanning this change are not comparable
+- A `Processes` slice now spans how long the process was alive, not how long it was collecting
+- `Count` and `Sum` now include the collections gcmon missed, so both read higher than before. This covers the `--stats` table and the pyperf `gc_pause_gen_N_count` / `_sum` / `gc_pause_count` metrics, and numbers from earlier runs no longer compare
 - `EventsMonitor.get_child_pids()` returns `None` instead of `[]` when the process tree cannot be read
 
 ### Features
