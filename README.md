@@ -113,6 +113,8 @@ eBPF sensors such as Groundcover's watch kernel events, not CPython's GC phases.
 gcmon runs **outside** the target process. It reads GC statistics directly
 from the process's memory using platform-specific memory access APIs
 (available in CPython 3.15+).
+[How gcmon reads a process](https://github.com/sergey-miryanov/gcmon/blob/main/docs/monitoring.md)
+covers the polling loop, what it misses, and what it recovers.
 
 For the pyperf hook integration, gcmon uses an **external process model**:
 
@@ -152,20 +154,16 @@ for which fields need which build.
 
 CPython publishes GC records into a small fixed ring buffer, so a target that runs
 collections more often than gcmon polls overwrites records before anyone reads them.
-On a GC-heavy workload at default settings that is the normal case. Raising `--rate`
-narrows the gap without closing it, since each poll costs a read of the target's
-memory and that puts a floor under the interval.
+On a GC-heavy workload at default settings that is the normal case.
 
-gcmon reconstructs what it missed. CPython's `collections` and `duration` counters
-are cumulative, so the missed records can be counted and their pause time
-recovered. **`Count` and `Sum` in the `--stats` table cover every collection**,
-read or not, and the `Cov` column reports what share gcmon read.
-**Percentiles are not corrected and read high**, since long collections are likelier
-to survive in the ring. The trace draws each blind interval on a `GC Loss` track. See
+gcmon reconstructs what it missed from CPython's cumulative counters, so **`Count`
+and `Sum` in the `--stats` table cover every collection**, read or not, and the `Cov`
+column reports what share gcmon read. **Percentiles are not corrected and read
+high.** The trace draws each blind interval on a `GC Loss` track. See
+[How gcmon reads a process](https://github.com/sergey-miryanov/gcmon/blob/main/docs/monitoring.md)
+for the mechanism and
 [Statistics](https://github.com/sergey-miryanov/gcmon/blob/main/docs/statistics.md)
-for how to read a low-coverage table, and
-[Output formats](https://github.com/sergey-miryanov/gcmon/blob/main/docs/formats.md#gc-loss-slices)
-for the loss slices.
+for how to read a low-coverage table.
 
 ### No call-stack attribution
 

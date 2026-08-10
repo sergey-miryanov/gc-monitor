@@ -4,7 +4,7 @@ Use `--stats` to display a statistics table at the end of monitoring. The table 
 
 Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this long), **Sum divided by the monitoring wall time gives the share of the run spent in GC**, and **Count and Avg show how many pauses there were and how long a typical one took**. A P99 GC pause that exceeds your request SLO is a good starting point for tuning.
 
-The last row, `Read Time`, is monitor-side cost rather than target-process cost: it measures how long each read of a target's GC stats took, recorded once per successful poll of every monitored PID and aggregated into a single row — with child processes its `Count` is polls × PIDs, and there is no per-PID breakdown. Use it to sanity-check `--rate`: that interval is a wait *between* polling rounds, so the effective sampling period is `--rate` plus the read time for every PID in the round, and a mean `Read Time` close to `--rate` means you are sampling at roughly half the rate you asked for.
+The last row, `Read Time`, is monitor-side cost rather than target-process cost: it measures how long each read of a target's GC stats took, recorded once per successful poll of every monitored PID and aggregated into a single row — with child processes its `Count` is polls × PIDs, and there is no per-PID breakdown. Use it to sanity-check `--rate`: a mean `Read Time` close to `--rate` means you are sampling at roughly half the rate you asked for, for the reason given in [How gcmon reads a process](monitoring.md#polling).
 
 ## Example Output
 
@@ -34,10 +34,10 @@ $ gcmon 12345 --stats --table-format md
 
 ## Three intervals, and which one a cell reports
 
-CPython exports GC records through a small fixed ring buffer. A target that runs collections more often than gcmon polls overwrites records before anyone reads them. Every number in the table describes one of three intervals, and you cannot read the table without knowing which:
+A target can run collections faster than gcmon reads them, so some never reach the table as records — see [How gcmon reads a process](monitoring.md). Every number below describes one of three intervals, and you cannot read the table without knowing which:
 
 - **Sampled**: the records gcmon read. `Avg` and every percentile are sampled.
-- **Exact, over the observed span**: every collection between the first and last record gcmon saw, including the ones it never read. `Count` and `Sum` report this. CPython's `collections` and `duration` counters are cumulative, so the difference between two polls gives the number of missed collections and the pause time they took. It is a reconstruction rather than an estimate.
+- **Exact, over the observed span**: every collection between the first and last record gcmon saw, including the ones it never read. `Count` and `Sum` report this, reconstructed from the target's cumulative counters rather than estimated.
 - **Lifetime**: everything the interpreter has collected since it started. It appears in the footer under the table, and as `pause_gen_N_lifetime_*` in [pyperf metadata](pyperf.md). It covers the whole history including the monitored part, so it does not compare with the other two, and it stays out of `Cov` and `F`. Collections that ran before gcmon attached are not loss, and no poll rate would have caught them.
 
 The observed span starts at the first record gcmon read, not at process start. gcmon cannot tell "ran before we attached" from "lost", so anything earlier falls outside the span.
@@ -63,7 +63,7 @@ Sub-phase rows (`GC Mark Alive`, `GC Deduce Unreachable`, `GC Delete Garbage`, �
 
 Both are blank on rows with no generation, such as `Read Time`.
 
-If coverage falls below 90%, gcmon logs one advisory per run naming the ring-buffer size. Raising `--rate` narrows the gap without closing it: each poll reads every monitored process, and that puts a floor under the interval.
+If coverage falls below 90%, gcmon logs one advisory per run naming the ring-buffer size. Raising `--rate` will not lift `Cov` to 100%; [How gcmon reads a process](monitoring.md) covers why.
 
 ## Percentiles are sampled, biased high, and not corrected
 

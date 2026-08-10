@@ -38,11 +38,10 @@ The hook collects and reports the following GC metrics in pyperf metadata:
 > are larger, often by an order of magnitude. Do not trend a history that spans
 > this change.
 
-CPython exports GC records through a small fixed ring buffer, so a benchmark that
-runs collections more often than gcmon polls overwrites records before anyone reads
-them. `sum` and `count` correct for that exactly.
-`p99` cannot be corrected and reads high, since a long collection occupies its
-slot for longer and is likelier to survive to the next poll.
+A benchmark that runs collections faster than gcmon reads them loses records — see
+[How gcmon reads a process](monitoring.md). `sum` and `count` correct for that
+exactly. `p99` cannot be corrected and reads high, since a long collection occupies
+its slot for longer and is likelier to survive to the next poll.
 
 `gc_pause_gen_N_coverage` tells you how far to trust the `p99` beside it: at `1.0`
 it is the real distribution, at `0.2` it is the tail of a biased sample. See

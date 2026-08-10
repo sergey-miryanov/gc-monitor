@@ -37,11 +37,10 @@ This visualization helps you:
 
 ### GC Loss slices
 
-CPython exports GC records through a small fixed ring buffer, so a target that runs
-collections more often than gcmon polls overwrites records before anyone reads them.
-gcmon detects this from CPython's cumulative
-`collections` and `duration` counters and marks each blind interval with a slice
-named `GC Loss(N)`, on a `GC Loss {iid}` track of its own.
+A target that runs collections faster than gcmon reads them loses records — see
+[How gcmon reads a process](monitoring.md). gcmon detects each interval it went blind
+for and marks it with a slice named `GC Loss(N)`, on a `GC Loss {iid}` track of its
+own.
 
 **One span per generation.** Each generation's ring wraps on its own schedule, so a
 poll that lost records in all three draws three bars — `GC Loss(0)`,
