@@ -63,7 +63,7 @@ Sub-phase rows (`GC Mark Alive`, `GC Deduce Unreachable`, `GC Delete Garbage`, â
 
 Both are blank on rows with no generation, such as `Read Time`.
 
-If coverage falls below 90%, gcmon logs one advisory per run naming the ring-buffer size. Raising `--rate` will not lift `Cov` to 100%; [How gcmon reads a process](monitoring.md) covers why.
+If coverage falls below 90%, gcmon logs one advisory per run naming the ring-buffer size it read from the target. Raising `--rate` will not lift `Cov` to 100%; [How gcmon reads a process](monitoring.md) covers why.
 
 ## Percentiles are sampled, biased high, and not corrected
 

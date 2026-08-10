@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from gcmon.data import GCStatsInfo
 from gcmon.stats import HAS_DDSKETCH, Stats, StreamingStats
 from tests.helpers import create_mock_stats_item
 
@@ -301,6 +302,68 @@ class TestExactTotals:
         assert stats.lost_count(1, 0) == 7
 
 
+def ring(gen: int, written: int, empty: int = 0, iid: int = 0) -> list[GCStatsInfo]:
+    """One generation's slots as a poll returns them, empty ones included."""
+    return [create_mock_stats_item(gen=gen, iid=iid, collections=n) for n in range(written)] + [
+        create_mock_stats_item(gen=gen, iid=iid, ts_start=0, ts_stop=0, collections=0) for _ in range(empty)
+    ]
+
+
+class TestRingGeometry:
+    """gcmon stops hardcoding `GC_YOUNG_STATS_SIZE` and `GC_OLD_STATS_SIZE` by
+    counting what a poll returns: every slot comes back, so the count is the
+    capacity of the build gcmon is actually attached to."""
+
+    def test_it_counts_every_slot_a_poll_returned(self) -> None:
+        stats = StreamingStats()
+
+        stats.record_ring_geometry(ring(0, 11) + ring(1, 3) + ring(2, 3))
+
+        assert [stats.ring_size(gen) for gen in (0, 1, 2)] == [11, 3, 3]
+
+    def test_an_unwritten_slot_still_counts(self) -> None:
+        """Counting written records would report 1 for a ring holding one
+        collection, and make the advisory understate it by two."""
+        stats = StreamingStats()
+
+        stats.record_ring_geometry(ring(2, written=1, empty=2))
+
+        assert stats.ring_size(2) == 3
+
+    def test_only_the_main_interpreter_sets_the_size(self) -> None:
+        """`all_interpreters=True` concatenates the rings, so a count that took
+        every interpreter would read 31 slots for gen 0 here."""
+        stats = StreamingStats()
+
+        stats.record_ring_geometry(ring(0, 11) + ring(0, 20, iid=1))
+
+        assert stats.ring_size(0) == 11
+
+    def test_the_first_poll_settles_it(self) -> None:
+        """The build cannot change under a running monitor, so later polls do
+        not re-count. A subinterpreter starting mid-run cannot move it."""
+        stats = StreamingStats()
+
+        stats.record_ring_geometry(ring(0, 11))
+        stats.record_ring_geometry(ring(0, 20))
+
+        assert stats.ring_size(0) == 11
+
+    def test_an_empty_poll_leaves_it_open(self) -> None:
+        """A read returning nothing must not latch a geometry of zero."""
+        stats = StreamingStats()
+
+        stats.record_ring_geometry([])
+        stats.record_ring_geometry(ring(0, 11))
+
+        assert stats.ring_size(0) == 11
+
+    def test_it_is_unknown_before_any_poll(self) -> None:
+        stats = StreamingStats()
+
+        assert stats.ring_size(0) == 0
+
+
 class TestCoverageAdvisory:
     """One warning per run, and only when the ring is actually overflowing.
 
@@ -388,16 +451,27 @@ class TestCoverageAdvisory:
 
         assert self.ADVISORY in caplog.text
 
-    def test_it_names_the_free_threaded_ring(self, caplog: pytest.LogCaptureFixture) -> None:
-        """gcmon cannot see which build it is attached to, and both ring sizes
-        are 1 under `Py_GIL_DISABLED`."""
+    def test_it_names_the_size_the_target_reported(self, caplog: pytest.LogCaptureFixture) -> None:
         stats = StreamingStats()
         self._sampled(stats, 3)
+        stats.record_ring_geometry(ring(0, 11))
 
         stats.record_loss(1, 0, 7, 7_000)
         stats.check_coverage_advisory(1)
 
-        assert "11 records, or 1 on a free-threaded build" in caplog.text
+        assert "holds 11 records" in caplog.text
+
+    def test_a_one_slot_ring_reads_as_one_record(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Both sizes are 1 under `Py_GIL_DISABLED`, where the advisory matters
+        most and where a hardcoded 11 would have been wrong."""
+        stats = StreamingStats()
+        self._sampled(stats, 3)
+        stats.record_ring_geometry(ring(0, 1))
+
+        stats.record_loss(1, 0, 7, 7_000)
+        stats.check_coverage_advisory(1)
+
+        assert "holds 1 record," in caplog.text
 
 
 class TestLifetimeTotals:

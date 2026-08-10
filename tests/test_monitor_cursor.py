@@ -14,6 +14,7 @@ import pytest
 from gcmon.data import GCStatsInfo
 from gcmon.monitor import EventsMonitor
 from gcmon.poll_status import PollStatus
+from gcmon.stats import StreamingStats
 from tests.helpers import MockExporter, create_mock_stats_item
 
 PID = 12345
@@ -246,3 +247,14 @@ class TestPollIntegration:
             assert monitor.poll(PID) == PollStatus.OK
 
         assert len(exporter.events) == 29
+
+    def test_poll_reads_the_ring_geometry(
+        self, monitor: EventsMonitor, stats: StreamingStats, poll_0: list[GCStatsInfo]
+    ) -> None:
+        """``poll`` holds the only unfiltered view of a read, so it is what
+        hands the batch over. ``_ingest`` drops the empty slots the count needs.
+        """
+        with patch("gcmon.monitor.get_gc_stats", side_effect=[poll_0]):
+            assert monitor.poll(PID) == PollStatus.OK
+
+        assert [stats.ring_size(gen) for gen in (0, 1, 2)] == [11, 3, 3]

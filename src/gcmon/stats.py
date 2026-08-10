@@ -1,5 +1,5 @@
 import logging
-from collections import OrderedDict, deque
+from collections import Counter, OrderedDict, deque
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -25,6 +25,9 @@ from .protocol import (
 )
 
 logger = logging.getLogger("gcmon")
+
+# The interpreter CPython creates at startup, and the last one it tears down.
+MAIN_INTERPRETER = 0
 
 
 def get_quantile_value(buffer: Sequence[float], q: int) -> float:
@@ -235,16 +238,6 @@ def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
         stats[metric_name][gen].update(ts_stop - ts_start)
 
 
-def _ring_size(gen: int) -> str:
-    """How many records the target's ring for *gen* holds, for the advisory.
-
-    `GC_YOUNG_STATS_SIZE` is 11 and `GC_OLD_STATS_SIZE` is 3, and both are 1
-    under `Py_GIL_DISABLED`. gcmon does not know which build it is attached
-    to, so the free-threaded case is named rather than guessed at.
-    """
-    return f"{11 if gen == 0 else 3} records, or 1 on a free-threaded build"
-
-
 class StreamingStats:
     MAX_ACTIVE_PIDS = 64
     GENS = (0, 1, 2)
@@ -273,6 +266,9 @@ class StreamingStats:
         # Lifetime is a running total, not an increment, so it is stored per
         # ring and overwritten rather than summed across polls.
         self._lifetime: dict[tuple[int, int, int], tuple[int, float]] = {}
+
+        # Per generation ring buffer geometry
+        self._ring_size: dict[int, int] = {}
         self._coverage_warned = False
 
     def update(self, pid: int, item: TGCStatsInfo) -> None:
@@ -302,6 +298,25 @@ class StreamingStats:
         """Record the time spent reading GC stats from a target process."""
         self._read_time.update(duration_ns)
 
+    def record_ring_geometry(self, events: Sequence[TGCStatsInfo]) -> None:
+        """Calculating ring buffer geometry from the data.
+
+        A target runs the monitor's own Python build, so the geometry holds
+        for every interpreter of every pid until the run ends.
+        A poll that returned nothing leaves the dict empty and the next
+        one tries again.
+        """
+        if self._ring_size:
+            return
+
+        # The main interpreter answers for all of them, since it outlives every
+        # subinterpreter and shares their geometry.
+        self._ring_size = Counter(event.gen for event in events if event.iid == MAIN_INTERPRETER)
+
+    def ring_size(self, gen: int) -> int:
+        """Records the *gen* ring holds, or 0 before any poll reported it."""
+        return self._ring_size.get(gen, 0)
+
     def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
         """Record one interval whose records were overwritten before a poll."""
         key = (pid, gen)
@@ -326,15 +341,17 @@ class StreamingStats:
             if not self.lost_count(pid, gen) or self.coverage(pid, gen) >= self.COVERAGE_ADVISORY:
                 continue
             self._coverage_warned = True
+            size = self.ring_size(gen)
             logger.warning(
                 "PID %s generation %s: only %.0f%% of collections observed. The ring buffer CPython "
-                "exports holds %s, so a target that runs collections more often than gcmon "
+                "exports holds %s record%s, so a target that runs collections more often than gcmon "
                 "polls overwrites records before they can be read. Counts and sums below are "
                 "reconstructed and exact; percentiles cover only what was sampled and read high.",
                 pid,
                 gen,
                 self.coverage(pid, gen) * 100,
-                _ring_size(gen),
+                size,
+                "" if size == 1 else "s",
             )
             return
 

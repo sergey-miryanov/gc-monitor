@@ -73,6 +73,7 @@ class EventsMonitor:
             events = get_gc_stats(pid, all_interpreters=True)
             ts_read_stop = time.monotonic_ns()
             self._stats.record_read_time(ts_read_stop - ts_read_start)
+            self._stats.record_ring_geometry(events)
             self._ingest(pid, events)
 
             return PollStatus.OK
@@ -107,6 +108,7 @@ class EventsMonitor:
         identifies a record.
         """
         cursors = self._cursors.setdefault(pid, {})
+
         # One bound per interpreter, not one per ring: a bulk read covers every
         # generation at once, so each of them is confirmed up to the newest
         # record any of them returned. Every window this poll opens for an
