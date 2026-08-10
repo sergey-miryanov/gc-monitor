@@ -328,8 +328,8 @@ class StreamingStats:
             self._coverage_warned = True
             logger.warning(
                 "PID %s generation %s: only %.0f%% of collections observed. The ring buffer CPython "
-                "exports holds %s, and a poll costs ~0.6 ms, so a target collecting faster "
-                "than that overwrites records before they can be read. Counts and sums below are "
+                "exports holds %s, so a target that runs collections more often than gcmon "
+                "polls overwrites records before they can be read. Counts and sums below are "
                 "reconstructed and exact; percentiles cover only what was sampled and read high.",
                 pid,
                 gen,

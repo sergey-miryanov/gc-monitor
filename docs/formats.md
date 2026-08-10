@@ -37,9 +37,9 @@ This visualization helps you:
 
 ### GC Loss slices
 
-CPython exports GC records through a small ring buffer of 11 slots for generation 0
-and 3 for the older two, so a target collecting faster than gcmon polls overwrites
-records before anyone reads them. gcmon detects this from CPython's cumulative
+CPython exports GC records through a small fixed ring buffer, so a target that runs
+collections more often than gcmon polls overwrites records before anyone reads them.
+gcmon detects this from CPython's cumulative
 `collections` and `duration` counters and marks each blind interval with a slice
 named `GC Loss(N)`, on a `GC Loss {iid}` track of its own.
 

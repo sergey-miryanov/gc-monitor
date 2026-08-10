@@ -1,8 +1,9 @@
 """Reconstructing the GC records a poll could not observe.
 
-A target collecting faster than gcmon polls overwrites records before anyone
-reads them. Two cumulative fields make the loss measurable: ``collections``
-counts what was missed, and ``duration`` gives the pause time nobody saw.
+A target that runs collections more often than gcmon polls overwrites records
+before anyone reads them. Two cumulative fields make the loss measurable:
+``collections`` counts what was missed, and ``duration`` gives the pause time
+nobody saw.
 
 ``EventsMonitor`` owns one ``KeyAccumulator`` per ``(pid, iid, gen)``; see
 ADR-0015 for why the spans need a track of their own.
@@ -69,8 +70,8 @@ class LossWindow(msgspec.Struct):
 
         Two causes reach here and gcmon cannot separate them, so nothing
         names one. ``ts_start`` is :func:`confirmed_by_interpreter`, a maximum
-        across *all* the interpreter's rings, and a poll copies those over
-        ~0.6 ms while the target collects: a collection finishing after its
+        across *all* the interpreter's rings, and a poll copies those one at a
+        time while the target collects: a collection finishing after its
         own ring was copied but before a later ring's is missed by that poll,
         and the later ring's ``ts_stop`` overtakes it. The other cause is the
         barrier-free stores in ADR-0015 §"What gcmon trusts the target for".

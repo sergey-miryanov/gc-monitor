@@ -9,8 +9,9 @@
 
 CPython 3.15 exports GC records through a fixed ring buffer: `GC_YOUNG_STATS_SIZE = 11` slots
 for generation 0, `GC_OLD_STATS_SIZE = 3` for the older two, and 1 each under
-`Py_GIL_DISABLED`. A poll reads the whole ring. A target collecting faster than gcmon polls
-overwrites records before anyone reads them, and the read itself gives no sign of it. On the
+`Py_GIL_DISABLED`. A poll reads the whole ring. A target that runs collections more often
+than gcmon polls overwrites records before anyone reads them, and the read gives no sign of
+it. On the
 capture this work was built against, gen 0 collected about 87 times per 100 ms tick against
 11 slots.
 

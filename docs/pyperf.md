@@ -38,9 +38,9 @@ The hook collects and reports the following GC metrics in pyperf metadata:
 > are larger, often by an order of magnitude. Do not trend a history that spans
 > this change.
 
-CPython exports GC records through a ring buffer of 11 slots (generation 0) or 3
-(older generations), so a benchmark collecting faster than gcmon polls overwrites
-records before anyone reads them. `sum` and `count` correct for that exactly.
+CPython exports GC records through a small fixed ring buffer, so a benchmark that
+runs collections more often than gcmon polls overwrites records before anyone reads
+them. `sum` and `count` correct for that exactly.
 `p99` cannot be corrected and reads high, since a long collection occupies its
 slot for longer and is likelier to survive to the next poll.
 

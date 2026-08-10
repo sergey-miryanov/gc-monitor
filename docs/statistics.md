@@ -4,7 +4,7 @@ Use `--stats` to display a statistics table at the end of monitoring. The table 
 
 Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this long), **Sum divided by the monitoring wall time gives the share of the run spent in GC**, and **Count and Avg show how many pauses there were and how long a typical one took**. A P99 GC pause that exceeds your request SLO is a good starting point for tuning.
 
-The last row, `Read Time`, is monitor-side cost rather than target-process cost: it measures how long each `_remote_debugging.get_gc_stats()` call took, recorded once per successful poll of every monitored PID and aggregated into a single row — with child processes its `Count` is polls × PIDs, and there is no per-PID breakdown. Use it to sanity-check `--rate`: that interval is a wait *between* polling rounds, so the effective sampling period is `--rate` plus the read time for every PID in the round, and a mean `Read Time` close to `--rate` means you are sampling at roughly half the rate you asked for.
+The last row, `Read Time`, is monitor-side cost rather than target-process cost: it measures how long each read of a target's GC stats took, recorded once per successful poll of every monitored PID and aggregated into a single row — with child processes its `Count` is polls × PIDs, and there is no per-PID breakdown. Use it to sanity-check `--rate`: that interval is a wait *between* polling rounds, so the effective sampling period is `--rate` plus the read time for every PID in the round, and a mean `Read Time` close to `--rate` means you are sampling at roughly half the rate you asked for.
 
 ## Example Output
 
@@ -34,7 +34,7 @@ $ gcmon 12345 --stats --table-format md
 
 ## Three intervals, and which one a cell reports
 
-CPython exports GC records through a fixed ring buffer of 11 slots for generation 0 and 3 for the older two. A target collecting faster than gcmon polls overwrites records before anyone reads them. Every number in the table describes one of three intervals, and you cannot read the table without knowing which:
+CPython exports GC records through a small fixed ring buffer. A target that runs collections more often than gcmon polls overwrites records before anyone reads them. Every number in the table describes one of three intervals, and you cannot read the table without knowing which:
 
 - **Sampled**: the records gcmon read. `Avg` and every percentile are sampled.
 - **Exact, over the observed span**: every collection between the first and last record gcmon saw, including the ones it never read. `Count` and `Sum` report this. CPython's `collections` and `duration` counters are cumulative, so the difference between two polls gives the number of missed collections and the pause time they took. It is a reconstruction rather than an estimate.
@@ -63,7 +63,7 @@ Sub-phase rows (`GC Mark Alive`, `GC Deduce Unreachable`, `GC Delete Garbage`, �
 
 Both are blank on rows with no generation, such as `Read Time`.
 
-If coverage falls below 90%, gcmon logs one advisory per run naming the ring-buffer size and the read cost. Lowering `--rate` past about 0.6 ms per process buys nothing, since that is what a single `get_gc_stats` read costs.
+If coverage falls below 90%, gcmon logs one advisory per run naming the ring-buffer size. Raising `--rate` narrows the gap without closing it: each poll reads every monitored process, and that puts a floor under the interval.
 
 ## Percentiles are sampled, biased high, and not corrected
 
@@ -103,7 +103,7 @@ The third interval above covers each interpreter's whole history including the m
 
 A loss window runs from the newest `ts_stop` seen anywhere in that interpreter to the `ts_start` of the first record read after the blind interval. When the second does not follow the first the window describes no interval, so gcmon draws nothing and counts it. The count is spans, not collections.
 
-The note names no cause because two reach it and gcmon cannot tell them apart: a poll copies an interpreter's rings over about 0.6 ms while the target keeps collecting, and separately, CPython's `ts_stop`-last stores carry no memory barrier. It does rule out gcmon having dropped anything, so `--rate` will not move it.
+The note names no cause because gcmon cannot tell the causes apart. All of them come from reading a target that keeps collecting while the read runs, so gcmon dropped nothing and `--rate` will not move the count. [ADR-0015](adr/0015-gc-loss-spans-on-their-own-track.md) has the mechanism.
 
 **Counts above are unaffected** is exact. `lost_count` is arithmetic on the ring's own counters with no timestamp in it, so `Count`, `Sum`, `Cov` and `F` read the same as they would had the span been drawn, and only the trace is a bar short. See [ADR-0015](adr/0015-gc-loss-spans-on-their-own-track.md).
 
