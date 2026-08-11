@@ -1,7 +1,7 @@
 import msgspec
 import pytest
 
-from gcmon.data import GCStatsInfo, InstantMsg, LossMsg, from_mapping, instant_msg
+from gcmon.data import GCStatsInfo, InstantMsg, LossMsg, duration_text, from_mapping, instant_msg
 from gcmon.protocol import TMapping, has_deduce_unreachable, has_incremental, has_mark_alive, to_mapping
 
 
@@ -131,3 +131,38 @@ class TestLossMsg:
         msg = LossMsg(iid=0, gen=1, ts_start=1_000, ts_stop=2_000)
 
         assert from_mapping(to_mapping(msg)) == msg
+
+
+class TestDurationText:
+    """The readable half of a pause total.
+
+    Exactness lives in the `_ns` arg beside it; this one only has to be read
+    correctly at a glance, which the digits are not.
+    """
+
+    @pytest.mark.parametrize(
+        ("ns", "text"),
+        [
+            (3_316_458_100, "3s 316ms 458µs 100ns"),
+            (5_000_000, "5ms"),
+            (200, "200ns"),
+            (1_000_000_100, "1s 100ns"),
+            (90_000_000_000, "1m 30s"),
+            (3_600_000_000_000, "1h"),
+            (0, "0ns"),
+        ],
+    )
+    def test_it_reads_as_a_duration(self, ns: int, text: str) -> None:
+        assert duration_text(ns) == text
+
+    def test_the_units_multiply_back_to_the_nanoseconds(self) -> None:
+        """Every unit a component carries, against the number it came from.
+        A wrong divisor produces text that still looks like a duration."""
+        sizes = {"h": 3_600_000_000_000, "m": 60_000_000_000, "s": 1_000_000_000, "ms": 1_000_000, "µs": 1_000}
+
+        for ns in (1, 999, 1_000, 3_316_458_100, 86_400_000_000_123):
+            total = 0
+            for part in duration_text(ns).split():
+                digits = part.rstrip("hmsnµ")
+                total += int(digits) * sizes.get(part.removeprefix(digits), 1)
+            assert total == ns

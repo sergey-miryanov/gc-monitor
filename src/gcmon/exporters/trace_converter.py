@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 
-from ..data import missing_collections
+from ..data import duration_text, missing_collections
 from ..loss import stack_order
 from ..protocol import (
     TGCStatsInfo,
@@ -332,7 +332,11 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     many, and what they cost together. ``missing_pause_total_ns`` is a sum over
     them and is nobody's duration — a bar 29 s wide can carry 3 s of it, with
     the target running Python for the rest — so it says ``total`` where the
-    wire field beside it says ``lost_pause_ns``.
+    wire field beside it says ``lost_pause_ns``. It is written twice: once in
+    nanoseconds, exact and worth summing in SQL, and once as
+    ``missing_pause_total`` for reading, since a bare ``3316458100`` beside a
+    slice duration the UI has already formatted invites being read as a
+    smaller number than it is.
     """
     tid = loss_tid(item.iid)
     gen = item.gen
@@ -343,6 +347,7 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
         "generation": gen,
         "missing_collections": missing_collections(item.lost_from, item.lost_count),
         "missing_count": item.lost_count,
+        "missing_pause_total": duration_text(item.lost_pause_ns),
         "missing_pause_total_ns": item.lost_pause_ns,
     }
 

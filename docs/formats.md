@@ -70,7 +70,8 @@ Each slice carries:
 | `iid` | Interpreter the records were lost from |
 | `generation` | Generation whose ring overwrote them |
 | `missing_count` | Collections of that generation that ran unobserved in this interval |
-| `missing_pause_total_ns` | **Read this for the magnitude.** Pause time those collections took *in total*, in nanoseconds — exact, from the target's own counter, and not the slice's duration |
+| `missing_pause_total` | **Read this for the magnitude.** Pause time those collections took *in total*, as `3s 316ms 458µs 100ns`. Not the slice's duration: the bar above is 29 s wide |
+| `missing_pause_total_ns` | The same total in nanoseconds, exact and from the target's own counter. Sum this one in SQL |
 | `missing_collections` | Which collections the ring overwrote, on that generation's `collections` counter: `413..431` for a run, `11` for a single one, both ends included |
 
 **The range says *which* collections went missing, not just how many.** gcmon finds

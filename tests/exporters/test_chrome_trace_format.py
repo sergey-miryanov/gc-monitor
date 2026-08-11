@@ -613,6 +613,7 @@ class TestConvertLoss:
             "generation": 1,
             "missing_collections": "413..488",
             "missing_count": 76,
+            "missing_pause_total": "81ns",
             "missing_pause_total_ns": 81,
         }
 

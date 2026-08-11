@@ -95,6 +95,41 @@ def secs_to_ns(dur_s: float) -> int:
     return round(dur_s * 1_000_000_000)
 
 
+_DURATION_UNITS: tuple[tuple[int, str], ...] = (
+    (3_600_000_000_000, "h"),
+    (60_000_000_000, "m"),
+    (1_000_000_000, "s"),
+    (1_000_000, "ms"),
+    (1_000, "µs"),
+    (1, "ns"),
+)
+
+
+def duration_text(ns: int) -> str:
+    """*ns* broken into units, the way the Perfetto UI writes a duration.
+
+    ``3s 316ms 458µs 100ns``. A nanosecond count is exact and unreadable at a
+    glance: nothing about ``3316458100`` says three seconds until you have
+    counted the digits, and every arg gcmon writes in nanoseconds gets read
+    beside a slice duration the UI has already formatted.
+
+    Units that contribute nothing are left out, so ``5000000`` is ``5ms`` and
+    zero is ``0ns``.
+    """
+    if ns == 0:
+        return "0ns"
+
+    sign = "-" if ns < 0 else ""
+    rest = abs(ns)
+    parts: list[str] = []
+    for size, unit in _DURATION_UNITS:
+        value, rest = divmod(rest, size)
+        if value:
+            parts.append(f"{value}{unit}")
+
+    return sign + " ".join(parts)
+
+
 def missing_collections(lost_from: int, lost_count: int) -> str:
     """The collections a window is missing, named the way a reader checks them.
 

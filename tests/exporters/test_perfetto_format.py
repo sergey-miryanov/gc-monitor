@@ -1000,3 +1000,12 @@ class TestTheMissingCollectionsAnnotation:
 
         assert annotations["missing_count"] == 1
         assert annotations["missing_pause_total_ns"] == 200
+
+    def test_the_pause_total_reaches_the_wire_both_ways(self) -> None:
+        """The nanoseconds are what SQL sums; the text beside them is what a
+        reader takes off the slice. Losing either one leaves the other doing a
+        job it is bad at."""
+        annotations = self._annotations(self._msg(lost_from=11, lost_count=1))
+
+        assert annotations["missing_pause_total"] == "200ns"
+        assert annotations["missing_pause_total_ns"] == 200
