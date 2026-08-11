@@ -195,17 +195,23 @@ def _shuffled_capture(tmp_path: Path) -> Path:
     return path
 
 
-def test_a_shuffled_file_is_caught(tmp_path: Path) -> None:
-    """The negative control. That file combines into a trace that parses,
-    renders, and hands every generation another's width. If the walk above
-    accepted it, none of these tests would mean anything.
+def test_a_shuffled_file_still_nests(tmp_path: Path) -> None:
+    """Line order is not part of the record. The converter sorts what it reads
+    into stack order, so a capture whose lines were rewritten draws the same
+    row as the one gcmon wrote.
     """
     out = tmp_path / "shuffled.json"
 
     combine_files([_shuffled_capture(tmp_path)], out, input_format="jsonl", output_format="chrome")
 
-    with pytest.raises(AssertionError, match="closed"):
-        _chrome_row(out)
+    assert [(name, depth) for name, _s, _e, depth in _chrome_row(out)] == [
+        ("GC Loss(2)", 0),
+        ("GC Loss(1)", 1),
+        ("GC Loss(0)", 2),
+        ("GC Loss(2)", 0),
+        ("GC Loss(1)", 1),
+        ("GC Loss(0)", 2),
+    ]
 
 
 @pytest.mark.fuzz

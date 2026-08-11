@@ -53,7 +53,7 @@ pause sums, drawn tighter.
 
 **Extract the concern first, restore the behaviour second.** The unit is "the latest evidence
 gcmon holds about interpreter *iid*", fed by two kinds of observation and consulted by
-`KeyAccumulator._open_run` in place of today's `confirmed` argument. `loss.confirmed_by_interpreter`
+`KeyAccumulator._open_run` in place of today's `read_bound` argument. `loss.read_bound_per_interpreter`
 is the seed of it; the in-flight dict and the `finished` rescan are the rest, currently in
 `EventsMonitor`. Land the extraction with the existing (wider) semantics and no behaviour change,
 then restore the mid-write bound as a second commit, so the diff that changes span widths
@@ -90,7 +90,7 @@ the extraction must not break, and `tests/test_loss.py::TestOneLeftEdgePerPoll` 
 
 **Keep the discard path.** `LossWindow.is_drawable` drops a window with `ts_stop <= ts_start`
 and reports it in the `--stats` footer. That was first written as a target-bug detector, and a
-later review found it fires without any target bug: `confirmed` is a maximum across the
+later review found it fires without any target bug: the read bound is a maximum across the
 interpreter's rings, and a poll reads those rings over ~0.6 ms while the target collects.
 Raising the bound here makes it fire more often for that second reason. The discard stays and
 the footer already names no culprit, so nothing needs rewording; expect the count to rise.

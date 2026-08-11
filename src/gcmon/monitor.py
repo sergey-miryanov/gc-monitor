@@ -12,7 +12,7 @@ from .loss import (
     CursorKey,
     KeyAccumulator,
     LossWindow,
-    confirmed_by_interpreter,
+    read_bound_per_interpreter,
     stack_order,
     to_loss_msg,
 )
@@ -110,11 +110,11 @@ class EventsMonitor:
         cursors = self._cursors.setdefault(pid, {})
 
         # One bound per interpreter, not one per ring: a bulk read covers every
-        # generation at once, so each of them is confirmed up to the newest
+        # generation at once, so each of them is bounded by the newest
         # record any of them returned. Every window this poll opens for an
         # interpreter therefore shares that left edge, which is what makes the
         # spans nest rather than cross.
-        confirmed = confirmed_by_interpreter(cursors)
+        read_bounds = read_bound_per_interpreter(cursors)
 
         # Slot order is not time order: the batch arrives rotated around the
         # ring's write position, with the generations concatenated. Sorting
@@ -128,7 +128,7 @@ class EventsMonitor:
         windows: dict[int, list[LossWindow]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = cursors.setdefault((iid, gen), KeyAccumulator())
-            seen = accumulator.last
+            seen = accumulator.last_collections
             # Keying on the counter drops the copy the target makes of a record
             # ahead of overwriting it: both slots report the same counter, so no
             # threshold tells them apart.
@@ -145,7 +145,7 @@ class EventsMonitor:
             # the next poll's window bound and pause base.
             run = list({event.collections: event for event in group if event.collections > seen}.values())
 
-            window = accumulator.observe_batch(run, confirmed.get(iid, 0))
+            window = accumulator.observe_batch(run, read_bounds.get(iid, 0))
             if window is not None:
                 # Record first, draw second, and never the other way round.
                 # The counts are the ring's own counters and hold whatever the
@@ -161,7 +161,7 @@ class EventsMonitor:
                     # hide the rejection. See `LossWindow.is_drawable`.
                     self._stats.record_undrawable(pid, gen)
             if run:
-                self._stats.record_lifetime(pid, iid, gen, accumulator.last, accumulator.last_duration)
+                self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
             fresh.extend(run)
 
         # A window runs to the next record on its own key, the last thing the

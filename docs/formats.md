@@ -181,12 +181,9 @@ let the two disagree, and `lost_count` is the number `--stats` sums. `lost_from`
 optional on the way in and defaults to `0`, a value no `collections` counter takes, so a
 capture written before the field existed still reads back.
 
-**Line order is part of the record.** The lines one poll writes for one interpreter
-share a `ts_start` and are written widest first, which is the order the trace formats
-need to nest them on the loss row. Nothing on a record says which span contains which,
-so a tool that rewrites a capture must keep the lines in the order it found them:
-reordering them draws every generation at another's width, in a trace that parses
-cleanly and reports nothing wrong.
+The lines one poll writes for one interpreter share a `ts_start`, and gcmon writes them
+widest first. Line order carries no meaning of its own: converting to a trace sorts the
+records into nesting order, so a tool may rewrite a capture in whatever order suits it.
 
 Tell the record types apart by field presence: a GC event has `collections`, a loss
 record has `lost_count`, an instant event has `type`. `gcmon combine` reads loss records

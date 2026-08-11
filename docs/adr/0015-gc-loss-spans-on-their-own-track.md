@@ -28,13 +28,13 @@ generations of one interpreter can lose records across stretches that overlap.
 Per key, `KeyAccumulator` carries `first`, `first_pause_ns` and `first_duration` from the first
 record gcmon observed, `last`, `last_duration` and `last_ts_stop` from the most recent one, and
 the running `sampled_count` and `sampled_pause_ns`. On the first record `r` of a poll's run,
-with `r.collections = c`, the previous cursor at `p`, and `confirmed` the newest record the
+with `r.collections = c`, the previous cursor at `p`, and `read_bound` the newest record the
 previous poll saw finish anywhere in the interpreter:
 
 ```
 lost_from  = p + 1
 gap        = c - lost_from
-window     = (max(last_ts_stop, confirmed), r.ts_start)
+window     = (max(last_ts_stop, read_bound), r.ts_start)
 lost_pause = round((r.duration - last_duration) * 1e9) - (r.ts_stop - r.ts_start)
 ```
 
@@ -107,7 +107,7 @@ bounds come from.
 **One poll is one left edge.** A single bulk `_Py_RemoteDebug_ReadRemoteMemory` returns every
 generation of an interpreter at once, so all its keys share one confirmation point, and a key
 whose counter came back unchanged proves it lost nothing up to that read.
-`confirmed_by_interpreter` takes the maximum `last_ts_stop` across the interpreter's rings, so
+`read_bound_per_interpreter` takes the maximum `last_ts_stop` across the interpreter's rings, so
 it dominates any single ring's own value and every window a poll opens for that interpreter
 starts at the same instant. They differ only in where each generation's next observed record
 sits. A shared left edge with differing right edges is **nesting, never crossing**. Across
@@ -312,13 +312,13 @@ not share a clock, which would leave the whole reconstruction unsound.
 
 - `src/gcmon/loss.py` holds the arithmetic and the geometry: `KeyAccumulator` (one per
   `(pid, iid, gen)`, carrying the fencepost fields), `LossWindow` with `is_drawable`,
-  `confirmed_by_interpreter`, `stack_order` and `to_loss_msg`. Pure functions and structs, no
+  `read_bound_per_interpreter`, `stack_order` and `to_loss_msg`. Pure functions and structs, no
   I/O.
 - `src/gcmon/data.py`, `LossMsg` with `lost_from`, and `lost_to` deriving the far fence from it
   and `lost_count` rather than storing a second one.
 - `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
-  key, folds them, then emits that poll's windows in `stack_order`. The confirmation point comes
-  from `confirmed_by_interpreter` alone, so it is one bound per interpreter rather than one per
+  key, folds them, then emits that poll's windows in `stack_order`. The bound comes
+  from `read_bound_per_interpreter` alone, so it is one per interpreter rather than one per
   ring, and every window a poll opens for an interpreter shares a left edge. A record a read
   catches part-written is dropped by `_is_complete` and returns complete a poll later; it
   neither opens a window nor bounds one, which costs width rather than accuracy.

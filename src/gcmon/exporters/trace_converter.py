@@ -3,6 +3,7 @@
 from collections.abc import Mapping, Sequence
 
 from ..data import lost_to
+from ..loss import stack_order
 from ..protocol import (
     TGCStatsInfo,
     TItem,
@@ -346,13 +347,33 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     ]
 
 
+def _loss_in_stack_order(items: Sequence[TItem]) -> Sequence[TItem]:
+    """*items* with its loss records in stack order, everything else in place.
+
+    A poll's spans share a ``ts_start``, so which of them opens first decides
+    which contains which, and a capture read back from JSONL carries that only
+    in the order of its lines. Sorting here means a rewritten capture still
+    nests instead of drawing every generation at another's width.
+    """
+    spans = [item for item in items if is_loss(item)]
+    if len(spans) < 2:
+        return items
+
+    at = [index for index, item in enumerate(items) if is_loss(item)]
+    ordered = list(items)
+    for index, span in zip(at, stack_order(spans), strict=True):
+        ordered[index] = span
+
+    return ordered
+
+
 def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceEvent]:
     events: list[TraceEvent] = []
     for pid, pid_items in items.items():
         events.append(process_meta(pid, f"{pid}"))
         threads: set[int] = set()
         pid_events: list[TraceEvent] = []
-        for item in pid_items:
+        for item in _loss_in_stack_order(pid_items):
             if is_instant(item):
                 pid_events.append(instant_event(pid, item.name, item.ts))
             elif is_loss(item):

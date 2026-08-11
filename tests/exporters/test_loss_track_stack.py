@@ -237,16 +237,23 @@ class TestTheControls:
         with pytest.raises(AssertionError, match="closed"):
             loss_slices(crossing)
 
-    def test_the_walk_rejects_a_narrowest_first_row(self) -> None:
+    def test_a_narrowest_first_row_is_repaired(self) -> None:
         """The order `_ingest` would emit with the sort reversed: same spans,
-        same widths, one shared left edge, opened the wrong way round."""
+        same widths, one shared left edge, opened the wrong way round. The
+        converter sorts before it emits, so the row still nests.
+
+        This is why the control above uses spans that genuinely cross. Those
+        no sort can save, which is what keeps the walk honest.
+        """
         narrowest_first = [
             LossMsg(iid=IID, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1),
             LossMsg(iid=IID, gen=1, ts_start=1_000, ts_stop=9_000, lost_count=1),
         ]
 
-        with pytest.raises(AssertionError, match="closed"):
-            loss_slices(narrowest_first)
+        assert loss_slices(narrowest_first)[(PID, loss_tid(IID))] == [
+            ("GC Loss(1)", 1_000, 9_000, 0),
+            ("GC Loss(0)", 1_000, 2_000, 1),
+        ]
 
 
 def test_the_events_are_what_the_walk_reads() -> None:

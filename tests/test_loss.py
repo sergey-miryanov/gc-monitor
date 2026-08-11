@@ -21,7 +21,7 @@ from gcmon.exporters.exporter import EventsExporter
 from gcmon.loss import (
     KeyAccumulator,
     LossWindow,
-    confirmed_by_interpreter,
+    read_bound_per_interpreter,
     stack_order,
     to_loss_msg,
 )
@@ -195,7 +195,7 @@ class Ingested:
         Sort each ring back into counter order, drop what the cursor has
         already passed, and hand the rest over as one run.
         """
-        confirmed = confirmed_by_interpreter(self.cursors)
+        read_bounds = read_bound_per_interpreter(self.cursors)
 
         ordered = sorted(
             (event for event in batch if event.ts_start < event.ts_stop),
@@ -205,10 +205,10 @@ class Ingested:
         opened: dict[int, list[LossWindow]] = {}
         for key, group in groupby(ordered, key=lambda e: (e.iid, e.gen)):
             accumulator = self.cursors.setdefault(key, KeyAccumulator())
-            seen = accumulator.last
+            seen = accumulator.last_collections
             run = list({event.collections: event for event in group if event.collections > seen}.values())
 
-            window = accumulator.observe_batch(run, confirmed.get(key[0], 0))
+            window = accumulator.observe_batch(run, read_bounds.get(key[0], 0))
             if window is not None:
                 # `_ingest` records the loss here, then draws the window only
                 # if its bounds describe an interval. Mirror both halves: the
@@ -334,7 +334,7 @@ class TestEmptyAccumulator:
 
     def test_last_starts_below_every_counter(self, accumulator: KeyAccumulator) -> None:
         """``last`` doubles as the poll cursor, and CPython counts from 1."""
-        assert accumulator.last == 0
+        assert accumulator.last_collections == 0
 
 
 class TestFencepost:
@@ -531,8 +531,8 @@ class TestReconstructionAgainstGroundTruth:
         events = build_run(400)
         acc = observe_all(ring_polls(events, capacity, per_tick))[(0, 0)]
 
-        assert acc.exact_count == acc.last - acc.first + 1
-        assert acc.exact_pause_ns == true_pause_ns(events, acc.first, acc.last)
+        assert acc.exact_count == acc.last_collections - acc.first_collections + 1
+        assert acc.exact_pause_ns == true_pause_ns(events, acc.first_collections, acc.last_collections)
 
     @pytest.mark.parametrize(("capacity", "per_tick"), [(11, 87), (3, 8), (1, 5), (11, 11)])
     def test_the_invariant_holds(self, capacity: int, per_tick: int) -> None:
@@ -709,7 +709,11 @@ class TestTheRingSpanIsPartitioned:
             # ring, over the stretch gcmon can speak for. What ran before the
             # first observed record is outside the span, since nothing tells
             # "ran before we attached" from "lost".
-            truth = {e.collections for e in run if e.gen == gen and acc.first <= e.collections <= acc.last}
+            truth = {
+                e.collections
+                for e in run
+                if e.gen == gen and acc.first_collections <= e.collections <= acc.last_collections
+            }
             charged = charges(ingested, (iid, gen))
 
             assert truth
@@ -754,7 +758,7 @@ class TestTheRingSpanIsPartitioned:
         gap = captured.windows_for((0, 0))[0]
 
         assert (gap.lost_from, lost_to(gap.lost_from, gap.lost_count)) == (477, 552)
-        assert charges(captured, (0, 0)) == Counter(range(acc.first, acc.last + 1))
+        assert charges(captured, (0, 0)) == Counter(range(acc.first_collections, acc.last_collections + 1))
 
 
 class TestCaptureFixture:
@@ -768,14 +772,14 @@ class TestCaptureFixture:
     def test_gen_0_lost_seventy_six_records(self, captured: Ingested) -> None:
         acc = captured[(0, 0)]
 
-        assert (acc.first, acc.last) == (466, 563)
+        assert (acc.first_collections, acc.last_collections) == (466, 563)
         assert [w.lost_count for w in captured.windows_for((0, 0))] == [76]
         assert acc.sampled_count == 22
 
     def test_gen_1_lost_five_records(self, captured: Ingested) -> None:
         acc = captured[(0, 1)]
 
-        assert (acc.first, acc.last) == (41, 51)
+        assert (acc.first_collections, acc.last_collections) == (41, 51)
         assert [w.lost_count for w in captured.windows_for((0, 1))] == [5]
 
     def test_an_unchanged_generation_loses_nothing(self, captured: Ingested) -> None:
@@ -983,7 +987,7 @@ class TestToLossMsg:
 
 class TestConfirmedByInterpreter:
     def test_no_cursors_at_all(self) -> None:
-        assert confirmed_by_interpreter({}) == {}
+        assert read_bound_per_interpreter({}) == {}
 
     def test_takes_the_latest_record_across_generations(self) -> None:
         """One bulk read covers all three, so the newest record any of them
@@ -994,16 +998,16 @@ class TestConfirmedByInterpreter:
             (0, 2): KeyAccumulator(last_ts_stop=40),
         }
 
-        assert confirmed_by_interpreter(cursors) == {0: 500}
+        assert read_bound_per_interpreter(cursors) == {0: 500}
 
     def test_interpreters_stay_apart(self) -> None:
         """Separate reads, separate confirmation points."""
         cursors = {(0, 0): KeyAccumulator(last_ts_stop=500), (1, 0): KeyAccumulator(last_ts_stop=90)}
 
-        assert confirmed_by_interpreter(cursors) == {0: 500, 1: 90}
+        assert read_bound_per_interpreter(cursors) == {0: 500, 1: 90}
 
     def test_an_unobserved_key_confirms_nothing(self) -> None:
-        assert confirmed_by_interpreter({(0, 0): KeyAccumulator()}) == {0: 0}
+        assert read_bound_per_interpreter({(0, 0): KeyAccumulator()}) == {0: 0}
 
 
 class TestQuietGeneration:
@@ -1213,7 +1217,7 @@ class TestCounterOrderNotClockOrder:
         ingested = Ingested()
         ingested.poll([events[0], events[1], self.skewed(events, 2)])
 
-        assert ingested[(0, 0)].last == 3
+        assert ingested[(0, 0)].last_collections == 3
 
     def test_the_next_poll_finds_no_phantom_gap(self) -> None:
         """A cursor left short reports the records past it as lost, and
@@ -1255,7 +1259,7 @@ class TestIsDrawable:
 
 
 # gen 1's single record, moved about while its pause length stays put. Where
-# it lands decides `confirmed` for the whole interpreter, and so where the
+# it lands decides the read bound for the whole interpreter, and so where the
 # gen-0 window opens; it changes nothing gcmon counts.
 GEN1_PAUSE_NS = varied_pause(1)
 GEN0_SPACING_NS = 1_000_000
@@ -1265,7 +1269,7 @@ GEN0_FOURTH_TS = TS0 + 3 * GEN0_SPACING_NS  # `gen0[3].ts_start`, the window's f
 def inverting_polls(gen1_ts0: int) -> Ingested:
     """Two polls losing two gen-0 records, with gen 1 parked at *gen1_ts0*.
 
-    `confirmed_by_interpreter` takes the maximum ``last_ts_stop`` across the
+    `read_bound_per_interpreter` takes the maximum ``last_ts_stop`` across the
     interpreter's rings, so parking gen 1 past the gen-0 record that closes
     the window opens that window after it ends. Nothing gcmon reads is
     inconsistent taken one record at a time; the pair is.
@@ -1290,7 +1294,7 @@ INVERTED_GEN1_TS = TS0 + 10_000_000
 class TestAWindowWithNoRoomInIt:
     """A poll can hand back a window whose bounds describe no interval.
 
-    ``confirmed`` is one maximum across the interpreter's rings, so a fresh
+    The read bound is one maximum across the interpreter's rings, so a fresh
     record starting behind a record another ring already returned opens a
     window that closes before it opens. Truthful data cannot produce that:
     collections in an interpreter are serialized and ``add_stats`` publishes

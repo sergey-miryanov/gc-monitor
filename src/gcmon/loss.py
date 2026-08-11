@@ -10,6 +10,7 @@ ADR-0015 for why the spans need a track of their own.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
+from typing import Protocol
 
 import msgspec
 
@@ -20,7 +21,8 @@ __all__ = [
     "CursorKey",
     "KeyAccumulator",
     "LossWindow",
-    "confirmed_by_interpreter",
+    "Span",
+    "read_bound_per_interpreter",
     "stack_order",
     "to_loss_msg",
 ]
@@ -69,7 +71,7 @@ class LossWindow(msgspec.Struct):
         be well-formed.
 
         Two causes reach here and gcmon cannot separate them, so nothing
-        names one. ``ts_start`` is :func:`confirmed_by_interpreter`, a maximum
+        names one. ``ts_start`` is :func:`read_bound_per_interpreter`, a maximum
         across *all* the interpreter's rings, and a poll copies those one at a
         time while the target collects: a collection finishing after its
         own ring was copied but before a later ring's is missed by that poll,
@@ -90,23 +92,23 @@ class KeyAccumulator(msgspec.Struct):
     not exceed it has gone out already, or the ring overwrote it.
     """
 
-    first: int = 0
+    first_collections: int = 0
     first_pause_ns: int = 0
     first_duration: float = 0.0
-    last: int = 0
+    last_collections: int = 0
     last_duration: float = 0.0
     last_ts_stop: int = 0
     sampled_count: int = 0
     sampled_pause_ns: int = 0
 
-    def observe_batch(self, events: Sequence[TGCStatsInfo], confirmed_ts: int = 0) -> LossWindow | None:
+    def observe_batch(self, events: Sequence[TGCStatsInfo], read_bound: int = 0) -> LossWindow | None:
         """Fold one poll's run of records for this key, in counter order.
 
         A ring holds consecutive records, so only the run's first record can
         sit across a gap and only its last one settles the cursor. Returns
         the window that gap opened, if any, for the caller to emit.
 
-        *confirmed_ts* is the latest record seen anywhere in this interpreter
+        *read_bound* is the latest record seen anywhere in this interpreter
         before this poll. A poll that found the counter unchanged proves
         nothing was lost up to that read, so the window cannot start earlier.
 
@@ -118,35 +120,38 @@ class KeyAccumulator(msgspec.Struct):
         if not events:
             return None
 
-        window = self._open_run(events[0], confirmed_ts)
+        # The first record on a key opens no window. What the target collected
+        # before it is outside the observed span, and gcmon cannot tell "ran
+        # before we attached" from "lost".
+        seeding = self.sampled_count == 0
+        if seeding:
+            self.first_collections = events[0].collections
+            self.first_pause_ns = events[0].ts_stop - events[0].ts_start
+            self.first_duration = events[0].duration
+
+        window = None if seeding else self._open_run(events[0], read_bound)
 
         for event in events:
             self.sampled_pause_ns += event.ts_stop - event.ts_start
 
         last = events[-1]
         self.sampled_count += len(events)
-        self.last = last.collections
+        self.last_collections = last.collections
         self.last_duration = last.duration
         self.last_ts_stop = last.ts_stop
 
         return window
 
-    def _open_run(self, first: TGCStatsInfo, confirmed_ts: int) -> LossWindow | None:
-        """Seed the span, or describe the gap the run sits behind.
+    def _open_run(self, event: TGCStatsInfo, read_bound: int) -> LossWindow | None:
+        """Describe the gap this run sits behind, if there is one.
 
         Touches no running total; :meth:`observe_batch` owns those.
         """
-        if self.sampled_count == 0:
-            self.first = first.collections
-            self.first_pause_ns = first.ts_stop - first.ts_start
-            self.first_duration = first.duration
-            return None
-
         # `last` is the newest counter this key returned, so the ring
         # overwrote `last + 1` onward up to the one before `first`. Both fences
         # are the target's own counters; neither is inferred from a timestamp.
-        lost_from = self.last + 1
-        lost = first.collections - lost_from
+        lost_from = self.last_collections + 1
+        lost = event.collections - lost_from
         if lost <= 0:
             return None
 
@@ -156,14 +161,14 @@ class KeyAccumulator(msgspec.Struct):
         # against ns timestamps, so a gap holding almost no pause can subtract
         # to a hair below zero. Floor it: negative pause means nothing, and it
         # would drag `exact_pause_ns` under the sum gcmon measured.
-        spanned_ns = secs_to_ns(first.duration - self.last_duration)
+        spanned_ns = secs_to_ns(event.duration - self.last_duration)
         return LossWindow(
-            ts_start=max(self.last_ts_stop, confirmed_ts),
-            ts_stop=first.ts_start,
-            gen=first.gen,
+            ts_start=max(self.last_ts_stop, read_bound),
+            ts_stop=event.ts_start,
+            gen=event.gen,
             lost_from=lost_from,
             lost_count=lost,
-            lost_pause_ns=max(0, spanned_ns - (first.ts_stop - first.ts_start)),
+            lost_pause_ns=max(0, spanned_ns - (event.ts_stop - event.ts_start)),
         )
 
     @property
@@ -175,7 +180,7 @@ class KeyAccumulator(msgspec.Struct):
         """
         if self.sampled_count == 0:
             return 0
-        return self.last - self.first + 1
+        return self.last_collections - self.first_collections + 1
 
     @property
     def exact_pause_ns(self) -> int:
@@ -218,13 +223,20 @@ class KeyAccumulator(msgspec.Struct):
         return self.exact_pause_ns / self.sampled_pause_ns
 
 
-def stack_order(windows: Iterable[LossWindow]) -> list[LossWindow]:
+class Span(Protocol):
+    """A bounded interval. :class:`LossWindow` live, ``LossMsg`` read back."""
+
+    ts_start: int
+    ts_stop: int
+
+
+def stack_order[S: Span](windows: Iterable[S]) -> list[S]:
     """One poll's windows for one interpreter, in the order a stack can take
     them: ``ts_start`` ascending, then ``ts_stop`` descending.
 
     The windows are laminar before they are sorted, and nothing here reshapes
     them. Every window a poll opens for one interpreter starts at the same
-    instant, because ``confirmed_by_interpreter`` takes the maximum
+    instant, because ``read_bound_per_interpreter`` takes the maximum
     ``last_ts_stop`` across that interpreter's rings and so dominates any one
     ring's own value: the windows differ only in where each generation's next
     observed record sits. A shared left edge with differing right edges nests,
@@ -254,7 +266,7 @@ def to_loss_msg(iid: int, window: LossWindow) -> LossMsg:
     )
 
 
-def confirmed_by_interpreter(cursors: Mapping[CursorKey, KeyAccumulator]) -> dict[int, int]:
+def read_bound_per_interpreter(cursors: Mapping[CursorKey, KeyAccumulator]) -> dict[int, int]:
     """The latest record seen anywhere in each interpreter so far.
 
     One bulk read covers all of an interpreter's generations, so a poll that
@@ -262,8 +274,8 @@ def confirmed_by_interpreter(cursors: Mapping[CursorKey, KeyAccumulator]) -> dic
     read, and the newest record any key returned bounds when that read
     happened. A gap found later cannot have opened before it.
     """
-    confirmed: dict[int, int] = {}
+    bounds: dict[int, int] = {}
     for (iid, _gen), accumulator in cursors.items():
-        confirmed[iid] = max(confirmed.get(iid, 0), accumulator.last_ts_stop)
+        bounds[iid] = max(bounds.get(iid, 0), accumulator.last_ts_stop)
 
-    return confirmed
+    return bounds
