@@ -2,14 +2,14 @@
 
 import json
 
-from gcmon.data import GCStatsInfo, LossMsg
+from gcmon.data import GCStatsInfo
 from gcmon.exporters import JsonlExporter
 from gcmon.exporters.chrome_trace_io import read_jsonl
 from gcmon.trace_event import loss_tid
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory, JsonlFileReader
-from tests.helpers import assert_is_instant_msg, create_mock_stats_item
+from tests.helpers import assert_is_instant_msg, create_mock_loss_item, create_mock_stats_item
 
 
 class TestJsonlExporter:
@@ -263,7 +263,7 @@ class TestJsonlLossRecords:
         come back as the same record, so a converted capture carries the spans
         the live run drew."""
         exporter, path = jsonl_exporter()
-        msg = LossMsg(iid=1, gen=1, ts_start=1_000, ts_stop=2_000, lost_count=5, lost_pause_ns=8_100_000)
+        msg = create_mock_loss_item(iid=1, gen=1, ts_start=1_000, ts_stop=2_000, lost_count=5, lost_pause_ns=8_100_000)
 
         exporter.add_loss_event(DEFAULT_PID, msg)
         exporter.close()
@@ -273,7 +273,9 @@ class TestJsonlLossRecords:
     def test_it_is_written_on_the_loss_track(self, jsonl_exporter: ExporterFactory) -> None:
         exporter, path = jsonl_exporter()
 
-        exporter.add_loss_event(DEFAULT_PID, LossMsg(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=76))
+        exporter.add_loss_event(
+            DEFAULT_PID, create_mock_loss_item(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=76)
+        )
         exporter.close()
 
         assert json.loads(path.read_text(encoding="utf-8"))["tid"] == loss_tid(1)
@@ -283,7 +285,7 @@ class TestJsonlLossRecords:
         item = create_mock_stats_item(iid=0)
 
         exporter.add_event(DEFAULT_PID, item)
-        exporter.add_loss_event(DEFAULT_PID, LossMsg(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1))
+        exporter.add_loss_event(DEFAULT_PID, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1))
         exporter.close()
 
         assert read_jsonl(path)[DEFAULT_PID][0] == item

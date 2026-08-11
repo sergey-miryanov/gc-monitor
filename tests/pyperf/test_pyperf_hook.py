@@ -78,7 +78,7 @@ def _make_jsonl_event(**kwargs: Any) -> dict[str, Any]:
     return {**defaults, **kwargs}
 
 
-def _make_jsonl_loss(**kwargs: Any) -> dict[str, Any]:
+def _make_jsonl_loss(gen: int = 0, lost_count: int = 0, lost_pause_ns: int = 0, **kwargs: Any) -> dict[str, Any]:
     """A `LossMsg` line, as `JsonlExporter.add_loss_event` writes one."""
     defaults: dict[str, Any] = {
         "pid": 12345,
@@ -86,9 +86,15 @@ def _make_jsonl_loss(**kwargs: Any) -> dict[str, Any]:
         "iid": 0,
         "ts_start": 1_005_000_000,
         "ts_stop": 1_020_000_000,
-        "gen": 0,
-        "lost_count": 0,
-        "lost_pause_ns": 0,
+        "gens": [
+            {
+                "gen": gen,
+                "observed_count": 1,
+                "lost_from": 0,
+                "lost_count": lost_count,
+                "lost_pause_ns": lost_pause_ns,
+            }
+        ],
     }
     return {**defaults, **kwargs}
 
@@ -543,8 +549,8 @@ class TestLossIsNeverReplayedAsACollection:
     ) -> None:
         """Guards that cannot both fire are what make the order immaterial.
 
-        A loss record carries a `gen`, a `ts_start` and a `ts_stop` of its
-        own, so a guard resting on any of those would claim both types.
+        A loss record carries a `ts_start` and a `ts_stop` of its own, so a
+        guard resting on either would claim both types.
         """
         (item,) = _parse_jsonl(tmp_path, line)[12345]
 

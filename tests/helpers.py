@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import override
 
-from gcmon.data import GCStatsInfo
+from gcmon.data import GCStatsInfo, GenLoss, LossMsg
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.protocol import TGCStatsInfo, TInstantMsg
 
@@ -30,6 +30,7 @@ __all__ = [
     "assert_valid_chrome_trace_format",
     "create_jsonl_record",
     "create_mock_incremental_item",
+    "create_mock_loss_item",
     "create_mock_stats_item",
 ]
 
@@ -113,6 +114,37 @@ def create_mock_stats_item(
         uncollectable=uncollectable,
         candidates=candidates,
         duration=duration,
+    )
+
+
+def create_mock_loss_item(
+    iid: int = 0,
+    ts_start: int = 1_000,
+    ts_stop: int = 2_000,
+    gen: int = 0,
+    observed_count: int = 0,
+    lost_count: int = 1,
+    lost_pause_ns: int = 0,
+    lost_from: int = 0,
+) -> LossMsg:
+    """A loss record naming one generation, for tests about everything else.
+
+    A real record carries an entry per generation active in the interval;
+    tests that care about that build their own ``gens``.
+    """
+    return LossMsg(
+        iid=iid,
+        ts_start=ts_start,
+        ts_stop=ts_stop,
+        gens=[
+            GenLoss(
+                gen=gen,
+                observed_count=observed_count,
+                lost_count=lost_count,
+                lost_pause_ns=lost_pause_ns,
+                lost_from=lost_from,
+            )
+        ],
     )
 
 

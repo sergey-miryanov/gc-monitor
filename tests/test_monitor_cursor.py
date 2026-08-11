@@ -7,6 +7,7 @@ to come out sorted, which hides the rotation that breaks naive dedup.
 """
 
 from collections.abc import Sequence
+from itertools import count
 from unittest.mock import patch
 
 import pytest
@@ -63,6 +64,19 @@ POLL_1: list[tuple[int, int, int, int]] = [
 ]
 
 
+_POLL_CLOCK = count(1_000_000_000, 100_000_000)
+
+
+def ingest(monitor: EventsMonitor, pid: int, batch: Sequence[GCStatsInfo]) -> None:
+    """One poll, at the next instant on a clock shared by this whole file.
+
+    `_ingest` bounds a loss record by the two polls around it, so it has to be
+    told when this one happened. Nothing here looks at loss, so the instants
+    only have to increase.
+    """
+    monitor._ingest(pid, list(batch), next(_POLL_CLOCK))
+
+
 def build_batch(slots: Sequence[tuple[int, int, int, int]], iid: int = 0) -> list[GCStatsInfo]:
     return [
         create_mock_stats_item(gen=gen, collections=collections, ts_start=ts_start, ts_stop=ts_stop, iid=iid)
@@ -91,7 +105,7 @@ class TestFirstPoll:
     ) -> None:
         """A cursor advancing while walking the batch would stop at
         collections=476 and discard the seven gen-0 slots behind the wrap."""
-        monitor._ingest(PID, poll_0)
+        ingest(monitor, PID, poll_0)
 
         assert seen(exporter) == {(0, c) for c in range(466, 477)} | {(1, 41), (1, 42), (1, 43), (2, 1)}
 
@@ -100,7 +114,7 @@ class TestFirstPoll:
     ) -> None:
         """Each generation has its own ring and counter, so gen-1 records are
         new regardless of how recent the gen-0 slots preceding them are."""
-        monitor._ingest(PID, poll_0)
+        ingest(monitor, PID, poll_0)
 
         assert {event.collections for event in exporter.events if event.gen == 1} == {41, 42, 43}
         assert {event.collections for event in exporter.events if event.gen == 2} == {1}
@@ -108,7 +122,7 @@ class TestFirstPoll:
     def test_unwritten_slots_are_skipped(
         self, monitor: EventsMonitor, exporter: MockExporter, poll_0: list[GCStatsInfo]
     ) -> None:
-        monitor._ingest(PID, poll_0)
+        ingest(monitor, PID, poll_0)
 
         assert len(exporter.events) == 15
         assert all(event.ts_start > 0 for event in exporter.events)
@@ -116,7 +130,7 @@ class TestFirstPoll:
     def test_emitted_in_timestamp_order(
         self, monitor: EventsMonitor, exporter: MockExporter, poll_0: list[GCStatsInfo]
     ) -> None:
-        monitor._ingest(PID, poll_0)
+        ingest(monitor, PID, poll_0)
 
         timestamps = [event.ts_start for event in exporter.events]
         assert timestamps == sorted(timestamps)
@@ -126,10 +140,10 @@ class TestSubsequentPoll:
     def test_emits_only_records_not_seen_before(
         self, monitor: EventsMonitor, exporter: MockExporter, poll_0: list[GCStatsInfo], poll_1: list[GCStatsInfo]
     ) -> None:
-        monitor._ingest(PID, poll_0)
+        ingest(monitor, PID, poll_0)
         exporter.events.clear()
 
-        monitor._ingest(PID, poll_1)
+        ingest(monitor, PID, poll_1)
 
         assert seen(exporter) == {(0, c) for c in range(553, 564)} | {(1, 49), (1, 50), (1, 51)}
 
@@ -138,20 +152,20 @@ class TestSubsequentPoll:
     ) -> None:
         """gen 2 did not collect between the polls, so its one written slot
         is unchanged and the monitor must not emit it twice."""
-        monitor._ingest(PID, poll_0)
+        ingest(monitor, PID, poll_0)
         exporter.events.clear()
 
-        monitor._ingest(PID, poll_1)
+        ingest(monitor, PID, poll_1)
 
         assert [event for event in exporter.events if event.gen == 2] == []
 
     def test_repeating_a_batch_emits_nothing(
         self, monitor: EventsMonitor, exporter: MockExporter, poll_0: list[GCStatsInfo]
     ) -> None:
-        monitor._ingest(PID, poll_0)
+        ingest(monitor, PID, poll_0)
         exporter.events.clear()
 
-        monitor._ingest(PID, build_batch(POLL_0))
+        ingest(monitor, PID, build_batch(POLL_0))
 
         assert exporter.events == []
 
@@ -161,7 +175,7 @@ class TestSubsequentPoll:
         item = create_mock_stats_item(gen=0, collections=7, ts_start=1_000, ts_stop=2_000)
         twin = create_mock_stats_item(gen=0, collections=7, ts_start=1_000, ts_stop=2_000)
 
-        monitor._ingest(PID, [item, twin])
+        ingest(monitor, PID, [item, twin])
 
         assert len(exporter.events) == 1
 
@@ -170,10 +184,10 @@ class TestCursorScope:
     def test_pids_are_independent(
         self, monitor: EventsMonitor, exporter: MockExporter, poll_0: list[GCStatsInfo]
     ) -> None:
-        monitor._ingest(PID, poll_0)
+        ingest(monitor, PID, poll_0)
         exporter.events.clear()
 
-        monitor._ingest(999, build_batch(POLL_0))
+        ingest(monitor, 999, build_batch(POLL_0))
 
         assert len(exporter.events) == 15
 
@@ -183,20 +197,20 @@ class TestCursorScope:
         first = create_mock_stats_item(gen=0, iid=0, collections=90, ts_start=9_000, ts_stop=9_500)
         second = create_mock_stats_item(gen=0, iid=1, collections=3, ts_start=3_000, ts_stop=3_500)
 
-        monitor._ingest(PID, [first, second])
+        ingest(monitor, PID, [first, second])
 
         assert seen(exporter) == {(0, 90), (0, 3)}
 
     def test_forget_drops_cursors_for_one_pid(
         self, monitor: EventsMonitor, exporter: MockExporter, poll_0: list[GCStatsInfo]
     ) -> None:
-        monitor._ingest(PID, poll_0)
-        monitor._ingest(999, build_batch(POLL_0))
+        ingest(monitor, PID, poll_0)
+        ingest(monitor, 999, build_batch(POLL_0))
         exporter.events.clear()
 
         monitor.forget(PID)
-        monitor._ingest(PID, build_batch(POLL_0))
-        monitor._ingest(999, build_batch(POLL_0))
+        ingest(monitor, PID, build_batch(POLL_0))
+        ingest(monitor, 999, build_batch(POLL_0))
 
         assert len(exporter.events) == 15
 
@@ -209,25 +223,25 @@ class TestRetain:
         """Why the loop has to drop cursors for pids that leave the process
         tree. Nothing here notices the counter restarting, so a reused pid
         stays silent until it climbs past its predecessor."""
-        monitor._ingest(PID, [create_mock_stats_item(gen=0, collections=800, ts_start=8_000, ts_stop=8_500)])
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=800, ts_start=8_000, ts_stop=8_500)])
         exporter.events.clear()
 
-        monitor._ingest(PID, [create_mock_stats_item(gen=0, collections=2, ts_start=100, ts_stop=200)])
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=2, ts_start=100, ts_stop=200)])
 
         assert exporter.events == []
 
     def test_retain_drops_pids_outside_the_tree(
         self, monitor: EventsMonitor, exporter: MockExporter, poll_0: list[GCStatsInfo]
     ) -> None:
-        monitor._ingest(PID, poll_0)
-        monitor._ingest(999, build_batch(POLL_0))
+        ingest(monitor, PID, poll_0)
+        ingest(monitor, 999, build_batch(POLL_0))
         exporter.events.clear()
 
         monitor.retain({PID})
 
-        monitor._ingest(PID, build_batch(POLL_0))
+        ingest(monitor, PID, build_batch(POLL_0))
         assert exporter.events == [], "the retained pid kept its cursors"
-        monitor._ingest(999, build_batch(POLL_0))
+        ingest(monitor, 999, build_batch(POLL_0))
         assert len(exporter.events) == 15, "the dropped pid started over"
 
     def test_retain_keeps_a_pid_with_no_cursors_yet(self, monitor: EventsMonitor) -> None:

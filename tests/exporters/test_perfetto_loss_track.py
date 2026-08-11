@@ -3,15 +3,15 @@
 Two claims that nothing at the wire level can settle. First, that a loss span
 lands on a row of its own rather than among the collections, which is the whole
 point of the sentinel tid and of a track descriptor Perfetto could ignore.
-Second, that a poll's generations nest on that row in the order `stack_order`
-emitted them, outermost first. Both ask trace processor directly, and are
-marked ``fuzz`` for the cost.
+Second, that consecutive poll intervals come back as neighbours on that row
+rather than as one span inside another. Both ask trace processor directly, and
+are marked ``fuzz`` for the cost.
 
 The negative control matters more than usual. A track is a stack and an END
-closes whatever is on top, so emitting the same spans narrowest first produces
-a trace that parses cleanly, reports ``misplaced_end_event = 0``, and hands
-every generation another's width. Without evidence of that, the positive test
-would pass equally in a world where the ordering did nothing.
+closes whatever is on top, so a pair of overlapping spans produces a trace that
+parses cleanly, reports ``misplaced_end_event = 0``, and hands each span the
+other's width. Without evidence of that, the positive test would pass equally
+in a world where the shape did not matter.
 """
 
 from pathlib import Path
@@ -25,6 +25,7 @@ from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format
 from gcmon.trace_event import TraceEvent, process_meta, thread_meta
+from tests.helpers import create_mock_loss_item
 
 pytestmark = pytest.mark.fuzz
 
@@ -84,7 +85,9 @@ def _load(events: list[TraceEvent], tmp_path: Path, name: str) -> tuple[int, lis
 
 
 def _loss(ts_start: int, ts_stop: int, lost_pause: int, iid: int = IID, gen: int = 0) -> LossMsg:
-    return LossMsg(iid=iid, gen=gen, ts_start=ts_start, ts_stop=ts_stop, lost_count=1, lost_pause_ns=lost_pause)
+    return create_mock_loss_item(
+        iid=iid, gen=gen, ts_start=ts_start, ts_stop=ts_stop, lost_count=1, lost_pause_ns=lost_pause
+    )
 
 
 LossSlice = tuple[str, int, int, int]
@@ -114,15 +117,14 @@ def _loss_row(events: list[TraceEvent], tmp_path: Path, name: str) -> tuple[int,
     return misplaced, slices
 
 
-def _three_generations(*gens: int) -> list[LossMsg]:
-    """One poll blind in all three, in the emission order *gens* names.
+def _consecutive_intervals() -> list[LossMsg]:
+    """Two polls' worth, meeting at the instant between them.
 
-    A shared left edge and one right edge per generation, gen 2 reaching
-    furthest — which is what `_ingest` produces when each generation's next
-    observed record sits further out than the one below it.
+    Touching edges are the shape worth putting to the processor: it sorts by
+    timestamp, so one span's END and the next one's BEGIN arrive together and
+    only their order says which reading is meant.
     """
-    ends = {0: 5_000, 1: 7_000, 2: 9_000}
-    return [_loss(2_000, ends[gen], 100, gen=gen) for gen in gens]
+    return [_loss(2_000, 5_000, 100), _loss(5_000, 9_000, 100)]
 
 
 def _events(*losses: LossMsg) -> list[TraceEvent]:
@@ -151,9 +153,9 @@ def test_a_loss_span_lands_on_its_own_track(tmp_path: Path) -> None:
     ]
 
 
-def test_the_bar_fills_the_gap_between_two_collections(tmp_path: Path) -> None:
-    """It abuts the collection before it and the one after: what is known is
-    the interval, not where in it the lost records ran."""
+def test_the_bar_is_the_whole_interval(tmp_path: Path) -> None:
+    """Drawn end to end, over the collections in it: what is known is the
+    interval between two reads, not where in it the lost records ran."""
     _, slices = _load(_events(_loss(2_000, 9_000, 500)), tmp_path, "fills_gap")
 
     loss = next((ts, dur) for _t, name, ts, dur in slices if name == "GC Loss(0)")
@@ -194,35 +196,33 @@ def test_the_process_marker_is_untouched_by_loss_spans(tmp_path: Path) -> None:
     assert with_loss == without
 
 
-def test_the_generations_nest_outermost_first(tmp_path: Path) -> None:
-    """What `stack_order` is for. The three windows open at one instant and
-    go out widest first, so the trace processor parents each generation on the
-    one that outlives it and every bar keeps its own width."""
-    misplaced, slices = _loss_row(_events(*_three_generations(2, 1, 0)), tmp_path, "nested")
+def test_consecutive_intervals_come_back_as_neighbours(tmp_path: Path) -> None:
+    """Both at depth 0, each keeping its own width. The processor sorts by
+    timestamp and the two spans meet at one, so this is where the converter's
+    time order earns its place."""
+    misplaced, slices = _loss_row(_events(*_consecutive_intervals()), tmp_path, "neighbours")
 
     assert misplaced == 0
     assert slices == [
-        ("GC Loss(2)", 2_000, 7_000, 0),
-        ("GC Loss(1)", 2_000, 5_000, 1),
-        ("GC Loss(0)", 2_000, 3_000, 2),
+        ("GC Loss(0)", 2_000, 3_000, 0),
+        ("GC Loss(0)", 5_000, 4_000, 0),
     ]
 
 
-def test_narrowest_first_is_silently_reshaped(tmp_path: Path) -> None:
-    """The negative control, and what makes the sort load-bearing rather than
-    decorative.
+def test_an_overlapping_pair_is_silently_reshaped(tmp_path: Path) -> None:
+    """The negative control, and what makes the flat row worth asserting.
 
-    The same three windows, emitted in the ``groupby`` order `_ingest` walks
-    its keys in. A track is a stack and an END closes whatever is on top, so
-    the first END — gen 0's, the narrowest — closes gen 2's span instead. Every
-    generation ends up drawn at another's width, at a depth belonging to
-    another, and the trace processor reports nothing wrong.
+    Two spans that genuinely overlap — a shape one span per poll interval
+    cannot produce, and one the old per-generation windows produced by design.
+    A track is a stack and an END closes whatever is on top, so the first END
+    closes the wrong span: both come back at widths neither was given, one
+    parented on the other, and the trace processor reports nothing wrong.
     """
-    misplaced, slices = _loss_row(_events(*_three_generations(0, 1, 2)), tmp_path, "narrowest_first")
+    overlapping = [_loss(2_000, 9_000, 100), _loss(4_000, 12_000, 100)]
+
+    misplaced, slices = _loss_row(_events(*overlapping), tmp_path, "overlapping")
 
     assert misplaced == 0
-    assert slices == [
-        ("GC Loss(0)", 2_000, 7_000, 0),
-        ("GC Loss(1)", 2_000, 5_000, 1),
-        ("GC Loss(2)", 2_000, 3_000, 2),
-    ]
+    # Given 2_000..9_000 and 4_000..12_000. What comes back: the first END
+    # closes the span opened second, so the outer one runs to 12_000.
+    assert [(ts, dur, depth) for _name, ts, dur, depth in slices] == [(2_000, 10_000, 0), (4_000, 5_000, 1)]

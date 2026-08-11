@@ -24,7 +24,7 @@ Perfetto features:
 - **Process command lines**: With the [`[cmdline]` extra](rss.md#the-cmdline-extra), each monitored process's command line is written to the trace — see [Process command lines](#process-command-lines) below.
 - **`Start Process` marker**: A zero-duration instant event named `Start Process` is emitted on each process track at that process's first event. Perfetto hides a track that carries no events, so this guarantees the process track and its label always render. It is Perfetto-only; consumers that enumerate slices should filter it out.
 - **RSS counter track**: A process-level `rss` counter track appears for each PID when `--rss` is enabled, showing Resident Set Size in bytes. Sampled at the configured `--rss-interval` (default 1s).
-- **`GC Loss` track**: One row per interpreter, named `GC Loss {iid}`, sitting under that process's own track. Each slice marks an interval in which the ring buffer overwrote GC records before gcmon could read them — see [GC Loss slices](#gc-loss-slices) below.
+- **`GC Loss` track**: One row per interpreter, named `GC Loss {iid}`, sitting under that process's own track. Each slice marks one poll interval in which the target collected without gcmon reading the records. See [GC Loss slices](#gc-loss-slices) below.
 
 This visualization helps you:
 - **Identify GC pause patterns** - See when and how long GC pauses occur
@@ -37,64 +37,59 @@ This visualization helps you:
 
 ### GC Loss slices
 
-A target that runs collections faster than gcmon reads them loses records — see
-[How gcmon reads a process](monitoring.md). gcmon detects each interval it went blind
-for and marks it with a slice named `GC Loss(N)`, on a `GC Loss {iid}` track of its
-own.
+A target that runs collections faster than gcmon reads them loses records; see
+[How gcmon reads a process](monitoring.md). Each interval gcmon went blind in gets one
+slice on a `GC Loss {iid}` track of its own.
 
-**One span per generation.** Each generation's ring wraps on its own schedule, so a
-poll that lost records in all three draws three bars — `GC Loss(0)`,
-`GC Loss(1)`, `GC Loss(2)` — and each one says how long *that* generation
-was unobserved. They are named the way the `GC Pause({gen})` slices are, which
-is what gives each generation a stable colour of its own.
+**One span per poll interval**, from one read of the target to the next. Every collection
+a span names ran between those two reads, and nothing places it more precisely. Consecutive spans meet without overlapping, so the row reads as a sequence.
 
-The three **nest inside one another** rather than sitting side by side. A single bulk
-read confirms every generation of an interpreter at once, so all of a poll's spans
-open at the same instant and differ only in where each generation's next observed
-record sits. The widest is drawn as the parent; a narrower one inside it is not a
-sub-interval of the loss but a different generation's own, shorter blind stretch.
+The name lists the generations that lost records, `GC Loss(0,2)`, so the row says which
+generations went blind before you click anything, and each combination keeps its own colour.
 
-**A slice's width is the interval the records were lost in rather than the pause
-they took.** Nothing in the ring says where inside that interval the missing
-collections ran, so the bar spans the whole stretch gcmon could not see: from the
-last thing it observed to the next record it recovered on that generation's ring.
-One lost 5 ms collection can draw a 130 ms bar. Read the magnitude from the args and
-not from the width. That gap between the two is why these slices sit on a row of
-their own, since among the `GC Pause` slices a window-width bar would read as a very
-long pause.
+**Read the magnitude from the args, not from the width.** One lost 5 ms collection can
+draw a 130 ms bar: the width is the interval the records went missing in, and the pause
+they took is in the args. That is why these slices get a row of their own, where an
+interval-width bar cannot be mistaken for a very long `GC Pause`.
 
-Each slice carries:
+Each slice carries these totals for the whole interval:
 
 | Arg | Meaning |
 |---|---|
 | `iid` | Interpreter the records were lost from |
-| `generation` | Generation whose ring overwrote them |
-| `missing_count` | Collections of that generation that ran unobserved in this interval |
-| `missing_pause_total` | **Read this for the magnitude.** Pause time those collections took *in total*, as `3s 316ms 458µs 100ns`. Not the slice's duration: the bar above is 29 s wide |
-| `missing_pause_total_ns` | The same total in nanoseconds, exact and from the target's own counter. Sum this one in SQL |
-| `missing_collections` | Which collections the ring overwrote, on that generation's `collections` counter: `413..431` for a run, `11` for a single one, both ends included |
+| `observed_count` | Collections gcmon read in this interval, across every generation |
+| `missing_count` | Collections that ran unobserved in it |
+| `seen` | The share that survived, as `87.0% (47 of 54)`. One interval wide, unlike the `--stats` table's `Cov` |
+| `missing_pause_total` | Pause time the missing collections took in total, as `3s 316ms 458µs 100ns`. The bar above it can be 29 s wide |
+| `missing_pause_total_ns` | The same total in nanoseconds, from the target's own counter. Sum this one in SQL |
 
-**The range says *which* collections went missing, not just how many.** gcmon finds
-the gap by subtracting two of the ring's own cumulative counters, so both ends are
-already known: a bar reading `missing_count = 19` also reads `413..431`.
-Unlike the width, the range is not uncertainty — the collections in it are named, and
-the collections outside it are on the row above as `GC Pause` slices. That makes the
-whole reconstruction checkable: between the first and last record gcmon observed on a
-ring, every collection is either drawn as a `GC Pause` slice or covered by exactly one
-loss span's range. None is counted twice and none is unaccounted for.
+Then one group per generation that collected or lost anything, named `gen0`, `gen1`,
+`gen2`:
 
-Where a window brackets a collection gcmon did observe, the slice is drawn straight
-over it. No lost record can have run during that collection, since an interpreter
-serializes them, but cutting the bar around it meant dividing the window's counts and
-pause between the stretches left over, with nothing in the ring to say how — and a
-stretch could end up carrying more pause than it was wide. The bar spans the whole
-interval instead, so **every `missing_count` and `missing_pause_total_ns` on it is a
-measurement**, taken from the target's own counters. The observed collection is drawn
-on the interpreter's row directly above, which is where you narrow the interval down
-from. How a span draws leaves the `--stats` table's `Cov` and `F` columns untouched.
+| Arg | Meaning |
+|---|---|
+| `observed_count` | Collections of that generation gcmon read in this interval |
+| `missing_count` | Collections of that generation gcmon missed |
+| `missing_collections` | Which ones, on that generation's `collections` counter: `413..431` for a run, `11` for a single one, both ends included |
+| `missing_pause_total` / `_ns` | What those cost, as text and as nanoseconds |
 
-At default settings the track reads as a near-solid bar, because gcmon is blind for
-most of every tick. Lower `--rate` or a calmer workload thins it out. See
+A generation that came through the interval whole still gets a group with what it
+observed, so the groups add up to the totals above them. In SQL the trace processor
+flattens a group by joining the names with a dot, so `gen1`'s count is
+`args.debug.gen1.missing_count`.
+
+**The range is exact where the width is not.** gcmon finds it by subtracting two of the
+target's cumulative counters, so a group reading `missing_count = 19` also reads
+`413..431`. Between the first and last record gcmon observed on a generation's counter,
+every collection is either a drawn `GC Pause` slice or inside exactly one span's range.
+None twice, none missing.
+
+A span covers the `GC Pause` slices that fall in its interval, its own interpreter's
+included. The counts say how much of the interval gcmon saw; the bar says nothing about
+it. Neither `Cov` nor `F` in the `--stats` table moves with any of this.
+
+At default settings the track reads as a near-solid bar, since gcmon is blind for most of
+every tick. Lower `--rate` or a calmer workload thins it out. See
 [Statistics](statistics.md) for what the loss does to the numbers.
 
 ### Process command lines
@@ -156,45 +151,48 @@ each line is a JSON object representing one GC event:
 
 ### Loss records
 
-A run that lost records to ring-buffer wrap also writes one line per blind
-interval per generation, alongside the GC events. A loss record carries a `gen`
-like a GC event does, but no `collections`:
+A run that missed records writes one line per blind poll interval per
+interpreter, alongside the GC events. A loss record carries no `collections` and no `gen`
+of its own; the per-generation counts sit in `gens`:
 
 ```jsonl
-{"pid": 12345, "tid": -2, "iid": 0, "gen": 0, "ts_start": 1700000001500000, "ts_stop": 1700000098000000, "lost_from": 413, "lost_count": 9, "lost_pause_ns": 57450000}
-{"pid": 12345, "tid": -2, "iid": 0, "gen": 1, "ts_start": 1700000001500000, "ts_stop": 1700000060000000, "lost_from": 27, "lost_count": 1, "lost_pause_ns": 8100000}
+{"pid": 12345, "tid": -2, "iid": 0, "ts_start": 1700000001500000, "ts_stop": 1700000098000000, "gens": [{"gen": 0, "observed_count": 11, "lost_from": 413, "lost_count": 9, "lost_pause_ns": 57450000}, {"gen": 1, "observed_count": 3, "lost_from": 27, "lost_count": 1, "lost_pause_ns": 8100000}]}
 ```
 
 | Field | Description |
 |-------|-------------|
 | `tid` | `-2 - iid`, the sentinel the trace formats draw the `GC Loss` track on. `-1` is reserved for `rss` |
 | `iid` | Interpreter the records were lost from |
-| `gen` | Generation whose ring overwrote them |
-| `ts_start`, `ts_stop` | The blind interval (nanoseconds). Its width is uncertainty, not pause time |
-| `lost_from` | First collection the ring overwrote, on that generation's `collections` counter |
-| `lost_count` | Collections of that generation that ran unobserved in the interval |
+| `ts_start`, `ts_stop` | The interval, from one poll to the next (nanoseconds). Its width is uncertainty, not pause time |
+| `gens` | One entry per generation that collected or lost anything in the interval |
+
+and in each `gens` entry:
+
+| Field | Description |
+|-------|-------------|
+| `gen` | The generation |
+| `observed_count` | Records of it gcmon read in this interval |
+| `lost_from` | First collection gcmon missed, on that generation's `collections` counter |
+| `lost_count` | Collections of it that ran unobserved. Zero for a generation that only observed |
 | `lost_pause_ns` | Pause time those collections took, in nanoseconds |
 
 The far end is `lost_from + lost_count - 1`, which is where the far end of the
-`missing_collections` arg on a `GC Loss` slice comes from; storing both would
-let the two disagree, and `lost_count` is the number `--stats` sums. `lost_from` is
-optional on the way in and defaults to `0`, a value no `collections` counter takes, so a
-capture written before the field existed still reads back.
+`missing_collections` arg on a `GC Loss` slice comes from. Storing both would let the two
+disagree, and `lost_count` is the number `--stats` sums.
 
-The lines one poll writes for one interpreter share a `ts_start`, and gcmon writes them
-widest first. Line order carries no meaning of its own: converting to a trace sorts the
-records into nesting order, so a tool may rewrite a capture in whatever order suits it.
+Line order carries no meaning. Converting to a trace sorts the records by `ts_start`
+first, so a tool may rewrite a capture in whatever order suits it.
 
 Tell the record types apart by field presence: a GC event has `collections`, a loss
-record has `lost_count`, an instant event has `type`. `gcmon combine` reads loss records
-back and reproduces the spans — same generations, same nesting, same counts — in Chrome
-or Perfetto output. `--normalize` shifts them with everything else, and a loss record can
-be the earliest thing in a capture, since a window opens before the record that closes
-it, so a run that lost records on its first poll takes its origin from one.
+record has `gens`, an instant event has `type`. `gcmon combine` reads loss records back
+and redraws the spans in Chrome or Perfetto output. `--normalize` shifts them with
+everything else, and a loss record can be the earliest thing in a capture, since its
+interval opens at the poll before the records that closed it.
 
-Captures from before the record went one-per-generation are **not** readable. That gcmon
-flattened all three into `lost_gen_0`..`lost_gen_2` and wrote no `lost_count`, so the
-discriminator above does not claim the line and nothing else in it looks like a GC event
-either. `gcmon combine` stops on such a file with a decoding error naming the first
-field it could not find, rather than reading a blind interval back as a collection that
-was observed. Re-capture, or convert with the gcmon that wrote it.
+Captures written before the record went per-poll are **not** readable, whether they carry
+one line per generation with `lost_count` at the top level, or the older shape that
+flattened all three generations into `lost_gen_0`..`lost_gen_2`. Neither has `gens`, and
+nothing else in either line looks like a GC event, so `gcmon combine` stops with a
+decoding error naming the first field it could not find rather than reading a blind
+interval back as an observed collection. Re-capture, or convert with the gcmon that wrote
+the file.

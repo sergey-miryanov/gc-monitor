@@ -1,12 +1,14 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Protocol, TypeGuard
 
 __all__ = [
+    "JsonlRecord",
     "TClearWeakrefsInfo",
     "TDeduceUnreachableInfo",
     "TDeleteGarbageInfo",
     "TFinalizeGarbageInfo",
     "TGCStatsInfo",
+    "TGenLoss",
     "THandleResurrectedInfo",
     "THandleWeakrefsInfo",
     "TIncrementalInfo",
@@ -15,6 +17,7 @@ __all__ = [
     "TLossMsg",
     "TMapping",
     "TMarkAliveInfo",
+    "TScalar",
     "has_clear_weakrefs",
     "has_deduce_unreachable",
     "has_delete_garbage",
@@ -96,17 +99,33 @@ class TInstantMsg(Protocol):
     ts: int
 
 
-class TLossMsg(Protocol):
-    iid: int
+class TGenLoss(Protocol):
     gen: int
-    ts_start: int
-    ts_stop: int
+    observed_count: int
     lost_count: int
     lost_pause_ns: int
     lost_from: int
 
 
-TMapping = Mapping[str, str | int | float]
+class TLossMsg(Protocol):
+    iid: int
+    ts_start: int
+    ts_stop: int
+
+    # Read-only, unlike the fields above. A settable attribute is invariant,
+    # so the implementation's own `list[GenLoss]` would not match a
+    # `Sequence[TGenLoss]` declared that way; nothing here writes to it.
+    @property
+    def gens(self) -> Sequence[TGenLoss]: ...
+
+
+# What a JSONL line decodes to. The nested arm is the loss record's `gens`,
+# the one field of one record type that is not a scalar.
+type TScalar = str | int | float
+TMapping = Mapping[str, TScalar | Sequence[Mapping[str, TScalar]]]
+
+# The same shape on the way out, where the writer still owns the dict.
+type JsonlRecord = dict[str, TScalar | Sequence[Mapping[str, TScalar]]]
 
 # Everything a JSONL line can decode to, and everything the converters accept.
 type TItem = TGCStatsInfo | TInstantMsg | TLossMsg
@@ -151,13 +170,12 @@ def has_delete_garbage(item: object) -> TypeGuard[TDeleteGarbageInfo]:
 def is_gc_stats(item: object) -> TypeGuard[TGCStatsInfo]:
     """A GC record is the one record type built around ``collections``.
 
-    Not around ``gen``: a loss window is attributed to one generation and the
-    loss record carries a ``gen`` of its own, so a ``gen``-based guard claims
-    both record types. Call sites do not agree on an order — ``_replay`` asks
-    this before ``is_loss``, the converters ask ``is_loss`` first — so the
-    same record would take a different branch depending on who asked.
-    ``collections`` cannot collide: a loss record counts records that were
-    never read, and names that counter ``lost_count``.
+    Not around ``gen``: a loss record used to carry a ``gen`` of its own, so a
+    ``gen``-based guard claimed both record types. Call sites do not agree on
+    an order — ``_replay`` asks this before ``is_loss``, the converters ask
+    ``is_loss`` first — so the same record would take a different branch
+    depending on who asked. ``collections`` cannot collide: a loss record
+    counts records that were never read, per generation, under ``gens``.
     """
     return hasattr(item, "collections")
 
@@ -167,7 +185,7 @@ def is_instant(item: object) -> TypeGuard[TInstantMsg]:
 
 
 def is_loss(item: object) -> TypeGuard[TLossMsg]:
-    return hasattr(item, "lost_count")
+    return hasattr(item, "gens")
 
 
 def to_mapping(item: TItem) -> TMapping:
@@ -181,18 +199,24 @@ def to_mapping(item: TItem) -> TMapping:
     if is_loss(item):
         return {
             "iid": item.iid,
-            "gen": item.gen,
             "ts_start": item.ts_start,
             "ts_stop": item.ts_stop,
-            # `lost_from` alone: the far end is derived, and a stored pair
-            # could come back out of step with `lost_count`.
-            "lost_from": item.lost_from,
-            "lost_count": item.lost_count,
-            "lost_pause_ns": item.lost_pause_ns,
+            "gens": [
+                {
+                    "gen": gen.gen,
+                    "observed_count": gen.observed_count,
+                    # `lost_from` alone: the far end is derived, and a stored
+                    # pair could come back out of step with `lost_count`.
+                    "lost_from": gen.lost_from,
+                    "lost_count": gen.lost_count,
+                    "lost_pause_ns": gen.lost_pause_ns,
+                }
+                for gen in item.gens
+            ],
         }
 
     if is_gc_stats(item):
-        m: dict[str, str | int | float] = {
+        m: dict[str, TScalar | Sequence[Mapping[str, TScalar]]] = {
             "gen": item.gen,
             "iid": item.iid,
             "ts_start": item.ts_start,

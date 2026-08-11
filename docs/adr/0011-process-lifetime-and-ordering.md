@@ -230,9 +230,9 @@ mid-`close()` can raise `RuntimeError: dictionary changed size during iteration`
   resolves track references across the whole trace rather than in file order.
 - Consumers enumerating slices must filter `track.name == 'Processes'`, as the equivalence
   test does, since these slices are Perfetto-only.
-- [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) needs no sweep: it emits loss spans in
-  an order that keeps them nested. Its `GC Loss` track is separate so a reader can tell
-  intervals gcmon recorded from intervals it lost.
+- [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) needs no sweep: its loss spans are one
+  per poll interval and meet without overlapping. Its `GC Loss` track is separate so a reader
+  can tell intervals gcmon recorded from intervals it lost.
 
 ## Alternatives considered
 

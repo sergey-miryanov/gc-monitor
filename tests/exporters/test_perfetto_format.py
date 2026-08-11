@@ -1,6 +1,7 @@
 """Tests for converting trace events into Perfetto packets."""
 
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
+    DebugAnnotation,
     TracePacket,
     TrackDescriptor,
     TrackEvent,
@@ -18,6 +19,7 @@ from tests.exporters.perfetto_helpers import (
     lifetime_slices,
     parse_track_descriptor,
 )
+from tests.helpers import create_mock_loss_item
 
 # Name of the synthetic marker emitted on the process track so the
 # cmdline description is always visible in the Perfetto UI. Must match
@@ -885,7 +887,7 @@ class TestLossTrackDescriptor:
         return descriptors
 
     def _msg(self, iid: int = 0) -> LossMsg:
-        return LossMsg(iid=iid, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
+        return create_mock_loss_item(iid=iid, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
 
     def _loss_descriptors(self, descriptors: list[bytes]) -> list[TrackDescriptor]:
         parsed = [parse_track_descriptor(d) for d in descriptors]
@@ -952,60 +954,89 @@ class TestLossTrackDescriptor:
 
 
 class TestTheMissingCollectionsAnnotation:
-    """``missing_collections`` is the one arg that is not a number.
+    """A `GC Loss` slice's args, off the wire rather than out of the dict.
 
-    Every other annotation the exporter writes is an integer, and a range
-    written into an integer field arrives as a number that is not one of the
-    counters it names. So this checks the wire, not the dict: the annotation
-    has to come back off a parsed packet as ``string_value``.
+    Two things nothing else can settle. ``missing_collections`` is a range and
+    has to arrive as ``string_value``: written into an integer field it comes
+    back as a number that is not one of the counters it names. And each
+    generation's counts are a *group*, which reaches the wire as
+    ``dict_entries`` on an annotation carrying no value of its own.
     """
 
-    def _annotations(self, msg: LossMsg) -> dict[str, str | int]:
+    def _slice(self, msg: LossMsg) -> TrackEvent:
         events: list[TraceEvent] = [process_meta(100, "Process 100"), *convert_loss_to_trace_format(100, msg)]
         _, packets = convert_trace_events_to_perfetto(events, PerfettoTrackState(), 1)
 
         for raw in packets:
             packet = TracePacket()
             packet.ParseFromString(raw)
-            if not packet.HasField("track_event"):
-                continue
-            track_event = packet.track_event
-            if track_event.name != "GC Loss(1)":
-                continue
-            return {
-                ann.name: ann.string_value if ann.HasField("string_value") else ann.int_value
-                for ann in track_event.debug_annotations
-            }
-        raise AssertionError("no GC Loss(1) slice in the packets")
+            if packet.HasField("track_event") and packet.track_event.name.startswith("GC Loss("):
+                return packet.track_event
+        raise AssertionError("no GC Loss slice in the packets")
+
+    def _value(self, annotation: DebugAnnotation) -> str | int:
+        return annotation.string_value if annotation.HasField("string_value") else annotation.int_value
+
+    def _top(self, msg: LossMsg) -> dict[str, str | int]:
+        return {a.name: self._value(a) for a in self._slice(msg).debug_annotations if not a.dict_entries}
+
+    def _group(self, msg: LossMsg, gen: int) -> dict[str, str | int]:
+        for annotation in self._slice(msg).debug_annotations:
+            if annotation.name == f"gen{gen}":
+                return {entry.name: self._value(entry) for entry in annotation.dict_entries}
+        raise AssertionError(f"no gen{gen} group on the slice")
 
     def _msg(self, lost_from: int, lost_count: int) -> LossMsg:
-        return LossMsg(
+        return create_mock_loss_item(
             iid=0,
             gen=1,
             ts_start=1_000,
             ts_stop=2_000,
+            observed_count=3,
             lost_count=lost_count,
             lost_pause_ns=200,
             lost_from=lost_from,
         )
 
     def test_a_range_reaches_the_wire_as_a_string(self) -> None:
-        assert self._annotations(self._msg(lost_from=413, lost_count=19))["missing_collections"] == "413..431"
+        assert self._group(self._msg(lost_from=413, lost_count=19), 1)["missing_collections"] == "413..431"
 
     def test_one_collection_reaches_it_as_its_own_number(self) -> None:
-        assert self._annotations(self._msg(lost_from=11, lost_count=1))["missing_collections"] == "11"
+        assert self._group(self._msg(lost_from=11, lost_count=1), 1)["missing_collections"] == "11"
 
     def test_the_counts_beside_it_stay_integers(self) -> None:
-        annotations = self._annotations(self._msg(lost_from=11, lost_count=1))
+        group = self._group(self._msg(lost_from=11, lost_count=1), 1)
 
-        assert annotations["missing_count"] == 1
-        assert annotations["missing_pause_total_ns"] == 200
+        assert group["missing_count"] == 1
+        assert group["missing_pause_total_ns"] == 200
 
     def test_the_pause_total_reaches_the_wire_both_ways(self) -> None:
         """The nanoseconds are what SQL sums; the text beside them is what a
         reader takes off the slice. Losing either one leaves the other doing a
         job it is bad at."""
-        annotations = self._annotations(self._msg(lost_from=11, lost_count=1))
+        group = self._group(self._msg(lost_from=11, lost_count=1), 1)
 
-        assert annotations["missing_pause_total"] == "200ns"
-        assert annotations["missing_pause_total_ns"] == 200
+        assert group["missing_pause_total"] == "200ns"
+        assert group["missing_pause_total_ns"] == 200
+
+    def test_a_group_carries_entries_and_no_value_of_its_own(self) -> None:
+        """``dict_entries`` sits outside the proto's ``value`` oneof, so an
+        annotation that grouped *and* carried a value would be making two
+        claims in one field. The trace processor flattens the entries back out
+        under the group's name, which is what ``args.debug.gen1.missing_count``
+        resolves to in SQL."""
+        group = next(
+            a for a in self._slice(self._msg(lost_from=11, lost_count=1)).debug_annotations if a.name == "gen1"
+        )
+
+        assert not group.HasField("string_value")
+        assert not group.HasField("int_value")
+        assert {entry.name for entry in group.dict_entries} >= {"observed_count", "missing_count"}
+
+    def test_the_totals_stay_at_the_top_level(self) -> None:
+        """Ungrouped, so the figure a reader wants first is the one they see
+        first rather than one node down."""
+        top = self._top(self._msg(lost_from=11, lost_count=1))
+
+        assert top["missing_count"] == 1
+        assert top["seen"] == "75.0% (3 of 4)"

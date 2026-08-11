@@ -28,7 +28,12 @@ from gcmon.trace_event import (
     thread_meta,
 )
 from tests.data_helpers import create_instant_msg
-from tests.helpers import JsonlRecord, create_jsonl_record, create_mock_stats_item
+from tests.helpers import (
+    JsonlRecord,
+    create_jsonl_record,
+    create_mock_loss_item,
+    create_mock_stats_item,
+)
 
 
 def _make_inc_item(
@@ -694,13 +699,10 @@ class TestJsonlLossRoundTrip:
     silently loses the spans the live run drew."""
 
     def _msg(self, **kw: int) -> LossMsg:
-        return LossMsg(
-            iid=kw.pop("iid", 1),
-            gen=kw.pop("gen", 0),
-            ts_start=kw.pop("ts_start", 5_000),
-            ts_stop=kw.pop("ts_stop", 6_000),
-            **kw,
-        )
+        kw.setdefault("iid", 1)
+        kw.setdefault("ts_start", 5_000)
+        kw.setdefault("ts_stop", 6_000)
+        return create_mock_loss_item(**kw)
 
     def test_the_line_carries_every_field(self, tmp_path: Path) -> None:
         """Read off the wire rather than through `read_jsonl`, which would be
@@ -708,18 +710,25 @@ class TestJsonlLossRoundTrip:
         Every value is distinct, so a pair swapped in transit shows up."""
         path = tmp_path / "loss.jsonl"
 
-        write_jsonl(path, {42: [self._msg(gen=1, lost_from=413, lost_count=5, lost_pause_ns=8_100_000)]})
+        write_jsonl(
+            path, {42: [self._msg(gen=1, observed_count=4, lost_from=413, lost_count=5, lost_pause_ns=8_100_000)]}
+        )
 
         assert json.loads(path.read_text(encoding="utf-8")) == {
             "pid": 42,
             "tid": loss_tid(1),
             "iid": 1,
-            "gen": 1,
             "ts_start": 5_000,
             "ts_stop": 6_000,
-            "lost_from": 413,
-            "lost_count": 5,
-            "lost_pause_ns": 8_100_000,
+            "gens": [
+                {
+                    "gen": 1,
+                    "observed_count": 4,
+                    "lost_from": 413,
+                    "lost_count": 5,
+                    "lost_pause_ns": 8_100_000,
+                }
+            ],
         }
 
     def test_write_then_read(self, tmp_path: Path) -> None:
@@ -739,7 +748,7 @@ class TestJsonlLossRoundTrip:
 
         args = [e.args for e in convert_jsonl_to_trace_format(path) if e.ph == "B"]
 
-        assert [a["missing_collections"] for a in args] == ["413..431"]
+        assert [a["gen0"]["missing_collections"] for a in args] == ["413..431"]  # type: ignore[index]
 
     def test_written_on_the_loss_track(self, tmp_path: Path) -> None:
         path = tmp_path / "loss.jsonl"
@@ -872,17 +881,26 @@ class TestAnOldFormatLossRecord:
                 output_format="chrome",
             )
 
-    def test_a_capture_from_before_lost_from_still_combines(self, tmp_path: Path) -> None:
-        """The break is at `lost_count`, not at the whole record. A capture
-        written once the record was already per-generation but before
-        `lost_from` existed carries the discriminator, so it reads back with the
-        field defaulted to the zero no `collections` counter takes."""
-        source = tmp_path / "no_lost_from.jsonl"
-        line = {"pid": 42, "tid": loss_tid(1), "iid": 1, "gen": 1, "ts_start": 5_000, "ts_stop": 6_000}
-        source.write_bytes(msgspec.json.encode({**line, "lost_count": 5, "lost_pause_ns": 8_100_000}) + b"\n")
-        out = tmp_path / "out.json"
+    def test_a_per_generation_record_is_refused_the_same_way(self) -> None:
+        """The shape between the two: one record per generation, its counts at
+        the top level and no ``gens``. It carries a ``gen`` where the flattened
+        one had none, so it gets further into ``GCStatsInfo`` before failing —
+        but fail it must, and for the same reason. Read as a collection it
+        would put a pause on an interpreter's own row for an interval nothing
+        was observed in."""
+        line = {
+            "pid": 42,
+            "tid": loss_tid(1),
+            "iid": 1,
+            "gen": 1,
+            "ts_start": 5_000,
+            "ts_stop": 6_000,
+            "lost_from": 413,
+            "lost_count": 5,
+            "lost_pause_ns": 8_100_000,
+        }
 
-        combine_files([source], out, input_format="jsonl", output_format="chrome")
+        with pytest.raises(msgspec.ValidationError) as excinfo:
+            json_to_item(line)
 
-        args = [e["args"] for e in json.loads(out.read_text(encoding="utf-8")) if e["ph"] == "B"]
-        assert [(a["missing_count"], a["missing_collections"]) for a in args] == [(5, "0..4")]
+        assert "heap_size" in str(excinfo.value)

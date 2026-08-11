@@ -186,16 +186,10 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
 
 
 def _print_footer(stats: StreamingStats) -> None:
-    """What the table's two number kinds mean, and the third it cannot show.
+    """What the table's two number kinds mean.
 
-    Only printed when something was lost, the target collected before gcmon
-    attached, or a window came back with bounds describing no interval. A run
-    that saw everything has nothing to explain.
-
-    The third note is the only place a run hears that
-    `LossWindow.is_drawable` bit. It names no culprit, for the reasons there,
-    and must not read as gcmon having lost something: that sends a reader to
-    `--rate` for a figure `--rate` does not move.
+    Only printed when something was lost or the target collected before gcmon
+    attached. A run that saw everything has nothing to explain.
 
     Which notes appear depends on the run, so the number, not the order, is
     what separates two that wrap on a narrow terminal. A lone note still
@@ -203,7 +197,6 @@ def _print_footer(stats: StreamingStats) -> None:
     """
     covered = [gen for gen in stats.GENS if stats.lost_count(None, gen)]
     lifetime = [gen for gen in stats.GENS if stats.lifetime_count(None, gen)]
-    undrawn = [gen for gen in stats.GENS if stats.undrawable_count(None, gen)]
 
     notes: list[str] = []
     if covered:
@@ -220,12 +213,6 @@ def _print_footer(stats: StreamingStats) -> None:
         # excluding it, so the note must not read as a figure to add to
         # `Count`. `lifetime_count` is the target's own cumulative counter.
         notes.append(f"Since interpreter start, monitored window included: {parts}.")
-    if undrawn:
-        parts = ", ".join(f"Gen{gen} {stats.undrawable_count(None, gen)}" for gen in undrawn)
-        notes.append(
-            f"Loss spans not drawn: {parts} (bounds arrived reversed, so the interval could not "
-            "be placed). Counts above are unaffected."
-        )
 
     if not notes:
         return

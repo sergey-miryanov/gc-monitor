@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from gcmon.data import GCStatsInfo, InstantMsg, LossMsg
+from gcmon.data import GCStatsInfo, GenLoss, InstantMsg, LossMsg
 from gcmon.protocol import (
     has_clear_weakrefs,
     has_deduce_unreachable,
@@ -24,7 +24,15 @@ from tests.helpers import create_mock_stats_item
 
 @pytest.fixture
 def loss_item() -> LossMsg:
-    return LossMsg(iid=1, gen=1, ts_start=1_000, ts_stop=2_000, lost_count=5, lost_pause_ns=8_100_000)
+    return LossMsg(
+        iid=1,
+        ts_start=1_000,
+        ts_stop=2_000,
+        gens=[
+            GenLoss(gen=1, observed_count=4, lost_count=5, lost_pause_ns=8_100_000, lost_from=42),
+            GenLoss(gen=2, observed_count=1),
+        ],
+    )
 
 
 class TestIsGC:
@@ -445,17 +453,18 @@ class TestToMapping:
         assert result["iid"] == 1
         assert result["ts_start"] == 1_000
         assert result["ts_stop"] == 2_000
-        assert result["lost_count"] == 5
-        assert result["lost_pause_ns"] == 8_100_000
 
-    def test_loss_item_names_the_generation_it_lost(self, loss_item: LossMsg) -> None:
-        """One span per generation, so the record says which one rather than
-        carrying three sets of counts and naming none of them."""
-        assert to_mapping(loss_item)["gen"] == 1
+    def test_a_loss_item_names_every_generation_in_the_interval(self, loss_item: LossMsg) -> None:
+        """One record per poll, so the counts are per generation and the
+        record says which is which rather than carrying three sets and naming
+        none of them."""
+        assert to_mapping(loss_item)["gens"] == [
+            {"gen": 1, "observed_count": 4, "lost_from": 42, "lost_count": 5, "lost_pause_ns": 8_100_000},
+            {"gen": 2, "observed_count": 1, "lost_from": 0, "lost_count": 0, "lost_pause_ns": 0},
+        ]
 
     def test_a_loss_item_carries_no_collections(self, loss_item: LossMsg) -> None:
-        """What keeps ``is_gc_stats`` off it now that both types carry a
-        ``gen``."""
+        """What keeps ``is_gc_stats`` off it."""
         assert "collections" not in to_mapping(loss_item)
 
 

@@ -7,6 +7,7 @@ import msgspec
 
 from ..data import from_mapping
 from ..protocol import (
+    JsonlRecord,
     TItem,
     TMapping,
     has_clear_weakrefs,
@@ -43,9 +44,13 @@ __all__ = [
 
 
 def json_to_item(data: TMapping) -> tuple[int, TItem]:
-    pid = int(data["pid"])
-    item = from_mapping(data)
-    return pid, item
+    pid = data["pid"]
+    # Every scalar coerces, which is what a pid written as a string needs. The
+    # loss record's `gens` is the one field of one record type that is not a
+    # scalar, and it is not this one.
+    if not isinstance(pid, str | int | float):
+        raise ValueError(f"Line carries no usable pid: {pid!r}")
+    return int(pid), from_mapping(data)
 
 
 def read_jsonl(filename: Path) -> dict[int, list[TItem]]:
@@ -73,7 +78,7 @@ def write_jsonl(filename: Path, items: Mapping[int, Sequence[TItem]]) -> None:
     with open(filename, "wb") as f:
         for pid, pid_items in items.items():
             for item in pid_items:
-                rec: dict[str, str | int | float] = {"pid": pid}
+                rec: JsonlRecord = {"pid": pid}
                 if is_loss(item):
                     rec["tid"] = loss_tid(item.iid)
                 elif is_gc_stats(item):

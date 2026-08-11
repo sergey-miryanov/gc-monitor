@@ -11,9 +11,7 @@ from .exporters import EventsExporter
 from .loss import (
     CursorKey,
     KeyAccumulator,
-    LossWindow,
-    read_bound_per_interpreter,
-    stack_order,
+    KeyGap,
     to_loss_msg,
 )
 from .poll_status import PollStatus
@@ -44,6 +42,9 @@ class EventsMonitor:
         self._exporter = exporter
         self._enabled = True
         self._cursors: dict[int, dict[CursorKey, KeyAccumulator]] = {}
+        # When this pid was last read. A loss record is bounded by two polls,
+        # so a pid gcmon has polled once has nothing to bound yet.
+        self._polled_at: dict[int, int] = {}
         self._stats = stats
 
     def get_child_pids(self) -> list[int] | None:
@@ -74,7 +75,7 @@ class EventsMonitor:
             ts_read_stop = time.monotonic_ns()
             self._stats.record_read_time(ts_read_stop - ts_read_start)
             self._stats.record_ring_geometry(events)
-            self._ingest(pid, events)
+            self._ingest(pid, events, ts_read_start)
 
             return PollStatus.OK
         except RuntimeError as exc:
@@ -91,6 +92,7 @@ class EventsMonitor:
         """Drop every cursor held for *pid*, so a reused pid inherits no
         counter."""
         self._cursors.pop(pid, None)
+        self._polled_at.pop(pid, None)
 
     def retain(self, pids: Set[int]) -> None:
         """Drop the cursors of every pid outside *pids*.
@@ -100,21 +102,24 @@ class EventsMonitor:
         """
         for pid in self._cursors.keys() - pids:
             del self._cursors[pid]
+        for pid in self._polled_at.keys() - pids:
+            del self._polled_at[pid]
 
-    def _ingest(self, pid: int, events: Sequence[TGCStatsInfo]) -> None:
+    def _ingest(self, pid: int, events: Sequence[TGCStatsInfo], ts_poll: int) -> None:
         """Emit the records in *events* not seen yet.
 
         Every poll returns the whole ring buffer, so ``collections`` is what
         identifies a record.
+
+        *ts_poll* is when this read began, on the monitor's own clock, which
+        the target's timestamps and the RSS samples already share. It bounds
+        any loss this poll finds together with the previous poll's, and the
+        pair is stored under the same field for both, so consecutive intervals
+        tile the timeline instead of overlapping by a read.
         """
         cursors = self._cursors.setdefault(pid, {})
-
-        # One bound per interpreter, not one per ring: a bulk read covers every
-        # generation at once, so each of them is bounded by the newest
-        # record any of them returned. Every window this poll opens for an
-        # interpreter therefore shares that left edge, which is what makes the
-        # spans nest rather than cross.
-        read_bounds = read_bound_per_interpreter(cursors)
+        polled_before = self._polled_at.get(pid)
+        self._polled_at[pid] = ts_poll
 
         # Slot order is not time order: the batch arrives rotated around the
         # ring's write position, with the generations concatenated. Sorting
@@ -125,7 +130,8 @@ class EventsMonitor:
         )
 
         fresh: list[TGCStatsInfo] = []
-        windows: dict[int, list[LossWindow]] = {}
+        observed: dict[int, dict[int, int]] = {}
+        gaps: dict[int, dict[int, KeyGap]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = cursors.setdefault((iid, gen), KeyAccumulator())
             seen = accumulator.last_collections
@@ -142,42 +148,33 @@ class EventsMonitor:
             # A duplicate that reaches here is therefore a copy of its twin.
             # The choice would matter if that ever stopped holding: this run's
             # last record sets `last_ts_stop` and `last_duration`, which are
-            # the next poll's window bound and pause base.
+            # the pause base the next poll subtracts from.
             run = list({event.collections: event for event in group if event.collections > seen}.values())
 
-            window = accumulator.observe_batch(run, read_bounds.get(iid, 0))
-            if window is not None:
-                # Record first, draw second, and never the other way round.
-                # The counts are the ring's own counters and hold whatever the
-                # bounds turn out to say, so `Cov`, `F` and the exact totals
-                # are the same whether or not a span came of this window.
-                self._stats.record_loss(pid, gen, window.lost_count, window.lost_pause_ns)
-                if window.is_drawable:
-                    windows.setdefault(iid, []).append(window)
-                else:
-                    # Bounds that describe no interval: the loss is real, the
-                    # geometry is not. Held back here rather than in
-                    # `stack_order`, whose job is ordering and which would
-                    # hide the rejection. See `LossWindow.is_drawable`.
-                    self._stats.record_undrawable(pid, gen)
+            gap = accumulator.observe_batch(run)
             if run:
+                observed.setdefault(iid, {})[gen] = len(run)
                 self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
+            if gap is not None:
+                # Record first, draw second, and never the other way round.
+                # The counts are the target's own counters, so `Cov`, `F` and
+                # the exact totals hold whether or not a span comes of this gap.
+                self._stats.record_loss(pid, gen, gap.lost_count, gap.lost_pause_ns)
+                gaps.setdefault(iid, {})[gen] = gap
             fresh.extend(run)
 
-        # A window runs to the next record on its own key, the last thing the
-        # two polls prove about that key, and it draws at that full width, one
-        # span per generation. The span is a bound on where the missing records
-        # are, not a claim about each one, so every number on it stays the
-        # counters' own. It can cover a collection of another generation that
-        # gcmon did observe; that one is drawn on the interpreter's row above,
-        # and a reader narrows the span from it.
-        for iid, opened in windows.items():
-            # Widest first: the generations share a row, the row is a stack,
-            # and they all open at this poll's confirmation point. `groupby`
-            # walked them narrowest-generation-first, which is not the same
-            # thing and is silently wrong. See `stack_order`.
-            for window in stack_order(opened):
-                self._exporter.add_loss_event(pid, to_loss_msg(iid, window))
+        # One record per poll interval, per interpreter, carrying every
+        # generation that went blind in it and every one that collected. See
+        # ADR-0015 for why the interval is the unit.
+        for iid, lost in gaps.items():
+            if polled_before is None:
+                # One poll bounds nothing. Nothing can reach here anyway, since
+                # a key seeds on its first run and seeding opens no gap.
+                continue
+            self._exporter.add_loss_event(
+                pid,
+                to_loss_msg(iid, polled_before, ts_poll, observed.get(iid, {}), lost),
+            )
 
         # One interpreter's generations share a track, so they go out in time
         # order. Two interpreters share no track and collect concurrently, so

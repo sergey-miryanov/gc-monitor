@@ -1,10 +1,12 @@
 """Tests for Chrome Trace Event format types and conversion utilities."""
 
+from collections.abc import Mapping
+
 import msgspec
 import pytest
 from msgspec import structs
 
-from gcmon.data import GCStatsInfo, LossMsg
+from gcmon.data import GCStatsInfo, GenLoss, LossMsg
 from gcmon.exporters.chrome_trace_format import (
     convert_item_to_trace_format,
     convert_to_trace_format,
@@ -25,7 +27,7 @@ from gcmon.trace_event import (
     thread_meta,
 )
 from tests.data_helpers import create_instant_msg
-from tests.helpers import create_mock_stats_item
+from tests.helpers import create_mock_loss_item, create_mock_stats_item
 
 # =============================================================================
 # Factory function tests
@@ -560,13 +562,7 @@ class TestConvertToTraceFormatWithInstant:
 
 class TestConvertLoss:
     def _msg(self, **kw: int) -> LossMsg:
-        return LossMsg(
-            iid=kw.pop("iid", 0),
-            gen=kw.pop("gen", 0),
-            ts_start=kw.pop("ts_start", 1_000),
-            ts_stop=kw.pop("ts_stop", 2_000),
-            **kw,
-        )
+        return create_mock_loss_item(**kw)
 
     def _pair(self, msg: LossMsg, pid: int = 42) -> tuple[BeginEvent, EndEvent]:
         begin, end = convert_loss_to_trace_format(pid, msg)
@@ -574,22 +570,38 @@ class TestConvertLoss:
         assert isinstance(end, EndEvent)
         return begin, end
 
-    def test_the_bar_is_the_whole_window(self) -> None:
-        """What is known is the interval, not where inside it the records
-        ran. A bar sized to the pause would put all of the uncertainty at the
-        window's left edge."""
+    def _group(self, begin: BeginEvent, gen: int) -> Mapping[str, int | str]:
+        group = begin.args[f"gen{gen}"]
+        assert isinstance(group, dict)
+        return group
+
+    def test_the_bar_is_the_whole_interval(self) -> None:
+        """What is known is the interval between two reads, not where inside
+        it the records ran. A bar sized to the pause would put all of the
+        uncertainty at one edge."""
         begin, end = self._pair(self._msg(lost_count=1, lost_pause_ns=200))
 
-        assert (begin.name, begin.ts) == ("GC Loss(0)", 1_000)
+        assert begin.ts == 1_000
         assert end.ts == 2_000
 
-    def test_the_name_and_category_carry_the_generation(self) -> None:
-        """Mirroring `GC Pause({gen})`, which is what gives each
-        generation a stable colour: Perfetto hashes the slice name."""
-        begin, end = self._pair(self._msg(gen=2, lost_count=1))
+    def test_the_name_lists_the_generations_that_lost_records(self) -> None:
+        """Readable off the row, and a stable colour per combination —
+        Perfetto hashes the slice name."""
+        msg = LossMsg(
+            iid=0,
+            ts_start=1_000,
+            ts_stop=2_000,
+            gens=[
+                GenLoss(gen=0, observed_count=3, lost_count=2),
+                GenLoss(gen=1, observed_count=1),
+                GenLoss(gen=2, observed_count=0, lost_count=5),
+            ],
+        )
 
-        assert (begin.name, begin.cat) == ("GC Loss(2)", "gc.loss(gen=2)")
-        assert (end.name, end.cat) == ("GC Loss(2)", "gc.loss(gen=2)")
+        begin, end = self._pair(msg)
+
+        assert (begin.name, begin.cat) == ("GC Loss(0,2)", "gc.loss")
+        assert (end.name, end.cat) == ("GC Loss(0,2)", "gc.loss")
 
     def test_it_lands_on_the_interpreters_loss_track(self) -> None:
         begin, end = self._pair(self._msg(iid=2, lost_count=1, lost_pause_ns=200))
@@ -599,49 +611,102 @@ class TestConvertLoss:
 
     def test_the_track_is_the_interpreters_alone(self) -> None:
         """A flat sentinel would collapse every interpreter's loss onto one
-        row, where windows from different interpreters can cross."""
+        row, where two interpreters' intervals can overlap."""
         first, _ = self._pair(self._msg(iid=0, lost_count=1))
         second, _ = self._pair(self._msg(iid=1, lost_count=1))
 
         assert first.tid != second.tid
 
-    def test_the_args_describe_that_generation_alone(self) -> None:
-        begin, _ = self._pair(self._msg(gen=1, lost_from=413, lost_count=76, lost_pause_ns=81))
+    def test_the_totals_head_the_args(self) -> None:
+        """What the interval came to, before a reader opens a group."""
+        msg = LossMsg(
+            iid=7,
+            ts_start=1_000,
+            ts_stop=2_000,
+            gens=[GenLoss(gen=0, observed_count=38, lost_count=5, lost_pause_ns=81, lost_from=413)],
+        )
 
-        assert begin.args == {
-            "iid": 0,
-            "generation": 1,
+        begin, _ = self._pair(msg)
+
+        assert {k: v for k, v in begin.args.items() if not k.startswith("gen")} == {
+            "iid": 7,
+            "observed_count": 38,
+            "missing_count": 5,
+            "seen": "88.4% (38 of 43)",
+            "missing_pause_total": "81ns",
+            "missing_pause_total_ns": 81,
+        }
+
+    def test_a_generation_group_describes_that_generation_alone(self) -> None:
+        begin, _ = self._pair(self._msg(gen=1, observed_count=4, lost_from=413, lost_count=76, lost_pause_ns=81))
+
+        assert self._group(begin, 1) == {
+            "observed_count": 4,
             "missing_collections": "413..488",
             "missing_count": 76,
             "missing_pause_total": "81ns",
             "missing_pause_total_ns": 81,
         }
 
+    def test_a_generation_that_lost_nothing_carries_what_it_saw(self) -> None:
+        """It is in the denominator of the figure above, so leaving it out
+        would make the coverage look unchecked."""
+        msg = LossMsg(
+            iid=0,
+            ts_start=1_000,
+            ts_stop=2_000,
+            gens=[GenLoss(gen=0, observed_count=2, lost_count=1), GenLoss(gen=2, observed_count=6)],
+        )
+
+        begin, _ = self._pair(msg)
+
+        assert self._group(begin, 2) == {"observed_count": 6, "missing_count": 0}
+
+    def test_the_groups_add_up_to_the_totals(self) -> None:
+        msg = LossMsg(
+            iid=0,
+            ts_start=1_000,
+            ts_stop=2_000,
+            gens=[
+                GenLoss(gen=0, observed_count=38, lost_count=5, lost_pause_ns=412_033_000, lost_from=413),
+                GenLoss(gen=1, observed_count=6),
+                GenLoss(gen=2, observed_count=3, lost_count=2, lost_pause_ns=2_904_425_100, lost_from=11),
+            ],
+        )
+
+        begin, _ = self._pair(msg)
+
+        assert begin.args["observed_count"] == 38 + 6 + 3
+        assert begin.args["missing_count"] == 5 + 2
+        assert begin.args["missing_pause_total_ns"] == 412_033_000 + 2_904_425_100
+        assert begin.args["seen"] == "87.0% (47 of 54)"
+
     def test_the_args_name_the_missing_collections(self) -> None:
-        """Both ends, so the bar says *which* collections the ring overwrote.
+        """Both ends, so the bar says *which* collections gcmon missed.
         The far one is derived from the count rather than carried, which is
         what keeps the range and the count from ever disagreeing."""
         begin, _ = self._pair(self._msg(lost_from=413, lost_count=19))
 
-        assert begin.args["missing_collections"] == "413..431"
+        assert self._group(begin, 0)["missing_collections"] == "413..431"
 
     def test_a_single_missing_collection_reads_as_one_number(self) -> None:
         """Two ends met at one counter and read as a range of nothing. The
-        window is real and one collection wide, and the arg says so."""
+        loss is real and one collection wide, and the arg says so."""
         begin, _ = self._pair(self._msg(lost_from=11, lost_count=1))
 
-        assert begin.args["missing_collections"] == "11"
+        assert self._group(begin, 0)["missing_collections"] == "11"
 
     @pytest.mark.parametrize(("lost_from", "lost_count"), [(1, 1), (413, 19), (2, 76), (99, 2)])
-    def test_the_range_holds_exactly_the_collections_the_span_counts(self, lost_from: int, lost_count: int) -> None:
+    def test_the_range_holds_exactly_the_collections_the_group_counts(self, lost_from: int, lost_count: int) -> None:
         """A reader takes the count off one arg and the identities off the
         other. An off-by-one at either fence makes a bar that contradicts
         itself, and both ends are inclusive, so the width is one more than the
         difference."""
         begin, _ = self._pair(self._msg(lost_from=lost_from, lost_count=lost_count))
+        group = self._group(begin, 0)
 
-        first, _, last = str(begin.args["missing_collections"]).partition("..")
-        assert int(last or first) - int(first) + 1 == begin.args["missing_count"]
+        first, _, last = str(group["missing_collections"]).partition("..")
+        assert int(last or first) - int(first) + 1 == group["missing_count"]
         assert int(first) == lost_from
 
     def test_a_batch_routes_loss_through_the_same_converter(self) -> None:

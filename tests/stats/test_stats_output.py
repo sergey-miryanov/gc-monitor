@@ -429,86 +429,6 @@ class TestLossColumns:
         assert "Coverage: Gen0 99.5%" in out
 
 
-class TestUndrawableWindowsInTheFooter:
-    """A loss window whose bounds described no interval was counted and drawn
-    nowhere. The footer is the only place a run is ever told.
-
-    The wording has to point at the target, not at gcmon. `LossWindow.
-    is_drawable` fires when the target's publish-last ordering did not reach
-    the reader, per ADR-0015; a reader who takes it for gcmon dropping data
-    lowers `--rate` and changes nothing.
-    """
-
-    def _held_back(self, count: int = 1, gen: int = 0) -> StreamingStats:
-        stats = StreamingStats()
-        for _ in range(3):
-            stats.update(1, create_mock_stats_item(gen=gen, ts_start=0, ts_stop=1_000_000))
-        stats.record_loss(1, gen, 7, 7_000_000)
-        for _ in range(count):
-            stats.record_undrawable(1, gen)
-        return stats
-
-    def test_zero_says_nothing(self, capsys: pytest.CaptureFixture[str]) -> None:
-        stats = StreamingStats()
-        for _ in range(3):
-            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
-        stats.record_loss(1, 0, 7, 7_000_000)
-
-        print_stats(stats)
-
-        assert "not drawn" not in capsys.readouterr().out
-
-    def test_a_lossless_run_still_prints_no_footer(self, capsys: pytest.CaptureFixture[str]) -> None:
-        stats = StreamingStats()
-        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
-
-        print_stats(stats)
-
-        assert "not drawn" not in capsys.readouterr().out
-
-    def test_the_count_is_named_per_generation(self, capsys: pytest.CaptureFixture[str]) -> None:
-        print_stats(self._held_back(count=2))
-        out = capsys.readouterr().out
-
-        assert "not drawn" in out
-        assert "Gen0 2" in out
-
-    def test_it_sends_the_reader_at_the_target(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """The one line that must not read as gcmon having lost something:
-        the two conditions have different fixes."""
-        print_stats(self._held_back())
-        out = capsys.readouterr().out
-
-        assert "bounds arrived reversed" in out
-        assert "Counts above are unaffected" in out
-
-    def test_it_names_no_culprit(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Two causes reach `LossWindow.is_drawable` and gcmon cannot tell
-        them apart: a target publishing a record's fields out of order, and a
-        poll reading the rings over ~0.6 ms while the target keeps
-        collecting. Naming either one sends some readers to the wrong fix."""
-        print_stats(self._held_back())
-        out = capsys.readouterr().out
-
-        assert "from the target" not in out
-        assert "--rate" not in out
-
-    def test_holding_a_span_back_moves_no_cell(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """`Cov`, `F`, `Count` and `Sum` come off the counters, which the
-        bounds have no say in. Only the extra footer line may differ."""
-        print_stats(self._held_back())
-        held = capsys.readouterr().out.splitlines()
-
-        drawn_stats = StreamingStats()
-        for _ in range(3):
-            drawn_stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
-        drawn_stats.record_loss(1, 0, 7, 7_000_000)
-        print_stats(drawn_stats)
-        drawn = capsys.readouterr().out.splitlines()
-
-        assert [line for line in held if "not drawn" not in line] == drawn
-
-
 class TestTheFooterNotesAreNumbered:
     """Which notes appear depends on the run, so their order teaches a reader
     nothing. The number is what separates one from the next once two of them
@@ -524,15 +444,13 @@ class TestTheFooterNotesAreNumbered:
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
         stats.record_loss(1, 0, 7, 7_000_000)
         stats.record_lifetime(1, 0, 0, 18, 0.02)
-        stats.record_undrawable(1, 0)
 
         print_stats(stats)
         notes = self._notes(capsys.readouterr().out)
 
-        assert [note.split(".", 1)[0] for note in notes] == ["1", "2", "3"]
+        assert [note.split(".", 1)[0] for note in notes] == ["1", "2"]
         assert "Coverage:" in notes[0]
         assert "Since interpreter start" in notes[1]
-        assert "not drawn" in notes[2]
 
     def test_a_lone_note_is_still_numbered(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Numbering that appeared only above some threshold would make the

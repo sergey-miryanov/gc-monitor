@@ -259,10 +259,6 @@ class StreamingStats:
         # it recorded.
         self._lost_count: dict[tuple[int, int], int] = {}
         self._lost_pause_ns: dict[tuple[int, int], int] = {}
-        # Beside the loss rather than inside it: the windows counted here were
-        # recorded above like any other, and this only says how many of them
-        # reached the trace as a span. See `LossWindow.is_drawable`.
-        self._undrawable_count: dict[tuple[int, int], int] = {}
         # Lifetime is a running total, not an increment, so it is stored per
         # ring and overwritten rather than summed across polls.
         self._lifetime: dict[tuple[int, int, int], tuple[int, float]] = {}
@@ -318,7 +314,7 @@ class StreamingStats:
         return self._ring_size.get(gen, 0)
 
     def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
-        """Record one interval whose records were overwritten before a poll."""
+        """Record one interval's worth of collections gcmon did not read."""
         key = (pid, gen)
         self._lost_count[key] = self._lost_count.get(key, 0) + lost_count
         self._lost_pause_ns[key] = self._lost_pause_ns.get(key, 0) + lost_pause_ns
@@ -355,17 +351,6 @@ class StreamingStats:
             )
             return
 
-    def record_undrawable(self, pid: int, gen: int) -> None:
-        """Record one loss window whose bounds did not describe an interval.
-
-        The loss it measured has already gone through :meth:`record_loss` and
-        counts toward every number here; this tallies only the span nobody
-        drew, so the footer can say the trace is one bar short and why. See
-        `LossWindow.is_drawable`.
-        """
-        key = (pid, gen)
-        self._undrawable_count[key] = self._undrawable_count.get(key, 0) + 1
-
     def record_lifetime(self, pid: int, iid: int, gen: int, collections: int, duration_s: float) -> None:
         """Record one ring's totals since its interpreter started.
 
@@ -393,15 +378,6 @@ class StreamingStats:
 
     def lost_pause_ns(self, pid: int | None, gen: int) -> int:
         return self._lost(self._lost_pause_ns, pid, gen)
-
-    def undrawable_count(self, pid: int | None, gen: int) -> int:
-        """Loss windows counted but drawn nowhere, per `record_undrawable`.
-
-        Nothing else reads it: it is a count of spans, not of collections, and
-        it must not enter `exact_count`, `coverage` or `scale_factor`, all of
-        which already carry the loss these windows measured.
-        """
-        return self._lost(self._undrawable_count, pid, gen)
 
     def exact_count(self, pid: int | None, gen: int) -> int:
         """Collections over the observed span, seen and unseen alike."""

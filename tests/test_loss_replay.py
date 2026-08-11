@@ -20,7 +20,7 @@ every claim below easier.
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from itertools import combinations, pairwise
+from itertools import pairwise
 from typing import override
 from unittest.mock import patch
 
@@ -30,7 +30,7 @@ from gcmon.data import GCStatsInfo, lost_to
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.monitor import EventsMonitor
 from gcmon.poll_status import PollStatus
-from gcmon.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
+from gcmon.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from tests.captures import SSL_CONTEXT_SIZE
@@ -46,9 +46,14 @@ FREE_THREADED_SIZES = {0: 1, 1: 1, 2: 1}
 
 MS = 1_000_000
 
+# What one `get_gc_stats` costs the replayed monitor. Only the read-time
+# statistic reads it; a span's edges are two wakes, and a wake is where the
+# read began.
+READ_COST_NS = 600_000
+
 # Poll periods the replays below run at, in ms. 250 outruns the target, 1000
 # blinds gen 0 alone, and 3000 blinds gen 0 and gen 1 together, which is the
-# only shape that puts two windows on one loss row at one instant.
+# only shape that puts two generations' counts on one span.
 LOSSLESS_MS = 250
 ONE_GENERATION_MS = 1000
 TWO_GENERATIONS_MS = 3000
@@ -136,8 +141,13 @@ def ring_at(records: Sequence[GCStatsInfo], gen: int, size: int, ts: int) -> lis
 
 def poll_batches(
     per_gen: dict[int, list[GCStatsInfo]], sizes: dict[int, int], interval_ns: int, skew_ns: int = 0
-) -> Iterator[list[GCStatsInfo]]:
-    """One batch per wake of a clock ticking every *interval_ns*.
+) -> Iterator[tuple[int, list[GCStatsInfo]]]:
+    """One ``(wake, batch)`` per tick of a clock running every *interval_ns*.
+
+    The wake instant comes back with the batch because a loss record is
+    bounded by two of them: the monitor reads its own clock, and a replay that
+    let it read the real one would put every span light-years from the
+    capture's timestamps.
 
     The first wake lands on the first collection in the capture, so the run
     starts against a ring holding something. The last lands past the final
@@ -158,7 +168,7 @@ def poll_batches(
         batch: list[GCStatsInfo] = []
         for gen in sorted(per_gen):
             batch.extend(ring_at(per_gen[gen], gen, sizes[gen], ts + skew_ns * gen))
-        yield batch
+        yield ts, batch
         ts += interval_ns
 
 
@@ -170,6 +180,7 @@ class Replay:
     recorder: Recorder
     stats: StreamingStats
     polls: int = 0
+    wakes: list[int] = field(default_factory=list)
     _read: dict[int, set[int]] = field(default_factory=dict)
 
     def read(self, gen: int) -> set[int]:
@@ -179,15 +190,16 @@ class Replay:
                 self._read.setdefault(record.gen, set()).add(record.collections)
         return self._read.get(gen, set())
 
-    def windows(self, gen: int) -> list[TLossMsg]:
-        return [loss for loss in self.recorder.losses if loss.gen == gen]
+    def entries(self, gen: int) -> list[TGenLoss]:
+        """Every gap one ring reported, one per interval it lost records in."""
+        return [entry for loss in self.recorder.losses for entry in loss.gens if entry.gen == gen and entry.lost_count]
 
     def lost(self, gen: int) -> set[int]:
-        """The counters the windows claim, expanded from their ranges."""
+        """The counters the gaps claim, expanded from their ranges."""
         return {
             collections
-            for loss in self.windows(gen)
-            for collections in range(loss.lost_from, lost_to(loss.lost_from, loss.lost_count) + 1)
+            for entry in self.entries(gen)
+            for collections in range(entry.lost_from, lost_to(entry.lost_from, entry.lost_count) + 1)
         }
 
     def span(self, gen: int) -> range:
@@ -216,15 +228,32 @@ def replay(interval_ms: float, sizes: dict[int, int] = RING_SIZES, skew_ms: floa
     stats = StreamingStats()
     monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, stats)
     reads = iter(batches)
+    wakes: list[int] = []
 
     def one_read(pid: int, all_interpreters: bool = True) -> list[GCStatsInfo]:
-        return list(next(reads))
+        wake, batch = next(reads)
+        wakes.append(wake)
+        return list(batch)
 
-    with patch("gcmon.monitor.get_gc_stats", side_effect=one_read):
+    def clock() -> Iterator[int]:
+        # `poll` reads the clock before the batch is fetched and again after,
+        # so the first call of each pair has to guess the wake it is about to
+        # land on. They are known in advance; walking them here keeps the
+        # monitor reading the capture's clock rather than the machine's.
+        for wake, _batch in batches:
+            yield wake
+            yield wake + READ_COST_NS
+
+    ticks = clock()
+
+    with (
+        patch("gcmon.monitor.get_gc_stats", side_effect=one_read),
+        patch("gcmon.monitor.time.monotonic_ns", side_effect=lambda: next(ticks)),
+    ):
         for _ in batches:
             assert monitor.poll(PID) is PollStatus.OK
 
-    return Replay(truth=truth, recorder=recorder, stats=stats, polls=len(batches))
+    return Replay(truth=truth, recorder=recorder, stats=stats, polls=len(batches), wakes=wakes)
 
 
 LOSSY_MS = [ONE_GENERATION_MS, TWO_GENERATIONS_MS]
@@ -307,25 +336,20 @@ class TestTheReplayLosesWhatItClaimsTo:
         run = lossy[ONE_GENERATION_MS]
 
         assert run.stats.coverage(PID, 0) < 0.6
-        assert [len(run.windows(gen)) > 0 for gen in (0, 1, 2)] == [True, False, False]
+        assert [len(run.entries(gen)) > 0 for gen in (0, 1, 2)] == [True, False, False]
 
-    def test_two_generations_go_blind_over_the_same_stretch(self, lossy: dict[float, Replay]) -> None:
-        """What puts two spans on one loss row at overlapping times, which is
-        the precondition for anything below to have a nesting to check.
-
-        Overlap, not a shared left edge: where the edges land is the thing
-        under test, so a control resting on it would fail for the same reason
-        as its subject and leave the suite looking better than it is.
-        """
+    def test_two_generations_go_blind_in_one_interval(self, lossy: dict[float, Replay]) -> None:
+        """What puts two generations' counts on one span, which is the
+        precondition for anything below to have a merge to check."""
         run = lossy[TWO_GENERATIONS_MS]
 
-        overlapping = [
-            (a.gen, b.gen)
-            for a, b in combinations(run.recorder.losses, 2)
-            if a.gen != b.gen and a.ts_start < b.ts_stop and b.ts_start < a.ts_stop
+        together = [
+            [entry.gen for entry in loss.gens if entry.lost_count]
+            for loss in run.recorder.losses
+            if sum(1 for entry in loss.gens if entry.lost_count) > 1
         ]
 
-        assert overlapping, "no two generations were blind over the same stretch"
+        assert together, "no interval lost records in more than one generation"
 
     def test_a_ring_of_one_slot_loses_almost_everything(self) -> None:
         """The free-threaded geometry, where a poll can keep at most the last
@@ -337,7 +361,7 @@ class TestTheReplayLosesWhatItClaimsTo:
 
 @pytest.mark.parametrize("interval_ms", LOSSY_MS)
 class TestEveryCollectionIsChargedOnce:
-    """The claim `LossWindow.lost_from` exists to support: over the span gcmon
+    """The claim `KeyGap.lost_from` exists to support: over the span gcmon
     observed, every collection the target ran is either a record gcmon drew or
     a counter inside exactly one window, and never both."""
 
@@ -365,8 +389,8 @@ class TestEveryCollectionIsChargedOnce:
         run = lossy[interval_ms]
 
         for gen in (0, 1, 2):
-            claimed = sum(loss.lost_count for loss in run.windows(gen))
-            assert claimed == len(run.lost(gen)), f"gen {gen} windows claim overlapping counters"
+            claimed = sum(entry.lost_count for entry in run.entries(gen))
+            assert claimed == len(run.lost(gen)), f"gen {gen} gaps claim overlapping counters"
 
 
 @pytest.mark.parametrize("interval_ms", LOSSY_MS)
@@ -410,84 +434,57 @@ class TestTheTotalsAreExact:
 
 
 @pytest.mark.parametrize("interval_ms", LOSSY_MS)
-class TestTheWindowsAreDrawable:
+class TestTheSpansTileTheTimeline:
     """Geometry, over the same replays. The loss row is a Perfetto stack and
     nothing downstream complains when it is built wrong."""
 
-    def test_every_window_bounds_an_interval(self, interval_ms: float, lossy: dict[float, Replay]) -> None:
+    def test_every_span_bounds_an_interval(self, interval_ms: float, lossy: dict[float, Replay]) -> None:
+        """Two reads happen at two instants, so this cannot fail for the
+        reason it used to: edges taken off the records could arrive reversed
+        and the span had to be held back."""
         run = lossy[interval_ms]
 
         assert [loss for loss in run.recorder.losses if loss.ts_start >= loss.ts_stop] == []
-        assert [run.stats.undrawable_count(PID, gen) for gen in (0, 1, 2)] == [0, 0, 0]
 
-    def test_one_generation_windows_never_overlap_in_time(self, interval_ms: float, lossy: dict[float, Replay]) -> None:
-        """Across polls they are disjoint: a poll opens at or after the newest
-        record the poll before it saw."""
+    def test_the_spans_never_overlap(self, interval_ms: float, lossy: dict[float, Replay]) -> None:
+        """One row per interpreter holds all of them now, so this is over the
+        whole run rather than per generation."""
         run = lossy[interval_ms]
 
-        for gen in (0, 1, 2):
-            ordered = sorted(run.windows(gen), key=lambda loss: loss.ts_start)
-            assert all(a.ts_stop <= b.ts_start for a, b in pairwise(ordered))
+        ordered = sorted(run.recorder.losses, key=lambda loss: loss.ts_start)
+        assert all(a.ts_stop <= b.ts_start for a, b in pairwise(ordered))
 
-    def test_overlapping_windows_nest_instead_of_crossing(self, interval_ms: float, lossy: dict[float, Replay]) -> None:
-        """The property the loss row is a stack because of, and the reason the
-        left edge is `read_bound_per_interpreter` rather than each ring's own
-        last record. One read covers all of an interpreter's generations, so
-        every window a poll opens starts at the same instant and they can only
-        differ in where each generation's next record sits. Edges taken per
-        ring would stagger, and a staggered edge with a wider right edge
-        crosses its neighbour, which no stack can hold.
-        """
-        run = lossy[interval_ms]
-
-        for a, b in combinations(run.recorder.losses, 2):
-            if a.iid != b.iid or a.ts_stop <= b.ts_start or b.ts_stop <= a.ts_start:
-                continue
-            assert a.ts_start == b.ts_start, (
-                f"gen {a.gen} and gen {b.gen} overlap from different left edges: {a.ts_start} and {b.ts_start}"
-            )
-
-    def test_windows_sharing_a_left_edge_go_out_widest_first(
+    def test_every_span_runs_between_two_consecutive_polls(
         self, interval_ms: float, lossy: dict[float, Replay]
     ) -> None:
-        """An END closes the most recently opened slice, so the emission order
-        at one instant is what decides which generation contains which."""
+        """Where the edges come from, checked against the clock the replay
+        drove rather than against the records."""
         run = lossy[interval_ms]
+        consecutive = set(pairwise(run.wakes))
 
-        by_edge: dict[tuple[int, int], list[int]] = {}
         for loss in run.recorder.losses:
-            by_edge.setdefault((loss.iid, loss.ts_start), []).append(loss.ts_stop)
+            assert (loss.ts_start, loss.ts_stop) in consecutive
 
-        for edge, stops in by_edge.items():
-            assert stops == sorted(stops, reverse=True), f"{edge} emitted inside out"
-
-    def test_a_window_reaches_its_own_generations_next_record(
-        self, interval_ms: float, lossy: dict[float, Replay]
-    ) -> None:
-        """The right edge is the last thing two polls prove about that ring:
-        the first record read after the gap."""
+    def test_a_poll_emits_one_span_at_most(self, interval_ms: float, lossy: dict[float, Replay]) -> None:
         run = lossy[interval_ms]
 
-        for gen in (0, 1, 2):
-            starts = {record.collections: record.ts_start for record in run.truth[gen]}
-            for loss in run.windows(gen):
-                after = lost_to(loss.lost_from, loss.lost_count) + 1
-                assert loss.ts_stop == starts[after]
+        assert len({(loss.iid, loss.ts_start) for loss in run.recorder.losses}) == len(run.recorder.losses)
 
 
 class TestATornRead:
-    """A window whose bounds describe no interval, and what survives it.
+    """A read whose rings disagree about when "now" is, and what it costs.
 
     The read is one copy of the whole `struct gc_stats` taken while the target
-    runs, so the rings in it can disagree about when "now" is. A poll that
-    takes gen 1 later than gen 0 can set a read bound after a collection the
-    next poll reads on gen 0, and the window between them then ends before it
-    starts.
+    runs, so a poll can take gen 1 later than gen 0. Under the old geometry
+    that was expensive: a window's left edge was the newest record any ring
+    returned, so a torn read could set it past the record that closed the
+    window, and the span had to be held back with `--stats` counting a loss
+    the trace never showed.
 
-    `LossWindow.is_drawable` splits what that costs. The bounds are timestamps
-    and they are wrong; `lost_count` and `lost_from` are subtractions of the
-    ring's own cumulative counters with no timestamp anywhere in them, so they
-    are right regardless. `_ingest` records the loss and skips only the span.
+    Bounding a span by the two reads instead costs it nothing. The edges are
+    the monitor's own clock, which no tear can invert, and the counts were
+    never at risk: `lost_count` and `lost_from` subtract the ring's cumulative
+    counters and carry no timestamp at all.
     """
 
     # Found by sweeping the capture: a poll period the ring survives almost
@@ -505,20 +502,23 @@ class TestATornRead:
     def untorn(self) -> Replay:
         return replay(self.INTERVAL_MS)
 
-    def test_the_same_run_read_whole_draws_the_window(self, untorn: Replay) -> None:
+    def test_the_same_run_read_whole_draws_a_span(self, untorn: Replay) -> None:
         """The control that makes this a test of the tear and not of the poll
-        period: read without skew, the same loss opens a window that draws."""
+        period: read without skew, the same loss draws one span."""
         assert untorn.stats.lost_count(PID, 0) == 1
-        assert [untorn.stats.undrawable_count(PID, gen) for gen in (0, 1, 2)] == [0, 0, 0]
         assert len(untorn.recorder.losses) == 1
 
-    def test_the_tear_leaves_a_window_that_cannot_be_drawn(self, torn: Replay) -> None:
-        assert torn.stats.undrawable_count(PID, 0) == 1
+    def test_the_torn_read_draws_one_too(self, torn: Replay) -> None:
+        """What the change bought. The tear moves which records a poll sees;
+        it cannot move the instants the poll happened at, so there is no
+        geometry left for it to break."""
+        assert len(torn.recorder.losses) == 1
 
-    def test_no_span_is_drawn_for_it(self, torn: Replay) -> None:
-        """A span with `ts_stop` at or before `ts_start` would draw as an
-        invisible sliver, or make the loss row stop nesting."""
-        assert torn.recorder.losses == []
+    def test_the_span_still_bounds_an_interval(self, torn: Replay) -> None:
+        span = torn.recorder.losses[0]
+
+        assert span.ts_start < span.ts_stop
+        assert (span.ts_start, span.ts_stop) in set(pairwise(torn.wakes))
 
     def test_the_count_is_kept_anyway(self, torn: Replay) -> None:
         """`--stats` covers every collection whether or not a bar came of it."""
@@ -535,9 +535,7 @@ class TestATornRead:
             truth = torn.truth_pause_ns(gen, torn.span(gen))
             assert torn.stats.exact_pause_ns(PID, gen) == pytest.approx(truth, abs=1_000)
 
-    def test_coverage_still_counts_the_undrawn_loss(self, torn: Replay) -> None:
-        """`undrawable_count` is a count of spans, not of collections, and must
-        stay out of every figure that already carries the loss it measured."""
+    def test_coverage_is_unmoved_by_the_tear(self, torn: Replay) -> None:
         assert torn.stats.coverage(PID, 0) == pytest.approx(len(torn.read(0)) / len(torn.span(0)))
 
 
@@ -578,7 +576,7 @@ class TestAMidWriteSlot:
 
         recorder = Recorder()
         monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, StreamingStats())
-        monitor._ingest(PID, batch)
+        monitor._ingest(PID, batch, ts_poll=1)
 
         assert half_written.ts_start > half_written.ts_stop
         assert in_flight.collections not in {record.collections for record in recorder.records}
@@ -596,7 +594,7 @@ class TestAMidWriteSlot:
         recorder = Recorder()
         stats = StreamingStats()
         monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, stats)
-        monitor._ingest(PID, batch)
+        monitor._ingest(PID, batch, ts_poll=1)
 
         counters = [record.collections for record in recorder.records if record.gen == 0]
         assert counters == sorted(set(counters))

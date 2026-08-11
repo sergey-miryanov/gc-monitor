@@ -11,9 +11,10 @@
 
 ### Features
 
-- Detect GC records lost to ring-buffer wrap and draw each unobserved interval as a `GC Loss(N)` slice, one span per generation, nested on one track per `(pid, iid)`
+- Detect GC records the target ran without gcmon reading them, and draw each blind poll interval as one `GC Loss` slice, on one track per `(pid, iid)`. A span runs from one read of the target to the next, is named for the generations that lost records (`GC Loss(0,2)`), and never overlaps its neighbours
 - Loss reaches Chrome, Perfetto, JSONL and stdout; `gcmon combine` reproduces the spans from a JSONL capture
-- `GC Loss` slices name what they are missing, as `missing_collections` (`413..431`, or `11` for one), `missing_count`, `missing_pause_total_ns` and the same total read as `3s 316ms 458µs 100ns`; the JSONL record carries `lost_from`
+- `GC Loss` slices carry the interval's totals — `observed_count`, `missing_count`, `seen` as `87.0% (47 of 54)`, `missing_pause_total_ns` and the same total read as `3s 316ms 458µs 100ns` — and then one group per generation that collected or lost anything, holding its own counts and `missing_collections` (`413..431`, or `11` for one). Perfetto's trace processor flattens a group into `args.debug.gen0.missing_count`
+- The JSONL loss record is one line per poll interval per interpreter, carrying `gens` with one entry per generation
 - Add `Cov` and `F` columns to the `--stats` table and a `gc_pause_gen_N_coverage` pyperf metric
 - Show `Count` and `Sum` as `sampled/exact`, with a leading `~` where the second number is `F`-scaled
 - Warn once per run when coverage falls below 90%
@@ -25,8 +26,7 @@
 
 - Fix GC events discarded by the poll loop; the cursor now tracks the target's `collections` counter per process, interpreter and generation
 - Drop poll state when the wait policy gives up on a PID or the PID leaves the process tree, so a reused PID does not inherit its predecessor's counter
-- Draw no `GC Loss` span when its bounds describe no interval; the collections still count toward `Count`, `Sum`, `Cov` and `F`, and the footer names how many were held back
-- Sort `GC Loss` records into nesting order when converting; JSONL line order no longer matters
+- Sort `GC Loss` records into time order when converting; JSONL line order no longer matters
 - Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting
 - `Processes` slices record the observed span in `real_start_ts` / `real_end_ts` annotations
 

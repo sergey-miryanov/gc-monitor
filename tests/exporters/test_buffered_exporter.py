@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.data import GCStatsInfo, LossMsg
+from gcmon.data import GCStatsInfo
 from gcmon.exporters._buffered_exporter import BufferedTraceExporter
 from gcmon.exporters.chrome_trace_exporter import TraceExporter
 from gcmon.exporters.encoder import JsonEventEncoder
@@ -15,7 +15,7 @@ from gcmon.exporters.jsonl_exporter import JsonlExporter
 from gcmon.exporters.stdout_exporter import StdoutExporter
 from gcmon.trace_event import RSS_TID, BeginEvent, CounterEvent, EndEvent, ProcessMeta, ThreadMeta, loss_tid
 from tests.data_helpers import create_instant_msg
-from tests.helpers import create_mock_stats_item
+from tests.helpers import create_mock_loss_item, create_mock_stats_item
 
 
 class TestBuildMetaGuard:
@@ -141,7 +141,7 @@ class TestAddLossEvent:
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_loss_event(
-            100, LossMsg(iid=0, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
+            100, create_mock_loss_item(iid=0, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
         )
 
         begin = next(e for e in exporter._buffer if isinstance(e, BeginEvent))
@@ -153,7 +153,7 @@ class TestAddLossEvent:
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_loss_event(
-            100, LossMsg(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
+            100, create_mock_loss_item(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
         )
 
         assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {loss_tid(1)}
@@ -164,7 +164,9 @@ class TestAddLossEvent:
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_event(100, create_mock_stats_item(iid=0))
-        exporter.add_loss_event(100, LossMsg(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1))
+        exporter.add_loss_event(
+            100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+        )
 
         assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {0, loss_tid(0)}
 
@@ -173,7 +175,9 @@ class TestAddLossEvent:
         describes this track off the slices instead."""
         exporter = self._make_exporter(tmp_path)
 
-        exporter.add_loss_event(100, LossMsg(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1))
+        exporter.add_loss_event(
+            100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+        )
 
         assert any(isinstance(e, ProcessMeta) for e in exporter._buffer)
         assert not any(isinstance(e, ThreadMeta) for e in exporter._buffer)
@@ -181,8 +185,12 @@ class TestAddLossEvent:
     def test_two_interpreters_get_two_loss_tracks(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
 
-        exporter.add_loss_event(100, LossMsg(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1))
-        exporter.add_loss_event(100, LossMsg(iid=1, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1))
+        exporter.add_loss_event(
+            100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+        )
+        exporter.add_loss_event(
+            100, create_mock_loss_item(iid=1, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+        )
 
         assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {loss_tid(0), loss_tid(1)}
 
@@ -190,6 +198,8 @@ class TestAddLossEvent:
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_rss_sample(100, 4096, 1_000)
-        exporter.add_loss_event(100, LossMsg(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1))
+        exporter.add_loss_event(
+            100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+        )
 
         assert loss_tid(0) != RSS_TID

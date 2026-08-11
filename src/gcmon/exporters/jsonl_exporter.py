@@ -9,7 +9,7 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TextIO, override
 
-from ..protocol import TGCStatsInfo, TInstantMsg, TLossMsg, to_mapping
+from ..protocol import JsonlRecord, TGCStatsInfo, TInstantMsg, TLossMsg, to_mapping
 from ..trace_event import loss_tid
 from .exporter import EventsExporter
 
@@ -34,18 +34,18 @@ class JsonlExporter(EventsExporter):
         self._lock = threading.Lock()
         self._io_lock = threading.Lock()
         self._flush_threshold = flush_threshold
-        self._events: list[dict[str, str | int | float]] = []
+        self._events: list[JsonlRecord] = []
         self._output_path = output_path
 
     @override
     def add_event(self, pid: int, item: TGCStatsInfo) -> None:
-        event: dict[str, str | int | float] = {
+        event: JsonlRecord = {
             "pid": pid,
             "tid": item.iid,
         }
         event.update(to_mapping(item))
 
-        events: list[dict[str, str | int | float]] = []
+        events: list[JsonlRecord] = []
         with self._lock:
             self._events.append(event)
 
@@ -59,13 +59,13 @@ class JsonlExporter(EventsExporter):
 
     @override
     def add_loss_event(self, pid: int, item: TLossMsg) -> None:
-        event: dict[str, str | int | float] = {
+        event: JsonlRecord = {
             "pid": pid,
             "tid": loss_tid(item.iid),
         }
         event.update(to_mapping(item))
 
-        events: list[dict[str, str | int | float]] = []
+        events: list[JsonlRecord] = []
         with self._lock:
             self._events.append(event)
 
@@ -79,12 +79,12 @@ class JsonlExporter(EventsExporter):
 
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
-        event: dict[str, str | int | float] = {
+        event: JsonlRecord = {
             "pid": pid,
         }
         event.update(to_mapping(item))
 
-        events: list[dict[str, str | int | float]] = []
+        events: list[JsonlRecord] = []
         with self._lock:
             self._events.append(event)
 
@@ -96,7 +96,7 @@ class JsonlExporter(EventsExporter):
             with self._io_lock:
                 self._flush(events)
 
-    def _flush(self, events: list[dict[str, str | int | float]]) -> None:
+    def _flush(self, events: list[JsonlRecord]) -> None:
         if not events:
             return
         with self._open_writer() as w:

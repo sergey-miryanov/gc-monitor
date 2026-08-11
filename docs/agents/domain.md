@@ -64,7 +64,7 @@ explicitly avoids.
 
 Until `CONTEXT.md` exists, `specs/README.md#conventions` holds the vocabulary rules: one entry
 read out of the target's ring is a **record**, one thing written into a trace is an **event**, an
-interpreter is identified by its **iid**, an interval whose records were overwritten unread is a
+interpreter is identified by its **iid**, an interval whose records never reached gcmon is a
 **loss window**, and a `Processes`-track slice is a **span**.
 
 If the concept you need isn't in the glossary yet, that's a signal — either you're inventing

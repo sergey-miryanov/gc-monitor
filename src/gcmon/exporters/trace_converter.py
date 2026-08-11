@@ -2,10 +2,10 @@
 
 from collections.abc import Mapping, Sequence
 
-from ..data import duration_text, missing_collections
-from ..loss import stack_order
+from ..data import duration_text, missing_collections, seen_text
 from ..protocol import (
     TGCStatsInfo,
+    TGenLoss,
     TItem,
     TLossMsg,
     has_clear_weakrefs,
@@ -299,57 +299,60 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     return events
 
 
+def _gen_loss_args(gen: TGenLoss) -> dict[str, int | str]:
+    """One generation's group inside a ``GC Loss`` slice's args.
+
+    A generation that lost nothing gets ``observed_count`` and a zero, so the
+    groups still add up to the slice's totals. One that lost something also
+    gets ``missing_collections``, naming them on that generation's own counter
+    with both ends included, and the pause they came to.
+    """
+    args: dict[str, int | str] = {"observed_count": gen.observed_count}
+    if not gen.lost_count:
+        args["missing_count"] = 0
+        return args
+
+    args["missing_collections"] = missing_collections(gen.lost_from, gen.lost_count)
+    args["missing_count"] = gen.lost_count
+    args["missing_pause_total"] = duration_text(gen.lost_pause_ns)
+    args["missing_pause_total_ns"] = gen.lost_pause_ns
+    return args
+
+
 def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
-    """One ``GC Loss(N)`` slice covering an interval gcmon could not
-    observe on one generation's ring.
+    """One ``GC Loss`` slice covering a poll interval gcmon went into blind.
 
-    Drawn as the whole window, because that is what is known: the records are
-    gone and nothing says where inside it they ran. A bar sized to the lost
-    pause would be narrower than the uncertainty and would put all of it at
-    the window's left edge, which is a claim the ring cannot support. The
-    pause sum rides in the args instead, where it reads as a magnitude rather
-    than as a position.
+    Spans the interval end to end, on interpreter *iid*'s loss track rather
+    than among its collections. Named ``GC Loss(0,2)`` for the generations that
+    lost records, which also gives each combination a colour of its own since
+    Perfetto hashes the slice name.
 
-    Named for its generation the way ``GC Pause({gen})`` is, so each one
-    keeps a stable colour of its own — Perfetto hashes the slice name. A poll
-    blind in all three generations draws three of these, nested inside one
-    another on the interpreter's loss row, and the row says which generation
-    went blind and for how long rather than only that gcmon went blind.
+    The args carry the interval's totals and then one group per generation.
+    ``missing_pause_total_ns`` sums the lost collections and is not the slice's
+    duration: a 29 s bar can carry 3 s of it. It goes out twice, in nanoseconds
+    for SQL and as ``missing_pause_total`` for reading.
 
-    On interpreter *iid*'s loss track, not among its collections. A window can
-    span an observed collection of another generation, so this would cross the
-    slices on a thread track; a row of its own also keeps what is
-    reconstructed apart from what was measured.
-
-    ``missing_collections`` names them on that generation's counter, both ends
-    included. Where the bar's width is uncertainty, the range is not: it comes
-    from subtracting two of the ring's own cumulative counters, so it says
-    exactly which collections the ring overwrote and lets a reader check the
-    span against the ``GC Pause`` slices on the row above rather than take the
-    count on faith.
-
-    The args name that one set of collections and say so: what they are, how
-    many, and what they cost together. ``missing_pause_total_ns`` is a sum over
-    them and is nobody's duration — a bar 29 s wide can carry 3 s of it, with
-    the target running Python for the rest — so it says ``total`` where the
-    wire field beside it says ``lost_pause_ns``. It is written twice: once in
-    nanoseconds, exact and worth summing in SQL, and once as
-    ``missing_pause_total`` for reading, since a bare ``3316458100`` beside a
-    slice duration the UI has already formatted invites being read as a
-    smaller number than it is.
+    See ADR-0015 for the width, the track and the grouping.
     """
     tid = loss_tid(item.iid)
-    gen = item.gen
-    name = f"GC Loss({gen})"
-    category = f"gc.loss(gen={gen})"
-    args: dict[str, int | str] = {
+    blind = [gen.gen for gen in item.gens if gen.lost_count]
+    name = f"GC Loss({','.join(str(gen) for gen in blind)})" if blind else "GC Loss"
+    category = "gc.loss"
+
+    observed_count = sum(gen.observed_count for gen in item.gens)
+    missing_count = sum(gen.lost_count for gen in item.gens)
+    missing_pause_ns = sum(gen.lost_pause_ns for gen in item.gens)
+
+    args: dict[str, int | str | dict[str, int | str]] = {
         "iid": item.iid,
-        "generation": gen,
-        "missing_collections": missing_collections(item.lost_from, item.lost_count),
-        "missing_count": item.lost_count,
-        "missing_pause_total": duration_text(item.lost_pause_ns),
-        "missing_pause_total_ns": item.lost_pause_ns,
+        "observed_count": observed_count,
+        "missing_count": missing_count,
+        "seen": seen_text(observed_count, missing_count),
+        "missing_pause_total": duration_text(missing_pause_ns),
+        "missing_pause_total_ns": missing_pause_ns,
     }
+    for gen in item.gens:
+        args[f"gen{gen.gen}"] = _gen_loss_args(gen)
 
     return [
         begin_event(pid, tid, name, category, item.ts_start, args),
@@ -357,13 +360,14 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     ]
 
 
-def _loss_in_stack_order(items: Sequence[TItem]) -> Sequence[TItem]:
-    """*items* with its loss records in stack order, everything else in place.
+def _loss_in_time_order(items: Sequence[TItem]) -> Sequence[TItem]:
+    """*items* with its loss records in time order, everything else in place.
 
-    A poll's spans share a ``ts_start``, so which of them opens first decides
-    which contains which, and a capture read back from JSONL carries that only
-    in the order of its lines. Sorting here means a rewritten capture still
-    nests instead of drawing every generation at another's width.
+    Load-bearing rather than tidy. Consecutive intervals touch, so one span's
+    END shares a timestamp with the next one's BEGIN, and a trace processor
+    sorting by timestamp leaves those two in the order they were emitted; the
+    wrong way round they read as nested. `_ingest` emits them in order, but a
+    capture read back from JSONL carries that only in its line order.
     """
     spans = [item for item in items if is_loss(item)]
     if len(spans) < 2:
@@ -371,7 +375,7 @@ def _loss_in_stack_order(items: Sequence[TItem]) -> Sequence[TItem]:
 
     at = [index for index, item in enumerate(items) if is_loss(item)]
     ordered = list(items)
-    for index, span in zip(at, stack_order(spans), strict=True):
+    for index, span in zip(at, sorted(spans, key=lambda span: span.ts_start), strict=True):
         ordered[index] = span
 
     return ordered
@@ -383,7 +387,7 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
         events.append(process_meta(pid, f"{pid}"))
         threads: set[int] = set()
         pid_events: list[TraceEvent] = []
-        for item in _loss_in_stack_order(pid_items):
+        for item in _loss_in_time_order(pid_items):
             if is_instant(item):
                 pid_events.append(instant_event(pid, item.name, item.ts))
             elif is_loss(item):

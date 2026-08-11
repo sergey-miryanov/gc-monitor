@@ -43,7 +43,7 @@ the decision itself changes.
 | [0012](0012-trace-output-formats.md) | Support Perfetto output in `combine`, and dual output only in live mode |
 | [0013](0013-rss-sampling.md) | Sample RSS in a standalone `RssSampler`, on a `tid = -1` sentinel track |
 | [0014](0014-perfetto-integration-test-strategy.md) | Validate traces against the real trace processor; deselect slow suites by marker |
-| [0015](0015-gc-loss-spans-on-their-own-track.md) | Draw reconstructed GC loss on a per-interpreter track, one span per generation |
+| [0015](0015-gc-loss-spans-on-their-own-track.md) | Draw reconstructed GC loss on a per-interpreter track, one span per poll interval |
 
 ## Reading order
 

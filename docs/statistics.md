@@ -57,7 +57,7 @@ Sub-phase rows (`GC Mark Alive`, `GC Deduce Unreachable`, `GC Delete Garbage`, �
 
 ## The `Cov` and `F` columns
 
-**`Cov`** is the share of collections gcmon read, `sampled ÷ exact`. At `20.0%`, four out of five collections in that row were overwritten before a poll reached them. It will not round up to a completeness the cells beside it deny: a row that lost 8 of 1771 collections prints `<100.0%`.
+**`Cov`** is the share of collections gcmon read, `sampled ÷ exact`. At `20.0%`, four out of five collections in that row ran without a poll reaching them. It will not round up to a completeness the cells beside it deny: a row that lost 8 of 1771 collections prints `<100.0%`.
 
 **`F`** is the multiplier taking a sampled pause sum to the exact one, `exact_sum ÷ sampled_sum`. It scales the sub-phase rows. Like `Cov`, it refuses to round to a value claiming nothing was lost, and prints `>1.000` instead.
 
@@ -67,17 +67,15 @@ If coverage falls below 90%, gcmon logs one advisory per run naming the ring-buf
 
 ## Percentiles are sampled, biased high, and not corrected
 
-`P50` through `P99` describe the collections gcmon read rather than the collections that ran, and the difference is not random. A long collection delays its successors, so it sits in its ring slot for longer and is likelier to survive until the next poll. Long pauses are over-represented among the survivors, so **the reported percentiles read high**, the more so the lower `Cov` is.
+`P50` through `P99` describe the collections gcmon read rather than the collections that ran, and the difference skews one way. A long collection delays its successors, so it sits in its ring slot for longer and is likelier to survive until the next poll. Long pauses are over-represented among the survivors, so **the reported percentiles read high**, the more so the lower `Cov` is.
 
-`F` does not fix this. It is a ratio of two totals, so applying it to a quantile would assume the sampled and unsampled pauses share a distribution, which is the assumption the bias violates. Nothing places an unread collection in the distribution, so gcmon reports the quantiles it measured and documents the bias.
-
-On a low-`Cov` row, trust the counts and sums and distrust the shape.
+`F` does not fix this. It is a ratio of two totals, so applying it to a quantile would assume the sampled and unsampled pauses share a distribution, which is the assumption the bias violates. Nothing places an unobserved collection in that distribution, so gcmon reports the quantiles it measured and documents the bias. On a low-`Cov` row, trust the counts and sums and distrust the shape.
 
 The trace draws where the missing collections were, on a `GC Loss` track. See [output formats](formats.md#gc-loss-slices).
 
 ## The notes under the table
 
-Below the table gcmon prints a numbered note for each thing the cells cannot say. Which of the three appear depends on the run, and a run that saw every collection of a target that collected nothing before gcmon attached prints no footer at all. The numbers are there because that mix varies: a reader cannot learn the order, and the number is what separates one note from the next when two of them wrap across a narrow terminal. Numbering starts at 1 whatever the mix, so a lone note still reads `1.`.
+Below the table gcmon prints a numbered note for each thing the cells cannot say. Either note may be absent, and a run that saw every collection of a target that collected nothing before gcmon attached prints no footer. Numbers rather than order separate them, since which ones appear varies and either can wrap across a narrow terminal. A lone note still reads `1.`.
 
 **1. Coverage.**
 
@@ -85,7 +83,7 @@ Below the table gcmon prints a numbered note for each thing the cells cannot say
 1. Coverage: Gen0 20.0%, Gen1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
 ```
 
-The `Cov` column gathered across every PID, plus the rule for reading the two-number cells. It appears whenever anything was lost, and only the generations that lost something are listed.
+The `Cov` column gathered across every PID, plus the rule for reading the two-number cells. It appears whenever anything was lost, listing only the generations that lost something.
 
 **2. Lifetime totals.**
 
@@ -93,19 +91,7 @@ The `Cov` column gathered across every PID, plus the rule for reading the two-nu
 2. Since interpreter start, monitored window included: Gen0 4820 in 6231.400 ms.
 ```
 
-The third interval above covers each interpreter's whole history including the monitored part, so it neither adds to nor subtracts from any cell, and it stays out of `Cov` and `F`.
-
-**3. Loss spans held back.**
-
-```
-3. Loss spans not drawn: Gen0 2 (bounds arrived reversed, so the interval could not be placed). Counts above are unaffected.
-```
-
-A loss window runs from the newest `ts_stop` seen anywhere in that interpreter to the `ts_start` of the first record read after the blind interval. When the second does not follow the first the window describes no interval, so gcmon draws nothing and counts it. The count is spans, not collections.
-
-The note names no cause because gcmon cannot tell the causes apart. All of them come from reading a target that keeps collecting while the read runs, so gcmon dropped nothing and `--rate` will not move the count.
-
-**Counts above are unaffected** is exact. `lost_count` is arithmetic on the ring's own counters with no timestamp in it, so `Count`, `Sum`, `Cov` and `F` read the same as they would had the span been drawn, and only the trace is a bar short.
+The third interval above, covering each interpreter's whole history including the monitored part. It neither adds to nor subtracts from any cell, and stays out of `Cov` and `F`.
 
 ## Without `[stats]` extra
 

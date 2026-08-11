@@ -101,15 +101,16 @@ def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> Non
 
     Loss goes in last, summed per ``(pid, gen)``, so the coverage advisory
     sees the whole sample rather than however much of it happened to precede
-    a loss record in the file.
+    a loss record in the file. One record covers one poll interval and names
+    every generation active in it, so the per-generation entries are what get
+    summed, not the records.
 
     Which guard is asked first does not matter here, and does not match the
     converters, which ask ``is_loss`` first. ``is_gc_stats`` tests
-    ``collections`` and ``is_loss`` tests ``lost_count``, so no record
-    answers to both, and the branches read in frequency order instead.
-    Should the two guards ever come to overlap, a loss record folds into
-    the sample here as a collection, inflating the numbers the loss it
-    carries is there to correct.
+    ``collections`` and ``is_loss`` tests ``gens``, so no record answers to
+    both, and the branches read in frequency order instead. Should the two
+    guards ever come to overlap, a loss record folds into the sample here as a
+    collection, inflating the numbers the loss it carries is there to correct.
     """
     lost: dict[tuple[int, int], tuple[int, int]] = {}
     newest: dict[tuple[int, int, int], TGCStatsInfo] = {}
@@ -122,8 +123,9 @@ def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> Non
                 if ring not in newest or item.collections > newest[ring].collections:
                     newest[ring] = item
             elif is_loss(item):
-                seen_count, seen_pause = lost.get((pid, item.gen), (0, 0))
-                lost[(pid, item.gen)] = (seen_count + item.lost_count, seen_pause + item.lost_pause_ns)
+                for gen in item.gens:
+                    seen_count, seen_pause = lost.get((pid, gen.gen), (0, 0))
+                    lost[(pid, gen.gen)] = (seen_count + gen.lost_count, seen_pause + gen.lost_pause_ns)
 
     for (pid, iid, gen), record in newest.items():
         stats.record_lifetime(pid, iid, gen, record.collections, record.duration)

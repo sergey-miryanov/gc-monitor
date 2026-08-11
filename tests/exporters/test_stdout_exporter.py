@@ -11,7 +11,7 @@ from gcmon.exporters import StdoutExporter
 from gcmon.protocol import TGCStatsInfo
 from gcmon.trace_event import loss_tid
 from tests.conftest import DEFAULT_PID
-from tests.helpers import create_mock_stats_item
+from tests.helpers import create_mock_loss_item, create_mock_stats_item
 
 
 class TestStdoutExporter:
@@ -148,7 +148,9 @@ class TestStdoutLossRecords:
     against later."""
 
     def _loss(self) -> LossMsg:
-        return LossMsg(iid=3, gen=1, ts_start=1_000, ts_stop=9_000, lost_count=76, lost_pause_ns=8_100_000)
+        return create_mock_loss_item(
+            iid=3, gen=1, ts_start=1_000, ts_stop=9_000, observed_count=4, lost_count=76, lost_pause_ns=8_100_000
+        )
 
     def _emit(self, capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
         exporter = StdoutExporter()
@@ -165,11 +167,13 @@ class TestStdoutLossRecords:
         assert (data["ts_start"], data["ts_stop"]) == (1_000, 9_000)
 
     def test_it_carries_the_counts_and_the_pause(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """One entry per generation the interval touched, counts and all: the
+        stream is the whole record, so anything left out of it is gone."""
         data = self._emit(capsys)
 
-        assert data["gen"] == 1
-        assert data["lost_count"] == 76
-        assert data["lost_pause_ns"] == 8_100_000
+        assert data["gens"] == [
+            {"gen": 1, "observed_count": 4, "lost_from": 0, "lost_count": 76, "lost_pause_ns": 8_100_000}
+        ]
 
     def test_it_is_tagged_with_the_loss_tid(self, capsys: pytest.CaptureFixture[str]) -> None:
         """The same sentinel the trace formats use, so a stream and a capture
