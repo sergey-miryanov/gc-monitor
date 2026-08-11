@@ -332,6 +332,12 @@ not share a clock, which would leave the whole reconstruction unsound.
   `_print_footer`, which prints that tally as one of the numbered notes under the table.
 - `tests/test_loss.py` checks the arithmetic against synthetic runs with known ground truth
   and against a verbatim two-poll capture in `tests/test_monitor_cursor.py`.
+  `tests/test_loss_replay.py` replays `tests/captures.py` — every collection one target ran,
+  counters unbroken — behind a simulated ring and poll clock, so the counts, the pause sums
+  and the span geometry answer to the target rather than to an expectation. The ring model
+  follows §1 and holds itself to the verbatim capture. Both hazards above are reached by
+  construction: the two mid-write slot states, and a torn read narrow enough to invert a
+  window, which is the only route to `is_drawable` rejecting one.
   `tests/exporters/test_loss_track_stack.py` walks the converter's output as a stack in the
   default suite, over records `_ingest` produced from a lossy read.
   `tests/exporters/test_perfetto_loss_track.py`, marked `fuzz`, settles the track-layout and

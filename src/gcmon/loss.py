@@ -72,11 +72,12 @@ class LossWindow(msgspec.Struct):
 
         Two causes reach here and gcmon cannot separate them, so nothing
         names one. ``ts_start`` is :func:`read_bound_per_interpreter`, a maximum
-        across *all* the interpreter's rings, and a poll copies those one at a
-        time while the target collects: a collection finishing after its
-        own ring was copied but before a later ring's is missed by that poll,
-        and the later ring's ``ts_stop`` overtakes it. The other cause is the
-        barrier-free stores in ADR-0015 §"What gcmon trusts the target for".
+        across *all* the interpreter's rings, and one read copies those rings
+        together without stopping the target, so the copy can tear: it may take
+        a later ring after a collection landed in it and an earlier ring from
+        before, and the later ring's ``ts_stop`` then overtakes a record the
+        earlier one never showed. The other cause is the barrier-free stores in
+        ADR-0015 §"What gcmon trusts the target for".
 
         Only the drawing is at stake. ``lost_count`` and ``lost_from`` are
         counter arithmetic with no timestamp in them, so ``_ingest`` records
