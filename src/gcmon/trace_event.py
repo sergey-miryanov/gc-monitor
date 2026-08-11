@@ -1,5 +1,6 @@
 """Trace Event model types and factory functions."""
 
+from collections.abc import Mapping
 from typing import Literal
 
 import msgspec
@@ -62,7 +63,9 @@ class BeginEvent(msgspec.Struct):
     ts: int
     pid: int
     tid: int
-    args: dict[str, int]
+    # Mostly counters. A string carries a range the reader is meant to read as
+    # one thing, such as `missing_collections` on a `GC Loss` slice.
+    args: dict[str, int | str]
 
 
 class EndEvent(msgspec.Struct):
@@ -128,7 +131,14 @@ def thread_meta(pid: int, tid: int, name: str) -> ThreadMeta:
     )
 
 
-def begin_event(pid: int, tid: int, name: str, cat: str, ts_ns: int, args: dict[str, int]) -> BeginEvent:
+def begin_event(pid: int, tid: int, name: str, cat: str, ts_ns: int, args: Mapping[str, int | str]) -> BeginEvent:
+    """A slice's opening event.
+
+    *args* is a ``Mapping`` so a caller with a plain ``dict[str, int]`` needs
+    no annotation of its own; ``dict`` is invariant and every counter-only
+    call site would otherwise have to widen to match the one arg that carries
+    a string.
+    """
     return BeginEvent(
         name=name,
         cat=cat,
@@ -136,7 +146,7 @@ def begin_event(pid: int, tid: int, name: str, cat: str, ts_ns: int, args: dict[
         ts=ts_ns,
         pid=pid,
         tid=tid,
-        args=args,
+        args=dict(args),
     )
 
 

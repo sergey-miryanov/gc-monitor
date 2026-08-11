@@ -237,5 +237,8 @@ def _make_counter_event(track_uuid: int, value: int | float) -> bytes:
     )
 
 
-def _args_to_debug_annotations(args: dict[str, int]) -> list[bytes]:
-    return [_build_debug_annotation_int(k, v) for k, v in args.items()]
+def _args_to_debug_annotations(args: dict[str, int | str]) -> list[bytes]:
+    return [
+        _build_debug_annotation_string(k, v) if isinstance(v, str) else _build_debug_annotation_int(k, v)
+        for k, v in args.items()
+    ]
