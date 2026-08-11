@@ -1,12 +1,26 @@
 # 0034 — Give interpreter confirmation its own seam, and put the mid-write bound back
 
-- **Status:** Not started (unblocked; the mechanism this restores was removed by ADR-0015's redesign)
+- **Status:** **Superseded** by ADR-0015's 2026-08-12 rewrite, which reached §1's goal another way
 - **Kind:** feature — enhancement
 - **Effort:** S
 - **Origin:** grilling session, 2026-08-08
 - **Respects:** [ADR-0015](../docs/adr/0015-gc-loss-spans-on-their-own-track.md) (the loss
   arithmetic and what gcmon trusts the target for),
   [ADR-0007](../docs/adr/0007-shared-trace-converter-pipeline.md) (one conversion pipeline)
+
+## 0. Why this is superseded
+
+A loss span now runs from one poll's read to the next, both instants taken from
+`time.monotonic_ns()` in `EventsMonitor.poll`. That left edge already sits later than the one
+this spec set out to raise: the old edge was the newest record the previous poll saw finish,
+and the read that saw it came after. §1's complaint is answered, without a confirmation bound
+and without the mid-write record having to prove anything.
+
+Nothing below is implementable as written. `read_bound_per_interpreter`, `LossWindow`,
+`is_drawable`, the shared left edge and the nesting guarantee are all gone, along with
+`tests/test_loss.py::TestOneLeftEdgePerPoll` and `tests/exporters/test_loss_track_stack.py`.
+The argument in §4 for why a temporal bound differs from the eviction-order clipping ADR-0015
+rejected is still correct, and worth reading before anyone proposes narrowing a span again.
 
 ## 1. Problem statement
 

@@ -22,7 +22,7 @@ spec here contradicts an ADR, one of the two is wrong and it is usually the spec
 | [0030](0030-exporter-hygiene-batch.md) | Feature — cleanup | S | Six one-file hazards in the exporter package: rank dict, `getattr` probe, builtin shadow, two undocumented threading contracts, duplicated validation |
 | [0031](0031-readme-output-example-is-labelled-chrome-only.md) | Bug — cosmetic | XS | The README's only trace example is headed "Chrome Trace Output" and captioned as the Perfetto UI |
 | [0033](0033-loss-counter-track.md) | Feature — enhancement | S | The loss row shows where gcmon was blind but not how much was lost; a bar losing 1 record looks like one losing 40 |
-| [0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) | Feature — enhancement | S | Loss spans reach back across a collection gcmon watched start, because the bound proving otherwise was folded into the poll loop and dropped with it |
+| [0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) | **Superseded** | S | Loss spans reached back across a collection gcmon watched start. ADR-0015's rewrite moved the edge to the poll instant, which is later still |
 | [0035](0035-end-of-run-summary-says-what-the-capture-is-worth.md) | Bug — reporting | S | Every run ends with `Total events: 1234` and no hint that 1234 is what gcmon sampled, not what the target collected |
 
 **Suggested order:** 0025 (the only outage, and it is one word) → 0026 (smallest user-visible
@@ -30,11 +30,12 @@ wrongness) → 0028 (XS, and it shrinks 0029) → 0027 (needs a trace-processor 
 can be settled either way) → 0031 → 0030 → 0029 → 0020. 0024 is the owner's to file and
 depends on nothing here.
 
-0033, 0034 and 0035 all came out of the work that landed as ADR-0015's per-generation loss
-spans, and none blocks another. 0035 is the cheapest and stands alone. 0034 restores a
-precision the redesign gave up on purpose, and its own §4 carries the argument for why that
-bound is sound where a rejected one is not — read it before re-rejecting it by analogy. 0033
-wants a real capture in front of you before it can be judged worth a fourth row.
+0033 and 0035 came out of the work that landed as ADR-0015, and neither blocks the other.
+0035 is the cheapest and stands alone. 0033 wants a real capture in front of you before it can
+be judged worth a fourth row. 0034 came from the same session and is superseded: ADR-0015's
+rewrite took the span's left edge from the poll clock, which is later than the bound 0034 set
+out to restore. Its §4 still carries the argument for why a temporal bound differs from the
+clipping ADR-0015 rejected, which is worth reading before anyone proposes narrowing a span.
 
 ## Templates
 
@@ -87,7 +88,7 @@ An alternative left open — "the implementer picks one" — is a decision the s
 either make it, or name the fact that would settle it.
 
 **6. Assert what the trace means, not that it parsed.** gcmon's characteristic bug is a wrong
-protobuf field number or a mis-nested message: the trace still parses, and it renders wrong.
+protobuf field number or a wrongly nested message: the trace still parses, and it renders wrong.
 Three such bugs shipped, and each was found by a human opening the file in the UI
 ([ADR-0001](../docs/adr/0001-hand-rolled-perfetto-protobuf-encoder.md),
 [ADR-0014](../docs/adr/0014-perfetto-integration-test-strategy.md)). A round-trip test reads a
