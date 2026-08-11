@@ -5,6 +5,8 @@ Plain values in, wire-format bytes out. Nothing here touches
 is what keeps it directly testable against the wire format (ADR-0001).
 """
 
+from collections.abc import Mapping
+
 from .perfetto_proto import (
     ChildTracksOrdering,
     CounterDescriptorField,
@@ -165,6 +167,24 @@ def _build_debug_annotation_string(name: str, value: str) -> bytes:
     return result
 
 
+def _build_debug_annotation_dict(name: str, entries: Mapping[str, int | str]) -> bytes:
+    """A named group of annotations, rendered as one expandable node.
+
+    The trace processor flattens it back out for SQL, joining the names with a
+    dot: a ``missing_count`` under ``gen0`` is queried as
+    ``args.debug.gen0.missing_count``.
+    """
+    result = encode_string_field(DebugAnnotationField.NAME, name)
+    for key, value in entries.items():
+        entry = (
+            _build_debug_annotation_string(key, value)
+            if isinstance(value, str)
+            else _build_debug_annotation_int(key, value)
+        )
+        result += encode_bytes_field(DebugAnnotationField.DICT_ENTRIES, entry)
+    return result
+
+
 def build_track_event(
     type: TrackEventType,
     track_uuid: int,
@@ -237,8 +257,13 @@ def _make_counter_event(track_uuid: int, value: int | float) -> bytes:
     )
 
 
-def _args_to_debug_annotations(args: dict[str, int | str]) -> list[bytes]:
-    return [
-        _build_debug_annotation_string(k, v) if isinstance(v, str) else _build_debug_annotation_int(k, v)
-        for k, v in args.items()
-    ]
+def _args_to_debug_annotations(args: Mapping[str, int | str | dict[str, int | str]]) -> list[bytes]:
+    return [_build_debug_annotation(k, v) for k, v in args.items()]
+
+
+def _build_debug_annotation(name: str, value: int | str | Mapping[str, int | str]) -> bytes:
+    if isinstance(value, str):
+        return _build_debug_annotation_string(name, value)
+    if isinstance(value, Mapping):
+        return _build_debug_annotation_dict(name, value)
+    return _build_debug_annotation_int(name, value)

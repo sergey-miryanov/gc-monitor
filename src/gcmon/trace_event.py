@@ -63,9 +63,12 @@ class BeginEvent(msgspec.Struct):
     ts: int
     pid: int
     tid: int
-    # Mostly counters. A string carries a range the reader is meant to read as
-    # one thing, such as `missing_collections` on a `GC Loss` slice.
-    args: dict[str, int | str]
+    # Mostly counters. A string carries a range meant to be read as one thing,
+    # such as `missing_collections`; a nested mapping groups counts under one
+    # heading, such as a generation's on a `GC Loss` slice. One level deep, as
+    # far as the UI and the trace processor's flattened arg names stay
+    # readable.
+    args: dict[str, int | str | dict[str, int | str]]
 
 
 class EndEvent(msgspec.Struct):
@@ -131,7 +134,14 @@ def thread_meta(pid: int, tid: int, name: str) -> ThreadMeta:
     )
 
 
-def begin_event(pid: int, tid: int, name: str, cat: str, ts_ns: int, args: Mapping[str, int | str]) -> BeginEvent:
+def begin_event(
+    pid: int,
+    tid: int,
+    name: str,
+    cat: str,
+    ts_ns: int,
+    args: Mapping[str, int | str | dict[str, int | str]],
+) -> BeginEvent:
     """A slice's opening event.
 
     *args* is a ``Mapping`` so a caller with a plain ``dict[str, int]`` needs

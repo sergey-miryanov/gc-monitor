@@ -111,6 +111,10 @@ class DebugAnnotationField(IntEnum):
     BOOL_VALUE = 2
     INT_VALUE = 4
     STRING_VALUE = 6
+    # `repeated DebugAnnotation dict_entries = 11`, each entry a named
+    # annotation of its own. Outside the `value` oneof, so an annotation that
+    # carries entries carries no value of its own.
+    DICT_ENTRIES = 11
 
 
 class TrackEventType(IntEnum):
