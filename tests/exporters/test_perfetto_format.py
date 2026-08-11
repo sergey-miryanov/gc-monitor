@@ -949,3 +949,54 @@ class TestLossTrackDescriptor:
         descriptors, _ = convert_item(100, item, state)
 
         assert self._loss_descriptors(descriptors) == []
+
+
+class TestTheMissingCollectionsAnnotation:
+    """``missing_collections`` is the one arg that is not a number.
+
+    Every other annotation the exporter writes is an integer, and a range
+    written into an integer field arrives as a number that is not one of the
+    counters it names. So this checks the wire, not the dict: the annotation
+    has to come back off a parsed packet as ``string_value``.
+    """
+
+    def _annotations(self, msg: LossMsg) -> dict[str, str | int]:
+        events: list[TraceEvent] = [process_meta(100, "Process 100"), *convert_loss_to_trace_format(100, msg)]
+        _, packets = convert_trace_events_to_perfetto(events, PerfettoTrackState(), 1)
+
+        for raw in packets:
+            packet = TracePacket()
+            packet.ParseFromString(raw)
+            if not packet.HasField("track_event"):
+                continue
+            track_event = packet.track_event
+            if track_event.name != "GC Loss(1)":
+                continue
+            return {
+                ann.name: ann.string_value if ann.HasField("string_value") else ann.int_value
+                for ann in track_event.debug_annotations
+            }
+        raise AssertionError("no GC Loss(1) slice in the packets")
+
+    def _msg(self, lost_from: int, lost_count: int) -> LossMsg:
+        return LossMsg(
+            iid=0,
+            gen=1,
+            ts_start=1_000,
+            ts_stop=2_000,
+            lost_count=lost_count,
+            lost_pause_ns=200,
+            lost_from=lost_from,
+        )
+
+    def test_a_range_reaches_the_wire_as_a_string(self) -> None:
+        assert self._annotations(self._msg(lost_from=413, lost_count=19))["missing_collections"] == "413..431"
+
+    def test_one_collection_reaches_it_as_its_own_number(self) -> None:
+        assert self._annotations(self._msg(lost_from=11, lost_count=1))["missing_collections"] == "11"
+
+    def test_the_counts_beside_it_stay_integers(self) -> None:
+        annotations = self._annotations(self._msg(lost_from=11, lost_count=1))
+
+        assert annotations["missing_count"] == 1
+        assert annotations["missing_pause_total_ns"] == 200

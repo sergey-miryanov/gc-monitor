@@ -430,8 +430,8 @@ class TestGCMonitorStreamsLoss:
         args = self.losses(data)[0]["args"]
         assert isinstance(args, dict)
         assert args["generation"] == 0
-        assert args["lost_count"] == 3
-        assert args["lost_pause_ns"] == 15_000_000
+        assert args["missing_count"] == 3
+        assert args["missing_pause_total_ns"] == 15_000_000
 
     def test_it_lands_on_the_loss_track(
         self,

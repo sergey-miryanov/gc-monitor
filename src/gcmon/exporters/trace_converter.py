@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 
-from ..data import lost_to
+from ..data import missing_collections
 from ..loss import stack_order
 from ..protocol import (
     TGCStatsInfo,
@@ -321,24 +321,29 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     slices on a thread track; a row of its own also keeps what is
     reconstructed apart from what was measured.
 
-    ``collections_from`` and ``collections_to`` name the missing collections on
-    that generation's counter, both ends included. Where the bar's width is
-    uncertainty, the range is not: it comes from subtracting two of the ring's
-    own cumulative counters, so it says exactly which collections the ring
-    overwrote and lets a reader check the span against the ``GC Pause`` slices
-    on the row above rather than take the count on faith.
+    ``missing_collections`` names them on that generation's counter, both ends
+    included. Where the bar's width is uncertainty, the range is not: it comes
+    from subtracting two of the ring's own cumulative counters, so it says
+    exactly which collections the ring overwrote and lets a reader check the
+    span against the ``GC Pause`` slices on the row above rather than take the
+    count on faith.
+
+    The args name that one set of collections and say so: what they are, how
+    many, and what they cost together. ``missing_pause_total_ns`` is a sum over
+    them and is nobody's duration — a bar 29 s wide can carry 3 s of it, with
+    the target running Python for the rest — so it says ``total`` where the
+    wire field beside it says ``lost_pause_ns``.
     """
     tid = loss_tid(item.iid)
     gen = item.gen
     name = f"GC Loss({gen})"
     category = f"gc.loss(gen={gen})"
-    args: dict[str, int] = {
+    args: dict[str, int | str] = {
         "iid": item.iid,
         "generation": gen,
-        "lost_count": item.lost_count,
-        "lost_pause_ns": item.lost_pause_ns,
-        "collections_from": item.lost_from,
-        "collections_to": lost_to(item.lost_from, item.lost_count),
+        "missing_collections": missing_collections(item.lost_from, item.lost_count),
+        "missing_count": item.lost_count,
+        "missing_pause_total_ns": item.lost_pause_ns,
     }
 
     return [

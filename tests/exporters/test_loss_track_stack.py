@@ -214,7 +214,7 @@ class TestTheVerbatimCapture:
             if isinstance(e, BeginEvent) and e.tid <= LOSS_TID_BASE
         ]
 
-        assert [(a["generation"], a["lost_count"]) for a in args] == [(0, 76), (1, 5)]
+        assert [(a["generation"], a["missing_count"]) for a in args] == [(0, 76), (1, 5)]
 
 
 class TestTheControls:

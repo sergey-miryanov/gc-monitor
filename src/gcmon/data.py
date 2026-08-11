@@ -95,6 +95,22 @@ def secs_to_ns(dur_s: float) -> int:
     return round(dur_s * 1_000_000_000)
 
 
+def missing_collections(lost_from: int, lost_count: int) -> str:
+    """The collections a window is missing, named the way a reader checks them.
+
+    ``"11"`` for one, ``"2..383"`` for a run, both ends included either way.
+
+    One string rather than a pair of numbers. A window that lost a single
+    collection carries the same counter at both ends, and a slice reading
+    ``11..11`` reads as a range of nothing unless you already know the ends
+    are inclusive. What the reader wants from
+    this field is which collections to look for on the row above, and that is
+    what it says; ``lost_count`` is the number, and it is stored apart.
+    """
+    to = lost_to(lost_from, lost_count)
+    return str(lost_from) if to == lost_from else f"{lost_from}..{to}"
+
+
 def lost_to(lost_from: int, lost_count: int) -> int:
     """The last collection a loss window is missing, counting both ends.
 

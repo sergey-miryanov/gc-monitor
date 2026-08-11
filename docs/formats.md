@@ -69,14 +69,13 @@ Each slice carries:
 |---|---|
 | `iid` | Interpreter the records were lost from |
 | `generation` | Generation whose ring overwrote them |
-| `lost_count` | Collections of that generation that ran unobserved in this interval |
-| `lost_pause_ns` | **Read this for the magnitude.** Pause time those collections took, in nanoseconds — exact, from the target's own counter |
-| `collections_from` | First collection the ring overwrote, on that generation's `collections` counter |
-| `collections_to` | Last one, inclusive. `collections_to - collections_from + 1` is `lost_count` |
+| `missing_count` | Collections of that generation that ran unobserved in this interval |
+| `missing_pause_total_ns` | **Read this for the magnitude.** Pause time those collections took *in total*, in nanoseconds — exact, from the target's own counter, and not the slice's duration |
+| `missing_collections` | Which collections the ring overwrote, on that generation's `collections` counter: `413..431` for a run, `11` for a single one, both ends included |
 
 **The range says *which* collections went missing, not just how many.** gcmon finds
 the gap by subtracting two of the ring's own cumulative counters, so both ends are
-already known: a bar reading `lost_count = 19` also reads `#413` through `#431`.
+already known: a bar reading `missing_count = 19` also reads `413..431`.
 Unlike the width, the range is not uncertainty — the collections in it are named, and
 the collections outside it are on the row above as `GC Pause` slices. That makes the
 whole reconstruction checkable: between the first and last record gcmon observed on a
@@ -88,7 +87,7 @@ over it. No lost record can have run during that collection, since an interprete
 serializes them, but cutting the bar around it meant dividing the window's counts and
 pause between the stretches left over, with nothing in the ring to say how — and a
 stretch could end up carrying more pause than it was wide. The bar spans the whole
-interval instead, so **every `lost_count` and `lost_pause_ns` on it is a
+interval instead, so **every `missing_count` and `missing_pause_total_ns` on it is a
 measurement**, taken from the target's own counters. The observed collection is drawn
 on the interpreter's row directly above, which is where you narrow the interval down
 from. How a span draws leaves the `--stats` table's `Cov` and `F` columns untouched.
@@ -175,8 +174,8 @@ like a GC event does, but no `collections`:
 | `lost_count` | Collections of that generation that ran unobserved in the interval |
 | `lost_pause_ns` | Pause time those collections took, in nanoseconds |
 
-The far end is `lost_from + lost_count - 1`, which is what the `collections_to` arg on a
-`GC Loss` slice carries; storing both would
+The far end is `lost_from + lost_count - 1`, which is where the far end of the
+`missing_collections` arg on a `GC Loss` slice comes from; storing both would
 let the two disagree, and `lost_count` is the number `--stats` sums. `lost_from` is
 optional on the way in and defaults to `0`, a value no `collections` counter takes, so a
 capture written before the field existed still reads back.

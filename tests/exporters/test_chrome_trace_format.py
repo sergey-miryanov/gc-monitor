@@ -611,10 +611,9 @@ class TestConvertLoss:
         assert begin.args == {
             "iid": 0,
             "generation": 1,
-            "lost_count": 76,
-            "lost_pause_ns": 81,
-            "collections_from": 413,
-            "collections_to": 488,
+            "missing_collections": "413..488",
+            "missing_count": 76,
+            "missing_pause_total_ns": 81,
         }
 
     def test_the_args_name_the_missing_collections(self) -> None:
@@ -623,19 +622,26 @@ class TestConvertLoss:
         what keeps the range and the count from ever disagreeing."""
         begin, _ = self._pair(self._msg(lost_from=413, lost_count=19))
 
-        assert (begin.args["collections_from"], begin.args["collections_to"]) == (413, 431)
+        assert begin.args["missing_collections"] == "413..431"
+
+    def test_a_single_missing_collection_reads_as_one_number(self) -> None:
+        """Two ends met at one counter and read as a range of nothing. The
+        window is real and one collection wide, and the arg says so."""
+        begin, _ = self._pair(self._msg(lost_from=11, lost_count=1))
+
+        assert begin.args["missing_collections"] == "11"
 
     @pytest.mark.parametrize(("lost_from", "lost_count"), [(1, 1), (413, 19), (2, 76), (99, 2)])
     def test_the_range_holds_exactly_the_collections_the_span_counts(self, lost_from: int, lost_count: int) -> None:
         """A reader takes the count off one arg and the identities off the
-        other two. An off-by-one at either fence makes a bar that contradicts
+        other. An off-by-one at either fence makes a bar that contradicts
         itself, and both ends are inclusive, so the width is one more than the
         difference."""
         begin, _ = self._pair(self._msg(lost_from=lost_from, lost_count=lost_count))
 
-        args = begin.args
-        assert args["collections_to"] - args["collections_from"] + 1 == args["lost_count"]
-        assert args["collections_from"] == lost_from
+        first, _, last = str(begin.args["missing_collections"]).partition("..")
+        assert int(last or first) - int(first) + 1 == begin.args["missing_count"]
+        assert int(first) == lost_from
 
     def test_a_batch_routes_loss_through_the_same_converter(self) -> None:
         """ADR-0007: Chrome, Perfetto and JSONL all read this one output, so

@@ -13,7 +13,7 @@
 
 - Detect GC records lost to ring-buffer wrap and draw each unobserved interval as a `GC Loss(N)` slice, one span per generation, nested on one track per `(pid, iid)`
 - Loss reaches Chrome, Perfetto, JSONL and stdout; `gcmon combine` reproduces the spans from a JSONL capture
-- `GC Loss` slices carry `collections_from` / `collections_to` and the JSONL record carries `lost_from`, naming which collections are missing
+- `GC Loss` slices name what they are missing, as `missing_collections` (`413..431`, or `11` for one), `missing_count` and `missing_pause_total_ns`; the JSONL record carries `lost_from`
 - Add `Cov` and `F` columns to the `--stats` table and a `gc_pause_gen_N_coverage` pyperf metric
 - Show `Count` and `Sum` as `sampled/exact`, with a leading `~` where the second number is `F`-scaled
 - Warn once per run when coverage falls below 90%

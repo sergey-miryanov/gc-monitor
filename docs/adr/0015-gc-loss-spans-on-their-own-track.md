@@ -82,8 +82,9 @@ track as an OS thread that does not exist.
 **The slice spans the whole unobserved interval**, abutting the observed collection before it
 and the one after. That interval is what gcmon knows. A bar sized to the reconstructed pause
 would be narrower than the uncertainty, and would put all of it at the window's left edge
-where the data does not support it. The pause sum rides in the args as `lost_pause_ns`,
-reading as a magnitude rather than as a placement.
+where the data does not support it. The pause sum rides in the args as `missing_pause_total_ns`,
+reading as a magnitude rather than as a placement: `total` because a reader who takes it for
+the bar's own duration has read the one number on the slice that is not a duration.
 
 **One span per generation, named `GC Loss({gen})`.** Each ring wraps on its own
 schedule, so a poll blind in all three draws three bars and each says how long *that*
@@ -148,8 +149,10 @@ construction. The narrowing the split performed is still available to a reader: 
 collection is drawn on the interpreter's thread row directly above, from evidence already on
 screen, and it costs nothing to see.
 
-**A span names the collections it is missing**, as `collections_from` and `collections_to` in
-the args, both ends included. The gap is found by subtracting two of the ring's own cumulative
+**A span names the collections it is missing**, as `missing_collections` in the args, both
+ends included and written as one field: a pair of numbers met at the same counter whenever a
+window lost a single collection, and `413..413` reads as a range of nothing to anyone who does
+not already know the ends are inclusive. The gap is found by subtracting two of the ring's own cumulative
 counters, so both fences are in hand already and only the near one is stored, as `lost_from`;
 the far end is derived from it and `lost_count`, since a stored pair could drift from the count
 `--stats` sums. Where the width is uncertainty the range is not, and it makes the
@@ -212,7 +215,7 @@ not share a clock, which would leave the whole reconstruction unsound.
   args either way.
 - **One extra row per `(pid, iid)`**, on top of the process track, thread track and
   `GC Metrics` group each process already has.
-- **Every `lost_count` and `lost_pause_ns` on a bar is a measurement.** Nothing in the
+- **Every `missing_count` and `missing_pause_total_ns` on a bar is a measurement.** Nothing in the
   drawing is estimated, and no bar reports more lost pause than its own duration. The cost is
   paid in width: a span reaches over collections gcmon did observe, and is wider than the
   stretch the missing records can be in.

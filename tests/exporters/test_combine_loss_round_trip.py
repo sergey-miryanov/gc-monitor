@@ -144,15 +144,15 @@ class TestTheCombinedRowIsTheLiveRow:
         combine_files([_capture(tmp_path)], out, input_format="jsonl", output_format="chrome")
 
         assert [
-            (a["generation"], a["lost_count"], a["lost_pause_ns"], a["collections_from"], a["collections_to"])
+            (a["generation"], a["missing_count"], a["missing_pause_total_ns"], a["missing_collections"])
             for a in _chrome_loss_args(out)
         ] == [
-            (2, 2, 200_000, 31, 32),
-            (1, 2, 200_000, 21, 22),
-            (0, 2, 200_000, 11, 12),
-            (2, 2, 200_000, 34, 35),
-            (1, 2, 200_000, 24, 25),
-            (0, 2, 200_000, 14, 15),
+            (2, 2, 200_000, "31..32"),
+            (1, 2, 200_000, "21..22"),
+            (0, 2, 200_000, "11..12"),
+            (2, 2, 200_000, "34..35"),
+            (1, 2, 200_000, "24..25"),
+            (0, 2, 200_000, "14..15"),
         ]
 
 

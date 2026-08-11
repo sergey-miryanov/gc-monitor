@@ -739,7 +739,7 @@ class TestJsonlLossRoundTrip:
 
         args = [e.args for e in convert_jsonl_to_trace_format(path) if e.ph == "B"]
 
-        assert [(a["collections_from"], a["collections_to"]) for a in args] == [(413, 431)]
+        assert [a["missing_collections"] for a in args] == ["413..431"]
 
     def test_written_on_the_loss_track(self, tmp_path: Path) -> None:
         path = tmp_path / "loss.jsonl"
@@ -885,4 +885,4 @@ class TestAnOldFormatLossRecord:
         combine_files([source], out, input_format="jsonl", output_format="chrome")
 
         args = [e["args"] for e in json.loads(out.read_text(encoding="utf-8")) if e["ph"] == "B"]
-        assert [(a["lost_count"], a["collections_from"]) for a in args] == [(5, 0)]
+        assert [(a["missing_count"], a["missing_collections"]) for a in args] == [(5, "0..4")]
