@@ -26,6 +26,7 @@
 - Fix GC events discarded by the poll loop; the cursor now tracks the target's `collections` counter per process, interpreter and generation
 - Drop poll state when the wait policy gives up on a PID or the PID leaves the process tree, so a reused PID does not inherit its predecessor's counter
 - Draw no `GC Loss` span when its bounds describe no interval; the collections still count toward `Count`, `Sum`, `Cov` and `F`, and the footer names how many were held back
+- Sort `GC Loss` records into nesting order when converting; JSONL line order no longer matters
 - Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting
 - `Processes` slices record the observed span in `real_start_ts` / `real_end_ts` annotations
 
