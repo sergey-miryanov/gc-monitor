@@ -28,8 +28,8 @@ type RingKey = tuple[int, int]
 class RingAccumulator(msgspec.Struct):
     """What one ring did, against what gcmon saw of it.
 
-    ``last`` doubles as the poll cursor: a record whose ``collections`` does
-    not exceed it has gone out already, or never arrived.
+    ``last_collections`` doubles as the poll cursor: a record at or below it
+    has gone out already, or was lost.
     """
 
     first_collections: int = 0
@@ -42,19 +42,15 @@ class RingAccumulator(msgspec.Struct):
 
     def unseen(self, events: Iterable[TGCStatsInfo]) -> list[TGCStatsInfo]:
         """The records in *events* this ring has not returned before, one per
-        counter, in the order they arrived.
+        counter, in the order they arrived. *events* is one poll's records for
+        this ring.
 
-        *events* is one poll's records for this ring. A record whose
-        ``collections`` does not exceed the cursor went out on an earlier
-        poll.
-
-        Two slots can report one counter, and they are one record rather than
-        two. No threshold tells them apart, so the counter is what identifies
-        a record. A dict keeps the last of such a pair, which a batch in slot
-        order leaves in slot order. Which of the two survives cannot matter
-        under the publishing contract ADR-0015 rests on, and would if that
-        ever stopped holding: the last record of the batch sets
-        ``last_duration``, the pause base the next poll subtracts from.
+        Two slots can report one counter, holding one record between them, and
+        no threshold tells them apart. A dict keeps the last of the pair, which
+        a stable sort leaves in slot order. Which one survives cannot matter
+        under the publishing contract ADR-0015 rests on. It would if that
+        stopped holding, since the batch's last record sets ``last_duration``,
+        the pause base the next poll subtracts from.
         """
         fresh = {event.collections: event for event in events if event.collections > self.last_collections}
         return list(fresh.values())
@@ -63,22 +59,18 @@ class RingAccumulator(msgspec.Struct):
         """Fold the records one poll returned for this ring, in counter order.
 
         A ring holds consecutive records, so only the first of them can sit
-        across a gap and only the last settles the cursor. Returns this
-        generation's entry for the poll, which the caller hangs on a
-        ``LossMsg`` as it stands, or ``None`` when the poll returned nothing
-        to fold.
+        across a gap and only the last settles the cursor.
 
-        They must be sorted by counter, which is what :meth:`unseen` preserves
-        and ``_ingest`` provides, and past ``last`` and free of duplicates,
-        which is what :meth:`unseen` returns. Contiguity it trusts without
-        checking, see ADR-0015.
+        Returns the generation's entry for the poll, ready for a ``LossMsg``
+        as it stands, or ``None`` when *events* is empty. Pass what
+        :meth:`unseen` returns; ``_ingest`` sorts each poll by counter first.
+        Contiguity it trusts without checking, see ADR-0015.
         """
         if not events:
             return None
 
-        # The first record on a ring opens no gap. Whatever ran before it is
-        # outside the observed span, and gcmon cannot tell "ran before we
-        # attached" from "lost".
+        # The first record on a ring opens no gap: what ran before it sits
+        # outside the span `exact_count` covers.
         seeding = self.sampled_count == 0
         if seeding:
             self.first_collections = events[0].collections
@@ -100,24 +92,24 @@ class RingAccumulator(msgspec.Struct):
 
     def _gen_loss(self, first: TGCStatsInfo, observed_count: int) -> GenLoss:
         """This ring's entry for one poll: *observed_count* records read, and
-        the records missing ahead of *first*, if there are any.
+        the records missing ahead of *first*, if any.
 
         Touches no running total; :meth:`observe_batch` owns those.
         """
-        # `last` is the newest counter this ring returned, so `last + 1` onward
-        # up to the one before `first` never reached gcmon. Both fences are the
-        # target's own counters; neither is inferred from a timestamp.
+        # The cursor is the newest counter this ring returned, so one past it
+        # up to one before `first` never reached gcmon. Both fences are the
+        # target's own counters, not timestamps.
         lost_from = self.last_collections + 1
         lost = first.collections - lost_from
         if lost <= 0:
             return GenLoss(gen=first.gen, observed_count=observed_count)
 
-        # Delta duration spans the records after `last` through this one, so
-        # taking this one's own pause back out leaves the `lost` records alone.
-        # The two come from different clocks, a cumulative float of seconds
-        # against ns timestamps, so a gap holding almost no pause can subtract
-        # to a hair below zero. Floor it: negative pause means nothing, and it
-        # would drag `exact_pause_ns` under the sum gcmon measured.
+        # Delta duration spans the records after the cursor through this one,
+        # so taking this one's own pause back out leaves the lost records
+        # alone. The two come from different clocks, a cumulative float of
+        # seconds against ns timestamps, so a gap holding almost no pause can
+        # land a hair below zero. Floor it: a negative pause would drag
+        # `exact_pause_ns` under the sum gcmon measured.
         spanned_ns = secs_to_ns(first.duration - self.last_duration)
         return GenLoss(
             gen=first.gen,
@@ -131,8 +123,8 @@ class RingAccumulator(msgspec.Struct):
     def exact_count(self) -> int:
         """GC runs over the observed span, counting both ends.
 
-        Whatever ran before the first observed record is outside the span:
-        gcmon cannot tell "ran before we attached" from "lost".
+        Runs before the first observed record fall outside it, since gcmon
+        cannot tell "ran before we attached" from "lost".
         """
         if self.sampled_count == 0:
             return 0
@@ -140,11 +132,11 @@ class RingAccumulator(msgspec.Struct):
 
     @property
     def exact_pause_ns(self) -> int:
-        """Pause time over the same span, from the target's own accumulator.
+        """Pause time over the same span, from the target's own ``duration``.
 
         ``first_duration`` is cumulative through the first observed record, so
-        the delta starts after it. Adding that record's pause back is what
-        makes this cover the runs ``exact_count`` counts.
+        the delta starts after it. Adding that record's pause back makes this
+        cover the runs ``exact_count`` counts.
         """
         if self.sampled_count == 0:
             return 0
@@ -158,8 +150,8 @@ class RingAccumulator(msgspec.Struct):
     def coverage(self) -> float:
         """Observed share of the span, in ``[0, 1]``.
 
-        An empty accumulator reports 1.0: it lost none of the nothing it
-        covers, and every call site would otherwise guard a division.
+        A ring that folded nothing lost nothing, so it reports 1.0 and no call
+        site has to guard a division.
         """
         if self.exact_count == 0:
             return 1.0
@@ -169,10 +161,10 @@ class RingAccumulator(msgspec.Struct):
     def scale_factor(self) -> float:
         """Multiplier taking a sampled pause sum to the exact one.
 
-        Sub-phases have no exact counterpart, since CPython accumulates a
-        total for the pause alone, but they partition it, so scaling a
-        measured phase sum by this estimates it. Percentiles it cannot
-        correct; see ADR-0015.
+        CPython accumulates a total for the pause alone, so no sub-phase has
+        an exact counterpart. Sub-phases partition the pause, so scaling a
+        measured phase sum by this estimates that counterpart. Percentiles it
+        cannot correct, see ADR-0015.
         """
         if self.sampled_pause_ns == 0:
             return 1.0
