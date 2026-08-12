@@ -1,4 +1,5 @@
-"""Core GC monitoring functionality."""
+"""Polling a process for GC records and passing them to the stats and the
+exporters."""
 
 import logging
 import time
@@ -35,9 +36,8 @@ class PidState(msgspec.Struct):
     """What gcmon carries from one poll of a process to the next."""
 
     rings: dict[RingKey, RingAccumulator] = msgspec.field(default_factory=dict)
-    # When this pid was last read, and None until it has been. A loss record
-    # is bounded by two polls, so a pid gcmon has polled once has nothing to
-    # bound yet.
+    # When gcmon last read this pid, and None before the first read. Two polls
+    # bound a loss record, so one poll bounds nothing.
     polled_at: int | None = None
 
 
@@ -56,9 +56,10 @@ class EventsMonitor:
         self._stats = stats
 
     def get_child_pids(self) -> list[int] | None:
-        """Every descendant of the target, or ``None`` when the tree could
-        not be read. ``None`` is not an empty tree: a caller that prunes
-        state for missing pids has to skip that tick.
+        """Every descendant of the target, or ``None`` when the read failed.
+
+        An empty list means no children. ``None`` means no answer, so a caller
+        pruning state for missing pids skips that tick.
         """
         try:
             return get_child_pids(self._process.pid, recursive=True)
@@ -98,8 +99,7 @@ class EventsMonitor:
 
     def forget(self, pid: int) -> None:
         """Drop everything held for *pid*, so a reused pid inherits no counter
-        and bounds no interval against the process that carried the pid
-        before."""
+        and no poll instant from the process before it."""
         self._pids.pop(pid, None)
 
     def retain(self, pids: Set[int]) -> None:
@@ -117,19 +117,19 @@ class EventsMonitor:
         Every poll returns the whole ring buffer, so ``collections`` is what
         identifies a record.
 
-        *ts_poll* is when this read began, on the monitor's own clock, which
-        the target's timestamps and the RSS samples already share. It bounds
-        any loss this poll finds together with the previous poll's, and the
-        pair is stored under the same field for both, so consecutive intervals
-        tile the timeline instead of overlapping by a read.
+        *ts_poll* is when this read began, on the monitor's own clock, the one
+        the target's timestamps and the RSS samples already share. It closes
+        the interval the previous poll opened. Both edges come from the same
+        point of a read, so consecutive intervals tile the timeline rather
+        than overlapping by a read's width.
         """
         state = self._pids.setdefault(pid, PidState())
         polled_before = state.polled_at
         state.polled_at = ts_poll
 
-        # Slot order is not time order: the batch arrives rotated around the
-        # ring's write position, with the generations concatenated. Sorting
-        # puts every ring back into the counter order its accumulator folds in.
+        # The batch arrives rotated around each ring's write position, with the
+        # generations concatenated. Sorting puts every ring back into the
+        # counter order its accumulator folds in.
         ordered = sorted(
             (event for event in events if _is_complete(event)),
             key=lambda event: (event.iid, event.gen, event.collections),
@@ -140,8 +140,8 @@ class EventsMonitor:
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = state.rings.setdefault((iid, gen), RingAccumulator())
             # The ring decides what it has not handed over yet, cursor and
-            # duplicate slots both. That filter and `_is_complete` above are
-            # the two ADR-0015 rests on the publishing contract for.
+            # duplicate slots both. ADR-0015 rests that filter and
+            # `_is_complete` above on CPython's publishing contract.
             streak = accumulator.unseen(group)
             if not streak:
                 # Nothing new on this ring, so it contributed neither loss nor
@@ -152,62 +152,58 @@ class EventsMonitor:
             entries.setdefault(iid, []).append(entry)
             self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
             if entry.lost_count:
-                # Record first, draw second, and never the other way round.
-                # The counts are the target's own counters, so `Cov`, `F` and
-                # the exact totals hold whether or not a span is drawn.
+                # Record first, draw second. The counts are the target's own
+                # counters, so `Cov`, `F` and the exact totals hold whether or
+                # not a span is drawn.
                 self._stats.record_loss(pid, gen, entry.lost_count, entry.lost_pause_ns)
             fresh.extend(streak)
 
         # One record per poll interval, per interpreter, carrying every
         # generation that went blind in it and every one that collected. See
         # ADR-0015 for why the interval is the unit. `ordered` sorts on
-        # `(iid, gen, ...)`, so each interpreter's entries are already in the
+        # `(iid, gen, ...)`, so each interpreter's entries already sit in the
         # order a reader scans them on the slice.
         for iid, gens in entries.items():
             # An interval that lost nothing draws no span.
             if not any(entry.lost_count for entry in gens):
                 continue
             # Reaching here means gcmon polled this pid before. A first poll
-            # builds every ring it touches, a ring seeds on the first records
-            # it returns, and seeding opens no gap, so no entry above it could
+            # builds every ring it touches, and a ring seeds on the first
+            # records it returns without opening a gap, so no entry above could
             # carry loss.
             assert polled_before is not None
             self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=polled_before, ts_stop=ts_poll, gens=gens))
 
-        # The sort serves the JSONL capture. `add_event` appends a line per
-        # call and nothing puts GC records back in order on read-back, so line
-        # order per interpreter is the only time order that file carries. A
-        # trace needs none of it: GC runs inside an interpreter are serialized,
-        # so the slices never overlap and a processor sorting by timestamp
-        # rebuilds the track from any order. `_loss_in_time_order` covers the
-        # one track where the order is load-bearing. Two interpreters share no
-        # track, so the order between them claims nothing.
+        # The sort serves the JSONL capture, where `add_event` appends a line
+        # per call and nothing reorders GC records on read-back, so these lines
+        # carry the only time order per interpreter that file has. A trace
+        # needs none of it: GC runs inside an interpreter are serialized, so a
+        # processor sorting by timestamp rebuilds the track from any order, and
+        # `_loss_in_time_order` covers the track where order is load-bearing.
         for event in sorted(fresh, key=lambda event: (event.iid, event.ts_start)):
             self._exporter.add_event(pid, event)
             self._stats.update(pid, event)
 
-        # Both halves of this poll are folded now: the gaps above, the records
-        # just here. Coverage divides one into the other, so asking any earlier
-        # measures a gap against a sample missing the very records that came
+        # This poll has folded both halves now: the gaps above, the records
+        # just here. Coverage divides one into the other, so checking earlier
+        # would measure a gap against a sample missing the records that came
         # back with it.
         self._stats.check_coverage_advisory(pid)
 
     def stop(self) -> None:
-        """Stop monitoring and close the handler and exporter.
+        """Close the exporter and stop accepting polls.
 
-        Safe to call multiple times.
+        Safe to call more than once.
         """
         self._exporter.close()
         self._enabled = False
 
     @property
     def is_enabled(self) -> bool:
-        """Check if monitor is currently enabled."""
         return self._enabled
 
     @property
     def pid(self) -> int:
-        """Return the process ID being monitored."""
         return self._process.pid
 
     @property
@@ -226,13 +222,5 @@ def create_monitor(
     exporter: EventsExporter,
     stats: StreamingStats,
 ) -> EventsMonitor:
-    """Create a GCMonitor for the given process.
-
-    Args:
-        process: Target process to monitor.
-        exporter: Events exporter.
-
-    Returns:
-        A GCMonitor instance ready to be polled.
-    """
+    """An :class:`EventsMonitor` for *process*, ready to be polled."""
     return EventsMonitor(process, exporter, stats)
