@@ -168,15 +168,7 @@ def has_delete_garbage(item: object) -> TypeGuard[TDeleteGarbageInfo]:
 
 
 def is_gc_stats(item: object) -> TypeGuard[TGCStatsInfo]:
-    """A GC record is the one record type built around ``collections``.
-
-    Not around ``gen``: a loss record used to carry a ``gen`` of its own, so a
-    ``gen``-based guard claimed both record types. Call sites do not agree on
-    an order — ``_replay`` asks this before ``is_loss``, the converters ask
-    ``is_loss`` first — so the same record would take a different branch
-    depending on who asked. ``collections`` cannot collide: a loss record
-    counts records that were never read, per generation, under ``gens``.
-    """
+    """A GC record is the one record type built around ``collections``."""
     return hasattr(item, "collections")
 
 
@@ -205,8 +197,6 @@ def to_mapping(item: TItem) -> TMapping:
                 {
                     "gen": gen.gen,
                     "observed_count": gen.observed_count,
-                    # `lost_from` alone: the far end is derived, and a stored
-                    # pair could come back out of step with `lost_count`.
                     "lost_from": gen.lost_from,
                     "lost_count": gen.lost_count,
                     "lost_pause_ns": gen.lost_pause_ns,
