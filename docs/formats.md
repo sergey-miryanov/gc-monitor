@@ -24,7 +24,7 @@ Perfetto features:
 - **Process command lines**: With the [`[cmdline]` extra](rss.md#the-cmdline-extra), each monitored process's command line is written to the trace — see [Process command lines](#process-command-lines) below.
 - **`Start Process` marker**: A zero-duration instant event named `Start Process` is emitted on each process track at that process's first event. Perfetto hides a track that carries no events, so this guarantees the process track and its label always render. It is Perfetto-only; consumers that enumerate slices should filter it out.
 - **RSS counter track**: A process-level `rss` counter track appears for each PID when `--rss` is enabled, showing Resident Set Size in bytes. Sampled at the configured `--rss-interval` (default 1s).
-- **`GC Loss` track**: One row per interpreter, named `GC Loss {iid}`, sitting under that process's own track. Each slice marks one poll interval in which the target collected without gcmon reading the records. See [GC Loss slices](#gc-loss-slices) below.
+- **`GC Loss` track**: One row per interpreter, named `GC Loss {iid}`, sitting under that process's own track. Each slice marks one poll interval in which gcmon missed one or more records from the target. See [GC Loss slices](#gc-loss-slices) below.
 
 This visualization helps you:
 - **Identify GC pause patterns** - See when and how long GC pauses occur
