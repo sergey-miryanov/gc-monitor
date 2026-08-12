@@ -36,9 +36,9 @@ class PidState(msgspec.Struct):
     """What gcmon carries from one poll of a process to the next."""
 
     rings: dict[RingKey, RingAccumulator] = msgspec.field(default_factory=dict)
-    # When gcmon last read this pid, and None before the first read. Two polls
-    # bound a loss record, so one poll bounds nothing.
-    polled_at: int | None = None
+    # None before the first read. Two polls bound a loss record, so one poll
+    # bounds nothing.
+    ts_last_poll: int | None = None
 
 
 class EventsMonitor:
@@ -124,8 +124,8 @@ class EventsMonitor:
         than overlapping by a read's width.
         """
         state = self._pids.setdefault(pid, PidState())
-        ts_prev_poll = state.polled_at
-        state.polled_at = ts_poll
+        ts_prev_poll = state.ts_last_poll
+        state.ts_last_poll = ts_poll
 
         # Ring buffer records arrive wrapped, with the generations
         # concatenated, so restore each ring's counter order.
