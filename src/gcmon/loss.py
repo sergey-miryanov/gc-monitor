@@ -88,25 +88,24 @@ class RingAccumulator(msgspec.Struct):
 
         Touches no running total; :meth:`ingest` owns those.
         """
-        # The cursor is the newest counter this ring returned, so one past it
-        # up to one before *event* never reached gcmon. Both fences are the
-        # target's own counters, not timestamps.
+        # `last_collections` is the newest counter this ring returned, so the
+        # counters between it and *event* never reached gcmon.
         lost_from = self.last_collections + 1
         lost = event.collections - lost_from
         if lost <= 0:
             return GenLoss(gen=event.gen, observed_count=observed_count)
 
-        # Delta duration spans the records after the cursor through this one,
-        # so taking this one's own pause back out leaves the lost records
-        # alone. The two come from different clocks, a cumulative float of
-        # seconds against ns timestamps, so a gap holding almost no pause can
-        # land a hair below zero. Floor it: a negative pause would drag
-        # `exact_pause_ns` under the sum gcmon measured.
+        # `duration` is cumulative, so this delta covers the lost records and
+        # *event* with them. Taking *event*'s own pause back out leaves the
+        # lost ones.
         spanned_ns = secs_to_ns(event.duration - self.last_duration)
         return GenLoss(
             gen=event.gen,
             observed_count=observed_count,
             lost_count=lost,
+            # Floored: cumulative seconds as a float against ns timestamps can
+            # land a hair below zero, and a negative would drag
+            # `exact_pause_ns` under the sum gcmon measured.
             lost_pause_ns=max(0, spanned_ns - (event.ts_stop - event.ts_start)),
             lost_from=lost_from,
         )
