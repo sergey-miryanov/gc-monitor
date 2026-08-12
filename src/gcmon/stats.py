@@ -314,7 +314,7 @@ class StreamingStats:
         return self._ring_size.get(gen, 0)
 
     def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
-        """Record one interval's worth of collections gcmon did not read."""
+        """Record one interval's worth of records gcmon did not read."""
         key = (pid, gen)
         self._lost_count[key] = self._lost_count.get(key, 0) + lost_count
         self._lost_pause_ns[key] = self._lost_pause_ns.get(key, 0) + lost_pause_ns
@@ -462,8 +462,8 @@ class StreamingStats:
 
         Sums and counts are exact: what gcmon saw plus what the target's own
         counters say it missed. ``p99`` stays sampled and reads high, since a
-        long collection delays its successors and so survives in the ring more
-        often than a short one. No scale factor corrects a quantile.
+        long run delays the next one, so its record survives in the ring more
+        often than a short one's. No scale factor corrects a quantile.
 
         The loss and lifetime totals are folded per generation once, up front:
         going through the per-pid accessors instead would rescan both dicts for

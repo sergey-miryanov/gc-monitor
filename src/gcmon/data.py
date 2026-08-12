@@ -45,8 +45,8 @@ class GenLoss(msgspec.Struct):
 
     ``observed_count`` is how many of its records the poll handed back, and is
     the only field set on a generation that collected without losing anything.
-    ``lost_from`` is the first collection gcmon missed and ``lost_count`` how
-    many; the far end is :func:`lost_to`, derived from the two so a stored pair
+    ``lost_from`` is the first record gcmon missed and ``lost_count`` how many;
+    the far end is :func:`lost_to`, derived from the two so a stored pair
     cannot drift from the count ``--stats`` sums.
     """
 
@@ -58,8 +58,8 @@ class GenLoss(msgspec.Struct):
 
 
 class LossMsg(msgspec.Struct):
-    """One poll interval on one interpreter, in which collections ran that
-    gcmon never read.
+    """One poll interval on one interpreter, in which GC runs happened whose
+    records gcmon never read.
 
     ``ts_start`` and ``ts_stop`` are two consecutive polls, and every
     collection the record names ran between them. ``gens`` holds one
@@ -135,7 +135,7 @@ def duration_text(ns: int) -> str:
 
 
 def seen_text(observed_count: int, lost_count: int) -> str:
-    """The share of an interval's collections gcmon actually read.
+    """The share of an interval's records gcmon read.
 
     ``87.0% (47 of 54)``, carrying the two counts the percentage came from.
     One poll interval wide, unlike the ``--stats`` table's ``Cov``.
@@ -147,11 +147,11 @@ def seen_text(observed_count: int, lost_count: int) -> str:
 
 
 def missing_collections(lost_from: int, lost_count: int) -> str:
-    """The collections an interval is missing, as one string.
+    """The records an interval is missing, as one string.
 
-    ``"11"`` for a single collection, ``"2..383"`` for a run, both ends
+    ``"11"`` for a single record, ``"2..383"`` for a streak, both ends
     included either way. A pair of numbers would meet at the same counter
-    whenever one collection went missing, and ``11..11`` reads as a range of
+    whenever one record went missing, and ``11..11`` reads as a range of
     nothing.
     """
     to = lost_to(lost_from, lost_count)
@@ -159,11 +159,11 @@ def missing_collections(lost_from: int, lost_count: int) -> str:
 
 
 def lost_to(lost_from: int, lost_count: int) -> int:
-    """The last collection a loss window is missing, counting both ends.
+    """The last record a loss window is missing, counting both ends.
 
     Derived and never stored, so the range cannot drift from the count it was
     cut to: ``lost_from`` through here inclusive is exactly ``lost_count``
-    counters. That identity is what lets every collection on a ring be charged
-    to one drawn ``GC Pause`` slice or to one loss span and to nothing else.
+    counters. That identity is what lets every record on a ring be charged to
+    one drawn ``GC Pause`` slice or to one loss span and to nothing else.
     """
     return lost_from + lost_count - 1

@@ -126,7 +126,7 @@ def _build_rows(
 def _coverage_cell(coverage: float, lost: int) -> str:
     """``Cov`` must never round to a figure the cells beside it contradict.
 
-    A run that lost eight collections in 1771 is at 99.5%, which reads as
+    A session that lost eight records in 1771 is at 99.5%, which reads as
     100% at two decimals while ``Count`` plainly shows a gap. Where rounding
     would claim completeness that the numbers deny, say so instead.
     """

@@ -1,8 +1,9 @@
-"""Reconstructing the GC records a poll could not observe.
+"""Reconstructing the GC records a poll could not read.
 
-A target that collects faster than gcmon polls runs collections gcmon never
-sees. Two cumulative fields make the loss measurable: ``collections`` counts
-what was missed, and ``duration`` gives the pause time nobody saw.
+CPython writes one record per finished GC run, and a target whose collector
+runs faster than gcmon polls loses records before any poll reads them. Two
+cumulative fields make the loss measurable: ``collections`` counts what was
+missed, and ``duration`` gives the pause time nobody saw.
 
 ``EventsMonitor`` owns one ``KeyAccumulator`` per ``(pid, iid, gen)``; see
 ADR-0015 for why the spans need a track of their own.
@@ -27,14 +28,15 @@ type CursorKey = tuple[int, int]
 
 
 class KeyGap(msgspec.Struct):
-    """A run of collections on one key that never reached gcmon, as counters.
+    """A streak of records on one key that never reached gcmon, as counters.
 
     ``lost_from`` is the first of them, ``lost_count`` how many, and
-    ``lost_pause_ns`` what they cost together. All three come from subtracting
-    two of the target's cumulative counters, so all three are exact. The far
-    end is :func:`lost_to <gcmon.data.lost_to>`, derived from the other two.
+    ``lost_pause_ns`` what the runs behind them cost together. All three come
+    from subtracting two of the target's cumulative counters, so all three are
+    exact. The far end is :func:`lost_to <gcmon.data.lost_to>`, derived from
+    the other two.
 
-    ``LossMsg`` carries the interval they ran in.
+    ``LossMsg`` carries the interval those runs happened in.
     """
 
     gen: int
@@ -60,23 +62,23 @@ class KeyAccumulator(msgspec.Struct):
     sampled_pause_ns: int = 0
 
     def observe_batch(self, events: Sequence[TGCStatsInfo]) -> KeyGap | None:
-        """Fold one poll's run of records for this key, in counter order.
+        """Fold the records one poll returned for this key, in counter order.
 
-        A ring holds consecutive records, so only the run's first record can
-        sit across a gap and only its last one settles the cursor. Returns
-        the gap it sits behind, if any, for the caller to emit.
+        A ring holds consecutive records, so only the first of them can sit
+        across a gap and only the last settles the cursor. Returns the gap
+        they sit behind, if any, for the caller to emit.
 
-        The run must be sorted by counter, past ``last``, and free of the
-        copy the target makes of a record ahead of overwriting it; ``_ingest``
+        They must be sorted by counter, past ``last``, and free of the copy
+        the target makes of a record ahead of overwriting it; ``_ingest``
         guarantees all three. Contiguity it trusts without checking, see
         ADR-0015.
         """
         if not events:
             return None
 
-        # The first record on a key opens no gap. What the target collected
-        # before it is outside the observed span, and gcmon cannot tell "ran
-        # before we attached" from "lost".
+        # The first record on a key opens no gap. Whatever ran before it is
+        # outside the observed span, and gcmon cannot tell "ran before we
+        # attached" from "lost".
         seeding = self.sampled_count == 0
         if seeding:
             self.first_collections = events[0].collections
@@ -125,10 +127,10 @@ class KeyAccumulator(msgspec.Struct):
 
     @property
     def exact_count(self) -> int:
-        """Collections over the observed span, counting both ends.
+        """GC runs over the observed span, counting both ends.
 
-        What the target collected before the first observed record is outside
-        the span: gcmon cannot tell "ran before we attached" from "lost".
+        Whatever ran before the first observed record is outside the span:
+        gcmon cannot tell "ran before we attached" from "lost".
         """
         if self.sampled_count == 0:
             return 0
@@ -140,7 +142,7 @@ class KeyAccumulator(msgspec.Struct):
 
         ``first_duration`` is cumulative through the first observed record, so
         the delta starts after it. Adding that record's pause back is what
-        makes this cover the collections ``exact_count`` counts.
+        makes this cover the runs ``exact_count`` counts.
         """
         if self.sampled_count == 0:
             return 0

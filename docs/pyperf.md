@@ -1,6 +1,6 @@
 # Pyperf Hook Integration
 
-The gcmon package provides a pyperf hook for automatic GC metrics collection during benchmarks. The hook uses the same [external-process model](../README.md#how-it-works) as the CLI.
+The gcmon package provides a pyperf hook that collects GC metrics during benchmarks. The hook uses the same [external-process model](../README.md#how-it-works) as the CLI.
 
 > **Prerequisite:** install [pyperf](https://pypi.org/project/pyperf/) first (`pip install pyperf`). pyperf auto-discovers the hook once `gcmon` is installed; pass `--hook=gcmon` to enable it for a benchmark.
 
@@ -25,23 +25,23 @@ The hook collects and reports the following GC metrics in pyperf metadata:
 - `gc_pause_gen_0_sum`, `gc_pause_gen_1_sum`, `gc_pause_gen_2_sum` - Total GC pause time by generation (milliseconds)
 - `gc_pause_gen_0_count`, `gc_pause_gen_1_count`, `gc_pause_gen_2_count` - Number of GC pauses by generation
 - `gc_pause_count` - Total number of GC pauses across all generations and monitored processes
-- `gc_pause_gen_0_coverage`, `gc_pause_gen_1_coverage`, `gc_pause_gen_2_coverage` - Share of that generation's collections gcmon read, in `[0, 1]`
-- `gc_pause_gen_N_lifetime_count`, `gc_pause_gen_N_lifetime_sum` - Collections and pause time since the *interpreter* started, not since the benchmark did
+- `gc_pause_gen_0_coverage`, `gc_pause_gen_1_coverage`, `gc_pause_gen_2_coverage` - Share of that generation's records gcmon read, in `[0, 1]`
+- `gc_pause_gen_N_lifetime_count`, `gc_pause_gen_N_lifetime_sum` - GC runs and pause time since the *interpreter* started, not since the benchmark did
 - `gc_heap_size_p99` - P99 across the per-process peak live object counts
 
 ### `sum` and `count` are exact, `p99` is sampled
 
 > **Breaking change.** `gc_pause_gen_N_sum`, `gc_pause_gen_N_count` and
-> `gc_pause_count` used to report the collections gcmon managed to read. They now
-> report **every** collection that ran in the monitored window, reconstructed
+> `gc_pause_count` used to report only the GC runs gcmon read records for. They now
+> report **every** GC run in the monitored window, reconstructed
 > from CPython's cumulative counters. On a benchmark with GC loss the new values
 > are larger, often by an order of magnitude. Do not trend a history that spans
 > this change.
 
-A benchmark that runs collections faster than gcmon reads them loses records — see
+A benchmark whose collector runs faster than gcmon polls loses records — see
 [How gcmon reads a process](monitoring.md). `sum` and `count` correct for that
-exactly. `p99` cannot be corrected and reads high, since a long collection occupies
-its slot for longer and is likelier to survive to the next poll.
+exactly. `p99` cannot be corrected and reads high, since a long GC run leaves its
+record in the ring slot for longer, where it is likelier to survive to the next poll.
 
 `gc_pause_gen_N_coverage` tells you how far to trust the `p99` beside it: at `1.0`
 it is the real distribution, at `0.2` it is the tail of a biased sample. See
@@ -51,7 +51,7 @@ for why no scale factor fixes a quantile.
 ### The lifetime metrics are not benchmark-scoped
 
 `gc_pause_gen_N_lifetime_count` and `_lifetime_sum` cover the interpreter's whole
-history: every collection since it started, including whatever ran before the hook
+history: every GC run since it started, including whatever ran before the hook
 attached and outside any benchmark iteration. They answer how much time this
 process has spent in GC, which is a different question from what this benchmark
 cost.

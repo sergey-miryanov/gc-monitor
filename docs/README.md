@@ -9,7 +9,7 @@ how to read the result.
 
 | Page | What it covers |
 |---|---|
-| [monitoring.md](monitoring.md) | How gcmon reads a process, why it misses collections, and what it recovers — the basis for the pages below |
+| [monitoring.md](monitoring.md) | How gcmon collects the GC record stream every other page reads: the polling loop, why some collections never reach it, and what its counters recover |
 | [cli.md](cli.md) | Subcommands (`monitor`, `run`, `combine`), every option, and the environment variables that back them |
 | [formats.md](formats.md) | The four `--format` values, what a Chrome or Perfetto trace contains, and the JSONL event schema |
 | [statistics.md](statistics.md) | The `--stats` table, how to read it, and the `[stats]` extra |

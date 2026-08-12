@@ -1,56 +1,61 @@
 # How gcmon reads a process
 
-gcmon runs outside the process it watches. It injects nothing and never pauses the
-target to take a reading. It gets whatever CPython left in a buffer, and that is
-where the `--stats` coverage column, the `GC Loss` track and the pyperf metrics all
-come from.
+gcmon collects a stream of GC records from a running process. Each time the
+collector finishes a run, CPython writes one record describing it: the
+generation, the start and stop times, what the run freed, the heap size, and
+the target's running totals. That stream is the product. Watch it live, or
+write it to a file and post-process it later.
+
+gcmon sits outside the process it watches. It injects nothing and never pauses
+the target. It reads what CPython already wrote, so the target is not slowed
+and never learns anyone is reading.
 
 ## The ring buffer
 
-CPython writes each finished collection into a small fixed ring buffer, one per
-generation, and gcmon reads the whole ring on every poll.
+CPython keeps one small fixed buffer per generation and writes each new record
+into it. gcmon reads the whole buffer on every poll.
 
-The ring holds the newest few records. Nothing blocks when it fills: CPython
-overwrites the oldest record, and the collection it described is gone. gcmon only
-reads, so the target runs at full speed and gets no signal that a record went unread.
+The buffer holds the newest few records and never blocks. When it is full,
+CPython drops the oldest record to make room, and nothing else describes the
+run it held.
 
-How few depends on the CPython version and build, so this page does not name a
-number. gcmon counts the slots a poll returns and names the size it found in the
-advisory it logs when coverage drops below 90%.
+The size depends on the CPython version and build. A free-threaded build keeps
+one record per generation, so only the newest survives to the next poll. gcmon
+counts the slots a poll returns instead of assuming a size, and names that size
+when it reports what it missed.
 
 ## Polling
 
-`--rate` is the wait *between* rounds, and one round reads every monitored process
-once. You sample at `--rate` plus those reads, so a run with several child processes
-samples slower than the number you asked for. The `Read Time` row of the `--stats`
-table measures the reads.
+`--rate` is the wait *between* rounds, in seconds. One round reads every
+monitored process once, so the real interval is `--rate` plus those reads. Watch
+several child processes and you sample slower than the number you asked for.
 
-## Why records go missing
+## Records gcmon misses
 
-A target that runs collections more often than gcmon polls overwrites records before
-anyone reads them. On a GC-heavy workload at default settings, expect it.
+A target whose collector runs faster than gcmon polls drops records before any
+poll reads them. On a GC-heavy workload at default settings, expect it.
 
-Raising `--rate` narrows the gap without closing it. Each round costs a read of every
-monitored process, and that read time puts a floor under the interval.
+A shorter `--rate` narrows the gap without closing it. Every round still reads
+each monitored process, and that read time puts a floor under the interval.
 
-## What gcmon recovers
+A lost record takes its timestamps with it, so nothing says when that run
+happened. The two polls around it still bound it: a record goes missing only
+between two consecutive reads, so that interval is as tight as any bound gets.
 
-CPython keeps a cumulative count of collections and a running total of pause time for
-each generation. Both survive the overwrite, so the difference between two polls
-measures how many collections gcmon missed and how long they took.
+## What the counters recover
 
-The correction reaches the totals only:
+For each generation CPython keeps a running count of finished runs and a running
+total of the time they took. Both keep climbing whether or not a record
+survives, so the difference between two polls gives how many runs gcmon missed
+and what they cost together.
 
-- **Counts and sums cover every collection**, read or not.
-- **Percentiles describe only what was read, and read high.** A long collection
-  delays its successors, so it sits in its slot longer and is likelier to survive to
-  the next poll.
-- **Coverage** is the share gcmon read, and says how far to trust the percentiles.
+That is subtraction over the target's own counters, so three numbers in the
+stream are exact rather than estimated:
 
-## Where this shows up
+- how many runs happened between two polls, read or not
+- how many of them gcmon read
+- how much pause time the rest took
 
-| Page | What it covers |
-|---|---|
-| [statistics.md](statistics.md) | `Cov` and `F`, the two-number cells, and the notes under the table |
-| [formats.md](formats.md#gc-loss-slices) | The `GC Loss` track, one span per interval gcmon was blind for |
-| [pyperf.md](pyperf.md) | `gc_pause_gen_N_coverage`, and which metrics are corrected |
+The records themselves do not come back. What a lost run freed, how long it took
+on its own, and where in the interval it happened are gone. Averages and
+percentiles therefore describe what gcmon read, not what ran.

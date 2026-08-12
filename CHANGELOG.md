@@ -33,6 +33,8 @@
 ### Documentation
 
 - Add [ADR-0015](docs/adr/0015-gc-loss-spans-on-their-own-track.md) on the `GC Loss` track
+- Add `docs/monitoring.md`: how gcmon collects the GC record stream, why some runs never reach it, and what the target's counters recover
+- Split the vocabulary the docs use for a GC run and the record CPython writes for it, so "collection" no longer stands for both
 - Rewrite `docs/statistics.md` around `Cov`, `F`, the three intervals a cell can report, and the notes under the table
 - Document the `GC Loss` track and the JSONL loss record in `docs/formats.md`
 - Document the changed pyperf metrics, and that the lifetime metrics are not benchmark-scoped

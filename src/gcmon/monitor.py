@@ -25,7 +25,7 @@ __all__ = ["EventsMonitor", "create_monitor"]
 
 
 def _is_complete(event: TGCStatsInfo) -> bool:
-    """False for a slot holding no finished collection: never written, or
+    """False for a slot holding no finished record: never written, or
     mid-write with ``ts_start`` published and ``ts_stop`` not yet."""
     return event.ts_start < event.ts_stop
 
@@ -169,7 +169,8 @@ class EventsMonitor:
         for iid, lost in gaps.items():
             if polled_before is None:
                 # One poll bounds nothing. Nothing can reach here anyway, since
-                # a key seeds on its first run and seeding opens no gap.
+                # a key seeds on the first records it returns and seeding opens
+                # no gap.
                 continue
             self._exporter.add_loss_event(
                 pid,

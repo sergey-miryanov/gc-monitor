@@ -150,14 +150,14 @@ and counter data only. See
 [Output formats](https://github.com/sergey-miryanov/gcmon/blob/main/docs/formats.md)
 for which fields need which build.
 
-### Not every collection is read
+### Not every GC run is read
 
-CPython publishes GC records into a small fixed ring buffer, so a target that runs
-collections more often than gcmon polls overwrites records before anyone reads them.
-On a GC-heavy workload at default settings that is the normal case.
+CPython writes one record per finished GC run into a small fixed ring buffer, so a
+target whose collector runs more often than gcmon polls loses records before any poll
+reads them. On a GC-heavy workload at default settings that is the normal case.
 
 gcmon reconstructs what it missed from CPython's cumulative counters, so **`Count`
-and `Sum` in the `--stats` table cover every collection**, read or not, and the `Cov`
+and `Sum` in the `--stats` table cover every run**, read or not, and the `Cov`
 column reports what share gcmon read. **Percentiles are not corrected and read
 high.** The trace draws each blind interval on a `GC Loss` track. See
 [How gcmon reads a process](https://github.com/sergey-miryanov/gcmon/blob/main/docs/monitoring.md)
@@ -167,10 +167,10 @@ for how to read a low-coverage table.
 
 ### No call-stack attribution
 
-gcmon reports when each collection ran, how long it took, and how large the heap
+gcmon reports when each GC run happened, how long it took, and how large the heap
 was, plus a per-phase breakdown on a custom CPython build with enhanced GC
 instrumentation (see [above](#sub-step-breakdown-requires-a-custom-build)). It cannot
-tell you which code triggered the collection, because the GC records carry no
+tell you which code triggered the run, because the GC records carry no
 stack information. A sampler answers that question, so the two pair well: see
 [Alternatives Comparison](#alternatives-comparison).
 

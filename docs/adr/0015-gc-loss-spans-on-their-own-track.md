@@ -8,8 +8,8 @@
 
 CPython 3.15 exports GC records through a fixed ring buffer: `GC_YOUNG_STATS_SIZE = 11` slots
 for generation 0, `GC_OLD_STATS_SIZE = 3` for the older two, 1 each under `Py_GIL_DISABLED`. A
-poll reads the whole ring. A target collecting faster than gcmon polls overwrites records
-before anyone reads them, and the read gives no sign of it. On the capture this was built
+poll reads the whole ring. A target collecting faster than gcmon polls loses records before
+any poll reads them, and the read gives no sign of it. On the capture this was built
 against, gen 0 collected about 87 times per 100 ms tick against 11 slots.
 
 Two cumulative fields make the loss measurable. `collections` counts what was missed;
@@ -17,15 +17,15 @@ Two cumulative fields make the loss measurable. `collections` counts what was mi
 one poll's last counter and the next poll's first carries an exact count and an exact pause
 sum.
 
-Where inside that gap the missing collections ran, nothing the target exports says. Every
+Where inside that gap the missing runs happened, nothing the target exports says. Every
 question below comes back to that split. The counts are exact; their placement is guesswork.
 
 ## The arithmetic
 
 Per key, `KeyAccumulator` carries `first`, `first_pause_ns` and `first_duration` from the first
 record gcmon observed, `last`, `last_duration` and `last_ts_stop` from the most recent one, and
-the running `sampled_count` and `sampled_pause_ns`. On the first record `r` of a poll's run,
-with `r.collections = c` and the previous cursor at `p`:
+the running `sampled_count` and `sampled_pause_ns`. On the first record `r` a poll returned for
+that key, with `r.collections = c` and the previous cursor at `p`:
 
 ```
 lost_from  = p + 1
@@ -37,9 +37,9 @@ No interval appears here. A `KeyGap` holds counters and nothing else; the two po
 bracket it answer the placement question.
 
 `Δduration` spans records `p+1 .. c` inclusive. gcmon read record `c`, so taking its own pause
-back out leaves the pause sum of the `gap` records nobody saw. `observe_batch` tests the run's
-first record alone, since a ring holds consecutive records and nothing inside a run can be
-missing.
+back out leaves the pause sum of the `gap` records nobody saw. `observe_batch` tests only the
+first record a poll returned for a key, since a ring holds consecutive records and nothing
+between them can be missing.
 
 At close, per key:
 
@@ -50,7 +50,7 @@ exact_pause_ns = round((last_duration - first_duration) * 1e9) + first_pause_ns
 
 `first_duration` is already cumulative through the first record, so the delta over the span
 misses that record's own pause. Adding `first_pause_ns` back makes `exact_count` and
-`exact_pause_ns` describe the same collections. One invariant ties them together, and the suite
+`exact_pause_ns` describe the same runs. One invariant ties them together, and the suite
 asserts it:
 
 ```
@@ -77,8 +77,8 @@ the track as an OS thread that does not exist.
 
 **A span is one poll interval**, from the read before the gap to the read that found it. That
 bound is the tightest available: a record the previous poll did not return was either lost
-already, which that poll reported itself, or not yet written. So every collection a span names
-ran between those two reads.
+already, which that poll reported itself, or not yet written. So every run a span names
+finished between those two reads.
 
 **Both edges come from the monitor's clock**, `time.monotonic_ns()` taken at the start of the
 read in `poll` and carried into `_ingest`. Anchoring both on the same point of the read makes
@@ -92,13 +92,13 @@ go missing between two reads, so the generations go blind over the same interval
 only in their counts. The name gives each combination a stable colour, since Perfetto hashes
 it, and says which generations went blind before a reader clicks anything.
 
-**A span's width is uncertainty rather than GC time.** One lost 5 ms collection can draw a
+**A span's width is uncertainty rather than GC time.** One lost 5 ms run can draw a
 130 ms bar. Beside 5 ms `GC Pause` slices such a bar reads as a very long pause, which is why
 loss gets a row of its own, and a row holding nothing else is a row you can find.
 
-The bar also covers the collections gcmon did observe in the interval, its own interpreter's
-included. Collections in an interpreter are serialized, so no lost record ran during one that
-was seen. Trimming the bar around them would narrow the claim to somewhere the records might
+The bar also covers the runs gcmon did see, its own interpreter's included. Runs
+inside an interpreter are serialized, so no lost one happened during one that was seen.
+Trimming the bar around them would narrow the claim to somewhere the records might
 not be, on evidence that says nothing about where they ran; the args report how much of the
 interval survived instead. Every number on a span is then the target's own counter over the
 span's own bounds, and no bar reports more pause than it covers.
@@ -125,7 +125,7 @@ observed, which makes `seen` checkable: the groups add up to the totals. A gener
 neither collected nor lost anything is left out, since an entry saying zero twice is noise on a
 slice meant to be read at a glance.
 
-`missing_pause_total_ns` sums the lost collections, so it says `total`: a reader who takes it
+`missing_pause_total_ns` sums what the lost records cost, so it says `total`: a reader who takes it
 for the bar's own width has read the one number on the slice that is not a duration. It appears
 twice, exactly for SQL and as text for reading, since a bare `3316458100` beside a duration the
 UI has already formatted invites being read as a smaller number than it is. `seen` carries its
@@ -135,21 +135,21 @@ A group reaches Perfetto as a `DebugAnnotation` carrying `dict_entries` and no v
 own. The trace processor flattens the entries back under the group's name, so gen 1's count
 answers to `args.debug.gen1.missing_count` in SQL.
 
-**A span names the collections it is missing**, as `missing_collections` in each group, both
+**A span names the records it is missing**, as `missing_collections` in each group, both
 ends included and written as one field. A pair of numbers meets at the same counter whenever a
-ring loses a single collection, and `413..413` reads as a range of nothing to anyone who does
+ring loses a single record, and `413..413` reads as a range of nothing to anyone who does
 not already know the ends are inclusive. Subtracting two of the ring's cumulative counters puts
 both fences in hand, and only the near one is stored, as `lost_from`; `lost_to` derives the far
 end from it and `lost_count`, since a stored pair could drift from the count `--stats` sums.
-The range makes the reconstruction checkable: between the first and last record gcmon observed
-on a ring, every collection is either a drawn `GC Pause` slice or inside exactly one span's
-range for that generation, none twice and none unaccounted for.
+The range makes the reconstruction checkable: between the first and last record gcmon read on
+a ring, every run is either drawn as a `GC Pause` slice or inside exactly one span's range for
+that generation, none twice and none unaccounted for.
 
 **`StreamingStats` records each gap as it is found**, before anything is drawn, so coverage,
 the scale factor and every aggregate stay independent of what the trace shows.
 
 **Loss records leave `_ingest` a poll at a time.** Nothing is retained, no flush is needed at
-`stop()`, `forget()` or `retain()`, and no buffer grows over a long run. Emitting there also
+`stop()`, `forget()` or `retain()`, and no buffer grows over a long session. Emitting there also
 keeps loss inside the shared converter, so Chrome, Perfetto and JSONL take it from one place
 and [ADR-0007](0007-shared-trace-converter-pipeline.md) holds. `combine` can then rebuild the
 spans from a JSONL capture.
@@ -172,22 +172,22 @@ Whether that ordering reaches the reader is unsettled. The stores are plain, wit
 and no atomic, so nothing forbids the compiler from sinking the `ts_start` store past the other
 two, and on a weakly-ordered target such as AArch64 store-store order is not architecturally
 guaranteed to any other observer, including the kernel serving gcmon's read. A read landing
-inside a reordered window can return a record assembled from two collections: the previous
+inside a reordered window can return a record assembled from two runs: the previous
 start against this stop, under a fresh counter. It passes both filters and goes out as genuine,
-with a pause too long by one collection interval. Each reordering leaves a different
+with a pause too long by the interval between the two. Each reordering leaves a different
 fingerprint, and no client-side check catches them all without discarding real records too, so
 gcmon does not try. The fix belongs upstream.
 
-**2. One poll's records for one key are contiguous.** A ring holds consecutive records, so the
-run handed to `observe_batch` has no hole inside it and a gap can only sit ahead of the run, at
-the seam between two polls. `observe_batch` folds the run's tail from its last record alone,
-without checking.
+**2. One poll's records for one key are contiguous.** A ring holds consecutive records, so what
+`observe_batch` receives has no hole inside it and a gap can only sit ahead of it, at the seam
+between two polls. `observe_batch` folds the tail from the last record alone, without checking.
 
-Producing such a hole takes **two or more** collections completing inside one ~1.1 KB read,
-positioned so the target's write cursor crosses the reader's. One collection during the copy
-yields a contiguous run whichever side of the cursor it lands on, and under `Py_GIL_DISABLED`
-every ring holds one slot, so a run is a single record and a hole cannot form. Were it to
-happen, the counts would survive, since they read only the run's two ends, but no gap would
+Producing such a hole takes **two or more** runs finishing inside one ~1.1 KB read, positioned
+so the target's write cursor crosses the reader's. A single run finishing during the copy
+leaves the records contiguous whichever side of the cursor it lands on, and under
+`Py_GIL_DISABLED` every ring holds one slot, so a poll returns at most one record per key and
+a hole cannot form. Were it to
+happen, the counts would survive, since they read only the two ends, but no gap would
 carry the hole's pause and the invariant would break in silence. Accepted without a guard: the
 property belongs to the ring, and a check that never fires costs more in code than the failure
 costs in practice.
@@ -210,9 +210,9 @@ not share a clock, which would leave the whole reconstruction unsound.
   does not depend on how many of them went blind.
 - **Sums and counts become exact; percentiles do not.** `Count` and `Sum` come back from the
   target's own counters. Quantiles cannot: gcmon holds only the durations it sampled, and that
-  sample skews long, since a long collection delays its successors, occupies its slot longer,
-  and is likelier to survive to the next poll. `P50` through `P99` read high. The scale factor
-  is a ratio of two totals, so it corrects sums; applying it to a quantile would assume the
+  sample skews long, since a long run delays the next one, so its record occupies its slot
+  longer and is likelier to survive to the next poll. `P50` through `P99` read high. The scale
+  factor is a ratio of two totals, so it corrects sums; applying it to a quantile would assume the
   sampled and unsampled distributions share a shape, which is the assumption the skew violates.
   [`docs/statistics.md`](../statistics.md) documents this rather than correcting it.
 - **A loss row whose spans overlap corrupts in silence**, the first END closing the wrong span
@@ -224,8 +224,8 @@ not share a clock, which would leave the whole reconstruction unsound.
 - **The intervals either side of the observed span draw nothing.** No poll measured a
   `Δcollections` across them, and gcmon cannot tell "ran before we attached" from "lost". Both
   fall outside the span rather than counting against coverage.
-- **`Δduration` inherits CPython's float accumulator.** Over 10^5 collections the relative
-  error runs around 10^-11, below the nanosecond resolution of the fields it is compared
+- **`Δduration` inherits CPython's float accumulator.** Over 10^5 runs the relative
+  error stays around 10^-11, below the nanosecond resolution of the fields it is compared
   against.
 - **A pid reused inside one tick is measured against its predecessor's counter**, so gcmon
   reports a gap and an `exact_count` belonging to neither process. Accepted without code: reuse
@@ -243,7 +243,7 @@ not share a clock, which would leave the whole reconstruction unsound.
   when anything was lost, so three bars at three widths read as three events at three times.
   They also have to be sorted into nesting order, can arrive reversed when a read tears, and
   say nothing the grouped args leave out.
-- **Narrowing a span around the collections observed inside it**, by cutting it into pieces and
+- **Narrowing a span around the records observed inside it**, by cutting it into pieces and
   sharing the counts and pause across them. Rejected: nothing in the ring says how the records
   divide, so every division is a guess, and it would be the only estimated quantity in the
   drawing. A share taken by width can also hand a piece more pause than it is wide. The
@@ -252,13 +252,13 @@ not share a clock, which would leave the whole reconstruction unsound.
 - **Clipping a span's far end to the poll's earliest observation anywhere in the interpreter.**
   The same guess in a subtler form. Oldest-first eviction orders a key's lost records against
   that key's kept records and says nothing about another generation's, so a lost gen-0
-  collection can have run after an observed gen-2 one. Measured on a real capture, clipping
+  run can have happened after an observed gen-2 one. Measured on a real capture, clipping
   produced spans narrower than the pause they reported.
-- **Bounding a span by how many collections it could hold**, taking the shortest interval ever
+- **Bounding a span by how many runs it could hold**, taking the shortest interval ever
   measured between two consecutive records of a key as a floor on its period. Rejected: one
-  fast burst weakens a lifetime minimum for the whole run. It also errs in the dangerous
+  fast burst weakens a lifetime minimum for the whole session. It also errs in the dangerous
   direction, since a stretch narrower than the floor that did hold a record loses it, and loss
-  happens precisely when collections come fast.
+  happens precisely when runs come fast.
 - **Inline on the interpreter's thread track (`tid = iid`)**, either with an ADR-0011-style
   clipping sweep or snapped to the adjacent observed records. Rejected: an interval-width bar
   beside 5 ms pauses invites the misreading the separate track prevents, clipping would shorten
@@ -270,13 +270,13 @@ not share a clock, which would leave the whole reconstruction unsound.
   poll bounds all of them, so two interpreters' spans would land on one row over the same
   interval and Perfetto would read the pair as nested.
 - **Retaining intervals and emitting at `stop()`.** Correct, and rejected: it buffers without
-  bound on a long run and emits every loss span in a lump after every GC event. A poll knows
+  bound on a long session and emits every loss span in a lump after every GC record. A poll knows
   both its edges.
 - **Emitting the track from a `finalize_perfetto_packets`-style hook**, as ADR-0011 does for
   process lifetimes. Rejected: it would make loss Perfetto-only, breaking ADR-0007's single
   converter and leaving `combine` unable to rebuild spans from a JSONL capture.
 - **A flag to disable loss detection.** Rejected: a reader who does not know what fraction of
-  collections a capture holds cannot interpret any other number in it.
+  the records a capture holds cannot interpret any other number in it.
 
 ## Implementation
 
@@ -300,10 +300,10 @@ not share a clock, which would leave the whole reconstruction unsound.
 - `src/gcmon/exporters/perfetto_builders.py`, `_build_debug_annotation_dict`, which writes a
   generation's group as `dict_entries` on an annotation carrying no value of its own.
 - `src/gcmon/stats.py`, `record_loss` for every gap.
-- `tests/test_loss.py` checks the arithmetic against synthetic runs with known ground truth and
+- `tests/test_loss.py` checks the arithmetic against synthetic sessions with known ground truth and
   against a verbatim two-poll capture in `tests/test_monitor_cursor.py`, driving `_ingest`
   itself rather than a mirror of it. `tests/test_loss_replay.py` replays `tests/captures.py`,
-  every collection one target ran with its counters unbroken, behind a simulated ring and poll
+  every GC run one target made with its counters unbroken, behind a simulated ring and poll
   clock, so the counts, the pause sums and the intervals answer to the target rather than to an
   expectation. Its ring model follows §1 and holds itself to the verbatim capture, and it
   reaches both hazards above by construction.
