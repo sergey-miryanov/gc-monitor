@@ -3,6 +3,8 @@ from collections import Counter, OrderedDict, deque
 from collections.abc import Sequence
 from typing import Protocol
 
+import msgspec
+
 try:
     from ddsketch import DDSketch
 
@@ -228,6 +230,17 @@ METRICS: dict[str, Metric] = {
 TStatsData = dict[str, dict[int, Stats]]
 
 
+class LossTotals(msgspec.Struct):
+    """Records gcmon never read, and the pause time they held."""
+
+    count: int = 0
+    pause_ns: int = 0
+
+    def add(self, count: int, pause_ns: int) -> None:
+        self.count += count
+        self.pause_ns += pause_ns
+
+
 def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
     """Record a phase duration in nanoseconds; conversion happens at display time."""
     metric = METRICS[metric_name]
@@ -253,12 +266,10 @@ class StreamingStats:
         self._materialized_metrics: dict[int, TStatsData] = {}
         self._heap_size: dict[int, int] = {}
         self._read_time: Stats = Stats()
-        # Loss arrives as a per-poll increment, so exact totals follow from
-        # ADR-0015's invariant without holding the monitor's rings: what
-        # gcmon saw plus what it missed. A pid dropped by `forget` keeps what
-        # it recorded.
-        self._lost_count: dict[tuple[int, int], int] = {}
-        self._lost_pause_ns: dict[tuple[int, int], int] = {}
+        # `record_loss` hands over one poll's gap at a time, so these sum.
+        # Sampled plus lost is the exact total ADR-0015 defines, so the rings
+        # themselves stay in the monitor. Nothing prunes a dead pid.
+        self._loss: dict[tuple[int, int], LossTotals] = {}
         # Lifetime is a running total, not an increment, so it is stored per
         # ring and overwritten rather than summed across polls.
         self._lifetime: dict[tuple[int, int, int], tuple[int, float]] = {}
@@ -315,9 +326,7 @@ class StreamingStats:
 
     def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
         """Record one interval's worth of records gcmon did not read."""
-        key = (pid, gen)
-        self._lost_count[key] = self._lost_count.get(key, 0) + lost_count
-        self._lost_pause_ns[key] = self._lost_pause_ns.get(key, 0) + lost_pause_ns
+        self._loss.setdefault((pid, gen), LossTotals()).add(lost_count, lost_pause_ns)
 
     def check_coverage_advisory(self, pid: int) -> None:
         """Warn once if *pid* is reading too little of its target to trust.
@@ -368,16 +377,22 @@ class StreamingStats:
             return Stats()
         return pid_data["pause"][gen]
 
-    def _lost(self, totals: dict[tuple[int, int], int], pid: int | None, gen: int) -> int:
+    def _lost(self, pid: int | None, gen: int) -> LossTotals:
+        """One pid's generation, or that generation over every pid."""
         if pid is not None:
-            return totals.get((pid, gen), 0)
-        return sum(value for (_pid, key_gen), value in totals.items() if key_gen == gen)
+            return self._loss.get((pid, gen), LossTotals())
+
+        total = LossTotals()
+        for (_pid, key_gen), loss in self._loss.items():
+            if key_gen == gen:
+                total.add(loss.count, loss.pause_ns)
+        return total
 
     def lost_count(self, pid: int | None, gen: int) -> int:
-        return self._lost(self._lost_count, pid, gen)
+        return self._lost(pid, gen).count
 
     def lost_pause_ns(self, pid: int | None, gen: int) -> int:
-        return self._lost(self._lost_pause_ns, pid, gen)
+        return self._lost(pid, gen).pause_ns
 
     def exact_count(self, pid: int | None, gen: int) -> int:
         """Collections over the observed span, seen and unseen alike."""
@@ -410,11 +425,11 @@ class StreamingStats:
             return 1.0
         return self.exact_pause_ns(pid, gen) / sampled
 
-    def _lost_by_gen(self, totals: dict[tuple[int, int], int]) -> dict[int, int]:
-        """Fold a per-(pid, gen) total into a per-gen one in a single pass."""
-        by_gen: dict[int, int] = {}
-        for (_pid, gen), value in totals.items():
-            by_gen[gen] = by_gen.get(gen, 0) + value
+    def _lost_by_gen(self) -> dict[int, LossTotals]:
+        """Fold every pid's totals into a per-gen one in a single pass."""
+        by_gen: dict[int, LossTotals] = {}
+        for (_pid, gen), loss in self._loss.items():
+            by_gen.setdefault(gen, LossTotals()).add(loss.count, loss.pause_ns)
         return by_gen
 
     def _lifetime_by_gen(self) -> dict[int, tuple[int, float]]:
@@ -471,18 +486,18 @@ class StreamingStats:
         """
         result: dict[str, int | float] = {}
         pause = self.metrics["pause"]
-        lost_counts = self._lost_by_gen(self._lost_count)
-        lost_pause_ns = self._lost_by_gen(self._lost_pause_ns)
+        lost = self._lost_by_gen()
         lifetime = self._lifetime_by_gen()
         exact_total = 0
         for gen in self.GENS:
             s = pause[gen]
+            gen_lost = lost.get(gen, LossTotals())
             sampled_count = s.count()
-            exact_count = sampled_count + lost_counts.get(gen, 0)
+            exact_count = sampled_count + gen_lost.count
             exact_total += exact_count
             if sampled_count > 0:
                 result[f"pause_gen_{gen}_p99"] = dur_to_ms(s.percentile(99))
-                result[f"pause_gen_{gen}_sum"] = dur_to_ms(s.sum() + lost_pause_ns.get(gen, 0))
+                result[f"pause_gen_{gen}_sum"] = dur_to_ms(s.sum() + gen_lost.pause_ns)
                 result[f"pause_gen_{gen}_count"] = exact_count
                 result[f"pause_gen_{gen}_coverage"] = sampled_count / exact_count
             lifetime_count, lifetime_duration_s = lifetime.get(gen, (0, 0.0))
