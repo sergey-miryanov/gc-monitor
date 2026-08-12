@@ -56,6 +56,10 @@ class GenLoss(msgspec.Struct):
     lost_pause_ns: int = 0
     lost_from: int = 0
 
+    @property
+    def no_loss(self) -> bool:
+        return self.lost_count == 0
+
 
 class LossMsg(msgspec.Struct):
     """One poll interval on one interpreter, in which GC runs happened whose

@@ -127,67 +127,42 @@ class EventsMonitor:
         polled_before = state.polled_at
         state.polled_at = ts_poll
 
-        # The batch arrives rotated around each ring's write position, with the
-        # generations concatenated. Sorting puts every ring back into the
-        # counter order its accumulator folds in.
+        # ring buffer records may be wrapped, so restore their collections order
         ordered = sorted(
             (event for event in events if _is_complete(event)),
             key=lambda event: (event.iid, event.gen, event.collections),
         )
 
         fresh: list[TGCStatsInfo] = []
-        entries: dict[int, list[GenLoss]] = {}
+        intervals: dict[int, list[GenLoss]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = state.rings.setdefault((iid, gen), RingAccumulator())
-            # The ring decides what it has not handed over yet, cursor and
-            # duplicate slots both. ADR-0015 rests that filter and
-            # `_is_complete` above on CPython's publishing contract.
-            streak = accumulator.unseen(group)
-            if not streak:
-                # Nothing new on this ring, so it contributed neither loss nor
-                # coverage and the interval leaves it out.
+            unseen = accumulator.unseen(group)
+            if not unseen:
                 continue
 
-            entry = accumulator.observe_batch(streak)
-            entries.setdefault(iid, []).append(entry)
+            interval = accumulator.ingest(unseen)
+            intervals.setdefault(iid, []).append(interval)
             self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
-            if entry.lost_count:
-                # Record first, draw second. The counts are the target's own
-                # counters, so `Cov`, `F` and the exact totals hold whether or
-                # not a span is drawn.
-                self._stats.record_loss(pid, gen, entry.lost_count, entry.lost_pause_ns)
-            fresh.extend(streak)
+            if interval.lost_count:
+                self._stats.record_loss(pid, gen, interval.lost_count, interval.lost_pause_ns)
+            fresh.extend(unseen)
 
-        # One record per poll interval, per interpreter, carrying every
-        # generation that went blind in it and every one that collected. See
-        # ADR-0015 for why the interval is the unit. `ordered` sorts on
-        # `(iid, gen, ...)`, so each interpreter's entries already sit in the
-        # order a reader scans them on the slice.
-        for iid, gens in entries.items():
-            # An interval that lost nothing draws no span.
-            if not any(entry.lost_count for entry in gens):
+        for iid, gens in intervals.items():
+            if all(entry.no_loss for entry in gens):
                 continue
-            # Reaching here means gcmon polled this pid before. A first poll
-            # builds every ring it touches, and a ring seeds on the first
-            # records it returns without opening a gap, so no entry above could
-            # carry loss.
+
+            # A first poll builds every ring it touches, and a ring seeds on
+            # the first records it returns without opening a gap, so reaching
+            # here means gcmon polled this pid before.
             assert polled_before is not None
             self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=polled_before, ts_stop=ts_poll, gens=gens))
 
-        # The sort serves the JSONL capture, where `add_event` appends a line
-        # per call and nothing reorders GC records on read-back, so these lines
-        # carry the only time order per interpreter that file has. A trace
-        # needs none of it: GC runs inside an interpreter are serialized, so a
-        # processor sorting by timestamp rebuilds the track from any order, and
-        # `_loss_in_time_order` covers the track where order is load-bearing.
+        # We want to keep exported events in the time order
         for event in sorted(fresh, key=lambda event: (event.iid, event.ts_start)):
             self._exporter.add_event(pid, event)
             self._stats.update(pid, event)
 
-        # This poll has folded both halves now: the gaps above, the records
-        # just here. Coverage divides one into the other, so checking earlier
-        # would measure a gap against a sample missing the records that came
-        # back with it.
         self._stats.check_coverage_advisory(pid)
 
     def stop(self) -> None:

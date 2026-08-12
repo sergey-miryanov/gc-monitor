@@ -33,11 +33,11 @@ gap        = c - lost_from
 lost_pause = round((r.duration - last_duration) * 1e9) - (r.ts_stop - r.ts_start)
 ```
 
-No interval appears here. `observe_batch` returns the `GenLoss` the exporters will read, which
+No interval appears here. `ingest` returns the `GenLoss` the exporters will read, which
 holds counters and nothing else; the two polls that bracket it answer the placement question.
 
 `Δduration` spans records `p+1 .. c` inclusive. gcmon read record `c`, so taking its own pause
-back out leaves the pause sum of the `gap` records nobody saw. `observe_batch` tests only the
+back out leaves the pause sum of the `gap` records nobody saw. `ingest` tests only the
 first record a poll returned for a ring, since a ring holds consecutive records and nothing
 between them can be missing.
 
@@ -157,7 +157,7 @@ spans from a JSONL capture.
 ## What gcmon trusts the target for
 
 Three properties hold the reconstruction up. CPython guarantees the first two, which gcmon
-assumes rather than checks; the invariant above tests the third. `unseen` and `observe_batch`
+assumes rather than checks; the invariant above tests the third. `unseen` and `ingest`
 cite this section rather than restating it.
 
 **1. The publish-last contract survives to the reader.** `add_stats`
@@ -179,8 +179,8 @@ fingerprint, and no client-side check catches them all without discarding real r
 gcmon does not try. The fix belongs upstream.
 
 **2. One poll's records for one ring are contiguous.** A ring holds consecutive records, so what
-`observe_batch` receives has no hole inside it and a gap can only sit ahead of it, at the seam
-between two polls. `observe_batch` folds the tail from the last record alone, without checking.
+`ingest` receives has no hole inside it and a gap can only sit ahead of it, at the seam
+between two polls. `ingest` folds the tail from the last record alone, without checking.
 
 Producing such a hole takes **two or more** runs finishing inside one ~1.1 KB read, positioned
 so the target's write cursor crosses the reader's. A single run finishing during the copy
@@ -282,7 +282,7 @@ not share a clock, which would leave the whole reconstruction unsound.
 
 - `src/gcmon/loss.py` holds the arithmetic: `RingAccumulator`, one per `(pid, iid, gen)`,
   carrying the fencepost fields. Pure structs, no I/O. `unseen` picks out what the ring has not
-  handed over, cursor and duplicate slots both, and `observe_batch` folds that and returns the
+  handed over, cursor and duplicate slots both, and `ingest` folds that and returns the
   generation's `GenLoss` for the poll, so nothing downstream assembles one out of a loss and a
   count kept apart.
 - `src/gcmon/data.py`, `LossMsg` with one `GenLoss` per generation, and `lost_to` deriving the

@@ -44,12 +44,12 @@ class RingAccumulator(msgspec.Struct):
         order they came in.
 
         Two slots can report one GC run and no marker splits them, so the
-        first of the pair is dropped.
+        first of the pair is dropped, see ADR-0015.
         """
         fresh = {event.collections: event for event in events if event.collections > self.last_collections}
         return list(fresh.values())
 
-    def observe_batch(self, events: Sequence[TGCStatsInfo]) -> GenLoss:
+    def ingest(self, events: Sequence[TGCStatsInfo]) -> GenLoss:
         """Fold the records one poll returned for this ring.
 
         *events* is what :meth:`unseen` returned, ordered by ``collections``
@@ -86,7 +86,7 @@ class RingAccumulator(msgspec.Struct):
         """This ring's entry for one poll: *observed_count* records read, and
         the records missing ahead of *event*, if any.
 
-        Touches no running total; :meth:`observe_batch` owns those.
+        Touches no running total; :meth:`ingest` owns those.
         """
         # The cursor is the newest counter this ring returned, so one past it
         # up to one before *event* never reached gcmon. Both fences are the

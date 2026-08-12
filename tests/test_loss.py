@@ -149,7 +149,7 @@ def fold_singly(events: Sequence[GCStatsInfo]) -> RingAccumulator:
     """The same records, one single-record run at a time."""
     accumulator = RingAccumulator()
     for event in events:
-        accumulator.observe_batch([event])
+        accumulator.ingest([event])
     return accumulator
 
 
@@ -273,7 +273,7 @@ class TestEmptyAccumulator:
 
 class TestFencepost:
     def test_one_record_spans_itself(self, accumulator: RingAccumulator) -> None:
-        entry = accumulator.observe_batch(
+        entry = accumulator.ingest(
             [create_mock_stats_item(collections=42, ts_start=1_000, ts_stop=1_700, duration=0.0007)]
         )
 
@@ -283,7 +283,7 @@ class TestFencepost:
         assert (entry.observed_count, entry.lost_count) == (1, 0)
 
     def test_two_adjacent_records_leave_no_gap(self, accumulator: RingAccumulator) -> None:
-        entry = accumulator.observe_batch(build_run(2))
+        entry = accumulator.ingest(build_run(2))
 
         assert accumulator.exact_count == 2
         assert accumulator.lost_count == 0
@@ -293,7 +293,7 @@ class TestFencepost:
         """The delta of a cumulative field starts *after* the first record, so
         dropping the fencepost term would under-report by one pause."""
         events = build_run(5)
-        accumulator.observe_batch(events)
+        accumulator.ingest(events)
 
         assert accumulator.exact_pause_ns == true_pause_ns(events, 1, 5)
         assert accumulator.exact_pause_ns != secs_to_ns(events[-1].duration - events[0].duration)
@@ -302,7 +302,7 @@ class TestFencepost:
         """gcmon cannot tell "ran before we attached" from "lost", so
         collections before the first observed record are outside the span."""
         events = build_run(20)
-        accumulator.observe_batch(events[10:])
+        accumulator.ingest(events[10:])
 
         assert accumulator.exact_count == 10
         assert accumulator.exact_pause_ns == true_pause_ns(events, 11, 20)
@@ -314,8 +314,8 @@ class TestGapDetection:
 
     def test_a_skipped_record_opens_a_gap(self, accumulator: RingAccumulator) -> None:
         events = build_run(3)
-        accumulator.observe_batch([events[0]])
-        entry = accumulator.observe_batch([events[2]])
+        accumulator.ingest([events[0]])
+        entry = accumulator.ingest([events[2]])
 
         assert entry.lost_count == 1
         assert entry.lost_pause_ns == events[1].ts_stop - events[1].ts_start
@@ -325,8 +325,8 @@ class TestGapDetection:
         bounds are in hand before the count is. Records 2, 3 and 4 never
         arrived: the entry says so rather than saying "three of them"."""
         events = build_run(6)
-        accumulator.observe_batch([events[0]])
-        entry = accumulator.observe_batch([events[4]])
+        accumulator.ingest([events[0]])
+        entry = accumulator.ingest([events[4]])
 
         assert (entry.lost_from, entry.lost_count) == (2, 3)
         assert lost_to(entry.lost_from, entry.lost_count) == 4
@@ -337,8 +337,8 @@ class TestGapDetection:
         the gap and the record after it were observed and are drawn, so a range
         reaching either would charge a collection twice."""
         events = build_run(3)
-        accumulator.observe_batch([events[0]])
-        entry = accumulator.observe_batch([events[2]])
+        accumulator.ingest([events[0]])
+        entry = accumulator.ingest([events[2]])
 
         assert entry.lost_from == events[0].collections + 1
         assert lost_to(entry.lost_from, entry.lost_count) == events[2].collections - 1
@@ -349,8 +349,8 @@ class TestGapDetection:
         An entry that carried bounds of its own would be a second answer to
         that question, derived from the records rather than from the reads."""
         events = build_run(3)
-        accumulator.observe_batch([events[0]])
-        entry = accumulator.observe_batch([events[2]])
+        accumulator.ingest([events[0]])
+        entry = accumulator.ingest([events[2]])
 
         assert set(msgspec.structs.asdict(entry)) == {
             "gen",
@@ -373,20 +373,20 @@ class TestGapDetection:
             gen=0, collections=3, ts_start=TS0 + 10_000_000, ts_stop=TS0 + 10_200_000, duration=299e-6
         )
 
-        accumulator.observe_batch([first])
-        entry = accumulator.observe_batch([third])
+        accumulator.ingest([first])
+        entry = accumulator.ingest([third])
 
         assert entry.lost_pause_ns == 0
 
     def test_the_entry_carries_its_generation(self, accumulator: RingAccumulator) -> None:
         events = build_run(3, gen=1)
-        accumulator.observe_batch([events[0]])
-        entry = accumulator.observe_batch([events[2]])
+        accumulator.ingest([events[0]])
+        entry = accumulator.ingest([events[2]])
 
         assert entry.gen == 1
 
     def test_a_lossless_run_opens_none(self, accumulator: RingAccumulator) -> None:
-        entry = accumulator.observe_batch(build_run(50))
+        entry = accumulator.ingest(build_run(50))
 
         assert (entry.lost_count, entry.lost_from, entry.lost_pause_ns) == (0, 0, 0)
         assert accumulator.coverage == 1.0
@@ -394,7 +394,7 @@ class TestGapDetection:
 
     def test_no_gap_before_the_first_record_or_after_the_last(self, accumulator: RingAccumulator) -> None:
         events = build_run(30)
-        entry = accumulator.observe_batch(events[10:20])
+        entry = accumulator.ingest(events[10:20])
 
         assert entry.lost_count == 0
 
@@ -409,16 +409,16 @@ class TestObserveBatch:
         events = build_run(count)
         batched = RingAccumulator()
 
-        batched.observe_batch(events)
+        batched.ingest(events)
 
         assert batched == fold_singly(events)
 
     def test_a_poll_returning_nothing_new_folds_nothing(self, accumulator: RingAccumulator) -> None:
-        """`observe_batch` takes a non-empty run, and `unseen` is what keeps
+        """`ingest` takes a non-empty run, and `unseen` is what keeps
         that true. A generation whose ring returned only records gcmon already
         has contributed neither loss nor coverage."""
         events = build_run(5)
-        accumulator.observe_batch(events)
+        accumulator.ingest(events)
 
         assert accumulator.unseen(events) == []
 
@@ -426,8 +426,8 @@ class TestObserveBatch:
         events = build_run(20)
         batched = RingAccumulator()
 
-        batched.observe_batch(events[:11])
-        batched.observe_batch(events[11:])
+        batched.ingest(events[:11])
+        batched.ingest(events[11:])
 
         assert batched == fold_singly(events)
 
@@ -437,8 +437,8 @@ class TestObserveBatch:
         events = build_run(20)
         batched = RingAccumulator()
 
-        batched.observe_batch(events[:5])
-        entry = batched.observe_batch(events[12:])
+        batched.ingest(events[:5])
+        entry = batched.ingest(events[12:])
 
         assert entry.lost_count == 7
         assert batched == fold_singly(events[:5] + events[12:])
@@ -453,7 +453,7 @@ class TestObserveBatch:
         torn = events[:4] + events[6:]
         batched = RingAccumulator()
 
-        entry = batched.observe_batch(torn)
+        entry = batched.ingest(torn)
 
         assert entry.lost_count == 0
         assert batched.lost_count == 2
@@ -926,7 +926,7 @@ class TestTheRecordHandedToTheExporters:
 
 
 class TestCounterOrderNotClockOrder:
-    """``observe_batch`` folds a run by counter: the run's first record is the
+    """``ingest`` folds a run by counter: the run's first record is the
     only one that can sit across a gap, and its last one settles the cursor.
 
     ``_ingest`` sorts on ``collections`` to give it that. A healthy ring makes
