@@ -85,7 +85,7 @@ class KeyAccumulator(msgspec.Struct):
             self.first_pause_ns = events[0].ts_stop - events[0].ts_start
             self.first_duration = events[0].duration
 
-        gap = None if seeding else self._open_run(events[0])
+        gap = None if seeding else self._gap_before(events[0])
 
         for event in events:
             self.sampled_pause_ns += event.ts_stop - event.ts_start
@@ -98,8 +98,8 @@ class KeyAccumulator(msgspec.Struct):
 
         return gap
 
-    def _open_run(self, event: TGCStatsInfo) -> KeyGap | None:
-        """Describe the gap this run sits behind, if there is one.
+    def _gap_before(self, event: TGCStatsInfo) -> KeyGap | None:
+        """Describe the gap sitting before this record, if there is one.
 
         Touches no running total; :meth:`observe_batch` owns those.
         """

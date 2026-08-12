@@ -146,14 +146,14 @@ class EventsMonitor:
             # that store until it increments `collections` the slot carries a
             # start later than its stale stop, which `_is_complete` rejects.
             # A duplicate that reaches here is therefore a copy of its twin.
-            # The choice would matter if that ever stopped holding: this run's
-            # last record sets `last_ts_stop` and `last_duration`, which are
-            # the pause base the next poll subtracts from.
-            run = list({event.collections: event for event in group if event.collections > seen}.values())
+            # The choice would matter if that ever stopped holding: the last
+            # record of the streak sets `last_ts_stop` and `last_duration`,
+            # which are the pause base the next poll subtracts from.
+            streak = list({event.collections: event for event in group if event.collections > seen}.values())
 
-            gap = accumulator.observe_batch(run)
-            if run:
-                observed.setdefault(iid, {})[gen] = len(run)
+            gap = accumulator.observe_batch(streak)
+            if streak:
+                observed.setdefault(iid, {})[gen] = len(streak)
                 self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
             if gap is not None:
                 # Record first, draw second, and never the other way round.
@@ -161,7 +161,7 @@ class EventsMonitor:
                 # the exact totals hold whether or not a span comes of this gap.
                 self._stats.record_loss(pid, gen, gap.lost_count, gap.lost_pause_ns)
                 gaps.setdefault(iid, {})[gen] = gap
-            fresh.extend(run)
+            fresh.extend(streak)
 
         # One record per poll interval, per interpreter, carrying every
         # generation that went blind in it and every one that collected. See
