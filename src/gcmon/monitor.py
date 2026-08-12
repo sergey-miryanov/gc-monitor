@@ -7,6 +7,8 @@ from collections.abc import Sequence, Set
 from itertools import groupby
 from typing import Self
 
+import msgspec
+
 from .data import GenLoss, LossMsg
 from .exporters import EventsExporter
 from .loss import (
@@ -29,6 +31,16 @@ def _is_complete(event: TGCStatsInfo) -> bool:
     return event.ts_start < event.ts_stop
 
 
+class PidState(msgspec.Struct):
+    """What gcmon carries from one poll of a process to the next."""
+
+    rings: dict[RingKey, RingAccumulator] = msgspec.field(default_factory=dict)
+    # When this pid was last read, and None until it has been. A loss record
+    # is bounded by two polls, so a pid gcmon has polled once has nothing to
+    # bound yet.
+    polled_at: int | None = None
+
+
 class EventsMonitor:
     def __init__(
         self,
@@ -40,10 +52,7 @@ class EventsMonitor:
         self._process = process
         self._exporter = exporter
         self._enabled = True
-        self._rings: dict[int, dict[RingKey, RingAccumulator]] = {}
-        # When this pid was last read. A loss record is bounded by two polls,
-        # so a pid gcmon has polled once has nothing to bound yet.
-        self._polled_at: dict[int, int] = {}
+        self._pids: dict[int, PidState] = {}
         self._stats = stats
 
     def get_child_pids(self) -> list[int] | None:
@@ -88,21 +97,19 @@ class EventsMonitor:
             return PollStatus.FAIL
 
     def forget(self, pid: int) -> None:
-        """Drop every ring held for *pid*, so a reused pid inherits no
-        counter."""
-        self._rings.pop(pid, None)
-        self._polled_at.pop(pid, None)
+        """Drop everything held for *pid*, so a reused pid inherits no counter
+        and bounds no interval against the process that carried the pid
+        before."""
+        self._pids.pop(pid, None)
 
     def retain(self, pids: Set[int]) -> None:
-        """Drop the rings of every pid outside *pids*.
+        """Drop the state of every pid outside *pids*.
 
         A process that exits between two ticks is never polled again, so no
         wait policy gives up on it and ``forget`` never runs.
         """
-        for pid in self._rings.keys() - pids:
-            del self._rings[pid]
-        for pid in self._polled_at.keys() - pids:
-            del self._polled_at[pid]
+        for pid in self._pids.keys() - pids:
+            del self._pids[pid]
 
     def _ingest(self, pid: int, events: Sequence[TGCStatsInfo], ts_poll: int) -> None:
         """Emit the records in *events* not seen yet.
@@ -116,9 +123,9 @@ class EventsMonitor:
         pair is stored under the same field for both, so consecutive intervals
         tile the timeline instead of overlapping by a read.
         """
-        rings = self._rings.setdefault(pid, {})
-        polled_before = self._polled_at.get(pid)
-        self._polled_at[pid] = ts_poll
+        state = self._pids.setdefault(pid, PidState())
+        polled_before = state.polled_at
+        state.polled_at = ts_poll
 
         # Slot order is not time order: the batch arrives rotated around the
         # ring's write position, with the generations concatenated. Sorting
@@ -131,7 +138,7 @@ class EventsMonitor:
         fresh: list[TGCStatsInfo] = []
         entries: dict[int, list[GenLoss]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
-            accumulator = rings.setdefault((iid, gen), RingAccumulator())
+            accumulator = state.rings.setdefault((iid, gen), RingAccumulator())
             # The ring decides what it has not handed over yet, cursor and
             # duplicate slots both. That filter and `_is_complete` above are
             # the two ADR-0015 rests on the publishing contract for.

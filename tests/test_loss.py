@@ -210,7 +210,8 @@ class Ingested:
 
     @property
     def rings(self) -> dict[tuple[int, int], RingAccumulator]:
-        return self.monitor._rings.get(self.pid, {})
+        state = self.monitor._pids.get(self.pid)
+        return state.rings if state is not None else {}
 
     def __getitem__(self, key: tuple[int, int]) -> RingAccumulator:
         return self.rings[key]
