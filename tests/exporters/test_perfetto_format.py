@@ -975,7 +975,9 @@ class TestTheMissingCollectionsAnnotation:
         raise AssertionError("no GC Loss slice in the packets")
 
     def _value(self, annotation: DebugAnnotation) -> str | int:
-        return annotation.string_value if annotation.HasField("string_value") else annotation.int_value
+        if annotation.HasField("string_value"):
+            return str(annotation.string_value)
+        return int(annotation.int_value)
 
     def _top(self, msg: LossMsg) -> dict[str, str | int]:
         return {a.name: self._value(a) for a in self._slice(msg).debug_annotations if not a.dict_entries}

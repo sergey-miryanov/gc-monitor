@@ -322,16 +322,22 @@ class TestTheTraceProcessorAgrees:
         try:
             rows = list(
                 tp.query(
-                    "SELECT a.key AS key, a.string_value AS s, a.int_value AS i "
+                    "SELECT a.flat_key, a.string_value, a.int_value "
                     "FROM slice s JOIN track t ON s.track_id = t.id JOIN args a ON a.arg_set_id = s.arg_set_id "
                     "WHERE t.name LIKE 'GC Loss%' AND s.ts = "
-                    f"{POLL_TIMES[0]} ORDER BY a.key"
+                    f"{POLL_TIMES[0]} ORDER BY a.flat_key"
                 )
             )
         finally:
             tp.close()
 
-        found: dict[str, Any] = {str(row.key): row.s if row.s is not None else row.i for row in rows}
+        found: dict[str, Any] = {}
+        for row in rows:
+            # An args row fills one value column and leaves the other NULL,
+            # which the stub's non-optional types do not describe.
+            text: Any = row.string_value
+            found[row.flat_key] = text if text is not None else row.int_value
+
         assert found["debug.gen1.missing_collections"] == "21..22"
         assert found["debug.gen1.missing_count"] == 2
         assert found["debug.missing_count"] == 6
