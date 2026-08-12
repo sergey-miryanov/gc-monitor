@@ -113,9 +113,6 @@ class TLossMsg(Protocol):
     ts_start: int
     ts_stop: int
 
-    # Read-only, unlike the fields above. A settable attribute is invariant,
-    # so the implementation's own `list[GenLoss]` would not match a
-    # `Sequence[TGenLoss]` declared that way; nothing here writes to it.
     @property
     def gens(self) -> Sequence[TGenLoss]: ...
 
