@@ -3,11 +3,11 @@
 gcmon collects a stream of GC records from a running process. Each time the
 collector finishes a run, CPython writes one record describing it: the
 generation, the start and stop times, what the run freed, the heap size, and
-the target's running totals. That stream is the product. Watch it live, or
-write it to a file and post-process it later.
+the target's running totals. gcmon derives everything else it prints or draws
+from those records. Read them as they arrive, or save them and come back later.
 
 gcmon sits outside the process it watches. It injects nothing and never pauses
-the target. It reads what CPython already wrote, so the target is not slowed
+the target. It reads what CPython already wrote, so the target keeps full speed
 and never learns anyone is reading.
 
 ## The ring buffer
@@ -21,8 +21,7 @@ run it held.
 
 The size depends on the CPython version and build. A free-threaded build keeps
 one record per generation, so only the newest survives to the next poll. gcmon
-counts the slots a poll returns instead of assuming a size, and names that size
-when it reports what it missed.
+reads the geometry off the first poll that returns records, and keeps it.
 
 ## Polling
 
@@ -33,29 +32,29 @@ several child processes and you sample slower than the number you asked for.
 ## Records gcmon misses
 
 A target whose collector runs faster than gcmon polls drops records before any
-poll reads them. On a GC-heavy workload at default settings, expect it.
+poll reads them. At the default 0.1 s rate, a GC-heavy workload might lose
+records on most ticks.
 
 A shorter `--rate` narrows the gap without closing it. Every round still reads
 each monitored process, and that read time puts a floor under the interval.
 
 A lost record takes its timestamps with it, so nothing says when that run
-happened. The two polls around it still bound it: a record goes missing only
-between two consecutive reads, so that interval is as tight as any bound gets.
+happened. The two polls around it still bound when it ran: a record goes missing
+only between two consecutive reads, and nothing narrows that interval further.
 
 ## What the counters recover
 
 For each generation CPython keeps a running count of finished runs and a running
-total of the time they took. Both keep climbing whether or not a record
-survives, so the difference between two polls gives how many runs gcmon missed
-and what they cost together.
+total of the time they took, and every record carries both as of its own run. A
+dropped record takes nothing off either total, so the difference between two
+polls gives how many runs gcmon missed and what they cost together.
 
-That is subtraction over the target's own counters, so three numbers in the
-stream are exact rather than estimated:
+Three numbers in the stream come off those counters, exact rather than
+estimated:
 
 - how many runs happened between two polls, read or not
 - how many of them gcmon read
 - how much pause time the rest took
 
-The records themselves do not come back. What a lost run freed, how long it took
-on its own, and where in the interval it happened are gone. Averages and
-percentiles therefore describe what gcmon read, not what ran.
+The counters give totals and nothing else. gcmon cannot split a total back into
+the runs behind it, so averages and percentiles cover only the records it read.

@@ -154,7 +154,7 @@ for which fields need which build.
 
 CPython writes one record per finished GC run into a small fixed ring buffer, so a
 target whose collector runs more often than gcmon polls loses records before any poll
-reads them. On a GC-heavy workload at default settings that is the normal case.
+reads them. A GC-heavy workload at default settings can sit there for most of a run.
 
 gcmon reconstructs what it missed from CPython's cumulative counters, so **`Count`
 and `Sum` in the `--stats` table cover every run**, read or not, and the `Cov`
