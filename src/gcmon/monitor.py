@@ -124,7 +124,7 @@ class EventsMonitor:
         than overlapping by a read's width.
         """
         state = self._pids.setdefault(pid, PidState())
-        polled_before = state.polled_at
+        ts_prev_poll = state.polled_at
         state.polled_at = ts_poll
 
         # Ring buffer records arrive wrapped, with the generations
@@ -153,11 +153,10 @@ class EventsMonitor:
             if all(entry.no_loss for entry in gens):
                 continue
 
-            # A first poll builds every ring it touches, and a ring seeds on
-            # the first records it returns without opening a gap, so reaching
-            # here means gcmon polled this pid before.
-            assert polled_before is not None
-            self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=polled_before, ts_stop=ts_poll, gens=gens))
+            # A first poll seeds every ring it touches, and seeding opens no
+            # gap, so no interval reaches here on one.
+            assert ts_prev_poll is not None
+            self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=ts_prev_poll, ts_stop=ts_poll, gens=gens))
 
         # We want to keep exported events in the time order
         for event in sorted(fresh, key=lambda event: (event.iid, event.ts_start)):
