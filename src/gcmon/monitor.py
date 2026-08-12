@@ -7,12 +7,11 @@ from collections.abc import Sequence, Set
 from itertools import groupby
 from typing import Self
 
+from .data import GenLoss, LossMsg
 from .exporters import EventsExporter
 from .loss import (
     CursorKey,
     KeyAccumulator,
-    KeyGap,
-    to_loss_msg,
 )
 from .poll_status import PollStatus
 from .protocol import TGCStatsInfo
@@ -130,8 +129,7 @@ class EventsMonitor:
         )
 
         fresh: list[TGCStatsInfo] = []
-        observed: dict[int, dict[int, int]] = {}
-        gaps: dict[int, dict[int, KeyGap]] = {}
+        entries: dict[int, list[GenLoss]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = cursors.setdefault((iid, gen), KeyAccumulator())
             seen = accumulator.last_collections
@@ -151,31 +149,30 @@ class EventsMonitor:
             # which are the pause base the next poll subtracts from.
             streak = list({event.collections: event for event in group if event.collections > seen}.values())
 
-            gap = accumulator.observe_batch(streak)
-            if streak:
-                observed.setdefault(iid, {})[gen] = len(streak)
+            entry = accumulator.observe_batch(streak)
+            if entry is not None:
+                entries.setdefault(iid, []).append(entry)
                 self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
-            if gap is not None:
-                # Record first, draw second, and never the other way round.
-                # The counts are the target's own counters, so `Cov`, `F` and
-                # the exact totals hold whether or not a span comes of this gap.
-                self._stats.record_loss(pid, gen, gap.lost_count, gap.lost_pause_ns)
-                gaps.setdefault(iid, {})[gen] = gap
+                if entry.lost_count:
+                    # Record first, draw second, and never the other way round.
+                    # The counts are the target's own counters, so `Cov`, `F`
+                    # and the exact totals hold whether or not a span is drawn.
+                    self._stats.record_loss(pid, gen, entry.lost_count, entry.lost_pause_ns)
             fresh.extend(streak)
 
         # One record per poll interval, per interpreter, carrying every
         # generation that went blind in it and every one that collected. See
-        # ADR-0015 for why the interval is the unit.
-        for iid, lost in gaps.items():
-            if polled_before is None:
-                # One poll bounds nothing. Nothing can reach here anyway, since
-                # a key seeds on the first records it returns and seeding opens
-                # no gap.
+        # ADR-0015 for why the interval is the unit. `ordered` sorts on
+        # `(iid, gen, ...)`, so each interpreter's entries are already in the
+        # order a reader scans them on the slice.
+        for iid, gens in entries.items():
+            # An interval that lost nothing draws no span. `polled_before` can
+            # only ever hold back a poll this test already has: one poll bounds
+            # nothing, and a key seeds on the first records it returns, so
+            # seeding opens no gap.
+            if polled_before is None or not any(entry.lost_count for entry in gens):
                 continue
-            self._exporter.add_loss_event(
-                pid,
-                to_loss_msg(iid, polled_before, ts_poll, observed.get(iid, {}), lost),
-            )
+            self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=polled_before, ts_stop=ts_poll, gens=gens))
 
         # One interpreter's generations share a track, so they go out in time
         # order. Two interpreters share no track and collect concurrently, so

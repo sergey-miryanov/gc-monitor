@@ -22,7 +22,7 @@ import pytest
 
 from gcmon.data import GCStatsInfo, lost_to, secs_to_ns
 from gcmon.exporters.exporter import EventsExporter
-from gcmon.loss import KeyAccumulator, KeyGap, to_loss_msg
+from gcmon.loss import KeyAccumulator
 from gcmon.monitor import EventsMonitor
 from gcmon.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.stats import StreamingStats
@@ -272,21 +272,23 @@ class TestEmptyAccumulator:
 
 class TestFencepost:
     def test_one_record_spans_itself(self, accumulator: KeyAccumulator) -> None:
-        gap = accumulator.observe_batch(
+        entry = accumulator.observe_batch(
             [create_mock_stats_item(collections=42, ts_start=1_000, ts_stop=1_700, duration=0.0007)]
         )
 
         assert accumulator.exact_count == 1
         assert accumulator.exact_pause_ns == 700
         assert accumulator.sampled_pause_ns == 700
-        assert gap is None
+        assert entry is not None
+        assert (entry.observed_count, entry.lost_count) == (1, 0)
 
     def test_two_adjacent_records_leave_no_gap(self, accumulator: KeyAccumulator) -> None:
-        gap = accumulator.observe_batch(build_run(2))
+        entry = accumulator.observe_batch(build_run(2))
 
         assert accumulator.exact_count == 2
         assert accumulator.lost_count == 0
-        assert gap is None
+        assert entry is not None
+        assert (entry.observed_count, entry.lost_count) == (2, 0)
 
     def test_exact_pause_covers_the_first_record(self, accumulator: KeyAccumulator) -> None:
         """The delta of a cumulative field starts *after* the first record, so
@@ -314,23 +316,23 @@ class TestGapDetection:
     def test_a_skipped_record_opens_a_gap(self, accumulator: KeyAccumulator) -> None:
         events = build_run(3)
         accumulator.observe_batch([events[0]])
-        gap = accumulator.observe_batch([events[2]])
+        entry = accumulator.observe_batch([events[2]])
 
-        assert gap is not None
-        assert gap.lost_count == 1
-        assert gap.lost_pause_ns == events[1].ts_stop - events[1].ts_start
+        assert entry is not None
+        assert entry.lost_count == 1
+        assert entry.lost_pause_ns == events[1].ts_stop - events[1].ts_start
 
     def test_the_gap_names_the_collections_it_is_missing(self, accumulator: KeyAccumulator) -> None:
         """The gap is found by subtracting the ring's own counters, so both
         bounds are in hand before the count is. Records 2, 3 and 4 never
-        arrived: the gap says so rather than saying "three of them"."""
+        arrived: the entry says so rather than saying "three of them"."""
         events = build_run(6)
         accumulator.observe_batch([events[0]])
-        gap = accumulator.observe_batch([events[4]])
+        entry = accumulator.observe_batch([events[4]])
 
-        assert gap is not None
-        assert (gap.lost_from, gap.lost_count) == (2, 3)
-        assert lost_to(gap.lost_from, gap.lost_count) == 4
+        assert entry is not None
+        assert (entry.lost_from, entry.lost_count) == (2, 3)
+        assert lost_to(entry.lost_from, entry.lost_count) == 4
         assert [e.collections for e in events[1:4]] == [2, 3, 4]
 
     def test_the_range_stops_short_of_the_records_that_bound_it(self, accumulator: KeyAccumulator) -> None:
@@ -339,23 +341,29 @@ class TestGapDetection:
         reaching either would charge a collection twice."""
         events = build_run(3)
         accumulator.observe_batch([events[0]])
-        gap = accumulator.observe_batch([events[2]])
+        entry = accumulator.observe_batch([events[2]])
 
-        assert gap is not None
-        assert gap.lost_from == events[0].collections + 1
-        assert lost_to(gap.lost_from, gap.lost_count) == events[2].collections - 1
+        assert entry is not None
+        assert entry.lost_from == events[0].collections + 1
+        assert lost_to(entry.lost_from, entry.lost_count) == events[2].collections - 1
 
-    def test_the_gap_carries_no_timestamps(self, accumulator: KeyAccumulator) -> None:
+    def test_the_entry_carries_no_timestamps(self, accumulator: KeyAccumulator) -> None:
         """Where the lost records ran is not something the ring knows, and the
         two polls that bracket them already say all there is to say about it.
-        A gap that carried bounds of its own would be a second answer to that
-        question, derived from the records rather than from the reads."""
+        An entry that carried bounds of its own would be a second answer to
+        that question, derived from the records rather than from the reads."""
         events = build_run(3)
         accumulator.observe_batch([events[0]])
-        gap = accumulator.observe_batch([events[2]])
+        entry = accumulator.observe_batch([events[2]])
 
-        assert gap is not None
-        assert set(msgspec.structs.asdict(gap)) == {"gen", "lost_from", "lost_count", "lost_pause_ns"}
+        assert entry is not None
+        assert set(msgspec.structs.asdict(entry)) == {
+            "gen",
+            "observed_count",
+            "lost_from",
+            "lost_count",
+            "lost_pause_ns",
+        }
 
     def test_a_pause_shortfall_floors_at_zero(self, accumulator: KeyAccumulator) -> None:
         """``duration`` is a cumulative float of seconds while the bounds are
@@ -371,27 +379,33 @@ class TestGapDetection:
         )
 
         accumulator.observe_batch([first])
-        gap = accumulator.observe_batch([third])
+        entry = accumulator.observe_batch([third])
 
-        assert gap is not None
-        assert gap.lost_pause_ns == 0
+        assert entry is not None
+        assert entry.lost_pause_ns == 0
 
-    def test_the_gap_carries_its_generation(self, accumulator: KeyAccumulator) -> None:
+    def test_the_entry_carries_its_generation(self, accumulator: KeyAccumulator) -> None:
         events = build_run(3, gen=1)
         accumulator.observe_batch([events[0]])
-        gap = accumulator.observe_batch([events[2]])
+        entry = accumulator.observe_batch([events[2]])
 
-        assert gap is not None
-        assert gap.gen == 1
+        assert entry is not None
+        assert entry.gen == 1
 
     def test_a_lossless_run_opens_none(self, accumulator: KeyAccumulator) -> None:
-        assert accumulator.observe_batch(build_run(50)) is None
+        entry = accumulator.observe_batch(build_run(50))
+
+        assert entry is not None
+        assert (entry.lost_count, entry.lost_from, entry.lost_pause_ns) == (0, 0, 0)
         assert accumulator.coverage == 1.0
         assert accumulator.scale_factor == pytest.approx(1.0, abs=1e-9)
 
     def test_no_gap_before_the_first_record_or_after_the_last(self, accumulator: KeyAccumulator) -> None:
         events = build_run(30)
-        assert accumulator.observe_batch(events[10:20]) is None
+        entry = accumulator.observe_batch(events[10:20])
+
+        assert entry is not None
+        assert entry.lost_count == 0
 
 
 class TestObserveBatch:
@@ -409,8 +423,10 @@ class TestObserveBatch:
         assert batched == fold_singly(events)
 
     def test_an_empty_run_changes_nothing(self, accumulator: KeyAccumulator) -> None:
-        accumulator.observe_batch([])
-
+        """The one case with no entry to return. A generation that returned no
+        record this poll contributed neither loss nor coverage, so naming it on
+        the interval would say only that it exists."""
+        assert accumulator.observe_batch([]) is None
         assert accumulator == KeyAccumulator()
 
     def test_consecutive_polls_pick_up_where_the_last_left_off(self) -> None:
@@ -429,10 +445,10 @@ class TestObserveBatch:
         batched = KeyAccumulator()
 
         batched.observe_batch(events[:5])
-        gap = batched.observe_batch(events[12:])
+        entry = batched.observe_batch(events[12:])
 
-        assert gap is not None
-        assert gap.lost_count == 7
+        assert entry is not None
+        assert entry.lost_count == 7
         assert batched == fold_singly(events[:5] + events[12:])
 
     def test_a_hole_inside_a_run_goes_unnoticed(self) -> None:
@@ -445,7 +461,10 @@ class TestObserveBatch:
         torn = events[:4] + events[6:]
         batched = KeyAccumulator()
 
-        assert batched.observe_batch(torn) is None
+        entry = batched.observe_batch(torn)
+
+        assert entry is not None
+        assert entry.lost_count == 0
         assert batched.lost_count == 2
         assert batched.exact_pause_ns > batched.sampled_pause_ns
 
@@ -863,33 +882,54 @@ class TestCaptureFixture:
         assert [entry.gen for entry in captured.spans()[0].gens] == [0, 1]
 
 
-class TestToLossMsg:
-    def test_it_carries_the_interval_and_the_interpreter(self) -> None:
-        msg = to_loss_msg(1, 10, 99, {0: 4}, {0: KeyGap(gen=0, lost_from=1, lost_count=5, lost_pause_ns=7)})
+class TestTheRecordHandedToTheExporters:
+    """The whole of what a poll emits, assembled where the arithmetic happens.
 
-        assert (msg.iid, msg.ts_start, msg.ts_stop) == (1, 10, 99)
-        assert [(entry.gen, entry.observed_count, entry.lost_count, entry.lost_pause_ns) for entry in msg.gens] == [
-            (0, 4, 5, 7)
-        ]
+    Each generation's accumulator returns the entry it will be read as, so
+    nothing downstream merges two halves back together and no field can be
+    dropped between the two.
+    """
+
+    def polls(self) -> Ingested:
+        gen0 = build_run(6, gen=0)
+        gen1 = build_run(2, gen=1, ts0=TS0 + 500_000)
+        gen2 = build_run(2, gen=2, ts0=TS0 + 700_000)
+
+        ingested = Ingested()
+        ingested.poll([gen0[0], gen1[0], gen2[0]], ts=10)
+        # gen 0 loses records 2 through 4. The other two collect once each and
+        # lose nothing. The batch arrives with the generations reversed.
+        ingested.poll([gen2[1], gen1[1], gen0[4]], ts=99)
+        return ingested
+
+    def test_it_carries_the_interval_and_the_interpreter(self) -> None:
+        [msg] = self.polls().recorder.losses
+
+        assert (msg.iid, msg.ts_start, msg.ts_stop) == (0, 10, 99)
 
     def test_the_range_survives_the_handover_to_the_exporters(self) -> None:
-        """The record is the only thing past this point: a gap dropped here
+        """The record is the only thing past this point: a range dropped here
         would leave every span in the trace back to counting alone."""
-        msg = to_loss_msg(0, 10, 99, {}, {0: KeyGap(gen=0, lost_from=413, lost_count=19, lost_pause_ns=0)})
+        [msg] = self.polls().recorder.losses
 
-        entry = msg.gens[0]
-        assert entry.lost_from == 413
-        assert lost_to(entry.lost_from, entry.lost_count) == 431
+        entry = next(entry for entry in msg.gens if entry.gen == 0)
+        assert entry.lost_from == 2
+        assert lost_to(entry.lost_from, entry.lost_count) == 4
 
     def test_a_generation_that_only_observed_is_carried_too(self) -> None:
-        msg = to_loss_msg(0, 10, 99, {1: 6}, {0: KeyGap(gen=0, lost_from=2, lost_count=1, lost_pause_ns=3)})
+        [msg] = self.polls().recorder.losses
 
-        assert [(entry.gen, entry.observed_count, entry.lost_count) for entry in msg.gens] == [(0, 0, 1), (1, 6, 0)]
+        assert [(entry.gen, entry.observed_count, entry.lost_count) for entry in msg.gens] == [
+            (0, 1, 3),
+            (1, 1, 0),
+            (2, 1, 0),
+        ]
 
     def test_the_generations_come_out_in_order(self) -> None:
         """They are read as a list on the slice, and a reader comparing two
-        spans should not have to hunt for gen 1."""
-        msg = to_loss_msg(0, 10, 99, {2: 1, 0: 3}, {1: KeyGap(gen=1, lost_from=5, lost_count=2, lost_pause_ns=8)})
+        spans should not have to hunt for gen 1. The poll that found the loss
+        handed its generations over backwards."""
+        [msg] = self.polls().recorder.losses
 
         assert [entry.gen for entry in msg.gens] == [0, 1, 2]
 

@@ -33,8 +33,8 @@ gap        = c - lost_from
 lost_pause = round((r.duration - last_duration) * 1e9) - (r.ts_stop - r.ts_start)
 ```
 
-No interval appears here. A `KeyGap` holds counters and nothing else; the two polls that
-bracket it answer the placement question.
+No interval appears here. `observe_batch` returns the `GenLoss` the exporters will read, which
+holds counters and nothing else; the two polls that bracket it answer the placement question.
 
 `Δduration` spans records `p+1 .. c` inclusive. gcmon read record `c`, so taking its own pause
 back out leaves the pause sum of the `gap` records nobody saw. `observe_batch` tests only the
@@ -280,9 +280,10 @@ not share a clock, which would leave the whole reconstruction unsound.
 
 ## Implementation
 
-- `src/gcmon/loss.py` holds the arithmetic: `KeyAccumulator` (one per `(pid, iid, gen)`,
-  carrying the fencepost fields), `KeyGap` (counters, no timestamps) and `to_loss_msg`. Pure
-  functions and structs, no I/O.
+- `src/gcmon/loss.py` holds the arithmetic: `KeyAccumulator`, one per `(pid, iid, gen)`,
+  carrying the fencepost fields. Pure structs, no I/O. `observe_batch` returns the generation's
+  `GenLoss` for the poll, so nothing downstream assembles one out of a loss and a count kept
+  apart.
 - `src/gcmon/data.py`, `LossMsg` with one `GenLoss` per generation, and `lost_to` deriving the
   far fence from `lost_from` and `lost_count`. `seen_text` and `duration_text` produce the two
   args written for reading rather than for summing.

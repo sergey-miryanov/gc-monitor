@@ -9,40 +9,20 @@ missed, and ``duration`` gives the pause time nobody saw.
 ADR-0015 for why the spans need a track of their own.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 import msgspec
 
-from .data import GenLoss, LossMsg, secs_to_ns
+from .data import GenLoss, secs_to_ns
 from .protocol import TGCStatsInfo
 
 __all__ = [
     "CursorKey",
     "KeyAccumulator",
-    "KeyGap",
-    "to_loss_msg",
 ]
 
 # (iid, gen). One CPython ring buffer, with its own `collections` counter.
 type CursorKey = tuple[int, int]
-
-
-class KeyGap(msgspec.Struct):
-    """A streak of records on one key that never reached gcmon, as counters.
-
-    ``lost_from`` is the first of them, ``lost_count`` how many, and
-    ``lost_pause_ns`` what the runs behind them cost together. All three come
-    from subtracting two of the target's cumulative counters, so all three are
-    exact. The far end is :func:`lost_to <gcmon.data.lost_to>`, derived from
-    the other two.
-
-    ``LossMsg`` carries the interval those runs happened in.
-    """
-
-    gen: int
-    lost_from: int
-    lost_count: int
-    lost_pause_ns: int
 
 
 class KeyAccumulator(msgspec.Struct):
@@ -61,12 +41,14 @@ class KeyAccumulator(msgspec.Struct):
     sampled_count: int = 0
     sampled_pause_ns: int = 0
 
-    def observe_batch(self, events: Sequence[TGCStatsInfo]) -> KeyGap | None:
+    def observe_batch(self, events: Sequence[TGCStatsInfo]) -> GenLoss | None:
         """Fold the records one poll returned for this key, in counter order.
 
         A ring holds consecutive records, so only the first of them can sit
-        across a gap and only the last settles the cursor. Returns the gap
-        they sit behind, if any, for the caller to emit.
+        across a gap and only the last settles the cursor. Returns this
+        generation's entry for the poll, which the caller hangs on a
+        ``LossMsg`` as it stands, or ``None`` when the poll returned nothing
+        to fold.
 
         They must be sorted by counter, past ``last``, and free of the copy
         the target makes of a record ahead of overwriting it; ``_ingest``
@@ -84,8 +66,9 @@ class KeyAccumulator(msgspec.Struct):
             self.first_collections = events[0].collections
             self.first_pause_ns = events[0].ts_stop - events[0].ts_start
             self.first_duration = events[0].duration
-
-        gap = None if seeding else self._gap_before(events[0])
+            entry = GenLoss(gen=events[0].gen, observed_count=len(events))
+        else:
+            entry = self._gen_loss(events[0], len(events))
 
         for event in events:
             self.sampled_pause_ns += event.ts_stop - event.ts_start
@@ -96,10 +79,11 @@ class KeyAccumulator(msgspec.Struct):
         self.last_duration = last.duration
         self.last_ts_stop = last.ts_stop
 
-        return gap
+        return entry
 
-    def _gap_before(self, event: TGCStatsInfo) -> KeyGap | None:
-        """Describe the gap sitting before this record, if there is one.
+    def _gen_loss(self, first: TGCStatsInfo, observed_count: int) -> GenLoss:
+        """This key's entry for one poll: *observed_count* records read, and
+        the records missing ahead of *first*, if there are any.
 
         Touches no running total; :meth:`observe_batch` owns those.
         """
@@ -107,9 +91,9 @@ class KeyAccumulator(msgspec.Struct):
         # up to the one before `first` never reached gcmon. Both fences are the
         # target's own counters; neither is inferred from a timestamp.
         lost_from = self.last_collections + 1
-        lost = event.collections - lost_from
+        lost = first.collections - lost_from
         if lost <= 0:
-            return None
+            return GenLoss(gen=first.gen, observed_count=observed_count)
 
         # Delta duration spans the records after `last` through this one, so
         # taking this one's own pause back out leaves the `lost` records alone.
@@ -117,12 +101,13 @@ class KeyAccumulator(msgspec.Struct):
         # against ns timestamps, so a gap holding almost no pause can subtract
         # to a hair below zero. Floor it: negative pause means nothing, and it
         # would drag `exact_pause_ns` under the sum gcmon measured.
-        spanned_ns = secs_to_ns(event.duration - self.last_duration)
-        return KeyGap(
-            gen=event.gen,
-            lost_from=lost_from,
+        spanned_ns = secs_to_ns(first.duration - self.last_duration)
+        return GenLoss(
+            gen=first.gen,
+            observed_count=observed_count,
             lost_count=lost,
-            lost_pause_ns=max(0, spanned_ns - (event.ts_stop - event.ts_start)),
+            lost_pause_ns=max(0, spanned_ns - (first.ts_stop - first.ts_start)),
+            lost_from=lost_from,
         )
 
     @property
@@ -175,34 +160,3 @@ class KeyAccumulator(msgspec.Struct):
         if self.sampled_pause_ns == 0:
             return 1.0
         return self.exact_pause_ns / self.sampled_pause_ns
-
-
-def to_loss_msg(
-    iid: int,
-    ts_start: int,
-    ts_stop: int,
-    observed: Mapping[int, int],
-    gaps: Mapping[int, KeyGap],
-) -> LossMsg:
-    """The record the exporters carry, for one poll on one interpreter.
-
-    *observed* is how many records each generation returned over this interval
-    and *gaps* what each of them lost, both keyed by generation. Every
-    generation named in either gets an entry.
-    """
-    gens = sorted(observed.keys() | gaps.keys())
-    return LossMsg(
-        iid=iid,
-        ts_start=ts_start,
-        ts_stop=ts_stop,
-        gens=[
-            GenLoss(
-                gen=gen,
-                observed_count=observed.get(gen, 0),
-                lost_from=gaps[gen].lost_from if gen in gaps else 0,
-                lost_count=gaps[gen].lost_count if gen in gaps else 0,
-                lost_pause_ns=gaps[gen].lost_pause_ns if gen in gaps else 0,
-            )
-            for gen in gens
-        ],
-    )

@@ -361,7 +361,7 @@ class TestTheReplayLosesWhatItClaimsTo:
 
 @pytest.mark.parametrize("interval_ms", LOSSY_MS)
 class TestEveryCollectionIsChargedOnce:
-    """The claim `KeyGap.lost_from` exists to support: over the span gcmon
+    """The claim `GenLoss.lost_from` exists to support: over the span gcmon
     observed, every collection the target ran is either a record gcmon drew or
     a counter inside exactly one window, and never both."""
 
