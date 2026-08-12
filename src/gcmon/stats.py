@@ -229,6 +229,14 @@ METRICS: dict[str, Metric] = {
 
 TStatsData = dict[str, dict[int, Stats]]
 
+# (pid, gen). `record_loss` delivers increments, so two interpreters of one
+# pid add into the same slot.
+type LossKey = tuple[int, int]
+
+# (pid, iid, gen). Lifetime totals are cumulative and overwrite each other, so
+# every interpreter keeps a slot of its own and the summing waits for a read.
+type LifetimeKey = tuple[int, int, int]
+
 
 class LossTotals(msgspec.Struct):
     """Records gcmon never read, and the pause time they held."""
@@ -239,6 +247,18 @@ class LossTotals(msgspec.Struct):
     def add(self, count: int, pause_ns: int) -> None:
         self.count += count
         self.pause_ns += pause_ns
+
+
+class LifetimeTotals(msgspec.Struct):
+    """What a ring collected since its interpreter started, on the target's
+    own counters."""
+
+    collections: int = 0
+    duration_s: float = 0.0
+
+    def add(self, collections: int, duration_s: float) -> None:
+        self.collections += collections
+        self.duration_s += duration_s
 
 
 def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
@@ -269,10 +289,10 @@ class StreamingStats:
         # `record_loss` hands over one poll's gap at a time, so these sum.
         # Sampled plus lost is the exact total ADR-0015 defines, so the rings
         # themselves stay in the monitor. Nothing prunes a dead pid.
-        self._loss: dict[tuple[int, int], LossTotals] = {}
+        self._loss: dict[LossKey, LossTotals] = {}
         # Lifetime is a running total, not an increment, so it is stored per
         # ring and overwritten rather than summed across polls.
-        self._lifetime: dict[tuple[int, int, int], tuple[int, float]] = {}
+        self._lifetime: dict[LifetimeKey, LifetimeTotals] = {}
 
         # Per generation ring buffer geometry
         self._ring_size: dict[int, int] = {}
@@ -366,7 +386,7 @@ class StreamingStats:
         Both fields are cumulative in the target, so the newest values replace
         the previous ones rather than adding to them.
         """
-        self._lifetime[(pid, iid, gen)] = (collections, duration_s)
+        self._lifetime[(pid, iid, gen)] = LifetimeTotals(collections, duration_s)
 
     def _sampled(self, pid: int | None, gen: int) -> Stats:
         """The pause durations gcmon sampled, for one pid or all of them."""
@@ -432,31 +452,28 @@ class StreamingStats:
             by_gen.setdefault(gen, LossTotals()).add(loss.count, loss.pause_ns)
         return by_gen
 
-    def _lifetime_by_gen(self) -> dict[int, tuple[int, float]]:
+    def _lifetime_by_gen(self) -> dict[int, LifetimeTotals]:
         """Every ring's lifetime totals, folded per generation in one pass."""
-        by_gen: dict[int, tuple[int, float]] = {}
-        for (_pid, _iid, gen), (collections, duration_s) in self._lifetime.items():
-            count, total_s = by_gen.get(gen, (0, 0.0))
-            by_gen[gen] = (count + collections, total_s + duration_s)
+        by_gen: dict[int, LifetimeTotals] = {}
+        for (_pid, _iid, gen), totals in self._lifetime.items():
+            by_gen.setdefault(gen, LifetimeTotals()).add(totals.collections, totals.duration_s)
         return by_gen
 
-    def _lifetime_totals(self, pid: int | None, gen: int) -> tuple[int, float]:
+    def _lifetime_totals(self, pid: int | None, gen: int) -> LifetimeTotals:
         """Summed over the interpreters of *pid*, or of every pid."""
-        count = 0
-        duration_s = 0.0
-        for (key_pid, _iid, key_gen), (collections, duration) in self._lifetime.items():
+        summed = LifetimeTotals()
+        for (key_pid, _iid, key_gen), totals in self._lifetime.items():
             if key_gen == gen and (pid is None or key_pid == pid):
-                count += collections
-                duration_s += duration
-        return count, duration_s
+                summed.add(totals.collections, totals.duration_s)
+        return summed
 
     def lifetime_count(self, pid: int | None, gen: int) -> int:
         """Collections since the interpreter started, not since gcmon attached."""
-        return self._lifetime_totals(pid, gen)[0]
+        return self._lifetime_totals(pid, gen).collections
 
     def lifetime_pause_ns(self, pid: int | None, gen: int) -> int:
         """Pause time over that same whole history."""
-        return secs_to_ns(self._lifetime_totals(pid, gen)[1])
+        return secs_to_ns(self._lifetime_totals(pid, gen).duration_s)
 
     @property
     def read_time(self) -> Stats:
@@ -500,10 +517,10 @@ class StreamingStats:
                 result[f"pause_gen_{gen}_sum"] = dur_to_ms(s.sum() + gen_lost.pause_ns)
                 result[f"pause_gen_{gen}_count"] = exact_count
                 result[f"pause_gen_{gen}_coverage"] = sampled_count / exact_count
-            lifetime_count, lifetime_duration_s = lifetime.get(gen, (0, 0.0))
-            if lifetime_count > 0:
-                result[f"pause_gen_{gen}_lifetime_count"] = lifetime_count
-                result[f"pause_gen_{gen}_lifetime_sum"] = dur_to_ms(secs_to_ns(lifetime_duration_s))
+            gen_lifetime = lifetime.get(gen, LifetimeTotals())
+            if gen_lifetime.collections > 0:
+                result[f"pause_gen_{gen}_lifetime_count"] = gen_lifetime.collections
+                result[f"pause_gen_{gen}_lifetime_sum"] = dur_to_ms(secs_to_ns(gen_lifetime.duration_s))
         if self._heap_size:
             sorted_heaps = sorted(self._heap_size.values())
             result["heap_size_p99"] = get_quantile_value(sorted_heaps, 99)
