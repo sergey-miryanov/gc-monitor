@@ -117,11 +117,8 @@ class EventsMonitor:
         Every poll returns the whole ring buffer, so ``collections`` is what
         identifies a record.
 
-        *ts_poll* is when this read began, on the monitor's own clock, the one
-        the target's timestamps and the RSS samples already share. It closes
-        the interval the previous poll opened. Both edges come from the same
-        point of a read, so consecutive intervals tile the timeline rather
-        than overlapping by a read's width.
+        *ts_poll* is when this read began. It closes the interval the previous
+        poll opened, see ADR-0015.
         """
         state = self._pids.setdefault(pid, PidState())
         ts_prev_poll = state.ts_last_poll
