@@ -290,9 +290,10 @@ not share a clock, which would leave the whole reconstruction unsound.
   args written for reading rather than for summing.
 - `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
   ring, hands each ring its own, and emits one record per interpreter that lost anything, bounded by
-  `_polled_at[pid]` and this poll's instant. `forget` and `retain` drop that instant with the
-  rings, so a reused pid inherits no interval. A record caught part-written is dropped by
-  `_is_complete` and comes back complete a poll later, opening no gap and bounding none.
+  the pid's previous poll instant and this one. `PidState` holds that instant beside the rings, so
+  `forget` and `retain` drop both together and a reused pid inherits no interval. A record caught
+  part-written is dropped by `_is_complete` and comes back complete a poll later, opening no gap
+  and bounding none.
 - `src/gcmon/trace_event.py`, `LOSS_TID_BASE = -2` with `loss_tid` and `loss_iid`, and
   `BeginEvent.args` widened to one level of nesting for the generation groups.
 - `src/gcmon/exporters/trace_converter.py`, `convert_loss_to_trace_format` and
