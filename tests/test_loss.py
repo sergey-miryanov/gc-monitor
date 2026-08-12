@@ -1053,11 +1053,11 @@ class TestForgettingAPid:
 class TestADuplicateCounterInOnePoll:
     """Two slots reporting one `collections` value, and which one survives.
 
-    `_ingest` keys a poll's run on the counter, so a duplicate pair collapses
-    to one record. A dict keeps the last, which the sort leaves in slot order.
-    Nothing in the suite distinguished the two before this class, and the
-    choice is not inert: the run's last record sets `last_duration`, which
-    becomes the next poll's pause base.
+    `RingAccumulator.unseen` keys a poll's run on the counter, so a duplicate
+    pair collapses to one record. A dict keeps the last, which the sort leaves
+    in slot order. Nothing in the suite distinguished the two before this
+    class, and the choice is not inert: the run's last record sets
+    `last_duration`, which becomes the next poll's pause base.
 
     It cannot matter on truthful data. `add_stats` memcpy's a record forward
     before touching a field, so until the new `ts_start` lands the twin is

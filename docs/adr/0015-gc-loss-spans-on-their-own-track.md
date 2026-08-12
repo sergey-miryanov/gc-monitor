@@ -281,14 +281,15 @@ not share a clock, which would leave the whole reconstruction unsound.
 ## Implementation
 
 - `src/gcmon/loss.py` holds the arithmetic: `RingAccumulator`, one per `(pid, iid, gen)`,
-  carrying the fencepost fields. Pure structs, no I/O. `observe_batch` returns the generation's
-  `GenLoss` for the poll, so nothing downstream assembles one out of a loss and a count kept
-  apart.
+  carrying the fencepost fields. Pure structs, no I/O. `unseen` picks out what the ring has not
+  handed over, cursor and duplicate slots both, and `observe_batch` folds that and returns the
+  generation's `GenLoss` for the poll, so nothing downstream assembles one out of a loss and a
+  count kept apart.
 - `src/gcmon/data.py`, `LossMsg` with one `GenLoss` per generation, and `lost_to` deriving the
   far fence from `lost_from` and `lost_count`. `seen_text` and `duration_text` produce the two
   args written for reading rather than for summing.
 - `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
-  ring, folds them, and emits one record per interpreter that lost anything, bounded by
+  ring, hands each ring its own, and emits one record per interpreter that lost anything, bounded by
   `_polled_at[pid]` and this poll's instant. `forget` and `retain` drop that instant with the
   rings, so a reused pid inherits no interval. A record caught part-written is dropped by
   `_is_complete` and comes back complete a poll later, opening no gap and bounding none.

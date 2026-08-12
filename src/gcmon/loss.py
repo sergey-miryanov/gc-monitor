@@ -9,7 +9,7 @@ missed, and ``duration`` gives the pause time nobody saw.
 ADR-0015 for why the spans need a track of their own.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 import msgspec
 
@@ -40,6 +40,33 @@ class RingAccumulator(msgspec.Struct):
     sampled_count: int = 0
     sampled_pause_ns: int = 0
 
+    def unseen(self, events: Iterable[TGCStatsInfo]) -> list[TGCStatsInfo]:
+        """The records in *events* this ring has not returned before, one per
+        counter, in the order they arrived.
+
+        *events* is one poll's records for this ring. A record whose
+        ``collections`` does not exceed the cursor went out on an earlier
+        poll.
+
+        Keying on the counter drops the copy the target makes of a record
+        ahead of overwriting it: both slots report the same counter, so no
+        threshold tells them apart. Two slots reporting one counter are one
+        record, not two.
+
+        A dict keeps the last of a duplicate pair, which a batch in slot order
+        leaves in slot order. Which one survives cannot matter: ``add_stats``
+        memcpy's the record forward before touching any field, so until it
+        stores the new ``ts_start`` the twin is byte-identical, and from that
+        store until it increments ``collections`` the slot carries a start
+        later than its stale stop, which ``EventsMonitor`` drops as unfinished.
+        A duplicate that reaches here is therefore a copy of its twin. The
+        choice would matter if that ever stopped holding: the last record of
+        the batch sets ``last_duration``, which is the pause base the next
+        poll subtracts from.
+        """
+        fresh = {event.collections: event for event in events if event.collections > self.last_collections}
+        return list(fresh.values())
+
     def observe_batch(self, events: Sequence[TGCStatsInfo]) -> GenLoss | None:
         """Fold the records one poll returned for this ring, in counter order.
 
@@ -49,10 +76,10 @@ class RingAccumulator(msgspec.Struct):
         ``LossMsg`` as it stands, or ``None`` when the poll returned nothing
         to fold.
 
-        They must be sorted by counter, past ``last``, and free of the copy
-        the target makes of a record ahead of overwriting it; ``_ingest``
-        guarantees all three. Contiguity it trusts without checking, see
-        ADR-0015.
+        They must be sorted by counter, which is what :meth:`unseen` preserves
+        and ``_ingest`` provides, and past ``last`` and free of duplicates,
+        which is what :meth:`unseen` returns. Contiguity it trusts without
+        checking, see ADR-0015.
         """
         if not events:
             return None

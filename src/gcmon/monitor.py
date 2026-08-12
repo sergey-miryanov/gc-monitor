@@ -132,22 +132,10 @@ class EventsMonitor:
         entries: dict[int, list[GenLoss]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = rings.setdefault((iid, gen), RingAccumulator())
-            seen = accumulator.last_collections
-            # Keying on the counter drops the copy the target makes of a record
-            # ahead of overwriting it: both slots report the same counter, so no
-            # threshold tells them apart.
-            #
-            # A dict keeps the last of a duplicate pair, which the sort leaves
-            # in slot order. Which one survives cannot matter: `add_stats`
-            # memcpy's the record forward before touching any field, so until
-            # it stores the new `ts_start` the twin is byte-identical, and from
-            # that store until it increments `collections` the slot carries a
-            # start later than its stale stop, which `_is_complete` rejects.
-            # A duplicate that reaches here is therefore a copy of its twin.
-            # The choice would matter if that ever stopped holding: the last
-            # record of the streak sets `last_duration`, which is the pause
-            # base the next poll subtracts from.
-            streak = list({event.collections: event for event in group if event.collections > seen}.values())
+            # The ring decides what it has not handed over yet, cursor and
+            # duplicate slots both. `_is_complete` above is what lets it treat
+            # a duplicate as a copy of its twin.
+            streak = accumulator.unseen(group)
 
             entry = accumulator.observe_batch(streak)
             if entry is not None:
@@ -166,10 +154,10 @@ class EventsMonitor:
         # `(iid, gen, ...)`, so each interpreter's entries are already in the
         # order a reader scans them on the slice.
         for iid, gens in entries.items():
-            # An interval that lost nothing draws no span. `polled_before` can
-            # only ever hold back a poll this test already has: one poll bounds
-            # nothing, and a key seeds on the first records it returns, so
-            # seeding opens no gap.
+            # An interval that lost nothing draws no span. The `polled_before`
+            # check never holds back a poll the loss check would let through:
+            # one poll bounds nothing, and a ring seeds on the first records it
+            # returns, so seeding opens no gap.
             if polled_before is None or not any(entry.lost_count for entry in gens):
                 continue
             self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=polled_before, ts_stop=ts_poll, gens=gens))
