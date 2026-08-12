@@ -127,7 +127,8 @@ class EventsMonitor:
         polled_before = state.polled_at
         state.polled_at = ts_poll
 
-        # ring buffer records may be wrapped, so restore their collections order
+        # Ring buffer records arrive wrapped, with the generations
+        # concatenated, so restore each ring's counter order.
         ordered = sorted(
             (event for event in events if _is_complete(event)),
             key=lambda event: (event.iid, event.gen, event.collections),
