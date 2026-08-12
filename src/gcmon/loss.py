@@ -1,12 +1,11 @@
 """Reconstructing the GC records a poll could not read.
 
 CPython writes one record per finished GC run, and a target whose collector
-runs faster than gcmon polls loses records before any poll reads them. Two
-cumulative fields make the loss measurable: ``collections`` counts what was
-missed, and ``duration`` gives the pause time nobody saw.
+runs faster than gcmon polls overwrites records before any poll reads them. Two
+cumulative fields make the loss measurable: ``collections`` counts how many GC
+runs finished, and ``duration`` gives the total pause time of those runs.
 
-``EventsMonitor`` owns one ``RingAccumulator`` per ``(pid, iid, gen)``; see
-ADR-0015 for why the spans need a track of their own.
+``EventsMonitor`` owns one ``RingAccumulator`` per ``(pid, iid, gen)``.
 """
 
 from collections.abc import Iterable, Sequence
@@ -41,16 +40,11 @@ class RingAccumulator(msgspec.Struct):
     sampled_pause_ns: int = 0
 
     def unseen(self, events: Iterable[TGCStatsInfo]) -> list[TGCStatsInfo]:
-        """The records in *events* this ring has not returned before, one per
-        counter, in the order they arrived. *events* is one poll's records for
-        this ring.
+        """The records in *events* this ring has not seen before.
 
-        Two slots can report one counter, holding one record between them, and
-        no threshold tells them apart. A dict keeps the last of the pair, which
-        a stable sort leaves in slot order. Which one survives cannot matter
-        under the publishing contract ADR-0015 rests on. It would if that
-        stopped holding, since the batch's last record sets ``last_duration``,
-        the pause base the next poll subtracts from.
+        Two slots can report one GC run and no marker splits them, so one of
+        the pair goes. A dict keeps the last, which a stable sort leaves in
+        slot order.
         """
         fresh = {event.collections: event for event in events if event.collections > self.last_collections}
         return list(fresh.values())
@@ -59,12 +53,11 @@ class RingAccumulator(msgspec.Struct):
         """Fold the records one poll returned for this ring, in counter order.
 
         A ring holds consecutive records, so only the first of them can sit
-        across a gap and only the last settles the cursor.
+        across a gap and only the last settles the cursor. Contiguity it
+        trusts without checking, see ADR-0015.
 
         Returns the generation's entry for the poll, ready for a ``LossMsg``
-        as it stands, or ``None`` when *events* is empty. Pass what
-        :meth:`unseen` returns; ``_ingest`` sorts each poll by counter first.
-        Contiguity it trusts without checking, see ADR-0015.
+        as it stands, or ``None`` when *events* is empty.
         """
         if not events:
             return None
@@ -148,11 +141,8 @@ class RingAccumulator(msgspec.Struct):
 
     @property
     def coverage(self) -> float:
-        """Observed share of the span, in ``[0, 1]``.
-
-        A ring that folded nothing lost nothing, so it reports 1.0 and no call
-        site has to guard a division.
-        """
+        """Observed share of the span, in ``[0, 1]``. An empty ring lost
+        nothing, so it reports 1.0."""
         if self.exact_count == 0:
             return 1.0
         return self.sampled_count / self.exact_count
@@ -163,8 +153,8 @@ class RingAccumulator(msgspec.Struct):
 
         CPython accumulates a total for the pause alone, so no sub-phase has
         an exact counterpart. Sub-phases partition the pause, so scaling a
-        measured phase sum by this estimates that counterpart. Percentiles it
-        cannot correct, see ADR-0015.
+        measured phase sum by this estimates one. Percentiles it cannot
+        correct, see ADR-0015.
         """
         if self.sampled_pause_ns == 0:
             return 1.0
