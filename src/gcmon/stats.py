@@ -250,8 +250,7 @@ class LossTotals(msgspec.Struct):
 
 
 class LifetimeTotals(msgspec.Struct):
-    """What a ring collected since its interpreter started, on the target's
-    own counters."""
+    """One ring's own cumulative counters, as the target keeps them."""
 
     collections: int = 0
     duration_s: float = 0.0
@@ -262,7 +261,7 @@ class LifetimeTotals(msgspec.Struct):
 
 
 def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
-    """Record a phase duration in nanoseconds; conversion happens at display time."""
+    """Record a phase duration in nanoseconds, the unit every metric keeps."""
     metric = METRICS[metric_name]
     ts_start, ts_stop = metric.get_values(item)
     gen = item.gen
@@ -274,8 +273,8 @@ def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
 class StreamingStats:
     MAX_ACTIVE_PIDS = 64
     GENS = (0, 1, 2)
-    # Below this, the sampled percentiles describe so little of the run that
-    # a reader should be told once rather than left to infer it from `Cov`.
+    # Under this, the sampled percentiles cover too little of the run to leave
+    # a reader working it out from `Cov`, so gcmon says so once.
     COVERAGE_ADVISORY = 0.9
 
     def __init__(self) -> None:
@@ -290,11 +289,8 @@ class StreamingStats:
         # Sampled plus lost is the exact total ADR-0015 defines, so the rings
         # themselves stay in the monitor. Nothing prunes a dead pid.
         self._loss: dict[LossKey, LossTotals] = {}
-        # Lifetime is a running total, not an increment, so it is stored per
-        # ring and overwritten rather than summed across polls.
         self._lifetime: dict[LifetimeKey, LifetimeTotals] = {}
-
-        # Per generation ring buffer geometry
+        # Slots per ring, keyed by generation.
         self._ring_size: dict[int, int] = {}
         self._coverage_warned = False
 
@@ -322,16 +318,14 @@ class StreamingStats:
         self._heap_size[pid] = max(self._heap_size.get(pid, 0), item.heap_size)
 
     def record_read_time(self, duration_ns: int) -> None:
-        """Record the time spent reading GC stats from a target process."""
         self._read_time.update(duration_ns)
 
     def record_ring_geometry(self, events: Sequence[TGCStatsInfo]) -> None:
-        """Calculating ring buffer geometry from the data.
+        """Count the slots each generation's ring holds, once for the run.
 
-        A target runs the monitor's own Python build, so the geometry holds
-        for every interpreter of every pid until the run ends.
-        A poll that returned nothing leaves the dict empty and the next
-        one tries again.
+        A target runs the monitor's own Python build, so one answer covers
+        every interpreter of every pid. A poll that returned nothing leaves
+        the dict empty and the next one tries again.
         """
         if self._ring_size:
             return
@@ -351,13 +345,11 @@ class StreamingStats:
     def check_coverage_advisory(self, pid: int) -> None:
         """Warn once if *pid* is reading too little of its target to trust.
 
-        Called after a poll has folded both its loss and its records, never
-        from `record_loss`. `_ingest` records loss for every key before it
-        updates any of them, so a check inside `record_loss` would divide that
-        poll's gap into the sample as it stood before the poll. A run whose
-        first gap lands early then latches a figure it never revisits: two
-        polls of 2 then 100 records with one lost warned "only 67%" of a run
-        that ended at 99%.
+        Call it after a poll folds both its loss and its records. `_ingest`
+        records loss for every key before it updates any of them, so the same
+        check inside `record_loss` would divide that poll's gap into the
+        sample as it stood before the poll: two polls of 2 then 100 records
+        with one lost warned "only 67%" of a run that ended at 99%.
         """
         if self._coverage_warned:
             return
@@ -383,8 +375,8 @@ class StreamingStats:
     def record_lifetime(self, pid: int, iid: int, gen: int, collections: int, duration_s: float) -> None:
         """Record one ring's totals since its interpreter started.
 
-        Both fields are cumulative in the target, so the newest values replace
-        the previous ones rather than adding to them.
+        The target counts both of them cumulatively, so the newest values
+        replace the previous ones.
         """
         self._lifetime[(pid, iid, gen)] = LifetimeTotals(collections, duration_s)
 
@@ -425,8 +417,8 @@ class StreamingStats:
     def coverage(self, pid: int | None, gen: int) -> float:
         """Observed share of the span, in ``[0, 1]``.
 
-        1.0 when nothing was observed: none of the nothing it covers was lost,
-        and every call site would otherwise guard a division.
+        An empty span lost nothing, so it reports 1.0 and spares every call
+        site a division guard.
         """
         exact = self.exact_count(pid, gen)
         if exact == 0:
@@ -437,8 +429,8 @@ class StreamingStats:
         """Multiplier taking a sampled pause sum to the exact one.
 
         Sub-phases have no exact counterpart but partition the pause, so
-        scaling a measured phase sum by this estimates it. Percentiles it
-        cannot correct; see ADR-0015.
+        scaling a measured phase sum by this estimates it. It cannot correct
+        a percentile, see ADR-0015.
         """
         sampled = self._sampled(pid, gen).sum()
         if sampled == 0:
@@ -453,7 +445,7 @@ class StreamingStats:
         return by_gen
 
     def _lifetime_by_gen(self) -> dict[int, LifetimeTotals]:
-        """Every ring's lifetime totals, folded per generation in one pass."""
+        """Fold every ring's lifetime totals into a per-gen one, single pass."""
         by_gen: dict[int, LifetimeTotals] = {}
         for (_pid, _iid, gen), totals in self._lifetime.items():
             by_gen.setdefault(gen, LifetimeTotals()).add(totals.collections, totals.duration_s)
@@ -477,7 +469,7 @@ class StreamingStats:
 
     @property
     def read_time(self) -> Stats:
-        """Read durations in nanoseconds, aggregated over all polled PIDs."""
+        """Read durations in nanoseconds, over every polled pid."""
         return self._read_time
 
     def get_pid_stats(self, pid: int) -> TStatsData | None:
@@ -497,9 +489,9 @@ class StreamingStats:
         long run delays the next one, so its record survives in the ring more
         often than a short one's. No scale factor corrects a quantile.
 
-        The loss and lifetime totals are folded per generation once, up front:
-        going through the per-pid accessors instead would rescan both dicts for
-        every field and dominate a call that is otherwise just three quantiles.
+        Both totals fold per generation once, up front. The per-pid accessors
+        would rescan each dict for every field and dominate a call that is
+        otherwise three quantiles.
         """
         result: dict[str, int | float] = {}
         pause = self.metrics["pause"]
