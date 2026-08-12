@@ -5,7 +5,7 @@ runs faster than gcmon polls loses records before any poll reads them. Two
 cumulative fields make the loss measurable: ``collections`` counts what was
 missed, and ``duration`` gives the pause time nobody saw.
 
-``EventsMonitor`` owns one ``KeyAccumulator`` per ``(pid, iid, gen)``; see
+``EventsMonitor`` owns one ``RingAccumulator`` per ``(pid, iid, gen)``; see
 ADR-0015 for why the spans need a track of their own.
 """
 
@@ -17,16 +17,16 @@ from .data import GenLoss, secs_to_ns
 from .protocol import TGCStatsInfo
 
 __all__ = [
-    "CursorKey",
-    "KeyAccumulator",
+    "RingAccumulator",
+    "RingKey",
 ]
 
 # (iid, gen). One CPython ring buffer, with its own `collections` counter.
-type CursorKey = tuple[int, int]
+type RingKey = tuple[int, int]
 
 
-class KeyAccumulator(msgspec.Struct):
-    """What one key did, against what gcmon saw of it.
+class RingAccumulator(msgspec.Struct):
+    """What one ring did, against what gcmon saw of it.
 
     ``last`` doubles as the poll cursor: a record whose ``collections`` does
     not exceed it has gone out already, or never arrived.
@@ -42,7 +42,7 @@ class KeyAccumulator(msgspec.Struct):
     sampled_pause_ns: int = 0
 
     def observe_batch(self, events: Sequence[TGCStatsInfo]) -> GenLoss | None:
-        """Fold the records one poll returned for this key, in counter order.
+        """Fold the records one poll returned for this ring, in counter order.
 
         A ring holds consecutive records, so only the first of them can sit
         across a gap and only the last settles the cursor. Returns this
@@ -58,7 +58,7 @@ class KeyAccumulator(msgspec.Struct):
         if not events:
             return None
 
-        # The first record on a key opens no gap. Whatever ran before it is
+        # The first record on a ring opens no gap. Whatever ran before it is
         # outside the observed span, and gcmon cannot tell "ran before we
         # attached" from "lost".
         seeding = self.sampled_count == 0
@@ -82,12 +82,12 @@ class KeyAccumulator(msgspec.Struct):
         return entry
 
     def _gen_loss(self, first: TGCStatsInfo, observed_count: int) -> GenLoss:
-        """This key's entry for one poll: *observed_count* records read, and
+        """This ring's entry for one poll: *observed_count* records read, and
         the records missing ahead of *first*, if there are any.
 
         Touches no running total; :meth:`observe_batch` owns those.
         """
-        # `last` is the newest counter this key returned, so `last + 1` onward
+        # `last` is the newest counter this ring returned, so `last + 1` onward
         # up to the one before `first` never reached gcmon. Both fences are the
         # target's own counters; neither is inferred from a timestamp.
         lost_from = self.last_collections + 1

@@ -22,7 +22,7 @@ import pytest
 
 from gcmon.data import GCStatsInfo, lost_to, secs_to_ns
 from gcmon.exporters.exporter import EventsExporter
-from gcmon.loss import KeyAccumulator
+from gcmon.loss import RingAccumulator
 from gcmon.monitor import EventsMonitor
 from gcmon.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.stats import StreamingStats
@@ -135,7 +135,7 @@ def interpreter_polls(
 
     Each ring holds the newest *capacity* records of its own generation to
     have finished by that tick, so the generations lose records over stretches
-    that cross, which ``ring_polls`` on a single-key run never produces.
+    that cross, which ``ring_polls`` on a single-ring run never produces.
     """
     for end in range(per_tick, len(events) + per_tick, per_tick):
         done = events[:end]
@@ -145,9 +145,9 @@ def interpreter_polls(
         yield batch
 
 
-def fold_singly(events: Sequence[GCStatsInfo]) -> KeyAccumulator:
+def fold_singly(events: Sequence[GCStatsInfo]) -> RingAccumulator:
     """The same records, one single-record run at a time."""
-    accumulator = KeyAccumulator()
+    accumulator = RingAccumulator()
     for event in events:
         accumulator.observe_batch([event])
     return accumulator
@@ -181,7 +181,7 @@ class LossRecorder(EventsExporter):
 class Ingested:
     """A monitor, the polls it was given, and what it made of them.
 
-    Thin on purpose: the loss records and the cursors are the monitor's own,
+    Thin on purpose: the loss records and the rings are the monitor's own,
     so a test reads what the exporters would be handed rather than what a copy
     of `_ingest` would have produced.
     """
@@ -209,11 +209,11 @@ class Ingested:
         return self.recorder.losses[before:]
 
     @property
-    def cursors(self) -> dict[tuple[int, int], KeyAccumulator]:
-        return self.monitor._cursors.get(self.pid, {})
+    def rings(self) -> dict[tuple[int, int], RingAccumulator]:
+        return self.monitor._rings.get(self.pid, {})
 
-    def __getitem__(self, key: tuple[int, int]) -> KeyAccumulator:
-        return self.cursors[key]
+    def __getitem__(self, key: tuple[int, int]) -> RingAccumulator:
+        return self.rings[key]
 
     def spans(self, iid: int = 0) -> list[TLossMsg]:
         """Every loss record this interpreter's polls emitted, in order."""
@@ -243,8 +243,8 @@ def true_pause_ns(events: Sequence[GCStatsInfo], first: int, last: int) -> int:
 
 
 @pytest.fixture
-def accumulator() -> KeyAccumulator:
-    return KeyAccumulator()
+def accumulator() -> RingAccumulator:
+    return RingAccumulator()
 
 
 @pytest.fixture
@@ -254,24 +254,24 @@ def captured() -> Ingested:
 
 
 class TestEmptyAccumulator:
-    def test_reports_nothing(self, accumulator: KeyAccumulator) -> None:
+    def test_reports_nothing(self, accumulator: RingAccumulator) -> None:
         assert accumulator.exact_count == 0
         assert accumulator.exact_pause_ns == 0
         assert accumulator.lost_count == 0
 
-    def test_coverage_and_scale_are_neutral(self, accumulator: KeyAccumulator) -> None:
+    def test_coverage_and_scale_are_neutral(self, accumulator: RingAccumulator) -> None:
         """Nothing observed and nothing lost. Returning 1.0 rather than
         raising keeps a division out of every call site."""
         assert accumulator.coverage == 1.0
         assert accumulator.scale_factor == 1.0
 
-    def test_last_starts_below_every_counter(self, accumulator: KeyAccumulator) -> None:
+    def test_last_starts_below_every_counter(self, accumulator: RingAccumulator) -> None:
         """``last`` doubles as the poll cursor, and CPython counts from 1."""
         assert accumulator.last_collections == 0
 
 
 class TestFencepost:
-    def test_one_record_spans_itself(self, accumulator: KeyAccumulator) -> None:
+    def test_one_record_spans_itself(self, accumulator: RingAccumulator) -> None:
         entry = accumulator.observe_batch(
             [create_mock_stats_item(collections=42, ts_start=1_000, ts_stop=1_700, duration=0.0007)]
         )
@@ -282,7 +282,7 @@ class TestFencepost:
         assert entry is not None
         assert (entry.observed_count, entry.lost_count) == (1, 0)
 
-    def test_two_adjacent_records_leave_no_gap(self, accumulator: KeyAccumulator) -> None:
+    def test_two_adjacent_records_leave_no_gap(self, accumulator: RingAccumulator) -> None:
         entry = accumulator.observe_batch(build_run(2))
 
         assert accumulator.exact_count == 2
@@ -290,7 +290,7 @@ class TestFencepost:
         assert entry is not None
         assert (entry.observed_count, entry.lost_count) == (2, 0)
 
-    def test_exact_pause_covers_the_first_record(self, accumulator: KeyAccumulator) -> None:
+    def test_exact_pause_covers_the_first_record(self, accumulator: RingAccumulator) -> None:
         """The delta of a cumulative field starts *after* the first record, so
         dropping the fencepost term would under-report by one pause."""
         events = build_run(5)
@@ -299,7 +299,7 @@ class TestFencepost:
         assert accumulator.exact_pause_ns == true_pause_ns(events, 1, 5)
         assert accumulator.exact_pause_ns != secs_to_ns(events[-1].duration - events[0].duration)
 
-    def test_a_span_starting_late_ignores_earlier_collections(self, accumulator: KeyAccumulator) -> None:
+    def test_a_span_starting_late_ignores_earlier_collections(self, accumulator: RingAccumulator) -> None:
         """gcmon cannot tell "ran before we attached" from "lost", so
         collections before the first observed record are outside the span."""
         events = build_run(20)
@@ -313,7 +313,7 @@ class TestGapDetection:
     """Gaps open at the seam between two polls, so every case here folds one
     run, then another that starts further along than the first ended."""
 
-    def test_a_skipped_record_opens_a_gap(self, accumulator: KeyAccumulator) -> None:
+    def test_a_skipped_record_opens_a_gap(self, accumulator: RingAccumulator) -> None:
         events = build_run(3)
         accumulator.observe_batch([events[0]])
         entry = accumulator.observe_batch([events[2]])
@@ -322,7 +322,7 @@ class TestGapDetection:
         assert entry.lost_count == 1
         assert entry.lost_pause_ns == events[1].ts_stop - events[1].ts_start
 
-    def test_the_gap_names_the_collections_it_is_missing(self, accumulator: KeyAccumulator) -> None:
+    def test_the_gap_names_the_collections_it_is_missing(self, accumulator: RingAccumulator) -> None:
         """The gap is found by subtracting the ring's own counters, so both
         bounds are in hand before the count is. Records 2, 3 and 4 never
         arrived: the entry says so rather than saying "three of them"."""
@@ -335,7 +335,7 @@ class TestGapDetection:
         assert lost_to(entry.lost_from, entry.lost_count) == 4
         assert [e.collections for e in events[1:4]] == [2, 3, 4]
 
-    def test_the_range_stops_short_of_the_records_that_bound_it(self, accumulator: KeyAccumulator) -> None:
+    def test_the_range_stops_short_of_the_records_that_bound_it(self, accumulator: RingAccumulator) -> None:
         """Both fences, in the smallest case that has them: the record before
         the gap and the record after it were observed and are drawn, so a range
         reaching either would charge a collection twice."""
@@ -347,7 +347,7 @@ class TestGapDetection:
         assert entry.lost_from == events[0].collections + 1
         assert lost_to(entry.lost_from, entry.lost_count) == events[2].collections - 1
 
-    def test_the_entry_carries_no_timestamps(self, accumulator: KeyAccumulator) -> None:
+    def test_the_entry_carries_no_timestamps(self, accumulator: RingAccumulator) -> None:
         """Where the lost records ran is not something the ring knows, and the
         two polls that bracket them already say all there is to say about it.
         An entry that carried bounds of its own would be a second answer to
@@ -365,7 +365,7 @@ class TestGapDetection:
             "lost_pause_ns",
         }
 
-    def test_a_pause_shortfall_floors_at_zero(self, accumulator: KeyAccumulator) -> None:
+    def test_a_pause_shortfall_floors_at_zero(self, accumulator: RingAccumulator) -> None:
         """``duration`` is a cumulative float of seconds while the bounds are
         ns timestamps, so a gap holding almost no pause can subtract to a hair
         below zero. Negative pause has no meaning downstream: it would drag
@@ -384,7 +384,7 @@ class TestGapDetection:
         assert entry is not None
         assert entry.lost_pause_ns == 0
 
-    def test_the_entry_carries_its_generation(self, accumulator: KeyAccumulator) -> None:
+    def test_the_entry_carries_its_generation(self, accumulator: RingAccumulator) -> None:
         events = build_run(3, gen=1)
         accumulator.observe_batch([events[0]])
         entry = accumulator.observe_batch([events[2]])
@@ -392,7 +392,7 @@ class TestGapDetection:
         assert entry is not None
         assert entry.gen == 1
 
-    def test_a_lossless_run_opens_none(self, accumulator: KeyAccumulator) -> None:
+    def test_a_lossless_run_opens_none(self, accumulator: RingAccumulator) -> None:
         entry = accumulator.observe_batch(build_run(50))
 
         assert entry is not None
@@ -400,7 +400,7 @@ class TestGapDetection:
         assert accumulator.coverage == 1.0
         assert accumulator.scale_factor == pytest.approx(1.0, abs=1e-9)
 
-    def test_no_gap_before_the_first_record_or_after_the_last(self, accumulator: KeyAccumulator) -> None:
+    def test_no_gap_before_the_first_record_or_after_the_last(self, accumulator: RingAccumulator) -> None:
         events = build_run(30)
         entry = accumulator.observe_batch(events[10:20])
 
@@ -416,22 +416,22 @@ class TestObserveBatch:
     @pytest.mark.parametrize("count", [1, 2, 11])
     def test_a_run_matches_record_by_record(self, count: int) -> None:
         events = build_run(count)
-        batched = KeyAccumulator()
+        batched = RingAccumulator()
 
         batched.observe_batch(events)
 
         assert batched == fold_singly(events)
 
-    def test_an_empty_run_changes_nothing(self, accumulator: KeyAccumulator) -> None:
+    def test_an_empty_run_changes_nothing(self, accumulator: RingAccumulator) -> None:
         """The one case with no entry to return. A generation that returned no
         record this poll contributed neither loss nor coverage, so naming it on
         the interval would say only that it exists."""
         assert accumulator.observe_batch([]) is None
-        assert accumulator == KeyAccumulator()
+        assert accumulator == RingAccumulator()
 
     def test_consecutive_polls_pick_up_where_the_last_left_off(self) -> None:
         events = build_run(20)
-        batched = KeyAccumulator()
+        batched = RingAccumulator()
 
         batched.observe_batch(events[:11])
         batched.observe_batch(events[11:])
@@ -442,7 +442,7 @@ class TestObserveBatch:
         """The seam between polls is where a ring loses records, and the only
         place a contiguous run can have lost any."""
         events = build_run(20)
-        batched = KeyAccumulator()
+        batched = RingAccumulator()
 
         batched.observe_batch(events[:5])
         entry = batched.observe_batch(events[12:])
@@ -459,7 +459,7 @@ class TestObserveBatch:
         pause, so ADR-0015's invariant does not hold."""
         events = build_run(10)
         torn = events[:4] + events[6:]
-        batched = KeyAccumulator()
+        batched = RingAccumulator()
 
         entry = batched.observe_batch(torn)
 
@@ -774,7 +774,7 @@ class TestTheRingSpanIsPartitioned:
 
         ingested = observe_all(interpreter_polls(run, per_tick))
 
-        for (iid, gen), acc in ingested.cursors.items():
+        for (iid, gen), acc in ingested.rings.items():
             # Ground truth: the collections the target really performed on this
             # ring, over the stretch gcmon can speak for. What ran before the
             # first observed record is outside the span, since nothing tells
@@ -799,8 +799,8 @@ class TestTheRingSpanIsPartitioned:
 
         ingested = observe_all(interpreter_polls(run, per_tick))
 
-        assert any(ingested.gaps_for(key) for key in ingested.cursors)
-        for key, acc in ingested.cursors.items():
+        assert any(ingested.gaps_for(key) for key in ingested.rings)
+        for key, acc in ingested.rings.items():
             assert sum(gap.lost_count for gap in ingested.gaps_for(key)) == acc.lost_count
 
     @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
@@ -812,7 +812,7 @@ class TestTheRingSpanIsPartitioned:
 
         ingested = observe_all(interpreter_polls(run, per_tick))
 
-        for key in ingested.cursors:
+        for key in ingested.rings:
             seen = set(ingested.observed_for(key))
             for gap in ingested.gaps_for(key):
                 assert gap.lost_from - 1 in seen

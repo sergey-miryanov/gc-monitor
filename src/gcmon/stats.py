@@ -254,7 +254,7 @@ class StreamingStats:
         self._heap_size: dict[int, int] = {}
         self._read_time: Stats = Stats()
         # Loss arrives as a per-poll increment, so exact totals follow from
-        # ADR-0015's invariant without holding the monitor's cursors: what
+        # ADR-0015's invariant without holding the monitor's rings: what
         # gcmon saw plus what it missed. A pid dropped by `forget` keeps what
         # it recorded.
         self._lost_count: dict[tuple[int, int], int] = {}

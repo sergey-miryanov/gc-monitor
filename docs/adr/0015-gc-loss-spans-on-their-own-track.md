@@ -22,10 +22,10 @@ question below comes back to that split. The counts are exact; their placement i
 
 ## The arithmetic
 
-Per key, `KeyAccumulator` carries `first`, `first_pause_ns` and `first_duration` from the first
-record gcmon observed, `last`, `last_duration` and `last_ts_stop` from the most recent one, and
-the running `sampled_count` and `sampled_pause_ns`. On the first record `r` a poll returned for
-that key, with `r.collections = c` and the previous cursor at `p`:
+Per ring, `RingAccumulator` carries `first`, `first_pause_ns` and `first_duration` from the
+first record gcmon observed, `last`, `last_duration` and `last_ts_stop` from the most recent
+one, and the running `sampled_count` and `sampled_pause_ns`. On the first record `r` a poll
+returned for that ring, with `r.collections = c` and the previous cursor at `p`:
 
 ```
 lost_from  = p + 1
@@ -38,10 +38,10 @@ holds counters and nothing else; the two polls that bracket it answer the placem
 
 `Δduration` spans records `p+1 .. c` inclusive. gcmon read record `c`, so taking its own pause
 back out leaves the pause sum of the `gap` records nobody saw. `observe_batch` tests only the
-first record a poll returned for a key, since a ring holds consecutive records and nothing
+first record a poll returned for a ring, since a ring holds consecutive records and nothing
 between them can be missing.
 
-At close, per key:
+At close, per ring:
 
 ```
 exact_count    = last - first + 1
@@ -54,7 +54,7 @@ misses that record's own pause. Adding `first_pause_ns` back makes `exact_count`
 asserts it:
 
 ```
-exact_pause_ns == sampled_pause_ns + Σ lost_pause over all gaps on the key
+exact_pause_ns == sampled_pause_ns + Σ lost_pause over all gaps on the ring
 ```
 
 That assertion catches a fencepost error, a wrong gap, and a `duration` that does not share a
@@ -178,14 +178,14 @@ with a pause too long by the interval between the two. Each reordering leaves a 
 fingerprint, and no client-side check catches them all without discarding real records too, so
 gcmon does not try. The fix belongs upstream.
 
-**2. One poll's records for one key are contiguous.** A ring holds consecutive records, so what
+**2. One poll's records for one ring are contiguous.** A ring holds consecutive records, so what
 `observe_batch` receives has no hole inside it and a gap can only sit ahead of it, at the seam
 between two polls. `observe_batch` folds the tail from the last record alone, without checking.
 
 Producing such a hole takes **two or more** runs finishing inside one ~1.1 KB read, positioned
 so the target's write cursor crosses the reader's. A single run finishing during the copy
 leaves the records contiguous whichever side of the cursor it lands on, and under
-`Py_GIL_DISABLED` every ring holds one slot, so a poll returns at most one record per key and
+`Py_GIL_DISABLED` every ring holds one slot, so a poll returns at most one record per ring and
 a hole cannot form. Were it to
 happen, the counts would survive, since they read only the two ends, but no gap would
 carry the hole's pause and the invariant would break in silence. Accepted without a guard: the
@@ -230,8 +230,8 @@ not share a clock, which would leave the whole reconstruction unsound.
 - **A pid reused inside one tick is measured against its predecessor's counter**, so gcmon
   reports a gap and an `exact_count` belonging to neither process. Accepted without code: reuse
   that fast needs the pid allocator to wrap, and a successor gcmon cannot read returns
-  `INVALID_PROCESS`, which clears the cursor through `forget`.
-- **A duplicated export can push `Cov` above 1.0.** After `forget` drops a pid's cursors the
+  `INVALID_PROCESS`, which clears the rings through `forget`.
+- **A duplicated export can push `Cov` above 1.0.** After `forget` drops a pid's rings the
   next poll re-exports the whole ring, and those duplicates inflate `sampled_count`, which now
   divides into an exact count. Clamping the ratio would hide the duplication.
 
@@ -250,12 +250,12 @@ not share a clock, which would leave the whole reconstruction unsound.
   narrowing stays available to a reader anyway, from the `GC Pause` slices on the row above and
   the `observed_count` in the args.
 - **Clipping a span's far end to the poll's earliest observation anywhere in the interpreter.**
-  The same guess in a subtler form. Oldest-first eviction orders a key's lost records against
-  that key's kept records and says nothing about another generation's, so a lost gen-0
+  The same guess in a subtler form. Oldest-first eviction orders a ring's lost records against
+  that ring's kept records and says nothing about another generation's, so a lost gen-0
   run can have happened after an observed gen-2 one. Measured on a real capture, clipping
   produced spans narrower than the pause they reported.
 - **Bounding a span by how many runs it could hold**, taking the shortest interval ever
-  measured between two consecutive records of a key as a floor on its period. Rejected: one
+  measured between two consecutive records of a ring as a floor on its period. Rejected: one
   fast burst weakens a lifetime minimum for the whole session. It also errs in the dangerous
   direction, since a stretch narrower than the floor that did hold a record loses it, and loss
   happens precisely when runs come fast.
@@ -280,7 +280,7 @@ not share a clock, which would leave the whole reconstruction unsound.
 
 ## Implementation
 
-- `src/gcmon/loss.py` holds the arithmetic: `KeyAccumulator`, one per `(pid, iid, gen)`,
+- `src/gcmon/loss.py` holds the arithmetic: `RingAccumulator`, one per `(pid, iid, gen)`,
   carrying the fencepost fields. Pure structs, no I/O. `observe_batch` returns the generation's
   `GenLoss` for the poll, so nothing downstream assembles one out of a loss and a count kept
   apart.
@@ -288,9 +288,9 @@ not share a clock, which would leave the whole reconstruction unsound.
   far fence from `lost_from` and `lost_count`. `seen_text` and `duration_text` produce the two
   args written for reading rather than for summing.
 - `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
-  key, folds them, and emits one record per interpreter that lost anything, bounded by
+  ring, folds them, and emits one record per interpreter that lost anything, bounded by
   `_polled_at[pid]` and this poll's instant. `forget` and `retain` drop that instant with the
-  cursors, so a reused pid inherits no interval. A record caught part-written is dropped by
+  rings, so a reused pid inherits no interval. A record caught part-written is dropped by
   `_is_complete` and comes back complete a poll later, opening no gap and bounding none.
 - `src/gcmon/trace_event.py`, `LOSS_TID_BASE = -2` with `loss_tid` and `loss_iid`, and
   `BeginEvent.args` widened to one level of nesting for the generation groups.

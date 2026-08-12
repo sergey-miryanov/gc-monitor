@@ -10,8 +10,8 @@ from typing import Self
 from .data import GenLoss, LossMsg
 from .exporters import EventsExporter
 from .loss import (
-    CursorKey,
-    KeyAccumulator,
+    RingAccumulator,
+    RingKey,
 )
 from .poll_status import PollStatus
 from .protocol import TGCStatsInfo
@@ -40,7 +40,7 @@ class EventsMonitor:
         self._process = process
         self._exporter = exporter
         self._enabled = True
-        self._cursors: dict[int, dict[CursorKey, KeyAccumulator]] = {}
+        self._rings: dict[int, dict[RingKey, RingAccumulator]] = {}
         # When this pid was last read. A loss record is bounded by two polls,
         # so a pid gcmon has polled once has nothing to bound yet.
         self._polled_at: dict[int, int] = {}
@@ -88,19 +88,19 @@ class EventsMonitor:
             return PollStatus.FAIL
 
     def forget(self, pid: int) -> None:
-        """Drop every cursor held for *pid*, so a reused pid inherits no
+        """Drop every ring held for *pid*, so a reused pid inherits no
         counter."""
-        self._cursors.pop(pid, None)
+        self._rings.pop(pid, None)
         self._polled_at.pop(pid, None)
 
     def retain(self, pids: Set[int]) -> None:
-        """Drop the cursors of every pid outside *pids*.
+        """Drop the rings of every pid outside *pids*.
 
         A process that exits between two ticks is never polled again, so no
         wait policy gives up on it and ``forget`` never runs.
         """
-        for pid in self._cursors.keys() - pids:
-            del self._cursors[pid]
+        for pid in self._rings.keys() - pids:
+            del self._rings[pid]
         for pid in self._polled_at.keys() - pids:
             del self._polled_at[pid]
 
@@ -116,7 +116,7 @@ class EventsMonitor:
         pair is stored under the same field for both, so consecutive intervals
         tile the timeline instead of overlapping by a read.
         """
-        cursors = self._cursors.setdefault(pid, {})
+        rings = self._rings.setdefault(pid, {})
         polled_before = self._polled_at.get(pid)
         self._polled_at[pid] = ts_poll
 
@@ -131,7 +131,7 @@ class EventsMonitor:
         fresh: list[TGCStatsInfo] = []
         entries: dict[int, list[GenLoss]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
-            accumulator = cursors.setdefault((iid, gen), KeyAccumulator())
+            accumulator = rings.setdefault((iid, gen), RingAccumulator())
             seen = accumulator.last_collections
             # Keying on the counter drops the copy the target makes of a record
             # ahead of overwriting it: both slots report the same counter, so no
