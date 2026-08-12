@@ -135,22 +135,22 @@ class EventsMonitor:
         )
 
         fresh: list[TGCStatsInfo] = []
-        intervals: dict[int, list[GenLoss]] = {}
+        gens_by_iid: dict[int, list[GenLoss]] = {}
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = state.rings.setdefault((iid, gen), RingAccumulator())
             unseen = accumulator.unseen(group)
             if not unseen:
                 continue
 
-            interval = accumulator.ingest(unseen)
-            intervals.setdefault(iid, []).append(interval)
+            gen_loss = accumulator.ingest(unseen)
+            gens_by_iid.setdefault(iid, []).append(gen_loss)
             self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
-            if interval.lost_count:
-                self._stats.record_loss(pid, gen, interval.lost_count, interval.lost_pause_ns)
+            if gen_loss.lost_count:
+                self._stats.record_loss(pid, gen, gen_loss.lost_count, gen_loss.lost_pause_ns)
             fresh.extend(unseen)
 
-        for iid, gens in intervals.items():
-            if all(entry.no_loss for entry in gens):
+        for iid, gens in gens_by_iid.items():
+            if all(gen_loss.no_loss for gen_loss in gens):
                 continue
 
             # A first poll seeds every ring it touches, and seeding opens no
