@@ -279,7 +279,6 @@ class TestFencepost:
         assert accumulator.exact_count == 1
         assert accumulator.exact_pause_ns == 700
         assert accumulator.sampled_pause_ns == 700
-        assert entry is not None
         assert (entry.observed_count, entry.lost_count) == (1, 0)
 
     def test_two_adjacent_records_leave_no_gap(self, accumulator: RingAccumulator) -> None:
@@ -287,7 +286,6 @@ class TestFencepost:
 
         assert accumulator.exact_count == 2
         assert accumulator.lost_count == 0
-        assert entry is not None
         assert (entry.observed_count, entry.lost_count) == (2, 0)
 
     def test_exact_pause_covers_the_first_record(self, accumulator: RingAccumulator) -> None:
@@ -318,7 +316,6 @@ class TestGapDetection:
         accumulator.observe_batch([events[0]])
         entry = accumulator.observe_batch([events[2]])
 
-        assert entry is not None
         assert entry.lost_count == 1
         assert entry.lost_pause_ns == events[1].ts_stop - events[1].ts_start
 
@@ -330,7 +327,6 @@ class TestGapDetection:
         accumulator.observe_batch([events[0]])
         entry = accumulator.observe_batch([events[4]])
 
-        assert entry is not None
         assert (entry.lost_from, entry.lost_count) == (2, 3)
         assert lost_to(entry.lost_from, entry.lost_count) == 4
         assert [e.collections for e in events[1:4]] == [2, 3, 4]
@@ -343,7 +339,6 @@ class TestGapDetection:
         accumulator.observe_batch([events[0]])
         entry = accumulator.observe_batch([events[2]])
 
-        assert entry is not None
         assert entry.lost_from == events[0].collections + 1
         assert lost_to(entry.lost_from, entry.lost_count) == events[2].collections - 1
 
@@ -356,7 +351,6 @@ class TestGapDetection:
         accumulator.observe_batch([events[0]])
         entry = accumulator.observe_batch([events[2]])
 
-        assert entry is not None
         assert set(msgspec.structs.asdict(entry)) == {
             "gen",
             "observed_count",
@@ -381,7 +375,6 @@ class TestGapDetection:
         accumulator.observe_batch([first])
         entry = accumulator.observe_batch([third])
 
-        assert entry is not None
         assert entry.lost_pause_ns == 0
 
     def test_the_entry_carries_its_generation(self, accumulator: RingAccumulator) -> None:
@@ -389,13 +382,11 @@ class TestGapDetection:
         accumulator.observe_batch([events[0]])
         entry = accumulator.observe_batch([events[2]])
 
-        assert entry is not None
         assert entry.gen == 1
 
     def test_a_lossless_run_opens_none(self, accumulator: RingAccumulator) -> None:
         entry = accumulator.observe_batch(build_run(50))
 
-        assert entry is not None
         assert (entry.lost_count, entry.lost_from, entry.lost_pause_ns) == (0, 0, 0)
         assert accumulator.coverage == 1.0
         assert accumulator.scale_factor == pytest.approx(1.0, abs=1e-9)
@@ -404,7 +395,6 @@ class TestGapDetection:
         events = build_run(30)
         entry = accumulator.observe_batch(events[10:20])
 
-        assert entry is not None
         assert entry.lost_count == 0
 
 
@@ -422,12 +412,14 @@ class TestObserveBatch:
 
         assert batched == fold_singly(events)
 
-    def test_an_empty_run_changes_nothing(self, accumulator: RingAccumulator) -> None:
-        """The one case with no entry to return. A generation that returned no
-        record this poll contributed neither loss nor coverage, so naming it on
-        the interval would say only that it exists."""
-        assert accumulator.observe_batch([]) is None
-        assert accumulator == RingAccumulator()
+    def test_a_poll_returning_nothing_new_folds_nothing(self, accumulator: RingAccumulator) -> None:
+        """`observe_batch` takes a non-empty run, and `unseen` is what keeps
+        that true. A generation whose ring returned only records gcmon already
+        has contributed neither loss nor coverage."""
+        events = build_run(5)
+        accumulator.observe_batch(events)
+
+        assert accumulator.unseen(events) == []
 
     def test_consecutive_polls_pick_up_where_the_last_left_off(self) -> None:
         events = build_run(20)
@@ -447,7 +439,6 @@ class TestObserveBatch:
         batched.observe_batch(events[:5])
         entry = batched.observe_batch(events[12:])
 
-        assert entry is not None
         assert entry.lost_count == 7
         assert batched == fold_singly(events[:5] + events[12:])
 
@@ -463,7 +454,6 @@ class TestObserveBatch:
 
         entry = batched.observe_batch(torn)
 
-        assert entry is not None
         assert entry.lost_count == 0
         assert batched.lost_count == 2
         assert batched.exact_pause_ns > batched.sampled_pause_ns

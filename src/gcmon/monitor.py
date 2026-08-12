@@ -136,16 +136,19 @@ class EventsMonitor:
             # duplicate slots both. That filter and `_is_complete` above are
             # the two ADR-0015 rests on the publishing contract for.
             streak = accumulator.unseen(group)
+            if not streak:
+                # Nothing new on this ring, so it contributed neither loss nor
+                # coverage and the interval leaves it out.
+                continue
 
             entry = accumulator.observe_batch(streak)
-            if entry is not None:
-                entries.setdefault(iid, []).append(entry)
-                self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
-                if entry.lost_count:
-                    # Record first, draw second, and never the other way round.
-                    # The counts are the target's own counters, so `Cov`, `F`
-                    # and the exact totals hold whether or not a span is drawn.
-                    self._stats.record_loss(pid, gen, entry.lost_count, entry.lost_pause_ns)
+            entries.setdefault(iid, []).append(entry)
+            self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
+            if entry.lost_count:
+                # Record first, draw second, and never the other way round.
+                # The counts are the target's own counters, so `Cov`, `F` and
+                # the exact totals hold whether or not a span is drawn.
+                self._stats.record_loss(pid, gen, entry.lost_count, entry.lost_pause_ns)
             fresh.extend(streak)
 
         # One record per poll interval, per interpreter, carrying every

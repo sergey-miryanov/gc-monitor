@@ -27,8 +27,8 @@ type RingKey = tuple[int, int]
 class RingAccumulator(msgspec.Struct):
     """What one ring did, against what gcmon saw of it.
 
-    ``last_collections`` doubles as the poll cursor: a record at or below it
-    has gone out already, or was lost.
+    ``last_collections`` holds the newest counter this ring has returned.
+    :meth:`unseen` drops anything at or below it as already handled.
     """
 
     first_collections: int = 0
@@ -40,7 +40,8 @@ class RingAccumulator(msgspec.Struct):
     sampled_pause_ns: int = 0
 
     def unseen(self, events: Iterable[TGCStatsInfo]) -> list[TGCStatsInfo]:
-        """The records in *events* this ring has not seen before.
+        """The records in *events* this ring has not seen before, keeping the
+        order they came in.
 
         Two slots can report one GC run and no marker splits them, so one of
         the pair goes. A dict keeps the last, which a stable sort leaves in
@@ -49,21 +50,19 @@ class RingAccumulator(msgspec.Struct):
         fresh = {event.collections: event for event in events if event.collections > self.last_collections}
         return list(fresh.values())
 
-    def observe_batch(self, events: Sequence[TGCStatsInfo]) -> GenLoss | None:
-        """Fold the records one poll returned for this ring, in counter order.
+    def observe_batch(self, events: Sequence[TGCStatsInfo]) -> GenLoss:
+        """Fold the records one poll returned for this ring.
 
-        A ring holds consecutive records, so only the first of them can sit
-        across a gap and only the last settles the cursor. Contiguity it
-        trusts without checking, see ADR-0015.
+        *events* is what :meth:`unseen` returned, ordered by ``collections``
+        and not empty. A ring holds consecutive records, so only the first of
+        them can sit across a gap and only the last settles the cursor.
+        Contiguity it trusts without checking, see ADR-0015.
 
         Returns the generation's entry for the poll, ready for a ``LossMsg``
-        as it stands, or ``None`` when *events* is empty.
+        as it stands.
         """
-        if not events:
-            return None
-
         # The first record on a ring opens no gap: what ran before it sits
-        # outside the span `exact_count` covers.
+        # outside what `exact_count` counts.
         seeding = self.sampled_count == 0
         if seeding:
             self.first_collections = events[0].collections
@@ -114,10 +113,11 @@ class RingAccumulator(msgspec.Struct):
 
     @property
     def exact_count(self) -> int:
-        """GC runs over the observed span, counting both ends.
+        """GC runs between the first and last record gcmon observed, counting
+        both ends.
 
-        Runs before the first observed record fall outside it, since gcmon
-        cannot tell "ran before we attached" from "lost".
+        Runs before the first fall outside it, since gcmon cannot tell "ran
+        before we attached" from "lost".
         """
         if self.sampled_count == 0:
             return 0
@@ -125,7 +125,8 @@ class RingAccumulator(msgspec.Struct):
 
     @property
     def exact_pause_ns(self) -> int:
-        """Pause time over the same span, from the target's own ``duration``.
+        """Pause time over the runs ``exact_count`` counts, from the target's
+        own ``duration``.
 
         ``first_duration`` is cumulative through the first observed record, so
         the delta starts after it. Adding that record's pause back makes this
@@ -141,8 +142,8 @@ class RingAccumulator(msgspec.Struct):
 
     @property
     def coverage(self) -> float:
-        """Observed share of the span, in ``[0, 1]``. An empty ring lost
-        nothing, so it reports 1.0."""
+        """Share of the runs ``exact_count`` counts that gcmon observed, in
+        ``[0, 1]``. An empty ring lost nothing, so it reports 1.0."""
         if self.exact_count == 0:
             return 1.0
         return self.sampled_count / self.exact_count
