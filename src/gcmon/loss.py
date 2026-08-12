@@ -43,9 +43,8 @@ class RingAccumulator(msgspec.Struct):
         """The records in *events* this ring has not seen before, keeping the
         order they came in.
 
-        Two slots can report one GC run and no marker splits them, so one of
-        the pair goes. A dict keeps the last, which a stable sort leaves in
-        slot order.
+        Two slots can report one GC run and no marker splits them, so the
+        first of the pair is dropped.
         """
         fresh = {event.collections: event for event in events if event.collections > self.last_collections}
         return list(fresh.values())
@@ -61,6 +60,7 @@ class RingAccumulator(msgspec.Struct):
         Returns the generation's entry for the poll, ready for a ``LossMsg``
         as it stands.
         """
+        assert len(events) > 0
         # The first record on a ring opens no gap: what ran before it sits
         # outside what `exact_count` counts.
         seeding = self.sampled_count == 0
@@ -82,19 +82,19 @@ class RingAccumulator(msgspec.Struct):
 
         return entry
 
-    def _gen_loss(self, first: TGCStatsInfo, observed_count: int) -> GenLoss:
+    def _gen_loss(self, event: TGCStatsInfo, observed_count: int) -> GenLoss:
         """This ring's entry for one poll: *observed_count* records read, and
-        the records missing ahead of *first*, if any.
+        the records missing ahead of *event*, if any.
 
         Touches no running total; :meth:`observe_batch` owns those.
         """
         # The cursor is the newest counter this ring returned, so one past it
-        # up to one before `first` never reached gcmon. Both fences are the
+        # up to one before *event* never reached gcmon. Both fences are the
         # target's own counters, not timestamps.
         lost_from = self.last_collections + 1
-        lost = first.collections - lost_from
+        lost = event.collections - lost_from
         if lost <= 0:
-            return GenLoss(gen=first.gen, observed_count=observed_count)
+            return GenLoss(gen=event.gen, observed_count=observed_count)
 
         # Delta duration spans the records after the cursor through this one,
         # so taking this one's own pause back out leaves the lost records
@@ -102,12 +102,12 @@ class RingAccumulator(msgspec.Struct):
         # seconds against ns timestamps, so a gap holding almost no pause can
         # land a hair below zero. Floor it: a negative pause would drag
         # `exact_pause_ns` under the sum gcmon measured.
-        spanned_ns = secs_to_ns(first.duration - self.last_duration)
+        spanned_ns = secs_to_ns(event.duration - self.last_duration)
         return GenLoss(
-            gen=first.gen,
+            gen=event.gen,
             observed_count=observed_count,
             lost_count=lost,
-            lost_pause_ns=max(0, spanned_ns - (first.ts_stop - first.ts_start)),
+            lost_pause_ns=max(0, spanned_ns - (event.ts_stop - event.ts_start)),
             lost_from=lost_from,
         )
 
