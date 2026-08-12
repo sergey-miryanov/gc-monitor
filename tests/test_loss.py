@@ -258,13 +258,6 @@ class TestEmptyAccumulator:
     def test_reports_nothing(self, accumulator: RingAccumulator) -> None:
         assert accumulator.exact_count == 0
         assert accumulator.exact_pause_ns == 0
-        assert accumulator.lost_count == 0
-
-    def test_coverage_and_scale_are_neutral(self, accumulator: RingAccumulator) -> None:
-        """Nothing observed and nothing lost. Returning 1.0 rather than
-        raising keeps a division out of every call site."""
-        assert accumulator.coverage == 1.0
-        assert accumulator.scale_factor == 1.0
 
     def test_last_starts_below_every_counter(self, accumulator: RingAccumulator) -> None:
         """``last`` doubles as the poll cursor, and CPython counts from 1."""
@@ -286,7 +279,6 @@ class TestFencepost:
         entry = accumulator.ingest(build_run(2))
 
         assert accumulator.exact_count == 2
-        assert accumulator.lost_count == 0
         assert (entry.observed_count, entry.lost_count) == (2, 0)
 
     def test_exact_pause_covers_the_first_record(self, accumulator: RingAccumulator) -> None:
@@ -389,8 +381,8 @@ class TestGapDetection:
         entry = accumulator.ingest(build_run(50))
 
         assert (entry.lost_count, entry.lost_from, entry.lost_pause_ns) == (0, 0, 0)
-        assert accumulator.coverage == 1.0
-        assert accumulator.scale_factor == pytest.approx(1.0, abs=1e-9)
+        assert accumulator.exact_count == accumulator.sampled_count
+        assert accumulator.exact_pause_ns == pytest.approx(accumulator.sampled_pause_ns, abs=1)
 
     def test_no_gap_before_the_first_record_or_after_the_last(self, accumulator: RingAccumulator) -> None:
         events = build_run(30)
@@ -456,7 +448,7 @@ class TestObserveBatch:
         entry = batched.ingest(torn)
 
         assert entry.lost_count == 0
-        assert batched.lost_count == 2
+        assert batched.exact_count - batched.sampled_count == 2
         assert batched.exact_pause_ns > batched.sampled_pause_ns
 
 
@@ -499,19 +491,13 @@ class TestReconstructionAgainstGroundTruth:
         records lost before gcmon ever looked fall outside the span."""
         acc = observe_all(ring_polls(build_run(8_700), 11, 87))[(0, 0)]
 
-        assert acc.coverage == pytest.approx(11 / 87, rel=0.02)
-        assert acc.coverage == acc.sampled_count / acc.exact_count
+        assert acc.sampled_count / acc.exact_count == pytest.approx(11 / 87, rel=0.02)
 
     def test_lost_count_matches_the_gaps(self) -> None:
         ingested = observe_all(ring_polls(build_run(400), 11, 87))
+        acc = ingested[(0, 0)]
 
-        assert ingested[(0, 0)].lost_count == sum(gap.lost_count for gap in ingested.gaps_for((0, 0)))
-
-    def test_scale_factor_corrects_a_sampled_sum(self) -> None:
-        acc = observe_all(ring_polls(build_run(400), 11, 87))[(0, 0)]
-
-        corrected = acc.sampled_pause_ns * acc.scale_factor
-        assert corrected == pytest.approx(acc.exact_pause_ns, rel=1e-9)
+        assert acc.exact_count - acc.sampled_count == sum(gap.lost_count for gap in ingested.gaps_for((0, 0)))
 
 
 # (gap between collections, collections per tick). The first pace is the
@@ -792,7 +778,7 @@ class TestTheRingSpanIsPartitioned:
 
         assert any(ingested.gaps_for(key) for key in ingested.rings)
         for key, acc in ingested.rings.items():
-            assert sum(gap.lost_count for gap in ingested.gaps_for(key)) == acc.lost_count
+            assert sum(gap.lost_count for gap in ingested.gaps_for(key)) == acc.exact_count - acc.sampled_count
 
     @pytest.mark.parametrize(("gap_ns", "per_tick"), PACES)
     def test_each_range_abuts_the_records_that_bound_it(self, gap_ns: int, per_tick: int) -> None:

@@ -134,28 +134,3 @@ class RingAccumulator(msgspec.Struct):
         if self.sampled_count == 0:
             return 0
         return secs_to_ns(self.last_duration - self.first_duration) + self.first_pause_ns
-
-    @property
-    def lost_count(self) -> int:
-        return self.exact_count - self.sampled_count
-
-    @property
-    def coverage(self) -> float:
-        """Share of the runs ``exact_count`` counts that gcmon observed, in
-        ``[0, 1]``. An empty ring lost nothing, so it reports 1.0."""
-        if self.exact_count == 0:
-            return 1.0
-        return self.sampled_count / self.exact_count
-
-    @property
-    def scale_factor(self) -> float:
-        """Multiplier taking a sampled pause sum to the exact one.
-
-        CPython accumulates a total for the pause alone, so no sub-phase has
-        an exact counterpart. Sub-phases partition the pause, so scaling a
-        measured phase sum by this estimates one. Percentiles it cannot
-        correct, see ADR-0015.
-        """
-        if self.sampled_pause_ns == 0:
-            return 1.0
-        return self.exact_pause_ns / self.sampled_pause_ns
