@@ -157,12 +157,14 @@ class EventsMonitor:
         # `(iid, gen, ...)`, so each interpreter's entries are already in the
         # order a reader scans them on the slice.
         for iid, gens in entries.items():
-            # An interval that lost nothing draws no span. The `polled_before`
-            # check never holds back a poll the loss check would let through:
-            # one poll bounds nothing, and a ring seeds on the first records it
-            # returns, so seeding opens no gap.
-            if polled_before is None or not any(entry.lost_count for entry in gens):
+            # An interval that lost nothing draws no span.
+            if not any(entry.lost_count for entry in gens):
                 continue
+            # Reaching here means gcmon polled this pid before. A first poll
+            # builds every ring it touches, a ring seeds on the first records
+            # it returns, and seeding opens no gap, so no entry above it could
+            # carry loss.
+            assert polled_before is not None
             self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=polled_before, ts_stop=ts_poll, gens=gens))
 
         # One interpreter's generations share a track, so they go out in time
