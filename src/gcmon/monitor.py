@@ -174,9 +174,14 @@ class EventsMonitor:
             assert polled_before is not None
             self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=polled_before, ts_stop=ts_poll, gens=gens))
 
-        # One interpreter's generations share a track, so they go out in time
-        # order. Two interpreters share no track and collect concurrently, so
-        # nothing is claimed about the order between them.
+        # The sort serves the JSONL capture. `add_event` appends a line per
+        # call and nothing puts GC records back in order on read-back, so line
+        # order per interpreter is the only time order that file carries. A
+        # trace needs none of it: GC runs inside an interpreter are serialized,
+        # so the slices never overlap and a processor sorting by timestamp
+        # rebuilds the track from any order. `_loss_in_time_order` covers the
+        # one track where the order is load-bearing. Two interpreters share no
+        # track, so the order between them claims nothing.
         for event in sorted(fresh, key=lambda event: (event.iid, event.ts_start)):
             self._exporter.add_event(pid, event)
             self._stats.update(pid, event)
