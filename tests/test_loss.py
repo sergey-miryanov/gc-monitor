@@ -1059,12 +1059,10 @@ class TestADuplicateCounterInOnePoll:
     class, and the choice is not inert: the run's last record sets
     `last_duration`, which becomes the next poll's pause base.
 
-    It cannot matter on truthful data. `add_stats` memcpy's a record forward
-    before touching a field, so until the new `ts_start` lands the twin is
-    byte-identical, and from that store until `collections` is incremented the
-    slot carries a start later than its stale stop, which `_is_complete`
-    rejects. These tests pin the resolution anyway, so a change to it is
-    deliberate rather than silent.
+    It cannot matter on truthful data, where a duplicate is a byte-identical
+    copy of its twin and either resolution gives the same answer. ADR-0015
+    says why, and what it would take to stop holding. These tests pin the
+    resolution anyway, so a change to it is deliberate rather than silent.
     """
 
     def _pair(self) -> tuple[GCStatsInfo, GCStatsInfo]:

@@ -133,8 +133,8 @@ class EventsMonitor:
         for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
             accumulator = rings.setdefault((iid, gen), RingAccumulator())
             # The ring decides what it has not handed over yet, cursor and
-            # duplicate slots both. `_is_complete` above is what lets it treat
-            # a duplicate as a copy of its twin.
+            # duplicate slots both. That filter and `_is_complete` above are
+            # the two ADR-0015 rests on the publishing contract for.
             streak = accumulator.unseen(group)
 
             entry = accumulator.observe_batch(streak)

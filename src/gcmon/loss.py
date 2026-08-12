@@ -48,21 +48,13 @@ class RingAccumulator(msgspec.Struct):
         ``collections`` does not exceed the cursor went out on an earlier
         poll.
 
-        Keying on the counter drops the copy the target makes of a record
-        ahead of overwriting it: both slots report the same counter, so no
-        threshold tells them apart. Two slots reporting one counter are one
-        record, not two.
-
-        A dict keeps the last of a duplicate pair, which a batch in slot order
-        leaves in slot order. Which one survives cannot matter: ``add_stats``
-        memcpy's the record forward before touching any field, so until it
-        stores the new ``ts_start`` the twin is byte-identical, and from that
-        store until it increments ``collections`` the slot carries a start
-        later than its stale stop, which ``EventsMonitor`` drops as unfinished.
-        A duplicate that reaches here is therefore a copy of its twin. The
-        choice would matter if that ever stopped holding: the last record of
-        the batch sets ``last_duration``, which is the pause base the next
-        poll subtracts from.
+        Two slots can report one counter, and they are one record rather than
+        two. No threshold tells them apart, so the counter is what identifies
+        a record. A dict keeps the last of such a pair, which a batch in slot
+        order leaves in slot order. Which of the two survives cannot matter
+        under the publishing contract ADR-0015 rests on, and would if that
+        ever stopped holding: the last record of the batch sets
+        ``last_duration``, the pause base the next poll subtracts from.
         """
         fresh = {event.collections: event for event in events if event.collections > self.last_collections}
         return list(fresh.values())

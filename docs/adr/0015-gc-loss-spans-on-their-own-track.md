@@ -157,16 +157,16 @@ spans from a JSONL capture.
 ## What gcmon trusts the target for
 
 Three properties hold the reconstruction up. CPython guarantees the first two, which gcmon
-assumes rather than checks; the invariant above tests the third. `observe_batch` cites this
-section rather than restating it.
+assumes rather than checks; the invariant above tests the third. `unseen` and `observe_batch`
+cite this section rather than restating it.
 
 **1. The publish-last contract survives to the reader.** `add_stats`
 (`Python/gc.c:1399-1418`) copies the previous record forward, overwrites `ts_start`, increments
 `collections`, and publishes `ts_stop` last, with a comment saying the ordering exists so
-remote readers do not select a partially updated record. Both filters in `_ingest` rest on it.
+remote readers do not select a partially updated record. Both of gcmon's filters rest on it.
 Between the memcpy and the `ts_start` store the slot is a byte-identical twin carrying its
-original's counter, which the counter dedup drops; from there to the `ts_stop` store it holds a
-new start against a stale stop, which `_is_complete` drops.
+original's counter, which `RingAccumulator.unseen` drops on the counter; from there to the
+`ts_stop` store it holds a new start against a stale stop, which `_is_complete` drops.
 
 Whether that ordering reaches the reader is unsettled. The stores are plain, with no barrier
 and no atomic, so nothing forbids the compiler from sinking the `ts_start` store past the other
