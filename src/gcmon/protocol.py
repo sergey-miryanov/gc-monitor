@@ -18,6 +18,7 @@ __all__ = [
     "TMapping",
     "TMarkAliveInfo",
     "TScalar",
+    "TValue",
     "has_clear_weakrefs",
     "has_deduce_unreachable",
     "has_delete_garbage",
@@ -122,10 +123,11 @@ class TLossMsg(Protocol):
 # What a JSONL line decodes to. The nested arm is the loss record's `gens`,
 # the one field of one record type that is not a scalar.
 type TScalar = str | int | float
-TMapping = Mapping[str, TScalar | Sequence[Mapping[str, TScalar]]]
+type TValue = TScalar | Sequence[Mapping[str, TScalar]]
 
-# The same shape on the way out, where the writer still owns the dict.
-type JsonlRecord = dict[str, TScalar | Sequence[Mapping[str, TScalar]]]
+# Read-only on the way in, and the writer owns the dict on the way out.
+type TMapping = Mapping[str, TValue]
+type JsonlRecord = dict[str, TValue]
 
 # Everything a JSONL line can decode to, and everything the converters accept.
 type TItem = TGCStatsInfo | TInstantMsg | TLossMsg
@@ -180,7 +182,7 @@ def is_loss(item: object) -> TypeGuard[TLossMsg]:
     return hasattr(item, "gens")
 
 
-def to_mapping(item: TItem) -> TMapping:
+def to_mapping(item: TItem) -> JsonlRecord:
     if is_instant(item):
         return {
             "type": item.type,
@@ -206,7 +208,7 @@ def to_mapping(item: TItem) -> TMapping:
         }
 
     if is_gc_stats(item):
-        m: dict[str, TScalar | Sequence[Mapping[str, TScalar]]] = {
+        m: JsonlRecord = {
             "gen": item.gen,
             "iid": item.iid,
             "ts_start": item.ts_start,
