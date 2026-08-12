@@ -1080,7 +1080,7 @@ class TestADuplicateCounterInOnePoll:
         ingested = Ingested()
         ingested.poll([first, later])
 
-        assert ingested[(0, 0)].last_ts_stop == later.ts_stop
+        assert ingested[(0, 0)].last_duration == later.duration
 
     def test_only_one_of_the_pair_is_counted(self) -> None:
         """A duplicate must not inflate the sample it is measured against."""
@@ -1110,5 +1110,4 @@ class TestADuplicateCounterInOnePoll:
         two = Ingested()
         two.poll([first, msgspec.structs.replace(first)])
 
-        assert two[(0, 0)].last_ts_stop == one[(0, 0)].last_ts_stop
-        assert two[(0, 0)].sampled_count == one[(0, 0)].sampled_count
+        assert two[(0, 0)] == one[(0, 0)]

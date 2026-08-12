@@ -145,8 +145,8 @@ class EventsMonitor:
             # start later than its stale stop, which `_is_complete` rejects.
             # A duplicate that reaches here is therefore a copy of its twin.
             # The choice would matter if that ever stopped holding: the last
-            # record of the streak sets `last_ts_stop` and `last_duration`,
-            # which are the pause base the next poll subtracts from.
+            # record of the streak sets `last_duration`, which is the pause
+            # base the next poll subtracts from.
             streak = list({event.collections: event for event in group if event.collections > seen}.values())
 
             entry = accumulator.observe_batch(streak)

@@ -37,7 +37,6 @@ class RingAccumulator(msgspec.Struct):
     first_duration: float = 0.0
     last_collections: int = 0
     last_duration: float = 0.0
-    last_ts_stop: int = 0
     sampled_count: int = 0
     sampled_pause_ns: int = 0
 
@@ -77,7 +76,6 @@ class RingAccumulator(msgspec.Struct):
         self.sampled_count += len(events)
         self.last_collections = last.collections
         self.last_duration = last.duration
-        self.last_ts_stop = last.ts_stop
 
         return entry
 

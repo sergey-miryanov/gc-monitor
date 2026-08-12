@@ -23,9 +23,9 @@ question below comes back to that split. The counts are exact; their placement i
 ## The arithmetic
 
 Per ring, `RingAccumulator` carries `first`, `first_pause_ns` and `first_duration` from the
-first record gcmon observed, `last`, `last_duration` and `last_ts_stop` from the most recent
-one, and the running `sampled_count` and `sampled_pause_ns`. On the first record `r` a poll
-returned for that ring, with `r.collections = c` and the previous cursor at `p`:
+first record gcmon observed, `last` and `last_duration` from the most recent one, and the
+running `sampled_count` and `sampled_pause_ns`. On the first record `r` a poll returned for
+that ring, with `r.collections = c` and the previous cursor at `p`:
 
 ```
 lost_from  = p + 1
