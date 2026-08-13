@@ -113,6 +113,7 @@ class TestPerfettoProtoConstants:
         assert f["bool_value"].number == DebugAnnotationField.BOOL_VALUE
         assert f["int_value"].number == DebugAnnotationField.INT_VALUE
         assert f["string_value"].number == DebugAnnotationField.STRING_VALUE
+        assert f["dict_entries"].number == DebugAnnotationField.DICT_ENTRIES
 
     def test_type_constants(self) -> None:
         assert int(TrackEvent.Type.TYPE_SLICE_BEGIN) == int(TrackEventType.SLICE_BEGIN)
