@@ -38,7 +38,8 @@ htmlcov
 *.json
 
 examples/
-scripts/
+# Anchored: `.github/scripts` is tracked.
+/scripts/
 
 # Local issue tracker (see docs/agents/issue-tracker.md)
 .scratch/
