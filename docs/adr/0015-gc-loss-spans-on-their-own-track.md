@@ -139,8 +139,8 @@ answers to `args.debug.gen1.missing_count` in SQL.
 ends included and written as one field. A pair of numbers meets at the same counter whenever a
 ring loses a single record, and `413..413` reads as a range of nothing to anyone who does
 not already know the ends are inclusive. Subtracting two of the ring's cumulative counters puts
-both fences in hand, and only the near one is stored, as `lost_from`; `lost_to` derives the far
-end from it and `lost_count`, since a stored pair could drift from the count `--stats` sums.
+both fences in hand, and only the near one is stored, as `lost_from`; the far end follows from
+it and `lost_count`, since a stored pair could drift from the count `--stats` sums.
 The range makes the reconstruction checkable: between the first and last record gcmon read on
 a ring, every run is either drawn as a `GC Pause` slice or inside exactly one span's range for
 that generation, none twice and none unaccounted for.
@@ -285,9 +285,9 @@ not share a clock, which would leave the whole reconstruction unsound.
   handed over, cursor and duplicate slots both, and `ingest` folds that and returns the
   generation's `GenLoss` for the poll, so nothing downstream assembles one out of a loss and a
   count kept apart.
-- `src/gcmon/data.py`, `LossMsg` with one `GenLoss` per generation, and `lost_to` deriving the
-  far fence from `lost_from` and `lost_count`. `seen_text` and `duration_text` produce the two
-  args written for reading rather than for summing.
+- `src/gcmon/data.py`, `LossMsg` with one `GenLoss` per generation, and `missing_collections`
+  deriving the far fence from `lost_from` and `lost_count`. `seen_text` and `duration_text`
+  produce the two args written for reading rather than for summing.
 - `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
   ring, hands each ring its own, and emits one record per interpreter that lost anything, bounded by
   the pid's previous poll instant and this one. `PidState` holds that instant beside the rings, so

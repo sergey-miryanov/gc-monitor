@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 import pytest
 
-from gcmon.data import GCStatsInfo, lost_to
+from gcmon.data import GCStatsInfo
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.monitor import EventsMonitor
 from gcmon.poll_status import PollStatus
@@ -199,7 +199,7 @@ class Replay:
         return {
             collections
             for entry in self.entries(gen)
-            for collections in range(entry.lost_from, lost_to(entry.lost_from, entry.lost_count) + 1)
+            for collections in range(entry.lost_from, entry.lost_from + entry.lost_count)
         }
 
     def span(self, gen: int) -> range:

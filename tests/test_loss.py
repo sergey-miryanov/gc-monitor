@@ -20,7 +20,7 @@ from typing import override
 import msgspec.structs
 import pytest
 
-from gcmon.data import GCStatsInfo, lost_to, secs_to_ns
+from gcmon.data import GCStatsInfo, secs_to_ns
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.loss import RingAccumulator
 from gcmon.monitor import EventsMonitor
@@ -321,7 +321,6 @@ class TestGapDetection:
         entry = accumulator.ingest([events[4]])
 
         assert (entry.lost_from, entry.lost_count) == (2, 3)
-        assert lost_to(entry.lost_from, entry.lost_count) == 4
         assert [e.collections for e in events[1:4]] == [2, 3, 4]
 
     def test_the_range_stops_short_of_the_records_that_bound_it(self, accumulator: RingAccumulator) -> None:
@@ -333,7 +332,7 @@ class TestGapDetection:
         entry = accumulator.ingest([events[2]])
 
         assert entry.lost_from == events[0].collections + 1
-        assert lost_to(entry.lost_from, entry.lost_count) == events[2].collections - 1
+        assert entry.lost_from + entry.lost_count == events[2].collections
 
     def test_the_entry_carries_no_timestamps(self, accumulator: RingAccumulator) -> None:
         """Where the lost records ran is not something the ring knows, and the
@@ -728,7 +727,7 @@ def charges(ingested: Ingested, key: tuple[int, int]) -> Counter[int]:
     """
     charged: Counter[int] = Counter(ingested.observed_for(key))
     for gap in ingested.gaps_for(key):
-        charged.update(range(gap.lost_from, lost_to(gap.lost_from, gap.lost_count) + 1))
+        charged.update(range(gap.lost_from, gap.lost_from + gap.lost_count))
     return charged
 
 
@@ -793,7 +792,7 @@ class TestTheRingSpanIsPartitioned:
             seen = set(ingested.observed_for(key))
             for gap in ingested.gaps_for(key):
                 assert gap.lost_from - 1 in seen
-                assert lost_to(gap.lost_from, gap.lost_count) + 1 in seen
+                assert gap.lost_from + gap.lost_count in seen
 
     def test_the_capture_names_the_records_it_lost(self) -> None:
         """The same partition on the verbatim two-poll capture, where the
@@ -804,7 +803,7 @@ class TestTheRingSpanIsPartitioned:
         acc = captured[(0, 0)]
         gap = captured.gaps_for((0, 0))[0]
 
-        assert (gap.lost_from, lost_to(gap.lost_from, gap.lost_count)) == (477, 552)
+        assert (gap.lost_from, gap.lost_count) == (477, 76)
         assert charges(captured, (0, 0)) == Counter(range(acc.first_collections, acc.last_collections + 1))
 
 
@@ -890,8 +889,7 @@ class TestTheRecordHandedToTheExporters:
         [msg] = self.polls().recorder.losses
 
         entry = next(entry for entry in msg.gens if entry.gen == 0)
-        assert entry.lost_from == 2
-        assert lost_to(entry.lost_from, entry.lost_count) == 4
+        assert (entry.lost_from, entry.lost_count) == (2, 3)
 
     def test_a_generation_that_only_observed_is_carried_too(self) -> None:
         [msg] = self.polls().recorder.losses

@@ -43,8 +43,8 @@ class InstantMsg(msgspec.Struct):
 class GenLoss(msgspec.Struct):
     """What one generation did over one poll interval, seen and unseen.
 
-    ``lost_from`` is the counter of the first record gcmon missed;
-    :func:`lost_to` derives the far end.
+    ``lost_from`` is the counter of the first record gcmon missed, and the
+    far end follows from ``lost_count``.
     """
 
     gen: int
@@ -150,16 +150,11 @@ def missing_collections(lost_from: int, lost_count: int) -> str:
     ``"11"`` for a single record, ``"2..383"`` for a streak, both ends
     included either way. A single missing record would otherwise print as
     ``11..11``, a range of nothing.
+
+    The range holds exactly ``lost_count`` counters, so gcmon charges every
+    record on a ring to one drawn ``GC Pause`` slice or to one loss span, and
+    to nothing else.
     """
-    to = lost_to(lost_from, lost_count)
-    return str(lost_from) if to == lost_from else f"{lost_from}..{to}"
-
-
-def lost_to(lost_from: int, lost_count: int) -> int:
-    """The last record a loss window is missing, counting both ends.
-
-    ``lost_from`` through here inclusive is exactly ``lost_count`` counters,
-    so gcmon charges every record on a ring to one drawn ``GC Pause`` slice or
-    to one loss span, and to nothing else.
-    """
-    return lost_from + lost_count - 1
+    if lost_count == 1:
+        return str(lost_from)
+    return f"{lost_from}..{lost_from + lost_count - 1}"
