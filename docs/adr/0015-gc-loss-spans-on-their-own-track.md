@@ -81,8 +81,8 @@ generation, none twice and none unaccounted for.
 
 **The reconstruction answers to the target's own totals.** Per ring, the pause time gcmon
 sampled plus the pause time it attributed to the gaps equals the delta of `duration` across the
-whole observed span. The suite asserts it, which catches a fencepost error, a wrong gap, and a
-`duration` that does not share a clock with the timestamps.
+whole observed span. The suite asserts that invariant, which catches a fencepost error, a wrong
+gap, and a `duration` that does not share a clock with the timestamps.
 
 **The statistics record each gap as it is found**, before anything is drawn, so coverage, the
 scale factor and every aggregate stay independent of what the trace shows.
@@ -105,9 +105,9 @@ passes both filters and goes out as genuine. No client-side check catches every 
 without discarding real records too, so gcmon does not try. The fix belongs upstream.
 
 **One poll's records for one ring are contiguous.** A ring holds consecutive records, so a gap
-can only sit at the seam between two polls, and gcmon folds the tail from the last record alone
-without checking. A hole inside one poll's records would leave the counts standing, since they
-read only the two ends, while no gap carried its pause and the invariant broke in silence.
+can only sit at the seam between two polls, and gcmon trusts that without checking. A hole
+inside one poll's records would still leave the counts right, since a count subtracts two end
+counters, but no gap would carry the hole's pause and the invariant would break in silence.
 Accepted without a guard: producing one takes a torn read of a particular shape, and a check
 that never fires costs more in code than the failure costs in practice.
 
