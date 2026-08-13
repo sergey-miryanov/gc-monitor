@@ -1,8 +1,6 @@
 """Perfetto protobuf field numbers and enum values.
 
-Hand-maintained against Perfetto's ``.proto`` files (ADR-0001). A wrong
-number writes a different message and fails silently, so
-``tests/exporters/test_perfetto_proto.py`` guards this module.
+Hand-maintained against Perfetto's ``.proto`` files (ADR-0001).
 """
 
 from enum import IntEnum
@@ -111,9 +109,10 @@ class DebugAnnotationField(IntEnum):
     BOOL_VALUE = 2
     INT_VALUE = 4
     STRING_VALUE = 6
-    # `repeated DebugAnnotation dict_entries = 11`, each entry a named
-    # annotation of its own. Outside the `value` oneof, so an annotation that
-    # carries entries carries no value of its own.
+    # Field 11 is `repeated DebugAnnotation dict_entries`: each entry is a
+    # full annotation with a NAME of its own. It sits outside the `value`
+    # oneof, so nothing stops a writer setting both; an annotation carrying
+    # entries leaves the value fields unset.
     DICT_ENTRIES = 11
 
 
