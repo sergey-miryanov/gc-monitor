@@ -70,7 +70,7 @@ Then one group per generation that collected or lost anything, named `gen0`, `ge
 |---|---|
 | `observed_count` | Records of that generation gcmon read in this interval |
 | `missing_count` | Records of it gcmon missed |
-| `missing_collections` | Which ones, on that generation's `collections` counter: `413..431` for a streak, `11` for a single one, both ends included |
+| `missing_collections` | Which ones, on that generation's `collections` counter: `413..431` for a range, `11` for a single one, both ends included |
 | `missing_pause_total` / `_ns` | What those cost, as text and as nanoseconds |
 
 A generation that came through the interval whole still gets a group with what it
