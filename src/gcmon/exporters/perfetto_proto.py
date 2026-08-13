@@ -103,10 +103,9 @@ class DebugAnnotationField(IntEnum):
     BOOL_VALUE = 2
     INT_VALUE = 4
     STRING_VALUE = 6
-    # Field 11 is `repeated DebugAnnotation dict_entries`: each entry is a
-    # full annotation with a NAME of its own. It sits outside the `value`
-    # oneof, so nothing stops a writer setting both; an annotation carrying
-    # entries leaves the value fields unset.
+    # Each entry is a full annotation with a NAME of its own. An annotation
+    # carrying entries leaves the value fields unset, which protobuf does not
+    # enforce here.
     DICT_ENTRIES = 11
 
 
