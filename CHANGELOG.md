@@ -26,7 +26,6 @@
 
 - Fix GC events discarded by the poll loop
 - Fix a reused PID inheriting its predecessor's GC counts
-- Sort `GC Loss` records into time order when converting; JSONL line order no longer matters
 - Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting
 - `Processes` slices record the observed span in `real_start_ts` / `real_end_ts` annotations
 
