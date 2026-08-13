@@ -2,8 +2,7 @@
 
 gcmon writes traces in four formats, selected with `--format`: `chrome` (Chrome
 Trace Event), `perfetto` (Perfetto binary protobuf), `jsonl` (JSONL to file),
-and `stdout` (JSONL to stdout). See the [CLI reference](cli.md) for the flag
-itself.
+and `stdout` (JSONL to stdout). See the [CLI reference](cli.md) for the flag.
 
 ## Chrome trace and Perfetto output
 
@@ -11,7 +10,7 @@ itself.
 
 *A gcmon capture in the Perfetto UI.*
 
-One converter feeds both formats, so both carry the same events on one track per
+One converter feeds both formats, so they carry the same events on one track per
 interpreter:
 
 - **`GC Pause(gen)` slices**, one per GC run gcmon read, carrying that run's
@@ -36,8 +35,8 @@ Perfetto adds:
   `real_end_ts` annotations, not from the slice width**, which overlapping
   processes cut short and sometimes to nothing; see
   [Perfetto SQL](perfetto-sql.md).
-- **Process ordering**: first event timestamp orders the tracks, so the earliest
-  process sits at the top.
+- **Process ordering**: Perfetto sorts the tracks on first event timestamp, so
+  the earliest process sits at the top.
 - **Process command lines**: with the [`[cmdline]`
   extra](rss.md#the-cmdline-extra); see
   [Process command lines](#process-command-lines).
@@ -57,7 +56,7 @@ gets one slice on a `GC Loss {iid}` track of its own.
 **One span per poll interval**, from one read of the target to the next, so
 consecutive spans meet without overlapping and the row reads as a sequence.
 Every GC run a span accounts for finished between those two reads, and nothing
-places it closer.
+narrows that further.
 
 **Read the magnitude from the args, not the width.** One lost 5 ms run can draw
 a 130 ms bar.
@@ -104,21 +103,21 @@ for most of every tick. Lower `--rate` or a calmer workload thins it out. See
 
 ### Process command lines
 
-Each command line reaches the trace in **three** places, no one of which serves
-both the UI and SQL:
+gcmon writes each command line to **three** places, no one of which serves both
+the UI and SQL:
 
 | Where | Form | Visible in the UI | Queryable from SQL |
 |---|---|---|---|
-| `ProcessDescriptor.cmdline` on the process track | argv, one string per argument | Yes | **No** — the trace processor does not surface this field |
+| `ProcessDescriptor.cmdline` on the process track | argv, one string per argument | Yes | **No**. The trace processor does not surface this field |
 | `description` on the process track | argv joined with single spaces | Yes | Yes, via `args` (key `description`) |
 | `cmdline` debug annotation on the `Process {pid}` slice of the `Processes` track | argv joined with single spaces | Yes, in the slice's details | Yes, via `args` (key `debug.cmdline`) |
 
 Queries for the latter two are in
 [Trace Analysis with Perfetto SQL](perfetto-sql.md#example-querying-process-command-lines).
 
-They need the [`[cmdline]` extra](rss.md#the-cmdline-extra) and go missing
-quietly without it, or when the process has already exited. The trace stays
-valid either way, and a `combine` run usually has no command lines at all.
+They need the [`[cmdline]` extra](rss.md#the-cmdline-extra). Without it, or when
+the process has already exited, gcmon writes no command line and says nothing
+about it. The trace stays valid, and a `combine` run carries none at all.
 
 Command lines are **Perfetto-only**. The Chrome Trace format carries a
 `process_name` metadata event per PID and no command line.
@@ -151,10 +150,8 @@ terminal), each line is a JSON object holding one GC record:
 | `deleted_garbage_count` | Objects this run deleted | Custom build |
 | `clear_weakrefs_count` | Weakrefs this run cleared | Custom build |
 
-> **Note:** Fields marked **Custom build** require a CPython build with enhanced
-> GC instrumentation — see the
-> [Chrome trace and Perfetto output](#chrome-trace-and-perfetto-output) note
-> above.
+> **Note:** fields marked **Custom build** need the instrumented CPython build,
+> as the [sub-step slices](#chrome-trace-and-perfetto-output) do.
 
 ### Loss records
 
@@ -170,7 +167,7 @@ and no `gen` of its own; the per-generation counts sit in `gens`:
 |-------|-------------|
 | `tid` | `-2 - iid`, the sentinel the trace formats draw the `GC Loss` track on. `-1` is reserved for `rss` |
 | `iid` | Interpreter the records were lost from |
-| `ts_start`, `ts_stop` | The interval, from one poll to the next (nanoseconds). Its width is uncertainty, not pause time |
+| `ts_start`, `ts_stop` | The interval, from one poll to the next (nanoseconds). Its width is uncertainty; the pause is in `lost_pause_ns` |
 | `gens` | One entry per generation that ran or lost anything in the interval |
 
 and in each `gens` entry:
