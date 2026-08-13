@@ -45,7 +45,7 @@ record in the ring slot for longer, where it is likelier to survive to the next 
 
 `gc_pause_gen_N_coverage` tells you how far to trust the `p99` beside it: at `1.0`
 it is the real distribution, at `0.2` it is the tail of a biased sample. See
-[Statistics](statistics.md#percentiles-are-sampled-biased-high-and-not-corrected)
+[Statistics](statistics.md#percentiles-are-sampled-and-read-high)
 for why no scale factor fixes a quantile.
 
 ### The lifetime metrics are not benchmark-scoped
