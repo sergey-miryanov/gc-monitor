@@ -98,23 +98,23 @@ the spans from a JSONL capture.
 **The publish-last contract survives to the reader.** `add_stats` in `Python/gc.c` orders a
 record's stores so that a remote reader never selects a half-written one. A read can still land
 on a slot twice over, or on one still being filled, with nothing in the data marking either;
-gcmon's two filters exist for that. The ordering carries no barrier and no atomic, so it is not
-guaranteed to reach the reader, and a record can arrive holding the previous run's `ts_start`
-against this one's `ts_stop` under a fresh counter. Both filters pass it, and it goes out as
-genuine with a pause too long by the interval between the two runs. No client-side check
-catches every shape of that without discarding real records too, so gcmon does not try. The fix
-belongs upstream.
+gcmon's two filters exist for that.
 
 **One poll's records for one ring are contiguous.** A ring holds consecutive records, so a gap
 can only sit at the seam between two polls, and gcmon trusts that without checking. A hole
 inside one poll's records would still leave the counts right, since a count subtracts two end
 counters, but no gap would carry the hole's pause and the invariant would break in silence.
-Accepted without a guard: producing one takes a torn read of a particular shape, and a check
-that never fires costs more in code than the failure costs in practice.
 
 **`duration` and the timestamps share a clock.** One is a `double` and the others are
 `PyTime_t`, and the arithmetic subtracts one from the other. The invariant tests it, and a
 failure there means the whole reconstruction is unsound.
+
+**Two hazards break the first two properties, and gcmon mitigates neither yet.** A torn read
+returns one poll's records with a hole in them. Store reordering returns a record holding the
+previous run's `ts_start` against this one's `ts_stop` under a fresh counter, which both
+filters pass and which reports a pause too long by the interval between the two runs.
+[Spec 0024](../../specs/0024-cpython-report-remote-readable-gc-stats.md) catalogues both for an
+upstream report, and a follow-up takes on the reader's side.
 
 Lifetime totals rest on none of this. `collections` and `duration` run cumulative from
 interpreter start, and `gc_get_prev_stats` reads the immediate predecessor rather than the slot
