@@ -95,14 +95,13 @@ the spans from a JSONL capture.
 
 ## What gcmon trusts the target for
 
-**The publish-last contract survives to the reader.** `add_stats` in `Python/gc.c` fills a
-record's fields in an order chosen so that a remote reader never selects a half-written one.
-That order opens two windows, one where a slot is still a byte-identical copy of its
-predecessor and one where it carries a new start against a stale stop, and gcmon's two filters
-exist for them. The stores are plain, with no barrier and no atomic, so a compiler or a
-weakly-ordered target may reorder them and hand back a record assembled from two runs, which
-passes both filters and goes out as genuine. No client-side check catches every shape of that
-without discarding real records too, so gcmon does not try. The fix belongs upstream.
+**The publish-last contract survives to the reader.** `add_stats` in `Python/gc.c` orders a
+record's stores so that a remote reader never selects a half-written one. A read can still land
+on a slot twice over, or on one still being filled, with nothing in the data marking either;
+gcmon's two filters exist for that. The ordering carries no barrier and no atomic, so it is not
+guaranteed to reach the reader, and a record assembled from two runs can pass both filters and
+go out as genuine. No client-side check catches every shape of that without discarding real
+records too, so gcmon does not try. The fix belongs upstream.
 
 **One poll's records for one ring are contiguous.** A ring holds consecutive records, so a gap
 can only sit at the seam between two polls, and gcmon trusts that without checking. A hole
