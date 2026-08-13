@@ -1,19 +1,20 @@
 # Pyperf Hook Integration
 
-gcmon ships a pyperf hook that collects GC metrics during benchmarks, over the same [external-process model](../README.md#how-it-works) as the CLI.
+gcmon ships a pyperf hook that collects GC metrics during benchmarks, over the
+same [external-process model](../README.md#how-it-works) as the CLI.
 
-> **Prerequisite:** install [pyperf](https://pypi.org/project/pyperf/) first (`pip install pyperf`). pyperf auto-discovers the hook once `gcmon` is installed; pass `--hook=gcmon` to enable it for a benchmark.
+> **Prerequisite:** `pip install pyperf`. It finds the hook once `gcmon` is
+> installed; pass `--hook=gcmon` to turn it on.
 
 ## Usage
 
 ```bash
-# Run benchmark with GC monitoring
 python my_benchmark.py --hook=gcmon
 
-# Or using pyperf directly
+# pyperf's own runners take the flag too
 pyperf timeit --hook=gcmon my_benchmark.py
 
-# Save results with GC metrics
+# The metrics land in the saved JSON
 python my_benchmark.py --hook=gcmon -o benchmark_results.json
 ```
 
@@ -32,52 +33,44 @@ In pyperf metadata, with `N` the generation, 0 through 2:
 ### `sum` and `count` are exact, `p99` is sampled
 
 > **Breaking change.** `gc_pause_gen_N_sum`, `gc_pause_gen_N_count` and
-> `gc_pause_count` used to report only the GC runs gcmon read records for. They now
-> report **every** GC run in the monitored window, reconstructed
-> from CPython's cumulative counters. On a benchmark with GC loss the new values
-> are larger, often by an order of magnitude. Do not trend a history that spans
-> this change.
+> `gc_pause_count` counted the GC runs gcmon read. They now count every run in
+> the monitored window, reconstructed from CPython's cumulative counters, so
+> they read higher. Do not trend a history that spans this change.
 
 A benchmark whose collector runs faster than gcmon polls loses records; see
 [How gcmon reads a process](monitoring.md). `sum` and `count` correct for that
-exactly. `p99` reads high instead, since a long GC run leaves its record in the
-ring slot for longer, where it is likelier to survive to the next poll.
+exactly. `p99` reads high, since a long GC run leaves its record in the ring
+slot for longer, where it is likelier to survive to the next poll.
 
-`gc_pause_gen_N_coverage` tells you how far to trust the `p99` beside it: at `1.0`
-it is the real distribution, at `0.2` it is the tail of a biased sample. See
-[Statistics](statistics.md#percentiles-are-sampled-and-read-high)
-for why no scale factor fixes a quantile.
+`gc_pause_gen_N_coverage` tells you how far to trust the `p99` beside it: at
+`1.0` it is the real distribution, at `0.2` it is the tail of a biased sample.
+See [Statistics](statistics.md#percentiles-are-sampled-and-read-high) for why no
+scale factor fixes a quantile.
 
 ### The lifetime metrics are not benchmark-scoped
 
-`gc_pause_gen_N_lifetime_count` and `_lifetime_sum` cover the interpreter's whole
-history, including whatever ran before the hook attached and outside any
-iteration. They answer how much time this process spent in GC, a different
-question from what this benchmark cost.
+`gc_pause_gen_N_lifetime_count` and `_lifetime_sum` cover the interpreter's
+whole history, including whatever ran before the hook attached. They answer what
+this process spent in GC. What this benchmark cost is a different question.
 
-Trend them the way you would trend `sum` and you will mostly measure how long
-each worker process lived. Use `gc_pause_gen_N_sum` for anything the benchmark
-is responsible for.
+Trend them the way you would trend `sum` and you measure how long each worker
+lived. Use `gc_pause_gen_N_sum` for the benchmark's own share.
 
-## Example: Perfetto Trace Viewer for Pyperf Benchmarks
+## Perfetto Traces from a Pyperf Run
 
 <img src="https://raw.githubusercontent.com/sergey-miryanov/gcmon/main/docs/images/perfetto-pyperf-example.png" alt="Perfetto Pyperf Example" width="800">
 
 *A pyperf run in Perfetto: several benchmark workers in parallel, the gcmon
 process beside them, and each worker's GC activity on its own tracks.*
 
-To generate traces for Perfetto:
 ```bash
 export GCMON_PYPERF_HOOK_OUTPUT="gcmon_{bench_name}.jsonl"
-# Run benchmark with GC monitoring and JSONL output
 python my_benchmark.py --hook=gcmon --inherit-environ=GCMON_PYPERF_HOOK_OUTPUT -p 5
-
-# Open in Perfetto UI (https://ui.perfetto.dev)
 ```
 
-pyperf isolates worker environments, so `--inherit-environ` is what passes
-`GCMON_PYPERF_HOOK_OUTPUT` down to the workers and puts the hook's output where
-you asked for it.
+pyperf isolates worker environments, so `--inherit-environ` is how
+`GCMON_PYPERF_HOOK_OUTPUT` reaches the workers. Open the result in
+[Perfetto UI](https://ui.perfetto.dev).
 
 ## Environment Variables
 
