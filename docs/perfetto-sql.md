@@ -1,16 +1,11 @@
 # Trace Analysis with Perfetto SQL
 
-Perfetto's SQL interface takes gcmon's Chrome traces as well as its `.pftrace`
-files, so `--format chrome` output queries too. PerfettoSQL extends SQLite's
-dialect: a query valid in SQLite is valid here.
+Perfetto's SQL panel opens gcmon's `.pftrace` and Chrome traces alike, and
+PerfettoSQL is SQLite with extensions.
 
-Both open; the captures differ in what they hold. A Chrome trace carries the `GC
-Pause`, sub-step and `GC Loss` slices and the counter tracks, so the
-[stats query below](#example-replicating-the-stats-table) returns the same rows
-from either. It has no `Processes` track, no `GC Metrics` group and no process
-track, leaving the
-[command-line queries](#example-querying-process-command-lines) empty. Slice
-args change prefix too: `debug.gen0.missing_count` in a `.pftrace`,
+[Output formats](formats.md#chrome-trace-and-perfetto-output) lists what each
+capture holds; a query over something Perfetto-only returns nothing from a
+Chrome trace. Slice args differ too: `debug.gen0.missing_count` in a `.pftrace`,
 `args.gen0.missing_count` in a Chrome trace.
 
 ## Accessing the SQL Interface
