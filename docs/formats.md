@@ -32,14 +32,9 @@ Perfetto adds:
   `G0 collected`, `G1 collected` and `G2 collected` line up.
 - **`Processes` track**: a minimap of the session, one slice per monitored
   process, so these join to pids one-to-one. Filter on the track name
-  `Processes` in SQL. A slice spans what gcmon *observed*, so a process that
-  never collected still gets a full-width one, and `gcmon combine` draws
-  narrower GC-activity-only spans since no monitor stands behind it. **Read the
-  lifetime from `real_start_ts` and `real_end_ts`, not from the width.** Every
-  process shares the track and slices on a Perfetto track must nest, so two
-  overlapping spans leave the earlier one cut short, sometimes to nothing.
-  Processes starting close together, the normal case for a fan-out of children,
-  cut hardest. The two annotations survive the cut; see
+  `Processes` in SQL. **Read a process's span from the `real_start_ts` and
+  `real_end_ts` annotations, not from the slice width**, which overlapping
+  processes cut short and sometimes to nothing; see
   [Perfetto SQL](perfetto-sql.md).
 - **Process ordering**: first event timestamp orders the tracks, so the earliest
   process sits at the top.
@@ -47,9 +42,7 @@ Perfetto adds:
   extra](rss.md#the-cmdline-extra); see
   [Process command lines](#process-command-lines).
 - **`Start Process` marker**: a zero-duration instant on each process track, at
-  that process's first event. Perfetto hides a track carrying no events, and
-  this keeps the track and its label rendering. Filter it out when enumerating
-  slices.
+  that process's first event. Filter it out when enumerating slices.
 
 > **Note:** sub-step slices (Mark Alive, Fill increment, Deduce Unreachable, …)
 > need a CPython build carrying the extra GC instrumentation. A standard build
@@ -67,8 +60,7 @@ Every GC run a span accounts for finished between those two reads, and nothing
 places it closer.
 
 **Read the magnitude from the args, not the width.** One lost 5 ms run can draw
-a 130 ms bar. That is why these slices get a row of their own, where nobody
-mistakes an interval-width bar for a very long `GC Pause`.
+a 130 ms bar.
 
 The name lists the generations that lost records, `GC Loss(0,2)`, so the row
 says which went blind before you click anything, and each combination keeps its
@@ -101,8 +93,7 @@ flattens a group by joining the names with a dot, so `gen1`'s count is
 `args.debug.gen1.missing_count`. A JSONL capture carries the same numbers under
 `lost_*` names; see [Loss records](#loss-records).
 
-**The counts are exact.** gcmon takes them by subtracting two of the target's
-cumulative counters, so a group reading `missing_count = 19` also reads
+**The counts are exact**, so a group reading `missing_count = 19` also reads
 `413..431`. Between the first and last record gcmon read on a generation's
 counter, every run is either drawn as a `GC Pause` slice or inside exactly one
 span's range. None twice, none missing.
@@ -113,9 +104,8 @@ for most of every tick. Lower `--rate` or a calmer workload thins it out. See
 
 ### Process command lines
 
-gcmon follows child PIDs, and `Process 4821` tells you nothing about which one
-it is. So gcmon records each command line in **three** places, no one of which
-serves both the UI and SQL:
+Each command line reaches the trace in **three** places, no one of which serves
+both the UI and SQL:
 
 | Where | Form | Visible in the UI | Queryable from SQL |
 |---|---|---|---|
@@ -126,10 +116,9 @@ serves both the UI and SQL:
 Queries for the latter two are in
 [Trace Analysis with Perfetto SQL](perfetto-sql.md#example-querying-process-command-lines).
 
-Recording them needs the [`[cmdline]` extra](rss.md#the-cmdline-extra) and fails
-quietly: a missing `psutil`, or a process already gone, drops the command line
-and leaves the trace valid. A `combine` run reads historical PIDs, so that is
-its normal case.
+They need the [`[cmdline]` extra](rss.md#the-cmdline-extra) and go missing
+quietly without it, or when the process has already exited. The trace stays
+valid either way, and a `combine` run usually has no command lines at all.
 
 Command lines are **Perfetto-only**. The Chrome Trace format carries a
 `process_name` metadata event per PID and no command line.
