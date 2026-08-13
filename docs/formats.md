@@ -91,7 +91,8 @@ Then one group per generation that collected or lost anything, named `gen0`,
 A generation that came through the interval whole still gets a group with what
 it observed, so the groups add up to the totals above them. In SQL the trace
 processor flattens a group by joining the names with a dot, so `gen1`'s count is
-`args.debug.gen1.missing_count`.
+`args.debug.gen1.missing_count`. A JSONL capture carries the same numbers under
+`lost_*` names; see [Loss records](#loss-records).
 
 **The range is exact where the width is not.** gcmon finds it by subtracting two
 of the target's cumulative counters, so a group reading `missing_count = 19`
@@ -186,9 +187,19 @@ and in each `gens` entry:
 | `lost_count` | Records of it gcmon missed. Zero for a generation that lost nothing |
 | `lost_pause_ns` | Pause time the runs behind those records took, in nanoseconds |
 
-The far end is `lost_from + lost_count - 1`, which is where the far end of the
-`missing_collections` arg on a `GC Loss` slice comes from. Storing both would
-let the two disagree, and `lost_count` is the number `--stats` sums.
+An entry and the `gen{N}` group on the slice drawn from it hold the same numbers
+under different names:
+
+| `gens` entry | `gen{N}` group |
+|---|---|
+| `gen` | the group's own name, `gen0`, `gen1`, `gen2` |
+| `observed_count` | `observed_count` |
+| `lost_count` | `missing_count` |
+| `lost_from` with `lost_count` | `missing_collections`, both ends included |
+| `lost_pause_ns` | `missing_pause_total_ns`, with `missing_pause_total` beside it as text |
+
+The far end, `lost_from + lost_count - 1`, is stored nowhere. Keeping both ends
+would let them disagree, and `lost_count` is the number `--stats` sums.
 
 Line order carries no meaning: converting to a trace sorts on `ts_start` first.
 A loss record can be the earliest line in a capture, since its interval opens at
