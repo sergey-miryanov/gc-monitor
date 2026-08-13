@@ -1,15 +1,22 @@
 # Trace Analysis with Perfetto SQL
 
-When you export traces in Perfetto format (`.pftrace`), you can use Perfetto's
-SQL query interface to perform advanced analysis beyond what the UI provides.
-PerfettoSQL extends SQLite's SQL dialect — any query valid in SQLite also works
-in PerfettoSQL.
+Perfetto's SQL interface takes gcmon's Chrome traces as well as its `.pftrace`
+files, so `--format chrome` output queries too. PerfettoSQL extends SQLite's
+dialect: a query valid in SQLite is valid here.
 
-The trace data is stored in a structured schema that you can query directly.
+What differs between the two captures is content, not access. A Chrome trace
+carries the `GC Pause`, sub-step and `GC Loss` slices and the counter tracks,
+and the [stats query below](#example-replicating-the-stats-table) returns the
+same rows from either. It carries no `Processes` track, no `GC Metrics` group
+and no process track, so the
+[command-line queries](#example-querying-process-command-lines) come back empty.
+Slice args also change prefix: `debug.gen0.missing_count` in a `.pftrace`,
+`args.gen0.missing_count` in a Chrome trace.
 
 ## Accessing the SQL Interface
 
-1. Open your `.pftrace` file in [Perfetto UI](https://ui.perfetto.dev)
+1. Open your `.pftrace` or `.json` file in
+   [Perfetto UI](https://ui.perfetto.dev)
 2. Press `Ctrl+Space` (or `Cmd+Space` on Mac) to open the SQL query panel
 3. Enter your SQL query and press `Run`
 
@@ -75,8 +82,7 @@ This query:
 
 ## Example: Querying RSS Values
 
-When `--rss` is enabled, RSS samples are stored in the `counter` table with
-track name `"rss"`. You can query memory usage over time per PID:
+Under `--rss`, samples land in the `counter` table on a track named `rss`:
 
 ```sql
 -- RSS values per PID (requires --rss)
@@ -88,15 +94,21 @@ FROM counter c
 JOIN counter_track ct ON c.track_id = ct.id
 JOIN process_counter_track pt on ct.id = pt.id
 JOIN process p ON pt.upid = p.upid
-WHERE ct.name like 'rss%'
+WHERE ct.name like '%rss%'
 ORDER BY p.start_ts, c.ts
 ```
 
+The pattern is `%rss%` rather than `rss%` because a Chrome trace names that
+track ` rss`, with a leading space, and ` heap_size` likewise. On a Chrome trace
+`sec_from_start` comes back `NULL` as well, since `process.start_ts` needs the
+process descriptor that only Perfetto output carries.
+
 ## Example: Querying Process Command Lines
 
-Requires the [`[cmdline]` extra](rss.md#the-cmdline-extra). gcmon writes the
-command line to [three places](formats.md#process-command-lines); two of them
-are reachable from SQL.
+Perfetto output only, and requires the [`[cmdline]`
+extra](rss.md#the-cmdline-extra). gcmon writes the command line to
+[three places](formats.md#process-command-lines); two of them are reachable from
+SQL.
 
 The process track's `description` holds the space-joined command line:
 
