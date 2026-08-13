@@ -122,24 +122,21 @@ about to be overwritten, so the chain survives the ring wrapping.
 ## Consequences
 
 - **The track reads as a near-solid bar at default settings**, since gcmon is blind for most of
-  every tick. Lower `--rate` or a calmer workload thins it out, and the numbers live in the
+  every tick. A lower `--rate` or a calmer workload thins it out, and the numbers live in the
   args either way.
-- **One extra row per `(pid, iid)`**, on top of the process track, thread track and `GC
-  Metrics` group each process already has. Three generations share it, so the row's shape does
-  not depend on how many of them went blind.
+- **One extra row per `(pid, iid)`**, on top of the tracks each process already carries. Three
+  generations share it, so the row's shape does not depend on how many went blind.
 - **Sums and counts become exact; percentiles do not.** `Count` and `Sum` come back from the
-  target's own counters. Quantiles cannot: gcmon holds only the durations it sampled, and that
-  sample skews long, since a long run delays the next one, so its record occupies its slot
-  longer and is likelier to survive to the next poll. `P50` through `P99` read high. The scale
-  factor is a ratio of two totals, so it corrects sums; applying it to a quantile would assume
-  the sampled and unsampled distributions share a shape, which is the assumption the skew
-  violates. [`docs/statistics.md`](../statistics.md) documents this rather than correcting it.
+  target's own counters. gcmon holds only the durations it sampled, and that sample skews long,
+  so `P50` through `P99` read high. The scale factor corrects a sum, being a ratio of two
+  totals; a quantile would need the sampled and unsampled runs to share a distribution, which
+  is what the skew denies. [`docs/statistics.md`](../statistics.md) documents this rather than
+  correcting it.
 - **A loss row whose spans overlap corrupts in silence**, the first END closing the wrong span
   while the trace processor reports `misplaced_end_event = 0`. One span per poll cannot produce
-  that shape, so the default suite pins the row's flatness rather than leaving it to the `fuzz`
-  job, which is gated off `main`.
+  that shape, so the default suite pins the row's flatness rather than leaving it to `fuzz`.
 - **`combine` rebuilds loss spans from JSONL but not from Chrome.** A Chrome trace carries them
-  as slices, so re-converting preserves the drawing and loses the record type.
+  as slices, so re-converting keeps the drawing and loses the record type.
 - **The intervals either side of the observed span draw nothing.** No poll measured a
   `collections` delta across them, and gcmon cannot tell "ran before we attached" from "lost".
   Both fall outside the span rather than counting against coverage.
@@ -148,8 +145,8 @@ about to be overwritten, so the chain survives the ring wrapping.
   pid allocator to wrap, and a successor gcmon cannot read returns `INVALID_PROCESS`, which
   clears the rings.
 - **A duplicated export can push `Cov` above 1.0.** After gcmon drops a pid's rings the next
-  poll re-exports the whole ring, and those duplicates inflate the sampled count, which now
-  divides into an exact count. Clamping the ratio would hide the duplication.
+  poll re-exports the whole ring, and those duplicates inflate a sampled count that now divides
+  into an exact one. Clamping the ratio would hide the duplication.
 
 ## Alternatives considered
 
