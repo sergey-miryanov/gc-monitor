@@ -8,9 +8,11 @@ import msgspec
 __all__ = [
     "LOSS_TID_BASE",
     "RSS_TID",
+    "ArgGroup",
     "BeginEvent",
     "CounterEvent",
     "EndEvent",
+    "EventArgs",
     "InstantEvent",
     "NameInfo",
     "ProcessMeta",
@@ -50,6 +52,13 @@ def loss_iid(tid: int) -> int:
     return LOSS_TID_BASE - tid
 
 
+type ArgGroup = dict[str, int | str]
+
+# A group goes no deeper because the UI and the trace processor flatten its
+# names onto the slice's own, which stops reading well past one level.
+type EventArgs = dict[str, int | str | ArgGroup]
+
+
 class NameInfo(msgspec.Struct):
     name: str
 
@@ -61,12 +70,7 @@ class BeginEvent(msgspec.Struct):
     ts: int
     pid: int
     tid: int
-    # Mostly counters. A string carries a range meant to be read as one thing,
-    # such as `missing_collections`; a nested mapping groups counts under one
-    # heading, such as a generation's on a `GC Loss` slice. One level deep, as
-    # far as the UI and the trace processor's flattened arg names stay
-    # readable.
-    args: dict[str, int | str | dict[str, int | str]]
+    args: EventArgs
 
 
 class EndEvent(msgspec.Struct):
@@ -138,14 +142,12 @@ def begin_event(
     name: str,
     cat: str,
     ts_ns: int,
-    args: Mapping[str, int | str | dict[str, int | str]],
+    args: Mapping[str, int | str | ArgGroup],
 ) -> BeginEvent:
     """A slice's opening event.
 
-    *args* is a ``Mapping`` so a caller with a plain ``dict[str, int]`` needs
-    no annotation of its own; ``dict`` is invariant and every counter-only
-    call site would otherwise have to widen to match the one arg that carries
-    a string.
+    *args* takes a ``Mapping`` because ``dict`` is invariant: a call site
+    holding a plain ``dict[str, int]`` would otherwise have to widen.
     """
     return BeginEvent(
         name=name,

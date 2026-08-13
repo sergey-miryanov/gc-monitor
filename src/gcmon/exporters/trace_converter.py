@@ -21,6 +21,8 @@ from ..protocol import (
     is_loss,
 )
 from ..trace_event import (
+    ArgGroup,
+    EventArgs,
     TraceEvent,
     begin_event,
     counter_event,
@@ -299,7 +301,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     return events
 
 
-def _gen_loss_args(gen: TGenLoss) -> dict[str, int | str]:
+def _gen_loss_args(gen: TGenLoss) -> ArgGroup:
     """One generation's group inside a ``GC Loss`` slice's args.
 
     A generation that lost nothing gets ``observed_count`` and a zero, so the
@@ -307,7 +309,7 @@ def _gen_loss_args(gen: TGenLoss) -> dict[str, int | str]:
     gets ``missing_collections``, naming them on that generation's own counter
     with both ends included, and the pause they came to.
     """
-    args: dict[str, int | str] = {"observed_count": gen.observed_count}
+    args: ArgGroup = {"observed_count": gen.observed_count}
     if not gen.lost_count:
         args["missing_count"] = 0
         return args
@@ -343,7 +345,7 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     missing_count = sum(gen.lost_count for gen in item.gens)
     missing_pause_ns = sum(gen.lost_pause_ns for gen in item.gens)
 
-    args: dict[str, int | str | dict[str, int | str]] = {
+    args: EventArgs = {
         "iid": item.iid,
         "observed_count": observed_count,
         "missing_count": missing_count,
