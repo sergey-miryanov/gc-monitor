@@ -17,6 +17,7 @@ from gcmon.trace_event import (
     BeginEvent,
     CounterEvent,
     EndEvent,
+    EventArgs,
     ThreadMeta,
     begin_event,
     counter_event,
@@ -59,7 +60,7 @@ class TestThreadMeta:
 
 class TestBeginEvent:
     def test_returns_begin_event(self) -> None:
-        args = {
+        args: EventArgs = {
             "generation": 0,
             "iid": 1,
             "collections": 10,

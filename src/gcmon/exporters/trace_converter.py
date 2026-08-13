@@ -47,7 +47,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     ts_start_ns = item.ts_start
     ts_stop_ns = item.ts_stop
 
-    pause_data: dict[str, int] = {
+    pause_data: EventArgs = {
         "generation": gen,
         "iid": iid,
         "collections": item.collections,
@@ -93,7 +93,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     )
 
     if has_mark_alive(item) and item.ts_mark_alive_stop - item.ts_mark_alive_start > 0:
-        inc_data: dict[str, int] = {"generation": gen, "iid": iid, "alive_size": item.alive_size}
+        inc_data: EventArgs = {"generation": gen, "iid": iid, "alive_size": item.alive_size}
         events.append(
             begin_event(
                 pid,
@@ -389,16 +389,20 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
         events.append(process_meta(pid, f"{pid}"))
         threads: set[int] = set()
         pid_events: list[TraceEvent] = []
+        # The guards are mutually exclusive, so the order is free to follow the
+        # capture: GC records outnumber the other two by orders of magnitude,
+        # and a guard that misses pays for the `AttributeError` behind
+        # `hasattr`.
         for item in _loss_in_time_order(pid_items):
-            if is_instant(item):
-                pid_events.append(instant_event(pid, item.name, item.ts))
+            if is_gc_stats(item):
+                threads.add(item.iid)
+                pid_events.extend(convert_item_to_trace_format(pid, item))
             elif is_loss(item):
                 # No `thread_meta`: the loss track is not a thread, and
                 # `perfetto_format` describes it off the slices themselves.
                 pid_events.extend(convert_loss_to_trace_format(pid, item))
-            elif is_gc_stats(item):
-                threads.add(item.iid)
-                pid_events.extend(convert_item_to_trace_format(pid, item))
+            elif is_instant(item):
+                pid_events.append(instant_event(pid, item.name, item.ts))
 
         events.extend(thread_meta(pid, tid, f"{pid}:{tid}") for tid in threads)
         events.extend(pid_events)

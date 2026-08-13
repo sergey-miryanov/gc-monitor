@@ -1,6 +1,5 @@
 """Chrome Trace Format events, and the factories that build them."""
 
-from collections.abc import Mapping
 from typing import Literal
 
 import msgspec
@@ -142,8 +141,12 @@ def begin_event(
     name: str,
     cat: str,
     ts_ns: int,
-    args: Mapping[str, int | str | ArgGroup],
+    args: EventArgs,
 ) -> BeginEvent:
+    # The slice owns *args*: every caller builds the dict for this one event
+    # and drops it, so the event keeps it rather than copying it. A capture
+    # holds one of these per phase of every collection, and the copy was the
+    # largest single cost of converting one.
     return BeginEvent(
         name=name,
         cat=cat,
@@ -151,7 +154,7 @@ def begin_event(
         ts=ts_ns,
         pid=pid,
         tid=tid,
-        args=dict(args),
+        args=args,
     )
 
 

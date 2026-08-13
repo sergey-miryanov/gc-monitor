@@ -13,6 +13,7 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket
 from gcmon.trace_event import (
     BeginEvent,
     EndEvent,
+    EventArgs,
     TraceEvent,
     begin_event,
     end_event,
@@ -66,7 +67,7 @@ def make_event_pair(
     so the helper passes the value through as nanoseconds (multiplied by
     1000). In-memory assertions must use the ns value too.
     """
-    args = {
+    args: EventArgs = {
         "generation": 0,
         "iid": tid,
         "collections": 1,

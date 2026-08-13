@@ -19,6 +19,7 @@ from gcmon.exporters.chrome_trace_io import (
 )
 from gcmon.protocol import has_incremental
 from gcmon.trace_event import (
+    EventArgs,
     TraceEvent,
     begin_event,
     counter_event,
@@ -269,7 +270,7 @@ class TestParseEvents:
         assert result[0].ph == "C"
 
     def test_parses_begin_and_end_events(self) -> None:
-        args = {
+        args: EventArgs = {
             "generation": 0,
             "iid": 1,
             "collections": 1,
@@ -352,7 +353,7 @@ class TestParseEvents:
 
 class TestNormalizeTraceTimestamps:
     def test_normalizes_to_zero(self) -> None:
-        args = {
+        args: EventArgs = {
             "generation": 0,
             "iid": 1,
             "collections": 1,
@@ -383,7 +384,7 @@ class TestNormalizeTraceTimestamps:
         assert events[0].name == "process_name"
 
     def test_single_event_ts_becomes_zero(self) -> None:
-        args = {
+        args: EventArgs = {
             "generation": 0,
             "iid": 1,
             "collections": 1,
@@ -403,7 +404,7 @@ class TestNormalizeTraceTimestamps:
         assert events == []
 
     def test_per_pid_normalization(self) -> None:
-        args = {
+        args: EventArgs = {
             "generation": 0,
             "iid": 1,
             "collections": 1,
@@ -424,7 +425,7 @@ class TestNormalizeTraceTimestamps:
         assert e4.ts == 2_000_000  # pid=2: 7_000_000 - 5_000_000
 
     def test_negative_timestamps(self) -> None:
-        args = {
+        args: EventArgs = {
             "generation": 0,
             "iid": 1,
             "collections": 1,
@@ -572,7 +573,7 @@ class TestCombineFiles:
     def test_normalize_chrome(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.json"
         out = tmp_path / "out.json"
-        args = {
+        args: EventArgs = {
             "generation": 0,
             "iid": 1,
             "collections": 1,
@@ -592,7 +593,7 @@ class TestCombineFiles:
     def test_normalize_chrome_multiple_pids(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.json"
         out = tmp_path / "out.json"
-        args = {
+        args: EventArgs = {
             "generation": 0,
             "iid": 1,
             "collections": 1,

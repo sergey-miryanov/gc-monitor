@@ -260,6 +260,33 @@ class LifetimeTotals(msgspec.Struct):
         self.duration_s += duration_s
 
 
+class _GenKeys(msgspec.Struct, frozen=True):
+    """The result keys one generation writes in `StreamingStats.aggregate`."""
+
+    p99: str
+    total: str
+    count: str
+    coverage: str
+    lifetime_count: str
+    lifetime_sum: str
+
+
+# A generation's keys never change, so they are formatted once here rather
+# than on every call: `aggregate` writes up to six per generation and does
+# little else besides three quantiles.
+_GEN_KEYS: dict[int, _GenKeys] = {
+    gen: _GenKeys(
+        f"pause_gen_{gen}_p99",
+        f"pause_gen_{gen}_sum",
+        f"pause_gen_{gen}_count",
+        f"pause_gen_{gen}_coverage",
+        f"pause_gen_{gen}_lifetime_count",
+        f"pause_gen_{gen}_lifetime_sum",
+    )
+    for gen in (0, 1, 2)
+}
+
+
 def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
     """Record a phase duration in nanoseconds, the unit every metric keeps."""
     metric = METRICS[metric_name]
@@ -491,28 +518,32 @@ class StreamingStats:
 
         Both totals fold per generation once, up front. The per-pid accessors
         would rescan each dict for every field and dominate a call that is
-        otherwise three quantiles.
+        otherwise three quantiles. A run that lost nothing skips the fold
+        rather than folding an empty dict, and a generation with no entry
+        reads as zero rather than as a totals object built to be discarded.
         """
         result: dict[str, int | float] = {}
         pause = self.metrics["pause"]
-        lost = self._lost_by_gen()
-        lifetime = self._lifetime_by_gen()
+        lost: dict[int, LossTotals] = self._lost_by_gen() if self._loss else {}
+        lifetime: dict[int, LifetimeTotals] = self._lifetime_by_gen() if self._lifetime else {}
         exact_total = 0
         for gen in self.GENS:
             s = pause[gen]
-            gen_lost = lost.get(gen, LossTotals())
+            keys = _GEN_KEYS[gen]
+            gen_lost = lost.get(gen)
             sampled_count = s.count()
-            exact_count = sampled_count + gen_lost.count
+            exact_count = sampled_count + (gen_lost.count if gen_lost is not None else 0)
             exact_total += exact_count
             if sampled_count > 0:
-                result[f"pause_gen_{gen}_p99"] = dur_to_ms(s.percentile(99))
-                result[f"pause_gen_{gen}_sum"] = dur_to_ms(s.sum() + gen_lost.pause_ns)
-                result[f"pause_gen_{gen}_count"] = exact_count
-                result[f"pause_gen_{gen}_coverage"] = sampled_count / exact_count
-            gen_lifetime = lifetime.get(gen, LifetimeTotals())
-            if gen_lifetime.collections > 0:
-                result[f"pause_gen_{gen}_lifetime_count"] = gen_lifetime.collections
-                result[f"pause_gen_{gen}_lifetime_sum"] = dur_to_ms(secs_to_ns(gen_lifetime.duration_s))
+                lost_pause_ns = gen_lost.pause_ns if gen_lost is not None else 0
+                result[keys.p99] = dur_to_ms(s.percentile(99))
+                result[keys.total] = dur_to_ms(s.sum() + lost_pause_ns)
+                result[keys.count] = exact_count
+                result[keys.coverage] = sampled_count / exact_count
+            gen_lifetime = lifetime.get(gen)
+            if gen_lifetime is not None and gen_lifetime.collections > 0:
+                result[keys.lifetime_count] = gen_lifetime.collections
+                result[keys.lifetime_sum] = dur_to_ms(secs_to_ns(gen_lifetime.duration_s))
         if self._heap_size:
             sorted_heaps = sorted(self._heap_size.values())
             result["heap_size_p99"] = get_quantile_value(sorted_heaps, 99)
