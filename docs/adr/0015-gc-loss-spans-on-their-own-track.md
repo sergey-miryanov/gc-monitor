@@ -6,12 +6,11 @@
 ## Context
 
 CPython 3.15 exports GC records through a fixed ring buffer, a few slots per generation and one
-per generation under `Py_GIL_DISABLED`. A poll reads the whole ring. A target collecting faster
-than gcmon polls overwrites records before any poll reads them, and the read gives no sign of
-it.
+per generation under `Py_GIL_DISABLED`. A target collecting faster than gcmon polls overwrites
+records before any poll reads them, and the read gives no sign of it.
 
-Two cumulative fields make the loss measurable. `collections` counts the runs that finished,
-`duration` totals their pause seconds, and the gap between one poll's last counter and the next
+Two cumulative fields make the loss measurable. `collections` counts the runs that finished and
+`duration` totals their pause seconds, so the gap between one poll's last counter and the next
 poll's first carries an exact count and an exact pause sum.
 
 Where inside that gap the missing runs happened, nothing the target exports says. Every
@@ -25,31 +24,29 @@ range. The track is a custom slice track parented to the process track, sorting 
 interpreter's own row. gcmon names no negative tid with a `thread_name`, which stops Perfetto
 from drawing a track as an OS thread that does not exist.
 
-**A span is one poll interval**, from the read before the gap to the read that found it. That
-bound is the tightest available: a record the previous poll did not return was either lost
-already, which that poll reported itself, or not yet written. Every run a span names finished
-between those two reads.
+**A span is one poll interval**, from the read before the gap to the read that found it, which
+is the tightest bound available. A record the previous poll did not return was either lost
+already, which that poll reported itself, or not yet written, so every run a span names
+finished between those two reads.
 
 **Both edges come from the monitor's clock**, `time.monotonic_ns()` taken at the start of the
-read. Anchoring both on the same point makes consecutive intervals tile the timeline; a left
-edge from one poll's start against a right edge from another's finish would overlap by the
+read. Anchoring both on the same point makes consecutive intervals tile the timeline, where a
+left edge from one poll's start against a right edge from another's finish would overlap by the
 width of a read. ADR-0013's RSS samples already land on this timeline beside the target's own
 timestamps.
 
 **One span, named for the generations that lost records**, `GC Loss(0,2)`. A record goes
 missing between two reads, so the generations go blind over the same interval and differ only
-in their counts. Perfetto hashes the name, so each combination keeps a stable colour, and a
+in their counts. Perfetto hashes the name, so each combination keeps a stable colour and a
 reader sees which generations went blind before clicking anything.
 
 **A span's width is uncertainty, not GC time.** One short lost run can draw a bar as wide as
-the poll interval. Beside the `GC Pause` slices such a bar reads as a very long pause, which is
-why loss gets a row of its own, and a row holding nothing else is a row you can find.
+the poll interval, which beside the `GC Pause` slices reads as a very long pause. That is why
+loss gets a row of its own.
 
 The bar also covers the runs gcmon did see. Runs inside an interpreter serialize, so no lost
-run happened during an observed one. Trimming the bar around them would narrow the claim to
-somewhere the records might not be, on evidence that says nothing about where they ran. The
-args report how much of the interval survived instead, and every number on a span stays the
-target's own counter over the span's own bounds.
+run happened during an observed one, and trimming the bar around them would still guess at
+where the missing ones ran. The args report how much of the interval survived instead.
 
 **The row is a sequence.** Consecutive intervals meet at a poll instant, so spans touch without
 crossing and the track needs no clipping sweep of the kind
@@ -64,20 +61,20 @@ under them. A generation that came through whole still gets its group, which mak
 checkable, since the groups add up to the totals. A generation that neither collected nor lost
 anything is left out.
 
-`missing_pause_total_ns` sums what the lost records cost, so it says `total`: a reader who
-takes it for the bar's width has read the one number on the slice that is not a duration. It
-appears twice, as a number for SQL and as text for reading, and `seen` carries its counts for
-the same reason. A group reaches Perfetto as a `DebugAnnotation` holding `dict_entries` and no
-value of its own, which the trace processor flattens back under the group's name.
+`missing_pause_total_ns` sums what the lost records cost rather than measuring the bar, which
+is why it says `total`. It appears twice, as a number for SQL and as text for reading, and
+`seen` carries its counts for the same reason. A group reaches Perfetto as a `DebugAnnotation`
+holding `dict_entries` and no value of its own, which the trace processor flattens back under
+the group's name.
 
 **A span names the records it is missing**, as `missing_collections` in each group, both ends
-included and written as one field. A pair of numbers meets at the same counter whenever a ring
-loses one record, and a range of nothing reads as a mistake to anyone who does not already know
-the ends are inclusive. Only the near fence is stored, as `lost_from`; the far end follows from
-it and `lost_count`, since a stored pair could drift from the count `--stats` sums. The range
-makes the reconstruction checkable: between the first and last record gcmon read on a ring,
-every run is either drawn as a `GC Pause` slice or inside exactly one span's range for that
-generation, none twice and none unaccounted for.
+included and written as one field. A ring that loses a single record puts a pair of numbers on
+the same counter, and a range of nothing reads as a mistake to anyone who does not already know
+the ends are inclusive. Only `lost_from` is stored; the far end follows from it and
+`lost_count`, since a stored pair could drift from the count `--stats` sums. The range makes
+the reconstruction checkable: between the first and last record gcmon read on a ring, every run
+is either drawn as a `GC Pause` slice or inside exactly one span's range for that generation,
+none twice and none unaccounted for.
 
 **The reconstruction answers to the target's own totals.** Per ring, the pause time gcmon
 sampled plus the pause time it attributed to the gaps equals the delta of `duration` across the
@@ -87,11 +84,11 @@ gap, and a `duration` that does not share a clock with the timestamps.
 **The statistics record each gap as it is found**, before anything is drawn, so coverage, the
 scale factor and every aggregate stay independent of what the trace shows.
 
-**Loss records leave the monitor a poll at a time.** Nothing is retained, no flush is needed
-when a session stops or a pid goes away, and no buffer grows over a long session. Emitting
-there keeps loss inside the shared converter, so Chrome, Perfetto and JSONL take it from one
-place and [ADR-0007](0007-shared-trace-converter-pipeline.md) holds. `combine` can then rebuild
-the spans from a JSONL capture.
+**Loss records leave the monitor a poll at a time.** Nothing is retained, so no flush is needed
+when a session stops or a pid goes away and no buffer grows over a long run. Emitting there
+keeps loss inside the shared converter, so Chrome, Perfetto and JSONL take it from one place
+and [ADR-0007](0007-shared-trace-converter-pipeline.md) holds. `combine` can then rebuild the
+spans from a JSONL capture.
 
 ## What gcmon trusts the target for
 
