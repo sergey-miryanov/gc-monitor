@@ -51,18 +51,11 @@ somewhere the records might not be, on evidence that says nothing about where th
 args report how much of the interval survived instead, and every number on a span stays the
 target's own counter over the span's own bounds.
 
-**The row is a sequence.** Slices on one Perfetto track are a stack: an END force-closes
-everything above the slice it closes, and two spans that cross cannot be expressed.
-[ADR-0011](0011-process-lifetime-and-ordering.md) hit this with process lifetimes and answered
-it with a clipping sweep. One span per poll needs no sweep, no merge and no nesting order,
-since consecutive intervals meet at a poll instant. Two edges taken from two reads cannot
-arrive reversed either.
-
-Order still matters between neighbours. A span's END shares its timestamp with the next one's
-BEGIN, and a processor sorting by timestamp leaves the two in the order they were emitted;
-reversed, they read as nested. The monitor emits a poll at a time and gets this right by
-construction. A capture read back from JSONL carries the order only in its lines, so the
-converter sorts loss records on `ts_start` before drawing them.
+**The row is a sequence.** Consecutive intervals meet at a poll instant, so spans touch without
+crossing and the track needs no clipping sweep of the kind
+[ADR-0011](0011-process-lifetime-and-ordering.md) built for process lifetimes. Touching puts
+one span's END on the same timestamp as the next one's BEGIN, which makes their emission order
+load-bearing.
 
 **The args are the interval's totals, then one group per generation.** `observed_count`,
 `missing_count`, `seen`, `missing_pause_total` and `missing_pause_total_ns` sit at the top
@@ -216,7 +209,8 @@ predecessor rather than the slot about to be overwritten.
   That instant sits beside the rings, so dropping a pid drops both and a reused pid inherits no
   interval.
 - `src/gcmon/exporters/trace_converter.py` takes loss through the shared pipeline as its third
-  record type. `src/gcmon/exporters/perfetto_format.py` and
+  record type, and restores span order when a capture comes back from JSONL, where the lines
+  carry it and nothing else does. `src/gcmon/exporters/perfetto_format.py` and
   `src/gcmon/exporters/perfetto_builders.py` write the track and the generation groups.
 - `src/gcmon/stats.py` records every gap.
 - `tests/test_loss.py` and `tests/test_loss_replay.py` check the arithmetic against synthetic
