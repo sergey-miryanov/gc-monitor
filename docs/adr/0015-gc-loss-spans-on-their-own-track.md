@@ -151,33 +151,30 @@ about to be overwritten, so the chain survives the ring wrapping.
 
 ## Alternatives considered
 
-- **One span per generation, each running to that generation's next observed record.** The
-  shape to argue against first, since it puts each generation's blindness on a bar of its own.
-  Rejected on the widths: they come from where the next record happens to sit rather than from
-  when anything was lost, so three bars at three widths read as three events at three times.
-  They also need sorting into nesting order, can arrive reversed when a read tears, and say
-  nothing the grouped args leave out.
-- **Narrowing a span around the records observed inside it**, by cutting it into pieces and
-  sharing the counts and pause across them. Rejected: nothing in the ring says how the records
-  divide, so every division is a guess, and it would be the only estimated quantity in the
-  drawing. A share taken by width can hand a piece more pause than it is wide. A reader can
-  still narrow it by hand, from the `GC Pause` slices on the row above and `observed_count` in
-  the args.
+- **One span per generation, each running to that generation's next observed record.** Rejected
+  on the widths: they come from where the next record happens to sit rather than from when
+  anything was lost, so three bars at three widths read as three events at three times. They
+  also need sorting into nesting order, can arrive reversed when a read tears, and say nothing
+  the grouped args leave out.
+- **Narrowing a span around the records observed inside it**, cutting it into pieces that share
+  the counts and pause between them. Rejected: nothing in the ring says how the records divide,
+  so every division is a guess and the only estimated quantity in the drawing. A share taken by
+  width can hand a piece more pause than it is wide. A reader can still narrow it by hand, from
+  the `GC Pause` slices on the row above and `observed_count` in the args.
 - **Clipping a span's far end to the poll's earliest observation anywhere in the interpreter.**
   The same guess in a subtler form. Oldest-first eviction orders a ring's lost records against
   that ring's kept records and says nothing about another generation's, so a lost gen-0 run can
   have happened after an observed gen-2 one. Clipping can also leave a span narrower than the
   pause it reports.
-- **Bounding a span by how many runs it could hold**, taking the shortest interval ever
-  measured between two consecutive records of a ring as a floor on its period. Rejected: one
-  fast burst weakens a lifetime minimum for the whole session. It errs in the dangerous
-  direction too, since a stretch narrower than the floor that did hold a record loses it, and
-  loss happens when runs come fast.
+- **Bounding a span by how many runs it could hold**, taking a ring's shortest observed
+  interval between two records as a floor on its period. Rejected: one fast burst weakens that
+  floor for the whole session, and it errs in the dangerous direction, since a stretch narrower
+  than the floor that did hold a record loses it. Loss happens when runs come fast.
 - **Inline on the interpreter's thread track (`tid = iid`)**, either with an ADR-0011-style
   clipping sweep or snapped to the adjacent observed records. Rejected: an interval-width bar
-  beside the pause slices invites the misreading the separate track prevents, clipping would
-  shorten spans whose width is the claim being made, and snapping draws the loss as a pause of
-  known extent.
+  beside the pause slices invites the misreading a separate track prevents, clipping shortens
+  spans whose width is the claim being made, and snapping draws the loss as a pause of known
+  extent.
 - **One track per `(pid, iid, gen)`.** Three rows say what the args say, at three times the
   vertical cost, and a process with several interpreters would carry nine.
 - **A flat `-2` for every interpreter.** Rejected: interpreters collect concurrently and one
