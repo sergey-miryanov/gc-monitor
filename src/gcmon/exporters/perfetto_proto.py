@@ -99,12 +99,6 @@ class TrackEventField(IntEnum):
 
 
 class DebugAnnotationField(IntEnum):
-    # NAME lives at field 10, not field 1. The proto defines
-    # `oneof name_field { uint64 name_iid = 1; string name = 10; }`;
-    # only one variant of a oneof may be set, so we must use the current
-    # `name` slot. Field 1 is now an interned IID (uint64); writing a
-    # string there would be misinterpreted as a garbage IID. Do not
-    # "fix" this back to 1.
     NAME = 10
     BOOL_VALUE = 2
     INT_VALUE = 4
