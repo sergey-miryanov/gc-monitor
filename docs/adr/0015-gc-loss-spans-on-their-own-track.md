@@ -22,10 +22,10 @@ question below comes back to that split. The counts are exact; their placement i
 
 ## The arithmetic
 
-Per ring, `RingAccumulator` carries `first`, `first_pause_ns` and `first_duration` from the
-first record gcmon observed, `last` and `last_duration` from the most recent one, and the
-running `sampled_count` and `sampled_pause_ns`. On the first record `r` a poll returned for
-that ring, with `r.collections = c` and the previous cursor at `p`:
+Per ring, gcmon carries `first`, `first_pause_ns` and `first_duration` from the first record
+it observed, `last` and `last_duration` from the most recent one, and the running
+`sampled_count` and `sampled_pause_ns`. On the first record `r` a poll returned for that ring,
+with `r.collections = c` and the previous cursor at `p`:
 
 ```
 lost_from  = p + 1
@@ -33,13 +33,13 @@ gap        = c - lost_from
 lost_pause = round((r.duration - last_duration) * 1e9) - (r.ts_stop - r.ts_start)
 ```
 
-No interval appears here. `ingest` returns the `GenLoss` the exporters will read, which
-holds counters and nothing else; the two polls that bracket it answer the placement question.
+No interval appears here. The per-generation entry the exporters read holds counters and
+nothing else; the two polls that bracket it answer the placement question.
 
 `Δduration` spans records `p+1 .. c` inclusive. gcmon read record `c`, so taking its own pause
-back out leaves the pause sum of the `gap` records nobody saw. `ingest` tests only the
-first record a poll returned for a ring, since a ring holds consecutive records and nothing
-between them can be missing.
+back out leaves the pause sum of the `gap` records nobody saw. Only the first record a poll
+returned for a ring is tested, since a ring holds consecutive records and nothing between them
+can be missing.
 
 At close, per ring:
 
@@ -69,10 +69,10 @@ destroyed has already handed its totals forward. `lifetime_count = last` and
 ## Decision
 
 **Loss spans go on a `GC Loss` track of their own, one per `(pid, iid)`, at `tid = -2 - iid`.**
-The `RSS_TID = -1` sentinel from [ADR-0013](0013-rss-sampling.md) is the precedent, and
-`LOSS_TID_BASE = -2` extends it to a range. The track is a plain custom slice track parented to
-the process track, carrying `sibling_order_rank = 1` so it sorts under the interpreter's own
-row. `_build_meta` suppresses `ThreadMeta` for negative tids, which stops Perfetto from drawing
+The `tid = -1` sentinel from [ADR-0013](0013-rss-sampling.md) is the precedent, and the loss
+tids extend it to a range. The track is a plain custom slice track parented to the process
+track, carrying `sibling_order_rank = 1` so it sorts under the interpreter's own row. gcmon
+names no negative tid with a `thread_name` metadata event, which stops Perfetto from drawing
 the track as an OS thread that does not exist.
 
 **A span is one poll interval**, from the read before the gap to the read that found it. That
@@ -81,7 +81,7 @@ already, which that poll reported itself, or not yet written. So every run a spa
 finished between those two reads.
 
 **Both edges come from the monitor's clock**, `time.monotonic_ns()` taken at the start of the
-read in `poll` and carried into `_ingest`. Anchoring both on the same point of the read makes
+read and carried through the fold. Anchoring both on the same point of the read makes
 consecutive intervals tile the timeline; taking the left edge from one poll's start and the
 right from another's finish would overlap them by the width of a read. Reading the monitor's
 clock against the target's timestamps is an assumption gcmon already makes, since ADR-0013's
@@ -112,9 +112,9 @@ reads also cannot arrive reversed, so no span is ever held back for describing n
 
 Order still matters between neighbours. A span's END shares its timestamp with the next one's
 BEGIN, and a processor sorting by timestamp leaves those two in the order they were emitted;
-reversed, they read as nested. `_ingest` emits a poll at a time and gets this right by
-construction. A capture read back from JSONL carries the order only in its lines, so
-`_loss_in_time_order` sorts on `ts_start` before converting.
+reversed, they read as nested. The monitor emits a poll at a time and gets this right by
+construction. A capture read back from JSONL carries the order only in its lines, so the
+converter sorts loss records on `ts_start` before drawing them.
 
 **The args are the interval's totals, then one group per generation.** `observed_count`,
 `missing_count`, `seen`, `missing_pause_total` and `missing_pause_total_ns` sit at the top
@@ -145,28 +145,28 @@ The range makes the reconstruction checkable: between the first and last record 
 a ring, every run is either drawn as a `GC Pause` slice or inside exactly one span's range for
 that generation, none twice and none unaccounted for.
 
-**`StreamingStats` records each gap as it is found**, before anything is drawn, so coverage,
+**The statistics record each gap as it is found**, before anything is drawn, so coverage,
 the scale factor and every aggregate stay independent of what the trace shows.
 
-**Loss records leave `_ingest` a poll at a time.** Nothing is retained, no flush is needed at
-`stop()`, `forget()` or `retain()`, and no buffer grows over a long session. Emitting there also
-keeps loss inside the shared converter, so Chrome, Perfetto and JSONL take it from one place
+**Loss records leave the monitor a poll at a time.** Nothing is retained, no flush is needed
+when a session stops or a pid goes away, and no buffer grows over a long session. Emitting
+there also keeps loss inside the shared converter, so Chrome, Perfetto and JSONL take it from one place
 and [ADR-0007](0007-shared-trace-converter-pipeline.md) holds. `combine` can then rebuild the
 spans from a JSONL capture.
 
 ## What gcmon trusts the target for
 
 Three properties hold the reconstruction up. CPython guarantees the first two, which gcmon
-assumes rather than checks; the invariant above tests the third. `unseen` and `ingest`
-cite this section rather than restating it.
+assumes rather than checks; the invariant above tests the third. `src/gcmon/loss.py` cites
+this section rather than restating it.
 
 **1. The publish-last contract survives to the reader.** `add_stats`
 (`Python/gc.c:1399-1418`) copies the previous record forward, overwrites `ts_start`, increments
 `collections`, and publishes `ts_stop` last, with a comment saying the ordering exists so
 remote readers do not select a partially updated record. Both of gcmon's filters rest on it.
 Between the memcpy and the `ts_start` store the slot is a byte-identical twin carrying its
-original's counter, which `RingAccumulator.unseen` drops on the counter; from there to the
-`ts_stop` store it holds a new start against a stale stop, which `_is_complete` drops.
+original's counter, which the ring drops on the counter; from there to the `ts_stop` store it
+holds a new start against a stale stop, which the completeness filter drops.
 
 Whether that ordering reaches the reader is unsettled. The stores are plain, with no barrier
 and no atomic, so nothing forbids the compiler from sinking the `ts_start` store past the other
@@ -179,8 +179,8 @@ fingerprint, and no client-side check catches them all without discarding real r
 gcmon does not try. The fix belongs upstream.
 
 **2. One poll's records for one ring are contiguous.** A ring holds consecutive records, so what
-`ingest` receives has no hole inside it and a gap can only sit ahead of it, at the seam
-between two polls. `ingest` folds the tail from the last record alone, without checking.
+a poll hands over has no hole inside it and a gap can only sit ahead of it, at the seam
+between two polls. gcmon folds the tail from the last record alone, without checking.
 
 Producing such a hole takes **two or more** runs finishing inside one ~1.1 KB read, positioned
 so the target's write cursor crosses the reader's. A single run finishing during the copy
@@ -230,8 +230,8 @@ not share a clock, which would leave the whole reconstruction unsound.
 - **A pid reused inside one tick is measured against its predecessor's counter**, so gcmon
   reports a gap and an `exact_count` belonging to neither process. Accepted without code: reuse
   that fast needs the pid allocator to wrap, and a successor gcmon cannot read returns
-  `INVALID_PROCESS`, which clears the rings through `forget`.
-- **A duplicated export can push `Cov` above 1.0.** After `forget` drops a pid's rings the
+  `INVALID_PROCESS`, which clears the rings.
+- **A duplicated export can push `Cov` above 1.0.** After gcmon drops a pid's rings the
   next poll re-exports the whole ring, and those duplicates inflate `sampled_count`, which now
   divides into an exact count. Clamping the ratio would hide the duplication.
 
@@ -269,10 +269,10 @@ not share a clock, which would leave the whole reconstruction unsound.
 - **A flat `-2` for every interpreter.** Rejected: interpreters collect concurrently and one
   poll bounds all of them, so two interpreters' spans would land on one row over the same
   interval and Perfetto would read the pair as nested.
-- **Retaining intervals and emitting at `stop()`.** Correct, and rejected: it buffers without
+- **Retaining intervals and emitting them at shutdown.** Correct, and rejected: it buffers without
   bound on a long session and emits every loss span in a lump after every GC record. A poll knows
   both its edges.
-- **Emitting the track from a `finalize_perfetto_packets`-style hook**, as ADR-0011 does for
+- **Emitting the track from a Perfetto-only finalization hook**, as ADR-0011 does for
   process lifetimes. Rejected: it would make loss Perfetto-only, breaking ADR-0007's single
   converter and leaving `combine` unable to rebuild spans from a JSONL capture.
 - **A flag to disable loss detection.** Rejected: a reader who does not know what fraction of
@@ -280,31 +280,28 @@ not share a clock, which would leave the whole reconstruction unsound.
 
 ## Implementation
 
-- `src/gcmon/loss.py` holds the arithmetic: `RingAccumulator`, one per `(pid, iid, gen)`,
-  carrying the fencepost fields. Pure structs, no I/O. `unseen` picks out what the ring has not
-  handed over, cursor and duplicate slots both, and `ingest` folds that and returns the
-  generation's `GenLoss` for the poll, so nothing downstream assembles one out of a loss and a
-  count kept apart.
-- `src/gcmon/data.py`, `LossMsg` with one `GenLoss` per generation, and `missing_collections`
-  deriving the far fence from `lost_from` and `lost_count`. `seen_text` and `duration_text`
-  produce the two args written for reading rather than for summing.
-- `src/gcmon/monitor.py`, `_ingest`: sorts each poll's complete records into counter order per
-  ring, hands each ring its own, and emits one record per interpreter that lost anything, bounded by
-  the pid's previous poll instant and this one. `PidState` holds that instant beside the rings, so
-  `forget` and `retain` drop both together and a reused pid inherits no interval. A record caught
-  part-written is dropped by `_is_complete` and comes back complete a poll later, opening no gap
-  and bounding none.
-- `src/gcmon/trace_event.py`, `LOSS_TID_BASE = -2` with `loss_tid` and `loss_iid`, and
-  `BeginEvent.args` widened to one level of nesting for the generation groups.
-- `src/gcmon/exporters/trace_converter.py`, `convert_loss_to_trace_format` and
-  `_loss_in_time_order`, the third record type through the shared pipeline.
-  `src/gcmon/exporters/perfetto_format.py`, `_emit_loss_descriptor`, called from both the BEGIN
-  and END branches, since the descriptor hangs off the slices rather than off a meta event.
-- `src/gcmon/exporters/perfetto_builders.py`, `_build_debug_annotation_dict`, which writes a
-  generation's group as `dict_entries` on an annotation carrying no value of its own.
-- `src/gcmon/stats.py`, `record_loss` for every gap.
+- `src/gcmon/loss.py` holds the arithmetic, one accumulator per `(pid, iid, gen)` carrying the
+  fencepost fields. Pure structs, no I/O. It picks out what the ring has not handed over,
+  cursor and duplicate slots both, folds that, and returns the generation's entry for the poll,
+  so nothing downstream assembles one out of a loss and a count kept apart.
+- `src/gcmon/data.py` holds the loss record, one entry per generation, and derives the far
+  fence from `lost_from` and `lost_count`. It also produces the args written for reading rather
+  than for summing.
+- `src/gcmon/monitor.py` sorts each poll's complete records into counter order per ring, hands
+  each ring its own, and emits one record per interpreter that lost anything, bounded by the
+  pid's previous poll instant and this one. That instant sits beside the rings, so dropping a
+  pid drops both together and a reused pid inherits no interval. A record caught part-written
+  is dropped and comes back complete a poll later, opening no gap and bounding none.
+- `src/gcmon/trace_event.py` fixes the loss track at `tid = -2 - iid` and widens a slice's args
+  to one level of nesting for the generation groups.
+- `src/gcmon/exporters/trace_converter.py` takes loss through the shared pipeline as its third
+  record type. `src/gcmon/exporters/perfetto_format.py` emits the track descriptor from both
+  the BEGIN and the END branch, since it hangs off the slices rather than off a meta event, and
+  `src/gcmon/exporters/perfetto_builders.py` writes a generation's group as `dict_entries` on
+  an annotation carrying no value of its own.
+- `src/gcmon/stats.py` records every gap.
 - `tests/test_loss.py` checks the arithmetic against synthetic sessions with known ground truth and
-  against a verbatim two-poll capture in `tests/test_monitor_cursor.py`, driving `_ingest`
+  against a verbatim two-poll capture in `tests/test_monitor_cursor.py`, driving the monitor
   itself rather than a mirror of it. `tests/test_loss_replay.py` replays `tests/captures.py`,
   every GC run one target made with its counters unbroken, behind a simulated ring and poll
   clock, so the counts, the pause sums and the intervals answer to the target rather than to an

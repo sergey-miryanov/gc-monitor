@@ -6,7 +6,10 @@ constraints the decision puts on future work. Read one when you want to know why
 of the design looks the way it does.
 
 An ADR does not document *what* the code does. The code and its tests are the authority on
-that. Each ADR anchors into the current source so you can check the two against each other.
+that. Each ADR anchors into the source by module path and by the names the outside world
+sees — a slice or arg name in a trace, a JSONL field, a CLI flag, a `--stats` column — so you
+can check the two against each other. Renaming one of those is itself a decision, and the
+record moves with it.
 
 Forward-looking work that has been specified but not yet built lives in
 [`specs/`](../../specs/README.md), not here — one file per open item, deleted when it lands.
@@ -20,10 +23,14 @@ A spec that settles a durable design question graduates into a record below.
   the history is worth keeping. Do not delete or rewrite one. Write a new record that
   supersedes it and link both ways.
 - **Date:** when the change shipped, not when you wrote the file.
+- **Anchors:** module paths and the names outside the module boundary. A record names no
+  private class, function or method: architecture does not turn on what a helper is called,
+  and a record that tracks internal names goes stale on every refactor. Point the other way
+  instead, from a docstring citing ADR-NNNN, which survives the rename of the code around it.
 - **New records:** copy [`0000-template.md`](0000-template.md).
 
-Amend an existing ADR when the reasoning is refined or the code moves. Write a new one when
-the decision itself changes.
+Amend an existing ADR when the reasoning is refined or when a name it anchors on moves. Write
+a new one when the decision itself changes. A rename inside a module is neither.
 
 ## Index
 
