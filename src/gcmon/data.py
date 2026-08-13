@@ -43,11 +43,8 @@ class InstantMsg(msgspec.Struct):
 class GenLoss(msgspec.Struct):
     """What one generation did over one poll interval, seen and unseen.
 
-    ``observed_count`` is how many of its records the poll handed back, and is
-    the only field set on a generation that collected without losing anything.
-    ``lost_from`` is the first record gcmon missed and ``lost_count`` how many;
-    the far end is :func:`lost_to`, derived from the two so a stored pair
-    cannot drift from the count ``--stats`` sums.
+    ``lost_from`` is the counter of the first record gcmon missed;
+    :func:`lost_to` derives the far end.
     """
 
     gen: int
@@ -62,8 +59,8 @@ class GenLoss(msgspec.Struct):
 
 
 class LossMsg(msgspec.Struct):
-    """One poll interval on one interpreter, in which GC runs happened whose
-    records gcmon never read.
+    """One poll interval on one interpreter, holding the GC runs whose records
+    gcmon never read.
 
     ``ts_start`` and ``ts_stop`` are two consecutive polls, and every
     collection the record names ran between them. ``gens`` holds one
@@ -71,8 +68,8 @@ class LossMsg(msgspec.Struct):
     interval; see ADR-0015 for why the counts ride there rather than on a span
     each.
 
-    Carries neither ``collections`` nor ``type``, so ``is_gc_stats`` and
-    ``is_instant`` both reject it; ``gens`` is the field that claims it.
+    ``gens`` is also what ``is_loss`` looks for. This record carries neither
+    ``collections`` nor ``type``, so no other guard claims it.
     """
 
     iid: int
@@ -94,17 +91,14 @@ def instant_msg(name: str, ts: int) -> InstantMsg:
 
 
 def ts_to_us(ts_ns: int) -> int:
-    """Convert timestamp from nanoseconds to microseconds"""
     return int(ts_ns / 1_000)
 
 
 def dur_to_ms(dur_ns: float) -> float:
-    """Convert duration from nanoseconds to milliseconds"""
     return dur_ns / 1_000_000
 
 
 def secs_to_ns(dur_s: float) -> int:
-    """Convert duration from seconds to nanoseconds"""
     return round(dur_s * 1_000_000_000)
 
 
@@ -121,8 +115,8 @@ _DURATION_UNITS: tuple[tuple[int, str], ...] = (
 def duration_text(ns: int) -> str:
     """*ns* broken into units, the way the Perfetto UI writes a duration.
 
-    ``3316458100`` comes out as ``3s 316ms 458µs 100ns``. Units contributing
-    nothing are left out, so ``5000000`` is ``5ms`` and zero is ``0ns``.
+    ``3316458100`` comes out as ``3s 316ms 458µs 100ns``. Units that
+    contribute nothing drop out, and zero is ``0ns``.
     """
     if ns == 0:
         return "0ns"
@@ -141,8 +135,8 @@ def duration_text(ns: int) -> str:
 def seen_text(observed_count: int, lost_count: int) -> str:
     """The share of an interval's records gcmon read.
 
-    ``87.0% (47 of 54)``, carrying the two counts the percentage came from.
-    One poll interval wide, unlike the ``--stats`` table's ``Cov``.
+    ``87.0% (47 of 54)``. The ``--stats`` table's ``Cov`` spans a whole run;
+    this one spans a single poll interval.
     """
     total = observed_count + lost_count
     if total == 0:
@@ -154,9 +148,8 @@ def missing_collections(lost_from: int, lost_count: int) -> str:
     """The records an interval is missing, as one string.
 
     ``"11"`` for a single record, ``"2..383"`` for a streak, both ends
-    included either way. A pair of numbers would meet at the same counter
-    whenever one record went missing, and ``11..11`` reads as a range of
-    nothing.
+    included either way. A single missing record would otherwise print as
+    ``11..11``, a range of nothing.
     """
     to = lost_to(lost_from, lost_count)
     return str(lost_from) if to == lost_from else f"{lost_from}..{to}"
@@ -165,9 +158,8 @@ def missing_collections(lost_from: int, lost_count: int) -> str:
 def lost_to(lost_from: int, lost_count: int) -> int:
     """The last record a loss window is missing, counting both ends.
 
-    Derived and never stored, so the range cannot drift from the count it was
-    cut to: ``lost_from`` through here inclusive is exactly ``lost_count``
-    counters. That identity is what lets every record on a ring be charged to
-    one drawn ``GC Pause`` slice or to one loss span and to nothing else.
+    ``lost_from`` through here inclusive is exactly ``lost_count`` counters,
+    so gcmon charges every record on a ring to one drawn ``GC Pause`` slice or
+    to one loss span, and to nothing else.
     """
     return lost_from + lost_count - 1
