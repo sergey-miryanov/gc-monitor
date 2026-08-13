@@ -44,13 +44,9 @@ __all__ = [
 
 
 def json_to_item(data: TMapping) -> tuple[int, TItem]:
-    pid = data["pid"]
-    # Every scalar coerces, which is what a pid written as a string needs. The
-    # loss record's `gens` is the one field of one record type that is not a
-    # scalar, and it is not this one.
-    if not isinstance(pid, str | int | float):
-        raise ValueError(f"Line carries no usable pid: {pid!r}")
-    return int(pid), from_mapping(data)
+    # Lax, so a pid written as a string still reads.
+    pid = msgspec.convert(data["pid"], int, strict=False)
+    return pid, from_mapping(data)
 
 
 def read_jsonl(filename: Path) -> dict[int, list[TItem]]:
