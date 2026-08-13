@@ -103,9 +103,6 @@ class DebugAnnotationField(IntEnum):
     BOOL_VALUE = 2
     INT_VALUE = 4
     STRING_VALUE = 6
-    # Each entry is a full annotation with a NAME of its own. An annotation
-    # carrying entries leaves the value fields unset, which protobuf does not
-    # enforce here.
     DICT_ENTRIES = 11
 
 
