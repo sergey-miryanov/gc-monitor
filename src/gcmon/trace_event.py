@@ -1,4 +1,4 @@
-"""Trace Event model types and factory functions."""
+"""Chrome Trace Format events, and the factories that build them."""
 
 from collections.abc import Mapping
 from typing import Literal
@@ -28,22 +28,22 @@ __all__ = [
     "thread_meta",
 ]
 
-# A track is `(pid, tid)` and nothing else in the Chrome format, so anything
-# that is not an interpreter needs a tid no interpreter will claim. A negative
-# one also skips `thread_meta`, which keeps it from being drawn and named as a
-# thread.
+# The Chrome format identifies a track by `(pid, tid)` alone, so a row that
+# belongs to no interpreter takes a tid no interpreter will claim. gcmon names
+# none of these rows with `thread_meta`, so Perfetto leaves them off its thread
+# list.
 #
-# RSS is process-wide with no interpreter behind it at all.
+# RSS belongs to the process, with no interpreter behind it.
 RSS_TID: int = -1
 
-# Loss is an interpreter's, on a row of its own per ADR-0015. One row per
-# interpreter is enough: a poll draws one span there whatever went blind in
-# it, and consecutive polls tile the timeline, so the spans cannot overlap.
+# Loss belongs to an interpreter and gets a row of its own, per ADR-0015. One
+# row holds every poll: a poll draws a single span there whatever went blind in
+# it, and consecutive polls tile the timeline, so no two spans overlap.
 LOSS_TID_BASE: int = -2
 
 
 def loss_tid(iid: int) -> int:
-    """The tid interpreter *iid*'s loss track is drawn on: -2, -3, ..."""
+    """The tid carrying interpreter *iid*'s loss track: -2, -3, ..."""
     return LOSS_TID_BASE - iid
 
 
@@ -54,8 +54,8 @@ def loss_iid(tid: int) -> int:
 
 type ArgGroup = dict[str, int | str]
 
-# A group goes no deeper because the UI and the trace processor flatten its
-# names onto the slice's own, which stops reading well past one level.
+# Perfetto and the trace processor flatten a group's names onto the slice's
+# own, so a second level of nesting reads as noise.
 type EventArgs = dict[str, int | str | ArgGroup]
 
 
