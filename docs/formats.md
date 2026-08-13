@@ -9,49 +9,32 @@ itself.
 
 <img src="images/chrome-trace-example.png" alt="Chrome Trace Example" width="800">
 
-*Example: GC monitoring data visualized in Perfetto UI showing:*
-- *Process tracks labelled with the process command line (requires `[cmdline]`
-  extra)*
-- *GC Pause slices with sub-step breakdown (Mark Alive, Fill increment, Deduce
-  Unreachable, etc.)*
-- *Per-gen `G{gen}` counter tracks
-  (`collected`, `candidates`, `duration`, `uncollectable`)*
-- *Shared `heap_size` top-level counter*
-- *`Processes` track — a minimap of the session, one slice per monitored process
-  (read durations from its annotations, not its width)*
-- *`rss` counter track (when `--rss` is enabled) showing Resident Set Size per
-  PID*
+*A gcmon capture in the Perfetto UI.*
 
-Perfetto features:
+What Perfetto gets that Chrome does not:
 - **Counter Y-axis sharing**: Same metric names share Y-axis across generations
   (e.g., `G0 collected`, `G1 collected`, `G2 collected` all on one axis).
-- **`Processes` track**: A minimap of the session — one slice per monitored
-  process, so you can see at a glance which processes gcmon was watching when.
-  The track is named `Processes`; that is the name to filter on in SQL. A slice
-  spans the range over which gcmon *observed* the process, so one that ran for a
-  minute without ever collecting still gets a minute-wide slice; `gcmon combine`
-  has no monitor behind it and produces narrower, GC-activity-only spans. Every
-  process gets exactly one slice, so these join to pids one-to-one. **A slice's
-  width is a lower bound on the observed lifetime, not the lifetime itself.**
-  Every process shares this one track, and slices on a Perfetto track have to
-  nest, so where two spans overlap without nesting the earlier one is cut short
-  to let the later one through — sometimes to nothing, leaving a zero-duration
-  slice. Every slice therefore carries `real_start_ts` and `real_end_ts`
-  annotations holding the span as observed, whether it was cut or not; see
-  [Perfetto SQL](perfetto-sql.md) for reading them. The cut can be severe when
-  processes start close together, which is normal for a fan-out of children, so
-  prefer the annotations to the drawing whenever the number matters.
+- **`Processes` track**: a minimap of the session, one slice per monitored
+  process, so these join to pids one-to-one. Filter on the track name
+  `Processes` in SQL. A slice spans what gcmon *observed*, so a process that
+  never collected still gets a full-width one, and `gcmon combine` draws
+  narrower GC-activity-only spans since no monitor stands behind it. **Read the
+  lifetime from `real_start_ts` and `real_end_ts`, not from the width.** Every
+  process shares the track and slices on a Perfetto track must nest, so two
+  overlapping spans leave the earlier one cut short, sometimes to nothing.
+  Processes starting close together, the normal case for a fan-out of children,
+  cut hardest. The two annotations survive the cut; see
+  [Perfetto SQL](perfetto-sql.md).
 - **Process ordering**: Tracks are ordered by first event timestamp, so the
   earliest-starting process appears at the top.
 - **Process command lines**: With the [`[cmdline]`
   extra](rss.md#the-cmdline-extra), each monitored process's command line is
   written to the trace — see [Process command lines](#process-command-lines)
   below.
-- **`Start Process` marker**: A zero-duration instant event named `Start
-  Process` is emitted on each process track at that process's first event.
-  Perfetto hides a track that carries no events, so this guarantees the process
-  track and its label always render. It is Perfetto-only; consumers that
-  enumerate slices should filter it out.
+- **`Start Process` marker**: a zero-duration instant on each process track, at
+  that process's first event. Perfetto hides a track carrying no events, and
+  this keeps the track and its label rendering. Perfetto-only, so filter it out
+  when enumerating slices.
 - **RSS counter track**: A process-level `rss` counter track appears for each
   PID when `--rss` is enabled, showing Resident Set Size in bytes. Sampled at
   the configured `--rss-interval` (default 1s).
@@ -60,18 +43,9 @@ Perfetto features:
   gcmon missed one or more records from the target. See
   [GC Loss slices](#gc-loss-slices) below.
 
-This visualization helps you:
-- **Identify GC pause patterns** - See when and how long GC pauses occur
-- **Track object growth** - Monitor the live object count over time
-- **Analyze collection efficiency** - Compare GC-related metrics
-- **Debug memory issues** - Spot memory leaks or inefficient collection patterns
-- **Correlate sub-step timing** - See which GC phase (mark, sweep, finalize)
-  dominates pause time
-
-> **Note:** Sub-step slices (Mark Alive, Fill increment, Deduce Unreachable,
-> etc.) and their associated data are only available when using a custom CPython
-> build with enhanced GC instrumentation. Standard CPython builds provide only
-> the top-level GC Pause slices and counter data.
+> **Note:** sub-step slices (Mark Alive, Fill increment, Deduce Unreachable, …)
+> need a CPython build carrying the extra GC instrumentation. A standard build
+> gives the top-level `GC Pause` slices and the counters.
 
 ### GC Loss slices
 
@@ -125,21 +99,15 @@ also reads `413..431`. Between the first and last record gcmon read on a
 generation's counter, every run is either drawn as a `GC Pause` slice or inside
 exactly one span's range. None twice, none missing.
 
-A span covers the `GC Pause` slices that fall in its interval, its own
-interpreter's included. The counts say how much of the interval gcmon saw; the
-bar says nothing about it. Neither `Cov` nor `F` in the `--stats` table moves
-with any of this.
-
 At default settings the track reads as a near-solid bar, since gcmon is blind
 for most of every tick. Lower `--rate` or a calmer workload thins it out. See
 [Statistics](statistics.md) for what the loss does to the numbers.
 
 ### Process command lines
 
-A trace routinely contains several processes, since gcmon discovers and follows
-child PIDs. `Process 4821` is not enough to tell them apart, so gcmon records
-each process's command line — in **three** places, because no single one serves
-both the UI and SQL:
+gcmon follows child PIDs, and `Process 4821` tells you nothing about which one
+it is. So gcmon records each command line in **three** places, no one of which
+serves both the UI and SQL:
 
 | Where | Form | Visible in the UI | Queryable from SQL |
 |---|---|---|---|
@@ -150,11 +118,10 @@ both the UI and SQL:
 Queries for the latter two are in
 [Trace Analysis with Perfetto SQL](perfetto-sql.md#example-querying-process-command-lines).
 
-Recording them requires the [`[cmdline]` extra](rss.md#the-cmdline-extra) and
-degrades silently: if `psutil` is missing, or the process has already exited or
-is inaccessible, the command line is dropped and the trace stays valid. In a
-`combine` run the PIDs are historical and the processes are usually gone, so
-this is the normal case.
+Recording them needs the [`[cmdline]` extra](rss.md#the-cmdline-extra) and fails
+quietly: a missing `psutil`, an exited process or one gcmon cannot read drops
+the command line and leaves the trace valid. A `combine` run works from
+historical PIDs whose processes are usually gone, so that is its normal case.
 
 Command lines are **Perfetto-only**. The Chrome Trace format carries a
 `process_name` metadata event per PID and no command line.
@@ -223,20 +190,16 @@ The far end is `lost_from + lost_count - 1`, which is where the far end of the
 `missing_collections` arg on a `GC Loss` slice comes from. Storing both would
 let the two disagree, and `lost_count` is the number `--stats` sums.
 
-Line order carries no meaning. Converting to a trace sorts the records by
-`ts_start` first, so a tool may rewrite a capture in whatever order suits it.
+Line order carries no meaning: converting to a trace sorts on `ts_start` first.
+A loss record can be the earliest line in a capture, since its interval opens at
+the poll before the records that closed it.
 
 Tell the record types apart by field presence: a GC record has `collections`, a
 loss record has `gens`, an instant event has `type`. `gcmon combine` reads loss
-records back and redraws the spans in Chrome or Perfetto output. `--normalize`
-shifts them with everything else, and a loss record can be the earliest thing in
-a capture, since its interval opens at the poll before the records that closed
-it.
+records back and redraws the spans, and `--normalize` shifts them with
+everything else.
 
-Captures written before the record went per-poll are **not** readable, whether
-they carry one line per generation with `lost_count` at the top level, or the
-older shape that flattened all three generations into
-`lost_gen_0`..`lost_gen_2`. Neither has `gens`, and nothing else in either line
-looks like a GC record, so `gcmon combine` stops with a decoding error naming
-the first field it could not find rather than reading a blind interval back as
-an observed run. Re-capture, or convert with the gcmon that wrote the file.
+A capture written before the record went per-poll is **not** readable. Neither
+older shape carries `gens`, so `gcmon combine` stops with a decoding error
+naming the first field it could not find, rather than reading a blind interval
+back as an observed run. Re-capture, or convert with the gcmon that wrote it.
