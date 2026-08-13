@@ -205,19 +205,6 @@ under different names:
 | `lost_from` with `lost_count` | `missing_collections`, both ends included |
 | `lost_pause_ns` | `missing_pause_total_ns`, with `missing_pause_total` beside it as text |
 
-The far end, `lost_from + lost_count - 1`, is stored nowhere. Keeping both ends
-would let them disagree, and `lost_count` is the number `--stats` sums.
-
-Line order carries no meaning: converting to a trace sorts on `ts_start` first.
-A loss record can be the earliest line in a capture, since its interval opens at
-the poll before the records that closed it.
-
 Tell the record types apart by field presence: a GC record has `collections`, a
-loss record has `gens`, an instant event has `type`. `gcmon combine` reads loss
-records back and redraws the spans, and `--normalize` shifts them with
-everything else.
-
-A capture written before the record went per-poll is **not** readable: no older
-shape carries `gens`, so `gcmon combine` stops with a decoding error rather than
-reading a blind interval as an observed run. Re-capture, or convert with the
-gcmon that wrote it.
+loss record has `gens`, an instant event has `type`. Line order carries no
+meaning.
