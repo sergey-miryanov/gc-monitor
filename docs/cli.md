@@ -1,13 +1,12 @@
 # CLI Usage
 
-The `gcmon` command uses subcommands (`monitor`, `run`, `combine`). If no subcommand
-is given, `monitor` is used by default.
+`gcmon` takes three subcommands: `monitor`, `run` and `combine`. Without one it
+monitors.
 
 ## What you'll see
 
-By default gcmon stays quiet — the trace is written to a file and gcmon
-exits when the target ends or you press `Ctrl+C`. Use `-v` to follow
-progress:
+gcmon stays quiet by default: it writes the trace to a file and exits when the
+target ends or you press `Ctrl+C`. `-v` follows progress:
 
 ```bash
 $ gcmon 12345 -v
@@ -18,8 +17,8 @@ $ gcmon 12345 -v
 [INFO] wrote 42 events to gcmon.json
 ```
 
-Open the output file in [Perfetto UI](https://ui.perfetto.dev) — the
-built-in SQL panel lets you query the trace directly; see
+Open the output in [Perfetto UI](https://ui.perfetto.dev), whose SQL panel
+queries the trace directly; see
 [Trace Analysis with Perfetto SQL](perfetto-sql.md).
 
 ## monitor
@@ -27,18 +26,14 @@ built-in SQL panel lets you query the trace directly; see
 Monitor a running process by PID.
 
 ```bash
-# Monitor a process until interrupted (Chrome format)
+# Until interrupted, Chrome format
 gcmon 12345
-# or:
 gcmon monitor 12345
 
-# Monitor with custom output file
 gcmon 12345 -o gc_trace.json
-
-# Monitor for a specific duration with verbose output
 gcmon 12345 -d 30 -v
 
-# High-frequency monitoring
+# 100 polls a second
 gcmon 12345 --output trace.json --rate 0.01
 ```
 
@@ -46,23 +41,22 @@ gcmon 12345 --output trace.json --rate 0.01
 
 Run a Python script or module with GC monitoring enabled.
 
-**Important:** All options and arguments after `-s`/`--script` or `-m`/`--module` are passed verbatim to the target — they are **not** interpreted by gcmon. Place gcmon options before the target.
+**Important:** everything after `-s`/`--script` or `-m`/`--module` reaches the
+target verbatim, so gcmon's own options go first.
 
 ```bash
-# Run a script
 gcmon run -s my_script.py
 
-# Run a module (like python -m)
+# A module, as `python -m` takes it
 gcmon run --stats --table-format md -m test test_gc -v
 
-# Pass arguments to the script; everything after -s goes to the target
+# `--iterations 1000 --verbose` belong to benchmark.py, not to gcmon
 gcmon run -s benchmark.py --iterations 1000 --verbose
 
-# Run a module with GC monitoring options
 gcmon run --format jsonl -o trace.jsonl --stats -m http.server 8000
 ```
 
-You must specify exactly one of `-s`/`--script` or `-m`/`--module`.
+Exactly one of `-s`/`--script` or `-m`/`--module`.
 
 ## Options for `monitor` and `run`
 
@@ -75,16 +69,17 @@ You must specify exactly one of `-s`/`--script` or `-m`/`--module`.
 | `-r, --rate` | both | Polling rate in seconds | `0.1` |
 | `-d, --duration` | both | Monitoring duration in seconds | Until interrupted / script exits |
 | `-v, --verbose` | both | Enable verbose output (`-v` for INFO, `-vv` for DEBUG) | `0` |
-| `--format` | both | Output format: `chrome` (Chrome Trace Event), `perfetto` (Perfetto binary protobuf), `jsonl` (JSONL to file), or `stdout` (JSONL to stdout) (see [Output formats](formats.md)) | `chrome` |
+| `--format` | both | Output format: `chrome`, `perfetto`, `jsonl` or `stdout` (see [Output formats](formats.md)) | `chrome` |
 | `--flush-threshold` | both | Number of events to buffer before flushing | `100` |
 | `--stats` | both | Show statistics table at end of monitoring (see [Statistics](statistics.md)) | `False` |
 | `--table-format` | both | Table format: `plain` or `markdown`/`md` | `plain` |
-| `--rss` | both | Track RSS (Resident Set Size) of monitored process (`chrome` and `perfetto` formats; requires `[cmdline]` extra — see [RSS Tracking](rss.md)) | `False` |
+| `--rss` | both | Track the target's Resident Set Size. `chrome` and `perfetto` only, and needs the `[cmdline]` extra (see [RSS Tracking](rss.md)) | `False` |
 | `--rss-interval` | both | RSS sampling interval in seconds | `1.0` |
 
 ## Environment Variables
 
-All CLI options can be overridden via environment variables. CLI flags take precedence.
+Each variable below sets a default for its flag. A flag on the command line
+beats it.
 
 | Variable | Equivalent flag | Description | Default |
 |----------|----------------|-------------|---------|
@@ -101,16 +96,14 @@ All CLI options can be overridden via environment variables. CLI flags take prec
 
 ## combine
 
-Combine multiple trace files into a single trace, with optional per-PID timestamp normalization.
+Combine trace files into one, converting the format on the way if you ask.
 
 ```bash
-# Combine Chrome Trace files
 gcmon combine trace1.json trace2.json -o combined.json
 
-# Combine with timestamp normalization (each process starts at t=0)
+# `-n` starts every process at t=0
 gcmon combine trace1.json trace2.json -o combined.json -n
 
-# Convert JSONL to Perfetto
 gcmon combine trace1.jsonl --input-format jsonl --output-format perfetto -o combined.pftrace
 ```
 
