@@ -13,7 +13,7 @@ spec here contradicts an ADR, one of the two is wrong and it is usually the spec
 | Spec | Kind | Effort | Summary |
 |------|------|--------|---------|
 | [0020](0020-process-metadata-in-perfetto-traces.md) | Feature — enhancement | M | A trace does not say which Python ran it or what GC thresholds it used; both are logged to stderr and lost |
-| [0024](0024-cpython-report-remote-readable-gc-stats.md) | Report — upstream | S | Four findings on `_remote_debugging.get_gc_stats`, to be filed with CPython; no gcmon change |
+| [0024](0024-cpython-report-remote-readable-gc-stats.md) | Report — upstream | S | Five findings on `_remote_debugging.get_gc_stats`, to be filed with CPython; no gcmon change |
 | [0025](0025-control-server-accept-loop-survives-transient-errors.md) | Bug — **availability** | XS | One transient accept error and the control server refuses every later connection, silently |
 | [0026](0026-one-process-name-across-live-and-offline-paths.md) | Bug — correctness | XS | A live capture names a process `Process 12345`; the same process combined from JSONL is named `12345` |
 | [0027](0027-thread-descriptor-tid-for-interpreter-zero.md) | Bug — reporting | XS | The main interpreter's `thread.tid` is the pid, so no SQL query reads interpreter ids uniformly |

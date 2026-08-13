@@ -9,7 +9,7 @@
 ## 1. Summary
 
 `_remote_debugging.get_gc_stats` exposes a per-interpreter, per-generation ring of GC records that
-an out-of-process profiler can sample without touching the target. gcmon is built on it. Four
+an out-of-process profiler can sample without touching the target. gcmon is built on it. Five
 things about the current design limit what a remote reader can do with it, three of which cost
 almost nothing to fix.
 
@@ -144,6 +144,25 @@ it is not documented anywhere, and a consumer that keys on the slot index instea
 **Suggested fix.** Document it, or eliminate it with the seqlock in 3.3. Filling the new slot in a
 scratch record and publishing it with a single store would also work.
 
+### 3.5 One read of the ring can straddle a write
+
+`gc_stats.c:106-112` copies the whole `struct gc_stats` out of the target in one cross-process
+read, and nothing holds the target still for it. A collection finishing partway through advances
+the write cursor across a region already copied, so what comes back can mix two generations of the
+ring: slots read before the cursor arrived hold the older records, slots read after it hold the
+newer.
+
+Sorted on `collections`, those records carry a hole in the middle rather than running consecutively.
+Every one of them is genuine and each passes the validity test in 3.3, so nothing marks the
+sequence as incomplete. A consumer that treats one poll's records for a generation as contiguous,
+which the ring's own layout invites, measures the hole as though it were not there.
+
+Under `Py_GIL_DISABLED` a poll returns at most one record per generation, so the shape cannot form
+there.
+
+**Suggested fix.** The seqlock from 3.3, applied to the buffer rather than to one record, lets a
+reader tell that the ring moved under its read and retry.
+
 ## 4. What gcmon does today
 
 For context on which of these are already worked around and which are not. The handling in rows 1,
@@ -154,8 +173,15 @@ lives in `gcmon.loss` and `EventsMonitor._ingest`.
 | :------ | :--------------- |
 | 3.1 ring size | Reconstructs the exact count and pause sum from `Δcollections` and `Δduration`, and draws the unobserved intervals as explicit gaps. Recovers the aggregates; the individual records stay lost. Reads the capacity by counting the slots one poll returns, so the sizes above are not hardcoded. |
 | 3.2 write cursor | Sorts by `collections` per `(iid, gen)`. Works, costs a sort per poll. |
-| 3.3 publish ordering | Not handled. No sound client-side check exists — each reordering leaves a different fingerprint and any heuristic risks discarding real records. |
+| 3.3 publish ordering | Not handled. A reordered record passes both of gcmon's filters and reports a pause too long by one inter-collection interval. |
 | 3.4 duplicate slot | Deduplicates on `collections`. |
+| 3.5 straddled read | Not handled. gcmon assumes one poll's records for a ring are contiguous and folds only the two ends, so a hole leaves its counts right and its pause unattributed. |
+
+Rows 3.3 and 3.5 are open rather than settled. An earlier reading held that no sound client-side
+check exists for either, since a reordering leaves a different fingerprint each time and a
+heuristic that fires on a real record widens a gap instead of closing one. A follow-up revisits
+that from the reader's side. Whichever way it lands, a reader can only ever detect these; the
+fix in §3.3's suggestion removes them.
 
 The reconstruction in the first row is only possible because `collections` and `duration` are both
 cumulative and monotonic. That is a genuinely good property of this API and worth preserving in any
@@ -165,7 +191,8 @@ redesign — it is what lets a reader recover exact totals from an incomplete sa
 
 1. **3.1** — raise the ring sizes, especially the free-threaded case. Largest effect on what is
    measurable, and it is a constant.
-2. **3.3** — synchronize the publish. Correctness of a contract that is already documented.
+2. **3.3 and 3.5** — synchronize the publish and the read. Correctness of a contract that is
+   already documented, and one seqlock covers both.
 3. **3.2** — expose `index`. Two lines, saves every consumer the same inference.
 4. **3.4** — document, or subsume into the seqlock from 3.3.
 
