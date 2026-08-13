@@ -29,8 +29,8 @@ class EventsExporter(ABC):
     def add_loss_event(self, pid: int, item: TLossMsg) -> None:  # noqa: B027
         """Record a poll interval whose GC records never reached gcmon.
 
-        One call per interpreter, made from the poll that closed the interval.
-        No-op in the base class.
+        One call per interpreter, whatever went blind in it. No-op in the
+        base class.
         """
 
     def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:  # noqa: B027
