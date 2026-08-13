@@ -14,8 +14,9 @@
 - `GC Loss` slices carry the interval's coverage, missing collection counts and missing pause time
 - Add `Cov` and `F` columns to the `--stats` table and a `gc_pause_gen_N_coverage` pyperf metric
 - Show `Count` and `Sum` as `sampled/exact`, with a leading `~` where the second number is `F`-scaled
+- Warn once per run when coverage falls below 90%
 - Report per-generation totals since the interpreter started, as `gc_pause_gen_N_lifetime_count` / `_lifetime_sum`
-- Write a `Processes` slice for a process that never collected
+- Write a `Processes` slice for a process that never collected, and a trace for a run in which nothing collected
 
 ### Bugfixes
 
