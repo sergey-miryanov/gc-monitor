@@ -6,26 +6,26 @@
 
 - Slice names drop the `gen=` prefix: `GC Pause(0)`, `GC Loss(0)`, `Mark Alive(0)` and the rest. Categories are unchanged, so `gc.pause(gen=0)` still matches
 - A `Processes` slice now spans how long the process was alive, not how long it was collecting
-- `Count` and `Sum` now include the collections gcmon missed, so both read higher than before. This covers the `--stats` table and the pyperf `gc_pause_gen_N_count` / `_sum` / `gc_pause_count` metrics, and numbers from earlier runs no longer compare
+- `Count` and `Sum` now include the collections gcmon missed, in the `--stats` table and the pyperf `gc_pause_gen_N_count` / `_sum` / `gc_pause_count` metrics. Earlier runs no longer compare
 - `EventsMonitor.get_child_pids()` returns `None` instead of `[]` when the process tree cannot be read
 
 ### Features
 
-- Detect GC records the target ran without gcmon reading them, and draw each blind poll interval as one `GC Loss` slice, on one track per `(pid, iid)`. A span runs from one read of the target to the next, is named for the generations that lost records (`GC Loss(0,2)`), and never overlaps its neighbours
+- Detect GC records the target ran without gcmon reading them, and draw each blind poll interval as a `GC Loss` slice named for the generations that lost records (`GC Loss(0,2)`)
 - Loss reaches Chrome, Perfetto, JSONL and stdout; `gcmon combine` reproduces the spans from a JSONL capture
-- `GC Loss` slices carry the interval's totals — `observed_count`, `missing_count`, `seen` as `87.0% (47 of 54)`, `missing_pause_total_ns` and the same total read as `3s 316ms 458µs 100ns` — and then one group per generation that collected or lost anything, holding its own counts and `missing_collections` (`413..431`, or `11` for one). Perfetto's trace processor flattens a group into `args.debug.gen0.missing_count`
-- The JSONL loss record is one line per poll interval per interpreter, carrying `gens` with one entry per generation
+- `GC Loss` slices carry the interval's coverage, missing collection counts and missing pause time, with a group per generation
+- Add a JSONL loss record, one line per blind poll interval
 - Add `Cov` and `F` columns to the `--stats` table and a `gc_pause_gen_N_coverage` pyperf metric
 - Show `Count` and `Sum` as `sampled/exact`, with a leading `~` where the second number is `F`-scaled
 - Warn once per run when coverage falls below 90%
 - Report per-generation totals since the interpreter started, as `gc_pause_gen_N_lifetime_count` / `_lifetime_sum` and a note under the `--stats` table
 - Number the notes under the `--stats` table
-- A process gcmon polled that never collected now gets a `Processes` slice, and a run in which nothing collected writes a trace instead of no file
+- Write a `Processes` slice for a process that never collected, and a trace for a run in which nothing collected
 
 ### Bugfixes
 
-- Fix GC events discarded by the poll loop; the cursor now tracks the target's `collections` counter per process, interpreter and generation
-- Drop poll state when the wait policy gives up on a PID or the PID leaves the process tree, so a reused PID does not inherit its predecessor's counter
+- Fix GC events discarded by the poll loop
+- Fix a reused PID inheriting its predecessor's GC counts
 - Sort `GC Loss` records into time order when converting; JSONL line order no longer matters
 - Fix wrong durations on the Perfetto `Processes` track when process lifetimes overlap without nesting
 - `Processes` slices record the observed span in `real_start_ts` / `real_end_ts` annotations
@@ -33,8 +33,8 @@
 ### Documentation
 
 - Add [ADR-0015](docs/adr/0015-gc-loss-spans-on-their-own-track.md) on the `GC Loss` track
-- Add `docs/monitoring.md`: how gcmon collects the GC record stream, why some runs never reach it, and what the target's counters recover
-- Split the vocabulary the docs use for a GC run and the record CPython writes for it, so "collection" no longer stands for both
+- Add `docs/monitoring.md` on how gcmon collects the GC record stream and why records go missing
+- Separate the docs' terms for a GC run and the record CPython writes for it
 - Rewrite `docs/statistics.md` around `Cov`, `F`, the three intervals a cell can report, and the notes under the table
 - Document the `GC Loss` track and the JSONL loss record in `docs/formats.md`
 - Document the changed pyperf metrics, and that the lifetime metrics are not benchmark-scoped
