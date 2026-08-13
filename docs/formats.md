@@ -11,7 +11,23 @@ itself.
 
 *A gcmon capture in the Perfetto UI.*
 
-What Perfetto gets that Chrome does not:
+One converter feeds both formats, so both carry the same events on one track per
+interpreter:
+
+- **`GC Pause(gen)` slices**, one per GC run gcmon read, carrying that run's
+  counters as args.
+- **Sub-step slices** nested inside a pause: Mark Alive, Fill increment, Deduce
+  Unreachable, Handle Weakrefs Callbacks, Finalize Garbage, Handle Resurrected,
+  Clear Weakrefs, Delete Garbage.
+- **Counter tracks** per generation, `G{gen}`, carrying `collected`,
+  `candidates`, `duration` and `uncollectable`, with `heap_size` as a
+  process-level counter beside them.
+- **`GC Loss` track**: one row per interpreter, `GC Loss {iid}`, under that
+  process's own track; see [GC Loss slices](#gc-loss-slices).
+- **`rss` counter** per PID under `--rss`, in bytes, sampled at `--rss-interval`
+  (default 1s).
+
+Perfetto adds:
 - **Counter Y-axis sharing**: one metric shares an axis across generations, so
   `G0 collected`, `G1 collected` and `G2 collected` line up.
 - **`Processes` track**: a minimap of the session, one slice per monitored
@@ -32,12 +48,8 @@ What Perfetto gets that Chrome does not:
   [Process command lines](#process-command-lines).
 - **`Start Process` marker**: a zero-duration instant on each process track, at
   that process's first event. Perfetto hides a track carrying no events, and
-  this keeps the track and its label rendering. Perfetto-only, so filter it out
-  when enumerating slices.
-- **RSS counter track**: one `rss` counter per PID under `--rss`, in bytes,
-  sampled at `--rss-interval` (default 1s).
-- **`GC Loss` track**: one row per interpreter, `GC Loss {iid}`, under that
-  process's own track; see [GC Loss slices](#gc-loss-slices).
+  this keeps the track and its label rendering. Filter it out when enumerating
+  slices.
 
 > **Note:** sub-step slices (Mark Alive, Fill increment, Deduce Unreachable, …)
 > need a CPython build carrying the extra GC instrumentation. A standard build
