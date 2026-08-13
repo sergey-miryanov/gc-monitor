@@ -119,7 +119,9 @@ class TestPerfettoProtoConstants:
         """Protobuf keeps the scalar values one-at-a-time and stops there. An
         annotation setting both a group and a value encodes without complaint,
         so leaving the value fields unset is gcmon's job."""
-        f = DebugAnnotation.DESCRIPTOR.fields_by_name
+        desc = DebugAnnotation.DESCRIPTOR
+        assert desc is not None
+        f = desc.fields_by_name
         assert f["string_value"].containing_oneof is not None
         assert f["dict_entries"].containing_oneof is None
 
