@@ -99,9 +99,11 @@ the spans from a JSONL capture.
 record's stores so that a remote reader never selects a half-written one. A read can still land
 on a slot twice over, or on one still being filled, with nothing in the data marking either;
 gcmon's two filters exist for that. The ordering carries no barrier and no atomic, so it is not
-guaranteed to reach the reader, and a record assembled from two runs can pass both filters and
-go out as genuine. No client-side check catches every shape of that without discarding real
-records too, so gcmon does not try. The fix belongs upstream.
+guaranteed to reach the reader, and a record can arrive holding the previous run's `ts_start`
+against this one's `ts_stop` under a fresh counter. Both filters pass it, and it goes out as
+genuine with a pause too long by the interval between the two runs. No client-side check
+catches every shape of that without discarding real records too, so gcmon does not try. The fix
+belongs upstream.
 
 **One poll's records for one ring are contiguous.** A ring holds consecutive records, so a gap
 can only sit at the seam between two polls, and gcmon trusts that without checking. A hole
