@@ -95,34 +95,29 @@ the spans from a JSONL capture.
 
 ## What gcmon trusts the target for
 
-**The publish-last contract survives to the reader.** `add_stats` in `Python/gc.c` copies the
-previous record forward, overwrites `ts_start`, increments `collections`, and publishes
-`ts_stop` last, so that a remote reader does not select a partially updated record. Both of
-gcmon's filters rest on that ordering. Between the copy and the `ts_start` store the slot is a
-byte-identical twin carrying its original's counter, which gcmon drops on the counter; from
-there to the `ts_stop` store it holds a new start against a stale stop, which gcmon drops as
-incomplete. The stores are plain, with no barrier and no atomic, so nothing forbids a compiler
-or a weakly-ordered target from reordering them, and a read landing inside a reordered window
-returns a record assembled from two runs that passes both filters and goes out as genuine. No
-client-side check catches every fingerprint without discarding real records too, so gcmon does
-not try. The fix belongs upstream.
+**The publish-last contract survives to the reader.** `add_stats` in `Python/gc.c` fills a
+record's fields in an order chosen so that a remote reader never selects a half-written one.
+That order opens two windows, one where a slot is still a byte-identical copy of its
+predecessor and one where it carries a new start against a stale stop, and gcmon's two filters
+exist for them. The stores are plain, with no barrier and no atomic, so a compiler or a
+weakly-ordered target may reorder them and hand back a record assembled from two runs, which
+passes both filters and goes out as genuine. No client-side check catches every shape of that
+without discarding real records too, so gcmon does not try. The fix belongs upstream.
 
-**One poll's records for one ring are contiguous.** A ring holds consecutive records, so what a
-poll hands over has no hole inside it and a gap can only sit at the seam between two polls.
-gcmon folds the tail from the last record alone, without checking. Producing a hole takes two
-or more runs finishing inside one read, positioned so the target's write cursor crosses the
-reader's; under `Py_GIL_DISABLED` a poll returns at most one record per ring and the shape
-cannot form. The counts would survive it, since they read only the two ends, but no gap would
-carry the hole's pause and the invariant would break in silence. A check that never fires costs
-more in code than the failure costs in practice.
+**One poll's records for one ring are contiguous.** A ring holds consecutive records, so a gap
+can only sit at the seam between two polls, and gcmon folds the tail from the last record alone
+without checking. A hole inside one poll's records would leave the counts standing, since they
+read only the two ends, while no gap carried its pause and the invariant broke in silence.
+Accepted without a guard: producing one takes a torn read of a particular shape, and a check
+that never fires costs more in code than the failure costs in practice.
 
-**`duration` and the timestamps share a clock.** `duration` is a `double` and the timestamps
-are `PyTime_t`, and the arithmetic subtracts one from the other. The invariant tests it, and a
+**`duration` and the timestamps share a clock.** One is a `double` and the others are
+`PyTime_t`, and the arithmetic subtracts one from the other. The invariant tests it, and a
 failure there means the whole reconstruction is unsound.
 
-Lifetime totals need none of this. `collections` and `duration` run cumulative from interpreter
-start, and the chain survives the ring wrapping, since `gc_get_prev_stats` reads the immediate
-predecessor rather than the slot about to be overwritten.
+Lifetime totals rest on none of this. `collections` and `duration` run cumulative from
+interpreter start, and `gc_get_prev_stats` reads the immediate predecessor rather than the slot
+about to be overwritten, so the chain survives the ring wrapping.
 
 ## Consequences
 
