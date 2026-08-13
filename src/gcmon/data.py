@@ -63,10 +63,9 @@ class LossMsg(msgspec.Struct):
     gcmon never read.
 
     ``ts_start`` and ``ts_stop`` are two consecutive polls, and every
-    collection the record names ran between them. ``gens`` holds one
-    :class:`GenLoss` per generation that collected or lost anything in the
-    interval; see ADR-0015 for why the counts ride there rather than on a span
-    each.
+    collection the record names ran between them. ``gens`` carries one
+    :class:`GenLoss` per generation that collected or lost anything; ADR-0015
+    says why the counts ride there rather than on a span each.
 
     ``gens`` is also what ``is_loss`` looks for. This record carries neither
     ``collections`` nor ``type``, so no other guard claims it.
@@ -150,10 +149,6 @@ def missing_collections(lost_from: int, lost_count: int) -> str:
     ``"11"`` for a single record, ``"2..383"`` for a streak, both ends
     included either way. A single missing record would otherwise print as
     ``11..11``, a range of nothing.
-
-    The range holds exactly ``lost_count`` counters, so gcmon charges every
-    record on a ring to one drawn ``GC Pause`` slice or to one loss span, and
-    to nothing else.
     """
     if lost_count == 1:
         return str(lost_from)

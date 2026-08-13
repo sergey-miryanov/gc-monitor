@@ -117,16 +117,16 @@ class TLossMsg(Protocol):
     def gens(self) -> Sequence[TGenLoss]: ...
 
 
-# What a JSONL line decodes to. The nested arm is the loss record's `gens`,
-# the one field of one record type that is not a scalar.
+# What one JSONL field decodes to. Only the loss record's `gens` holds more
+# than a scalar, and the nested arm is there for it.
 type TScalar = str | int | float
 type TValue = TScalar | Sequence[Mapping[str, TScalar]]
 
-# Read-only on the way in, and the writer owns the dict on the way out.
+# `TMapping` only reads; `JsonlRecord` is the dict a writer fills and owns.
 type TMapping = Mapping[str, TValue]
 type JsonlRecord = dict[str, TValue]
 
-# Everything a JSONL line can decode to, and everything the converters accept.
+# What a whole JSONL line decodes to, and what the converters accept.
 type TItem = TGCStatsInfo | TInstantMsg | TLossMsg
 
 
