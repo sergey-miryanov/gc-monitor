@@ -27,6 +27,8 @@ A spec that settles a durable design question graduates into a record below.
   private class, function or method: architecture does not turn on what a helper is called,
   and a record that tracks internal names goes stale on every refactor. Point the other way
   instead, from a docstring citing ADR-NNNN, which survives the rename of the code around it.
+  Domain vocabulary stays whatever its spelling in code, so a state a record argues about,
+  such as `INVALID_PROCESS`, keeps its name even though an enum member holds it.
 - **New records:** copy [`0000-template.md`](0000-template.md).
 
 Amend an existing ADR when the reasoning is refined or when a name it anchors on moves. Write
