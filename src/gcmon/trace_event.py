@@ -144,11 +144,6 @@ def begin_event(
     ts_ns: int,
     args: Mapping[str, int | str | ArgGroup],
 ) -> BeginEvent:
-    """A slice's opening event.
-
-    *args* takes a ``Mapping`` because ``dict`` is invariant: a call site
-    holding a plain ``dict[str, int]`` would otherwise have to widen.
-    """
     return BeginEvent(
         name=name,
         cat=cat,
