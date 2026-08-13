@@ -1,10 +1,22 @@
 # Statistics
 
-Use `--stats` to display a statistics table at the end of monitoring. The table reports GC pause durations (p50, p90, p95, p99) and counts per generation, with one row per monitored process plus an overall Total row.
+Use `--stats` to display a statistics table at the end of monitoring. The table
+reports GC pause durations (p50, p90, p95, p99) and counts per generation, with
+one row per monitored process plus an overall Total row.
 
-Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this long), **Sum divided by the monitoring wall time gives the share of the monitored window spent in GC**, and **Count and Avg show how many pauses there were and how long a typical one took**. A P99 GC pause that exceeds your request SLO is a good starting point for tuning.
+Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this
+long), **Sum divided by the monitoring wall time gives the share of the
+monitored window spent in GC**, and **Count and Avg show how many pauses there
+were and how long a typical one took**. A P99 GC pause that exceeds your request
+SLO is a good starting point for tuning.
 
-The last row, `Read Time`, is monitor-side cost rather than target-process cost: it measures how long each read of a target's GC stats took, recorded once per successful poll of every monitored PID and aggregated into a single row — with child processes its `Count` is polls × PIDs, and there is no per-PID breakdown. Use it to sanity-check `--rate`: a mean `Read Time` close to `--rate` means you are sampling at roughly half the rate you asked for, for the reason given in [How gcmon reads a process](monitoring.md#polling).
+The last row, `Read Time`, is monitor-side cost rather than target-process cost:
+it measures how long each read of a target's GC stats took, recorded once per
+successful poll of every monitored PID and aggregated into a single row — with
+child processes its `Count` is polls × PIDs, and there is no per-PID breakdown.
+Use it to sanity-check `--rate`: a mean `Read Time` close to `--rate` means you
+are sampling at roughly half the rate you asked for, for the reason given in
+[How gcmon reads a process](monitoring.md#polling).
 
 ## Example Output
 
@@ -30,17 +42,27 @@ $ gcmon 12345 --stats --table-format md
 1. Coverage: Gen0 20.0%, Gen1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
 ```
 
-*Values shown in milliseconds. Metrics are reported per GC generation (0, 1, 2).*
+*Values in milliseconds, per GC generation (0, 1, 2).*
 
 ## Three intervals, and which one a cell reports
 
-A target's collector can run faster than gcmon reads the records it writes, so some GC runs never reach the table. See [How gcmon reads a process](monitoring.md). Every number below describes one of three intervals:
+A target's collector can run faster than gcmon reads the records it writes, so
+some GC runs never reach the table. See
+[How gcmon reads a process](monitoring.md). Every number below describes one of
+three intervals:
 
 - **Sampled**: the records gcmon read. `Avg` and every percentile are sampled.
-- **Exact, over the observed span**: every GC run between the first and last record gcmon saw, including those whose records never reached it. `Count` and `Sum` report this, reconstructed from the target's cumulative counters.
-- **Lifetime**: everything the interpreter has collected since it started, monitored window included. It appears in the footer under the table, and as `pause_gen_N_lifetime_*` in [pyperf metadata](pyperf.md). It overlaps the other two rather than extending them, so it stays out of `Cov` and `F`.
+- **Exact, over the observed span**: every GC run between the first and last
+  record gcmon saw, including those whose records never reached it. `Count` and
+  `Sum` report this, reconstructed from the target's cumulative counters.
+- **Lifetime**: everything the interpreter has collected since it started,
+  monitored window included. It appears in the footer under the table, and as
+  `pause_gen_N_lifetime_*` in [pyperf metadata](pyperf.md). It overlaps the
+  other two rather than extending them, so it stays out of `Cov` and `F`.
 
-The observed span starts at the first record gcmon read. gcmon cannot tell "ran before we attached" from "lost", so an earlier run falls outside the span and counts as neither.
+The observed span starts at the first record gcmon read. gcmon cannot tell "ran
+before we attached" from "lost", so an earlier run falls outside the span and
+counts as neither.
 
 ## `Count` and `Sum` cells: `sampled/exact`
 
@@ -51,31 +73,53 @@ Count           Sum
 42/210          55.795/240.595
 ```
 
-gcmon read 42 gen-0 pauses totalling 55.795 ms. 210 gen-0 runs finished in that window, taking 240.595 ms. A cell carries one number when nothing was lost.
+gcmon read 42 gen-0 pauses totalling 55.795 ms. 210 gen-0 runs finished in that
+window, taking 240.595 ms. A cell carries one number when nothing was lost.
 
-Sub-phase rows (`GC Mark Alive`, `GC Deduce Unreachable`, `GC Delete Garbage`, …) mark their second number with a leading `~`: `42/~210`. CPython accumulates a total for the whole pause only, so a sub-phase has no exact counterpart. Those are estimates, the sampled value scaled by `F`.
+Sub-phase rows (`GC Mark Alive`, `GC Deduce Unreachable`, `GC Delete Garbage`,
+…) mark their second number with a leading `~`: `42/~210`. CPython accumulates a
+total for the whole pause only, so a sub-phase has no exact counterpart. Those
+are estimates, the sampled value scaled by `F`.
 
 ## The `Cov` and `F` columns
 
-**`Cov`** is the share of records gcmon read, `sampled ÷ exact`. At `20.0%`, four out of five records in that row never reached a poll. It never rounds to `100.0%` while anything is missing: a row that lost 8 records of 1771 prints `<100.0%`.
+**`Cov`** is the share of records gcmon read, `sampled ÷ exact`. At `20.0%`,
+four out of five records in that row never reached a poll. It never rounds to
+`100.0%` while anything is missing: a row that lost 8 records of 1771 prints
+`<100.0%`.
 
-**`F`** is the multiplier taking a sampled pause sum to the exact one, `exact_sum ÷ sampled_sum`. It scales the sub-phase rows, and prints `>1.000` for the same reason.
+**`F`** is the multiplier taking a sampled pause sum to the exact one,
+`exact_sum ÷ sampled_sum`. It scales the sub-phase rows, and prints `>1.000` for
+the same reason.
 
 Both are blank on rows with no generation, such as `Read Time`.
 
-If coverage falls below 90%, gcmon logs one advisory per session naming the ring-buffer size it read from the target. Polling faster will not lift `Cov` to 100%; [How gcmon reads a process](monitoring.md) covers why.
+If coverage falls below 90%, gcmon logs one advisory per session naming the
+ring-buffer size it read from the target. Polling faster will not lift `Cov` to
+100%; [How gcmon reads a process](monitoring.md) covers why.
 
 ## Percentiles are sampled and read high
 
-`P50` through `P99` describe the records gcmon read rather than every run that happened, and the difference skews one way. A long run delays the next one, so its record sits in the ring slot for longer and is likelier to survive until the next poll. Long pauses are over-represented among the survivors, so **the reported percentiles read high**, the more so the lower `Cov` is.
+`P50` through `P99` describe the records gcmon read rather than every run that
+happened, and the difference skews one way. A long run delays the next one, so
+its record sits in the ring slot for longer and is likelier to survive until the
+next poll. Long pauses are over-represented among the survivors, so **the
+reported percentiles read high**, the more so the lower `Cov` is.
 
-`F` does not fix this. It is a ratio of two totals, so applying it to a quantile would assume the sampled and unsampled pauses share a shape, which is what the bias denies. gcmon reports the quantiles it measured instead. On a low-`Cov` row, trust the counts and sums and distrust the shape.
+`F` does not fix this. It is a ratio of two totals, so applying it to a quantile
+would assume the sampled and unsampled pauses share a shape, which is what the
+bias denies. gcmon reports the quantiles it measured instead. On a low-`Cov`
+row, trust the counts and sums and distrust the shape.
 
-The trace draws the intervals the missing records fell in, on a `GC Loss` track. See [output formats](formats.md#gc-loss-slices).
+The trace draws the intervals the missing records fell in, on a `GC Loss` track.
+See [output formats](formats.md#gc-loss-slices).
 
 ## The notes under the table
 
-Below the table gcmon prints a numbered note for each thing the cells cannot say. Either note may be absent, and a session that read every record from a target that collected nothing before gcmon attached prints no footer at all. A lone note still reads `1.`.
+Below the table gcmon prints a numbered note for each thing the cells cannot
+say. Either note may be absent, and a session that read every record from a
+target that collected nothing before gcmon attached prints no footer at all. A
+lone note still reads `1.`.
 
 **1. Coverage.**
 
@@ -83,7 +127,9 @@ Below the table gcmon prints a numbered note for each thing the cells cannot say
 1. Coverage: Gen0 20.0%, Gen1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
 ```
 
-The `Cov` column gathered across every PID, plus the rule for reading the two-number cells. It appears whenever anything was lost, listing only the generations that lost something.
+The `Cov` column gathered across every PID, plus the rule for reading the
+two-number cells. It appears whenever anything was lost, listing only the
+generations that lost something.
 
 **2. Lifetime totals.**
 
@@ -95,11 +141,13 @@ The third interval above. It changes no cell in the table.
 
 ## Without `[stats]` extra
 
-gcmon keeps up to 1024 samples in memory and sorts them for exact percentiles. Past that it drops the oldest, so a long session loses its early shape.
+gcmon keeps up to 1024 samples in memory and sorts them for exact percentiles.
+Past that it drops the oldest, so a long session loses its early shape.
 
 ## With `[stats]` extra
 
-Install the optional `ddsketch` dependency for high-accuracy, memory-efficient statistics:
+Install the optional `ddsketch` dependency for high-accuracy, memory-efficient
+statistics:
 
 ```bash
 pip install gcmon[stats]
@@ -112,4 +160,5 @@ This installs [DDSketch](https://github.com/DataDog/sketches-py), which:
 
 Install it for a long run or a fast `--rate`.
 
-`Count`, `Sum`, `Cov`, `F` and the lifetime totals are running values, and do not depend on how many samples the buffer retains.
+`Count`, `Sum`, `Cov`, `F` and the lifetime totals are running values, and do
+not depend on how many samples the buffer retains.
