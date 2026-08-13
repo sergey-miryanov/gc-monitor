@@ -147,8 +147,7 @@ def missing_collections(lost_from: int, lost_count: int) -> str:
     """The records an interval is missing, as one string.
 
     ``"11"`` for a single record, ``"2..383"`` for a range, both ends
-    included either way. One record would otherwise print as ``11..11``, a
-    range of nothing.
+    included either way.
     """
     if lost_count == 1:
         return str(lost_from)
