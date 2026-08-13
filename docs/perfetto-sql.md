@@ -1,6 +1,9 @@
 # Trace Analysis with Perfetto SQL
 
-When you export traces in Perfetto format (`.pftrace`), you can use Perfetto's SQL query interface to perform advanced analysis beyond what the UI provides. PerfettoSQL extends SQLite's SQL dialect — any query valid in SQLite also works in PerfettoSQL.
+When you export traces in Perfetto format (`.pftrace`), you can use Perfetto's
+SQL query interface to perform advanced analysis beyond what the UI provides.
+PerfettoSQL extends SQLite's SQL dialect — any query valid in SQLite also works
+in PerfettoSQL.
 
 The trace data is stored in a structured schema that you can query directly.
 
@@ -19,7 +22,8 @@ gcmon traces use the standard Perfetto schema:
   - `ts`: Start timestamp (nanoseconds)
   - `dur`: Duration (nanoseconds)
   - `arg_set_id`: Reference to arguments/annotations
-- **`counter`** table: Contains counter values (live object count, collected objects, etc.)
+- **`counter`** table: Contains counter values (live object count, collected
+  objects, etc.)
   - `track_id`: Reference to the counter track
   - `ts`: Timestamp (nanoseconds)
   - `value`: Counter value
@@ -29,19 +33,22 @@ gcmon traces use the standard Perfetto schema:
 - **`process_track`** / **`thread_track`**: Contains process/thread information
   - `id`: Track ID
   - `pid` / `tid`: Process/thread ID
-  - `source_arg_set_id`: Reference to the track's args, including the process command line
+  - `source_arg_set_id`: Reference to the track's args, including the process
+    command line
 - **`args`** table: Key/value arguments for slices and tracks
   - `arg_set_id`: The set this argument belongs to
-  - `key` / `flat_key`: Argument name — track args use bare names (`description`), slice debug annotations are prefixed (`debug.cmdline`)
+  - `key` / `flat_key`: Argument name — track args use bare names
+    (`description`), slice debug annotations are prefixed (`debug.cmdline`)
   - `string_value` / `int_value`: The value
 
-> **Note:** `process.cmdline` always returns `NULL`. The trace processor does not
-> surface `ProcessDescriptor.cmdline`, so query the process track's `description`
-> or the `debug.cmdline` annotation instead — see below.
+> **Note:** `process.cmdline` always returns `NULL`. The trace processor does
+> not surface `ProcessDescriptor.cmdline`, so query the process track's
+> `description` or the `debug.cmdline` annotation instead — see below.
 
 ## Example: Replicating the Stats Table
 
-The [`--stats` CLI option](statistics.md) produces a summary table at runtime. You can replicate this analysis using SQL:
+The [`--stats` CLI option](statistics.md) produces a summary table at runtime.
+You can replicate this analysis using SQL:
 
 ```sql
 -- GC pause statistics
@@ -68,7 +75,8 @@ This query:
 
 ## Example: Querying RSS Values
 
-When `--rss` is enabled, RSS samples are stored in the `counter` table with track name `"rss"`. You can query memory usage over time per PID:
+When `--rss` is enabled, RSS samples are stored in the `counter` table with
+track name `"rss"`. You can query memory usage over time per PID:
 
 ```sql
 -- RSS values per PID (requires --rss)
@@ -87,8 +95,8 @@ ORDER BY p.start_ts, c.ts
 ## Example: Querying Process Command Lines
 
 Requires the [`[cmdline]` extra](rss.md#the-cmdline-extra). gcmon writes the
-command line to [three places](formats.md#process-command-lines); two of them are
-reachable from SQL.
+command line to [three places](formats.md#process-command-lines); two of them
+are reachable from SQL.
 
 The process track's `description` holds the space-joined command line:
 
@@ -103,8 +111,8 @@ ORDER BY p.pid
 ```
 
 The same string is attached to each `Process {pid}` slice on the `Processes`
-lifetime track as a `cmdline` debug annotation, which pairs it with the process's
-start and end times:
+lifetime track as a `cmdline` debug annotation, which pairs it with the
+process's start and end times:
 
 ```sql
 -- Command line alongside each process's lifetime
@@ -125,26 +133,26 @@ Both return no rows when the extra is missing or the command line could not be
 collected; the rest of the trace is unaffected.
 
 **Do not read `dur` on this track as an observed duration.** Every pid's slice
-lives on the one `Processes` track, and slices on a single Perfetto track have to
-nest, so where two pids' spans cross, the earlier one's end is pulled back to just
-before the later one begins. `s.dur` is what could be drawn; `real_start_ts` and
-`real_end_ts` are what gcmon observed. Both are on every slice, clipped or not, so
-the query is the same either way — and the difference can be total, since a span
-crossed by one starting a microsecond later is clipped to a microsecond.
+lives on the one `Processes` track, and slices on a single Perfetto track have
+to nest, so where two pids' spans cross, the earlier one's end is pulled back to
+just before the later one begins. `s.dur` is what could be drawn;
+`real_start_ts` and `real_end_ts` are what gcmon observed. Both are on every
+slice, clipped or not, so the query is the same either way — and the difference
+can be total, since a span crossed by one starting a microsecond later is
+clipped to a microsecond.
 
 Every monitored process gets exactly one slice, so you may join these to pids
 one-to-one — including one gcmon polled but that never collected, which has no
-process track and no `cmdline` annotation, only the span. Some slices have
-`dur = 0`: a process observed at a single instant, or clipped down to nothing.
-They are drawn anyway, precisely so that the annotations below can be read off
-them.
+process track and no `cmdline` annotation, only the span. Some slices have `dur
+= 0`: a process observed at a single instant, or clipped down to nothing. They
+are drawn anyway, precisely so that the annotations below can be read off them.
 
 Two caveats. Processes still alive when monitoring stops share an end timestamp
 and so nest, and the trace processor closes at most **512** nested slices; past
 that they come back with `dur = -1` and no diagnostic, so filter on `s.dur >= 0`
-if a capture may have had more than 512 processes running at the end. And
-`gcmon combine` spans cover GC activity only, so spans are comparable across
-traces captured the same way.
+if a capture may have had more than 512 processes running at the end. And `gcmon
+combine` spans cover GC activity only, so spans are comparable across traces
+captured the same way.
 
 ```sql
 -- Processes whose drawn duration is shorter than what gcmon observed
@@ -162,11 +170,15 @@ ORDER BY observed_dur - s.dur DESC
 
 ## Tips for Writing Queries
 
-- **Timestamps are in nanoseconds:** Divide by `1e6` for milliseconds, `1e9` for seconds
-- **Use `EXTRACT_ARG`:** Access slice annotations (e.g., `EXTRACT_ARG(arg_set_id, 'heap_size')`)
+- **Timestamps are in nanoseconds:** Divide by `1e6` for milliseconds, `1e9` for
+  seconds
+- **Use `EXTRACT_ARG`:** Access slice annotations (e.g.,
+  `EXTRACT_ARG(arg_set_id, 'heap_size')`)
 - **Filter by name:** Use `LIKE` patterns to match specific event types
-- **Join tracks:** Connect slices/counters to process/thread information via track IDs
-- **Use window functions:** `LAG()`, `LEAD()`, `ROW_NUMBER()` for time-series analysis
+- **Join tracks:** Connect slices/counters to process/thread information via
+  track IDs
+- **Use window functions:** `LAG()`, `LEAD()`, `ROW_NUMBER()` for time-series
+  analysis
 
 ## Further Reading
 
