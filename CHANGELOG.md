@@ -2,6 +2,8 @@
 
 ## WIP
 
+## Version 0.5.0 (2026-08-14)
+
 ### Breaking changes
 
 - Slice names drop the `gen=` prefix: `GC Pause(0)`, `GC Loss(0)`, `Mark Alive(0)` and the rest. Categories are unchanged, so `gc.pause(gen=0)` still matches
