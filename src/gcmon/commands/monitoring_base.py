@@ -81,7 +81,7 @@ def run_monitoring_loop(
             returncode = runner.returncode or 0
 
         trace_path = None if options.output_format == "stdout" else options.output_path
-        for line in summary_lines(stats, trace_path):
+        for line in summary_lines(stats, trace_path, show_stats=options.show_stats):
             logger.info("%s", line)
 
         if options.show_stats:

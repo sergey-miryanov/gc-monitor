@@ -575,6 +575,14 @@ class TestSummaryLines:
         assert summary_lines(self._run(3, lost=7), Path("trace.pftrace")).count(POINTER) == 1
         assert POINTER not in summary_lines(self._run(3), Path("trace.pftrace"))
 
+    def test_a_run_that_asked_for_the_table_is_not_sent_for_it(self) -> None:
+        """`--stats` prints the breakdown two lines further down, so pointing
+        the reader at it there would be pointing at the next paragraph."""
+        lines = summary_lines(self._run(3, lost=7), Path("trace.pftrace"), show_stats=True)
+
+        assert POINTER not in lines
+        assert "Total events: 3 (+7 reconstructed, 30.0% observed)" in lines
+
     def test_it_prints_nothing_itself(self, capsys: pytest.CaptureFixture[str]) -> None:
         """`--format stdout` puts the JSONL trace on stdout, so a summary that
         printed would land in the middle of the stream."""

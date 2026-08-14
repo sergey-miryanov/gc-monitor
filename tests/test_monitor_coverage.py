@@ -22,7 +22,9 @@ from tests.helpers import create_mock_stats_item
 PID = 4242
 OTHER_PID = 4243
 
-ADVISORY = "of collections observed"
+# "so far": the run's final coverage is the end-of-run summary's to state, and
+# a run that recovers ends well above the figure warned about here.
+ADVISORY = "of collections observed so far"
 
 # One collection's pause and the interval between two of them, in nanoseconds.
 PAUSE_NS = 1_000_000
@@ -126,6 +128,17 @@ class TestCoverageWarning:
 
         assert "reconstructed and exact" in caplog.text
         assert "--rate" in caplog.text
+
+    def test_it_reads_as_a_running_figure(self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture) -> None:
+        """The latch keeps the first figure that dipped, and a run that
+        recovers ends far above it. Stated flatly, that number would read as
+        contradicting the end-of-run summary, which states the final one."""
+        poll(monitor, PID, [1])
+        poll(monitor, PID, [10])
+        for collections in range(11, 2_000):
+            poll(monitor, PID, [collections])
+
+        assert "only 20% of collections observed so far" in caplog.text
 
     def test_it_names_no_ring_geometry(self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture) -> None:
         """How many slots the target's ring holds is not something an operator

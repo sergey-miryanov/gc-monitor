@@ -144,11 +144,13 @@ def _factor_cell(factor: float, lost: int) -> str:
     return ">1.000" if lost and cell == "1.000" else cell
 
 
-def summary_lines(stats: StreamingStats, trace_path: Path | None) -> list[str]:
+def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bool = False) -> list[str]:
     """What the run captured, as the lines a monitoring command logs.
 
     *trace_path* is where the trace was written, or ``None`` when it went to
-    stdout and there is no file to name.
+    stdout and there is no file to name. *show_stats* says the caller is about
+    to print the table itself, which is the one case where pointing a reader
+    at ``--stats`` points at the next paragraph.
 
     A run that read everything says how many records it read, which is the
     whole of what it has to say. Where the target collected more than gcmon
@@ -171,7 +173,8 @@ def summary_lines(stats: StreamingStats, trace_path: Path | None) -> list[str]:
     if lost:
         observed = _coverage_cell(sampled / (sampled + lost), lost)
         lines.append(f"Total events: {sampled} (+{lost} reconstructed, {observed} observed)")
-        lines.append("Run with --stats for the per-generation breakdown.")
+        if not show_stats:
+            lines.append("Run with --stats for the per-generation breakdown.")
     else:
         lines.append(f"Total events: {sampled}")
 

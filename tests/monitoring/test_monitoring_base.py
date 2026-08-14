@@ -163,6 +163,27 @@ class TestRunMonitoringLoop:
         assert result == 0
         mock_monitoring_base_deps["print_stats"].assert_called_once()
 
+    def test_show_stats_drops_the_pointer_to_stats(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict[str, MagicMock],
+    ) -> None:
+        """The command is what knows the table is coming, so it is what tells
+        the summary not to send the reader looking for it."""
+        from gcmon.commands.monitoring_base import run_monitoring_loop
+
+        stats = mock_monitoring_base_deps["StreamingStats"].return_value
+        stats.count.return_value = 1234
+        stats.pause_totals_by_gen.return_value = {0: PauseTotals(1234, 0.0, 8566, 0)}
+
+        run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options(show_stats=True))
+
+        assert "Total events: 1234 (+8566 reconstructed, 12.6% observed)" in caplog.text
+        assert "Run with --stats" not in caplog.text
+
     def test_factory_called_with_control_address(
         self,
         mock_factory: MagicMock,

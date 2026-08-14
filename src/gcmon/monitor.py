@@ -174,6 +174,11 @@ class EventsMonitor:
         One monitor polls one process tree for the length of a run, so the
         latch here is per run, and one warning covers every pid in the tree.
         The remedy is the poll rate, which no pid or generation owns.
+
+        The latch keeps whatever figure first dipped, and a target that
+        thrashed at startup and settled ends far above it, so the warning says
+        "so far". The run's final coverage is the end-of-run summary's to
+        state.
         """
         if self._coverage_warned:
             return
@@ -185,7 +190,7 @@ class EventsMonitor:
         gen, coverage = low
         self._coverage_warned = True
         logger.warning(
-            "PID %s generation %s: only %s%% of collections observed. Counts and sums are "
+            "PID %s generation %s: only %s%% of collections observed so far. Counts and sums are "
             "reconstructed and exact; percentiles cover only what was sampled and read high. "
             "Polling more often (a smaller --rate) may observe more, unless the target collects "
             "faster than gcmon can poll.",
