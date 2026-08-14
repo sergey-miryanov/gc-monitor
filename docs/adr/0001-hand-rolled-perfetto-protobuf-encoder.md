@@ -82,8 +82,6 @@ the runtime tree. Sub-messages are built field-by-field using the local encoder 
   correct and an incorrect value; it would not have caught any of the field-number bugs
   above.
   The end-to-end guard is ADR-0014's trace-processor tests.
-- The constant for `DebugAnnotation.name` carries an inline comment explaining the oneof
-  constraint and warning against "fixing" it back to 1. Keep that comment.
 - Byte-level parity with the official package was verified once: over a full GC trace both
   encoders produced identical output, and the trace processor reported matching rows
   across the `track`, `process`, `thread`, `slice`, and `counter` tables.
@@ -110,7 +108,7 @@ the runtime tree. Sub-messages are built field-by-field using the local encoder 
 - `src/gcmon/exporters/protobuf_encoder.py` holds the wire primitives, with 64-bit sign
   extension so a negative value encodes in full rather than being masked to 32 bits.
 - `src/gcmon/exporters/perfetto_proto.py` holds every field number and enum value, and
-  nothing else, including `DebugAnnotation.name` at field 10 with its warning comment.
+  nothing else.
 - `src/gcmon/exporters/perfetto_builders.py` builds each sub-message field-by-field.
 - Wire-level regression tests: `tests/exporters/test_perfetto_builders.py` asserts raw
   field numbers and wire types rather than round-tripping, and
