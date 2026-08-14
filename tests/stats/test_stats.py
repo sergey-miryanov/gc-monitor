@@ -302,6 +302,61 @@ class TestExactTotals:
         assert stats.lost_count(1, 0) == 7
 
 
+class TestTotalsLeaveTheAccumulatorBehind:
+    """The accumulators stay inside `StreamingStats`; a read gets a frozen
+    answer, so no caller can add into gcmon's own totals."""
+
+    def test_one_pid_gets_an_answer_rather_than_the_slot(self) -> None:
+        stats = StreamingStats()
+        stats.record_loss(1, 0, 7, 7_000)
+
+        totals = stats.pause_totals(1, 0)
+        with pytest.raises(AttributeError):
+            totals.lost_count = 99  # type: ignore[misc]
+
+        assert (totals.lost_count, totals.lost_pause_ns) == (7, 7_000)
+        assert stats.pause_totals(1, 0).lost_count == 7
+
+    def test_every_pid_gets_one_too(self) -> None:
+        """The summed branch would have swallowed the write rather than
+        misplacing it, which is the harder bug of the two to notice."""
+        stats = StreamingStats()
+        stats.record_loss(1, 0, 7, 7_000)
+        stats.record_loss(2, 0, 1, 1_000)
+
+        with pytest.raises(AttributeError):
+            stats.pause_totals_by_gen()[0].lost_count = 99  # type: ignore[misc]
+
+        assert stats.pause_totals_by_gen()[0].lost_count == 8
+
+    def test_an_untouched_key_answers_zero(self) -> None:
+        stats = StreamingStats()
+
+        assert stats.pause_totals(1, 0).lost_count == 0
+        assert stats.pause_totals_by_gen()[2].lost_pause_ns == 0
+
+    def test_polls_still_accumulate(self) -> None:
+        stats = StreamingStats()
+        stats.record_loss(1, 0, 3, 3_000)
+        stats.record_loss(1, 0, 4, 4_000)
+
+        assert stats.pause_totals(1, 0).lost_count == 7
+        assert stats.pause_totals(1, 0).lost_pause_ns == 7_000
+
+    def test_lifetime_reads_hand_back_scratch(self) -> None:
+        """This side sums over interpreters into a fresh struct, so a caller
+        that writes to what it got back touches nothing gcmon keeps. The
+        pause side is frozen instead, since its per-pid read is the slot."""
+        stats = StreamingStats()
+        stats.record_lifetime(1, 0, 0, 40, 4.0)
+        stats.record_lifetime(1, 1, 0, 2, 0.5)
+
+        stats.lifetime_totals_by_gen()[0].add(99, 9.0)
+
+        assert stats.lifetime_totals_by_gen()[0].collections == 42
+        assert stats.lifetime_totals_by_gen()[0].pause_ns == 4_500_000_000
+
+
 def ring(gen: int, written: int, empty: int = 0, iid: int = 0) -> list[GCStatsInfo]:
     """One generation's slots as a poll returns them, empty ones included."""
     return [create_mock_stats_item(gen=gen, iid=iid, collections=n) for n in range(written)] + [
