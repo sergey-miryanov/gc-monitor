@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 from pytest_codspeed import BenchmarkFixture
 
+from gcmon.pyperf.metrics import to_metrics
 from gcmon.stats import Stats, StreamingStats, get_quantile_value
 
 from .conftest import make_gc_event
@@ -49,11 +50,14 @@ def test_streaming_stats_update_many_pids(benchmark: BenchmarkFixture) -> None:
 
 @pytest.mark.benchmark
 def test_streaming_stats_aggregate(benchmark: BenchmarkFixture) -> None:
+    """The projection, which used to be `StreamingStats.aggregate`. The name
+    stays so CodSpeed keeps one series, but the number stepped when the folds
+    moved behind `totals_by_gen`."""
     stats = StreamingStats()
     for i in range(EVENT_COUNT):
         stats.update(12345, make_gc_event(i, gen=i % 3))
 
-    result = benchmark(stats.aggregate)
+    result = benchmark(lambda: to_metrics(stats))
     assert result["pause_count"] == EVENT_COUNT
 
 

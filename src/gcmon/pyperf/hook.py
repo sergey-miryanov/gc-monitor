@@ -22,6 +22,7 @@ from ..exporters.chrome_trace_io import read_jsonl
 from ..protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
 from ..stats import StreamingStats
 from ..utils.process_terminator import log_process_output, terminate_process
+from .metrics import to_metrics
 
 GRACEFUL_TIMEOUT = 5.0
 FORCE_TIMEOUT = 2.0
@@ -232,8 +233,7 @@ class GCMonitorHook:
                     logger.warning("Failed to read combined GC metrics: %s", e)
 
             if ss.count():
-                aggregated = ss.aggregate()
-                for key, value in aggregated.items():
+                for key, value in to_metrics(ss).items():
                     metadata[f"gc_{key}"] = value
 
         except Exception as e:

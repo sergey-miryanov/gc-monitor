@@ -16,6 +16,7 @@ from gcmon.pyperf.hook import (
     _replay,
     gcmon_hook,
 )
+from gcmon.pyperf.metrics import to_metrics
 from gcmon.stats import StreamingStats
 from tests.helpers import assert_valid_jsonl_format
 
@@ -576,7 +577,7 @@ class TestLossIsNeverReplayedAsACollection:
 
         assert as_written.updated == reversed_order.updated
         assert as_written.losses == reversed_order.losses
-        assert as_written.aggregate() == reversed_order.aggregate()
+        assert to_metrics(as_written) == to_metrics(reversed_order)
 
     def test_a_capture_of_nothing_but_loss_replays_and_still_counts_it(self, tmp_path: Path) -> None:
         """Nothing was sampled, so there is no pause to describe — but the
@@ -590,7 +591,7 @@ class TestLossIsNeverReplayedAsACollection:
         assert stats.lost_count(12345, 0) == 2
         assert stats.exact_count(None, 0) == 2
         assert stats.coverage(None, 0) == 0.0
-        assert stats.aggregate()["pause_count"] == 2
+        assert to_metrics(stats)["pause_count"] == 2
 
     def test_a_loss_only_capture_publishes_nothing_rather_than_zeroes(
         self,
@@ -619,15 +620,15 @@ class TestLossIsNeverReplayedAsACollection:
 
 
 class TestAggregateGcStats:
-    """Test StreamingStats aggregate method."""
+    """Test the metric projection over a replayed session."""
 
     def test_empty_no_metadata(self) -> None:
-        assert StreamingStats().aggregate() == {"pause_count": 0}
+        assert to_metrics(StreamingStats()) == {"pause_count": 0}
 
     def test_single_event_single_pid(self) -> None:
         ss = StreamingStats()
         ss.update(100, _make_event())
-        result = ss.aggregate()
+        result = to_metrics(ss)
         assert result["pause_gen_0_p99"] > 0
         assert result["heap_size_p99"] == 20000
 
@@ -643,7 +644,7 @@ class TestAggregateGcStats:
                     heap_size=20000 + i * 5000,
                 ),
             )
-        result = ss.aggregate()
+        result = to_metrics(ss)
         assert "pause_gen_0_p99" in result
         assert "pause_gen_1_p99" not in result
         assert "pause_gen_2_p99" not in result
@@ -652,13 +653,13 @@ class TestAggregateGcStats:
         ss = StreamingStats()
         for pid in [100, 200, 300]:
             ss.update(pid, _make_event(heap_size=pid * 100))
-        assert ss.aggregate()["heap_size_p99"] == 29800
+        assert to_metrics(ss)["heap_size_p99"] == 29800
 
     def test_per_generation_p99(self) -> None:
         ss = StreamingStats()
         for gen in range(3):
             ss.update(100, _make_event(gen=gen, iid=gen, ts_stop=1_005_000_000 + gen * 5_000_000))
-        result = ss.aggregate()
+        result = to_metrics(ss)
         for gen in range(3):
             assert f"pause_gen_{gen}_p99" in result
 
