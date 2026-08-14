@@ -44,8 +44,12 @@ __all__ = [
 
 
 def json_to_item(data: TMapping) -> tuple[int, TItem]:
-    # Lax, so a pid written as a string still reads.
-    pid = msgspec.convert(data["pid"], int, strict=False)
+    pid = data["pid"]
+    # A pid gcmon wrote decodes as an int, and every line of a capture carries
+    # one. Anything else goes through a lax convert, so a pid written as a
+    # string still reads.
+    if not isinstance(pid, int):
+        pid = msgspec.convert(pid, int, strict=False)
     return pid, from_mapping(data)
 
 

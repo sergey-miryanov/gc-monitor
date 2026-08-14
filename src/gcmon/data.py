@@ -78,10 +78,17 @@ class LossMsg(msgspec.Struct):
 
 
 def from_mapping(data: TMapping) -> GCStatsInfo | InstantMsg | LossMsg:
-    if data.get("type") == "i":
-        return msgspec.convert(data, InstantMsg)
+    # A capture is GC records by orders of magnitude and the three shapes are
+    # mutually exclusive, so `collections` answers first and the rest of the
+    # line never reads the dict again. A record carrying none of the three
+    # still falls through to the GC branch, which is where an old-format loss
+    # record has to land to be refused.
+    if "collections" in data:
+        return msgspec.convert(data, GCStatsInfo)
     if "gens" in data:
         return msgspec.convert(data, LossMsg)
+    if data.get("type") == "i":
+        return msgspec.convert(data, InstantMsg)
     return msgspec.convert(data, GCStatsInfo)
 
 
