@@ -52,16 +52,22 @@ def to_metrics(stats: StreamingStats) -> dict[str, int | float]:
     result: dict[str, int | float] = {}
     pauses = stats.pause_totals_by_gen()
     lifetimes = stats.lifetime_totals_by_gen()
+    pause_stats = stats.metrics["pause"]
     exact_total = 0
     for gen in stats.GENS:
         pause = pauses[gen]
         keys = _GEN_KEYS[gen]
-        exact_total += pause.exact_count
-        if pause.sampled_count > 0:
-            result[keys.p99] = dur_to_ms(stats.metrics["pause"][gen].percentile(99))
-            result[keys.total] = dur_to_ms(pause.exact_pause_ns)
-            result[keys.count] = pause.exact_count
-            result[keys.coverage] = pause.coverage
+        # Read once each and summed here. Asking the totals for a derived
+        # number per key summed the exact count three times a generation.
+        sampled_count = pause.sampled_count
+        exact_count = sampled_count + pause.lost_count
+        exact_total += exact_count
+        if sampled_count > 0:
+            result[keys.p99] = dur_to_ms(pause_stats[gen].percentile(99))
+            result[keys.total] = dur_to_ms(pause.sampled_pause_ns + pause.lost_pause_ns)
+            result[keys.count] = exact_count
+            # A sampled count above zero is why this needs no zero guard.
+            result[keys.coverage] = sampled_count / exact_count
         lifetime = lifetimes.get(gen)
         if lifetime is not None and lifetime.collections > 0:
             result[keys.lifetime_count] = lifetime.collections

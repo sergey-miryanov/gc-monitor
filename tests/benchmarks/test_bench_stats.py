@@ -51,13 +51,13 @@ def test_streaming_stats_update_many_pids(benchmark: BenchmarkFixture) -> None:
 @pytest.mark.benchmark
 def test_streaming_stats_aggregate(benchmark: BenchmarkFixture) -> None:
     """The projection, which used to be `StreamingStats.aggregate`. The name
-    stays so CodSpeed keeps one series, but the number stepped when the folds
-    moved behind `totals_by_gen`."""
+    stays so CodSpeed keeps one series across the move, and *stats* goes
+    through the fixture so the number leaves out a wrapper frame."""
     stats = StreamingStats()
     for i in range(EVENT_COUNT):
         stats.update(12345, make_gc_event(i, gen=i % 3))
 
-    result = benchmark(lambda: to_metrics(stats))
+    result = benchmark(to_metrics, stats)
     assert result["pause_count"] == EVENT_COUNT
 
 

@@ -253,14 +253,15 @@ class LossTotals(msgspec.Struct):
         self.pause_ns += pause_ns
 
 
-class PauseTotals(msgspec.Struct, frozen=True):
+class PauseTotals(msgspec.Struct, frozen=True, gc=False):
     """One generation's pauses, for one pid or for all of them.
 
     `sampled_*` is what gcmon measured, `lost_*` what the target's counters
     say it missed. ADR-0015 covers why adding them is exact.
 
     Frozen because both reads build one from four scalars. A write to what
-    you got back would land on a snapshot gcmon never reads again.
+    you got back would land on a snapshot gcmon never reads again. Those
+    scalars cannot hold a cycle either, so the collector need not track one.
     """
 
     sampled_count: int = 0
@@ -284,7 +285,9 @@ class PauseTotals(msgspec.Struct, frozen=True):
 
         An empty generation reports 1.0, so no call site needs a guard.
         """
-        exact = self.exact_count
+        # Summed here rather than read off `exact_count`, which costs a
+        # property call to do the same addition.
+        exact = self.sampled_count + self.lost_count
         if exact == 0:
             return 1.0
         return self.sampled_count / exact
@@ -297,9 +300,10 @@ class PauseTotals(msgspec.Struct, frozen=True):
         scaling a measured phase sum estimates it. It cannot correct a
         percentile (ADR-0015).
         """
-        if self.sampled_pause_ns == 0:
+        sampled = self.sampled_pause_ns
+        if sampled == 0:
             return 1.0
-        return self.exact_pause_ns / self.sampled_pause_ns
+        return (sampled + self.lost_pause_ns) / sampled
 
 
 class LifetimeTotals(msgspec.Struct):
@@ -476,10 +480,17 @@ class StreamingStats:
 
     def pause_totals_by_gen(self) -> dict[int, PauseTotals]:
         """Every generation's pause totals over every pid."""
-        lost = self._lost_by_gen()
+        # Folded here rather than behind a helper, which had this one caller,
+        # and skipped when nothing was lost.
+        lost: dict[int, LossTotals] = {}
+        if self._loss:
+            for (_pid, gen), loss in self._loss.items():
+                lost.setdefault(gen, LossTotals()).add(loss.count, loss.pause_ns)
+
+        pause = self.metrics["pause"]
         by_gen = {}
         for gen in self.GENS:
-            sampled = self.metrics["pause"][gen]
+            sampled = pause[gen]
             gen_lost = lost.get(gen)
             by_gen[gen] = PauseTotals(
                 sampled.count(),
@@ -489,16 +500,11 @@ class StreamingStats:
             )
         return by_gen
 
-    def _lost_by_gen(self) -> dict[int, LossTotals]:
-        """Fold every pid's totals into a per-gen one in a single pass."""
-        by_gen: dict[int, LossTotals] = {}
-        for (_pid, gen), loss in self._loss.items():
-            by_gen.setdefault(gen, LossTotals()).add(loss.count, loss.pause_ns)
-        return by_gen
-
     def lifetime_totals_by_gen(self) -> dict[int, LifetimeTotals]:
         """Fold every ring's lifetime totals into a per-gen one, single pass."""
         by_gen: dict[int, LifetimeTotals] = {}
+        if not self._lifetime:
+            return by_gen
         for (_pid, _iid, gen), totals in self._lifetime.items():
             by_gen.setdefault(gen, LifetimeTotals()).add(totals.collections, totals.duration_s)
         return by_gen
@@ -523,6 +529,11 @@ class StreamingStats:
         ``None`` when no record carried one, so a caller leaves the metric
         out rather than publishing a zero.
         """
-        if not self._heap_size:
+        sizes = self._heap_size.values()
+        if not sizes:
             return None
-        return get_quantile_value(sorted(self._heap_size.values()), 99)
+        if len(sizes) == 1:
+            # Every percentile of one mark is that mark, and one monitored pid
+            # is the usual case.
+            return float(next(iter(sizes)))
+        return get_quantile_value(sorted(sizes), 99)
