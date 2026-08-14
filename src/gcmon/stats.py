@@ -249,6 +249,62 @@ class LossTotals(msgspec.Struct):
         self.pause_ns += pause_ns
 
 
+class PauseTotals(msgspec.Struct, frozen=True):
+    """One generation's pauses, for one pid or for all of them.
+
+    Everything `--stats` prints about a generation follows from these four
+    numbers, so they are read once and the rest is arithmetic. Asking for
+    coverage and then for the exact count used to re-read both sides to
+    derive each.
+
+    Frozen because the pid branch hands back what `StreamingStats` keeps: a
+    caller that accumulated into it would corrupt that pid's totals, and one
+    that accumulated into a summed one would silently write to nothing.
+
+    `sampled_*` is what gcmon measured, `lost_*` what the target's counters
+    say it missed, and ADR-0015 is why adding them is exact.
+    """
+
+    sampled_count: int = 0
+    sampled_pause_ns: float = 0.0
+    lost_count: int = 0
+    lost_pause_ns: int = 0
+
+    @property
+    def exact_count(self) -> int:
+        """Collections gcmon accounts for, seen and unseen alike."""
+        return self.sampled_count + self.lost_count
+
+    @property
+    def exact_pause_ns(self) -> float:
+        """Pause time over those same collections: sampled plus lost."""
+        return self.sampled_pause_ns + self.lost_pause_ns
+
+    @property
+    def coverage(self) -> float:
+        """Observed share of those collections, in ``[0, 1]``.
+
+        An empty generation lost nothing, so it reports 1.0 and spares every
+        call site a division guard.
+        """
+        exact = self.exact_count
+        if exact == 0:
+            return 1.0
+        return self.sampled_count / exact
+
+    @property
+    def scale_factor(self) -> float:
+        """Multiplier taking a sampled pause sum to the exact one.
+
+        Sub-phases have no exact counterpart but partition the pause, so
+        scaling a measured phase sum by this estimates it. It cannot correct
+        a percentile, see ADR-0015.
+        """
+        if self.sampled_pause_ns == 0:
+            return 1.0
+        return self.exact_pause_ns / self.sampled_pause_ns
+
+
 class LifetimeTotals(msgspec.Struct):
     """One ring's own cumulative counters, as the target keeps them."""
 
@@ -258,6 +314,15 @@ class LifetimeTotals(msgspec.Struct):
     def add(self, collections: int, duration_s: float) -> None:
         self.collections += collections
         self.duration_s += duration_s
+
+    @property
+    def pause_ns(self) -> int:
+        """The same history in the unit every other duration is kept in.
+
+        The target counts seconds here and nanoseconds everywhere else, so
+        the conversion lives once, beside the field it converts.
+        """
+        return secs_to_ns(self.duration_s)
 
 
 class _GenKeys(msgspec.Struct, frozen=True):
@@ -382,7 +447,8 @@ class StreamingStats:
             return
 
         for gen in self.GENS:
-            if not self.lost_count(pid, gen) or self.coverage(pid, gen) >= self.COVERAGE_ADVISORY:
+            totals = self.pause_totals(pid, gen)
+            if not totals.lost_count or totals.coverage >= self.COVERAGE_ADVISORY:
                 continue
             self._coverage_warned = True
             size = self.ring_size(gen)
@@ -393,7 +459,7 @@ class StreamingStats:
                 "reconstructed and exact; percentiles cover only what was sampled and read high.",
                 pid,
                 gen,
-                self.coverage(pid, gen) * 100,
+                totals.coverage * 100,
                 size,
                 "" if size == 1 else "s",
             )
@@ -433,36 +499,52 @@ class StreamingStats:
     def lost_pause_ns(self, pid: int | None, gen: int) -> int:
         return self._lost(pid, gen).pause_ns
 
+    def pause_totals(self, pid: int | None, gen: int) -> PauseTotals:
+        """One generation's pause totals, read once.
+
+        The four numbers answer everything a caller can ask about a
+        generation, so they are gathered here and derived from rather than
+        re-read a field at a time.
+        """
+        sampled = self._sampled(pid, gen)
+        lost = self._lost(pid, gen)
+        return PauseTotals(sampled.count(), sampled.sum(), lost.count, lost.pause_ns)
+
+    def pause_totals_by_gen(self) -> dict[int, PauseTotals]:
+        """Every generation's pause totals over every pid, folding the loss
+        dict once.
+
+        The whole-run answer: a caller wanting all three generations asks
+        once rather than folding per generation.
+        """
+        lost = self._lost_by_gen() if self._loss else {}
+        by_gen = {}
+        for gen in self.GENS:
+            sampled = self.metrics["pause"][gen]
+            gen_lost = lost.get(gen)
+            by_gen[gen] = PauseTotals(
+                sampled.count(),
+                sampled.sum(),
+                gen_lost.count if gen_lost is not None else 0,
+                gen_lost.pause_ns if gen_lost is not None else 0,
+            )
+        return by_gen
+
     def exact_count(self, pid: int | None, gen: int) -> int:
         """Collections over the observed span, seen and unseen alike."""
-        return self._sampled(pid, gen).count() + self.lost_count(pid, gen)
+        return self.pause_totals(pid, gen).exact_count
 
     def exact_pause_ns(self, pid: int | None, gen: int) -> float:
         """Pause time over the same span: sampled plus lost, per ADR-0015."""
-        return self._sampled(pid, gen).sum() + self.lost_pause_ns(pid, gen)
+        return self.pause_totals(pid, gen).exact_pause_ns
 
     def coverage(self, pid: int | None, gen: int) -> float:
-        """Observed share of the span, in ``[0, 1]``.
-
-        An empty span lost nothing, so it reports 1.0 and spares every call
-        site a division guard.
-        """
-        exact = self.exact_count(pid, gen)
-        if exact == 0:
-            return 1.0
-        return self._sampled(pid, gen).count() / exact
+        """Observed share of the span, in ``[0, 1]``."""
+        return self.pause_totals(pid, gen).coverage
 
     def scale_factor(self, pid: int | None, gen: int) -> float:
-        """Multiplier taking a sampled pause sum to the exact one.
-
-        Sub-phases have no exact counterpart but partition the pause, so
-        scaling a measured phase sum by this estimates it. It cannot correct
-        a percentile, see ADR-0015.
-        """
-        sampled = self._sampled(pid, gen).sum()
-        if sampled == 0:
-            return 1.0
-        return self.exact_pause_ns(pid, gen) / sampled
+        """Multiplier taking a sampled pause sum to the exact one."""
+        return self.pause_totals(pid, gen).scale_factor
 
     def _lost_by_gen(self) -> dict[int, LossTotals]:
         """Fold every pid's totals into a per-gen one in a single pass."""
@@ -471,7 +553,7 @@ class StreamingStats:
             by_gen.setdefault(gen, LossTotals()).add(loss.count, loss.pause_ns)
         return by_gen
 
-    def _lifetime_by_gen(self) -> dict[int, LifetimeTotals]:
+    def lifetime_totals_by_gen(self) -> dict[int, LifetimeTotals]:
         """Fold every ring's lifetime totals into a per-gen one, single pass."""
         by_gen: dict[int, LifetimeTotals] = {}
         for (_pid, _iid, gen), totals in self._lifetime.items():
@@ -525,7 +607,7 @@ class StreamingStats:
         result: dict[str, int | float] = {}
         pause = self.metrics["pause"]
         lost: dict[int, LossTotals] = self._lost_by_gen() if self._loss else {}
-        lifetime: dict[int, LifetimeTotals] = self._lifetime_by_gen() if self._lifetime else {}
+        lifetime: dict[int, LifetimeTotals] = self.lifetime_totals_by_gen() if self._lifetime else {}
         exact_total = 0
         for gen in self.GENS:
             s = pause[gen]

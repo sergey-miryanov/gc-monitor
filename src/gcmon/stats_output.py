@@ -104,11 +104,12 @@ def _build_rows(
         if s.count() == 0:
             continue
 
-        coverage = stats.coverage(pid, gen)
-        factor = stats.scale_factor(pid, gen)
+        totals = stats.pause_totals(pid, gen)
+        coverage = totals.coverage
+        factor = totals.scale_factor
         if exact:
-            count = str(stats.exact_count(pid, gen))
-            total = f"{dur_to_ms(stats.exact_pause_ns(pid, gen)):.3f}"
+            count = str(totals.exact_count)
+            total = f"{dur_to_ms(totals.exact_pause_ns):.3f}"
             marker = ""
         else:
             count = str(round(s.count() / coverage))
@@ -118,7 +119,7 @@ def _build_rows(
         cells = _format_stats(
             s, _dual(str(s.count()), count, marker), _dual(f"{dur_to_ms(s.sum()):.3f}", total, marker)
         )
-        lost = stats.lost_count(pid, gen)
+        lost = totals.lost_count
         rows.append([f"{label}({gen})", *cells, _coverage_cell(coverage, lost), _factor_cell(factor, lost)])
     return rows
 
@@ -195,19 +196,18 @@ def _print_footer(stats: StreamingStats) -> None:
     what separates two that wrap on a narrow terminal. A lone note still
     reads ``1.``.
     """
-    covered = [gen for gen in stats.GENS if stats.lost_count(None, gen)]
-    lifetime = [gen for gen in stats.GENS if stats.lifetime_count(None, gen)]
+    pauses = stats.pause_totals_by_gen()
+    lifetimes = stats.lifetime_totals_by_gen()
+    covered = [(gen, pauses[gen]) for gen in stats.GENS if pauses[gen].lost_count]
+    lifetime = [(gen, lifetimes[gen]) for gen in stats.GENS if gen in lifetimes and lifetimes[gen].collections]
 
     notes: list[str] = []
     if covered:
-        parts = ", ".join(
-            f"Gen{gen} {_coverage_cell(stats.coverage(None, gen), stats.lost_count(None, gen))}" for gen in covered
-        )
+        parts = ", ".join(f"Gen{gen} {_coverage_cell(t.coverage, t.lost_count)}" for gen, t in covered)
         notes.append(f"Coverage: {parts}. Count and Sum read sampled/exact; percentiles are sampled and read high.")
     if lifetime:
         parts = ", ".join(
-            f"Gen{gen} {stats.lifetime_count(None, gen)} in {dur_to_ms(stats.lifetime_pause_ns(None, gen)):.3f} ms"
-            for gen in lifetime
+            f"Gen{gen} {totals.collections} in {dur_to_ms(totals.pause_ns):.3f} ms" for gen, totals in lifetime
         )
         # "Since interpreter start" covers the monitored window rather than
         # excluding it, so the note must not read as a figure to add to
