@@ -36,9 +36,9 @@ Insert an intermediate **non-OS-scoped grouping track named `GC Metrics`**, one 
 
 Because the group is a plain custom track, the trace processor honors `child_ordering` on
 it and `sibling_order_rank` on its children. Counter rows now carry a non-NULL `parent_id`
-pointing at the `GC Metrics` row, and `_COUNTER_RANKS` takes effect *inside* the group.
+pointing at the `GC Metrics` row, and the ranking takes effect *inside* the group.
 
-Ranks come from `_COUNTER_RANKS`, a single ordered table covering each metric.
+Ranks come from a single ordered table covering each metric.
 `heap_size` and `rss` come first (they are top-level, see
 [ADR-0004](0004-toplevel-shared-counters.md)), then `collected`, `uncollectable` (emitted
 only when non-zero), `candidates`, `duration`, and the rest. Inserting a metric
@@ -55,8 +55,8 @@ shifts the ranks below it, which is fine: only the relative order matters.
   this and accepted it, since ordering within the group still works.
 - The group is collapsible, which keeps the top-level track list short. That is why
   [ADR-0004](0004-toplevel-shared-counters.md) keeps `heap_size` *outside* the group.
-- Any new per-generation metric inherits the grouping for free; only membership in
-  `_TOPLEVEL_COUNTER_METRICS` opts a metric out.
+- Any new per-generation metric inherits the grouping for free; only the top-level metrics
+  of [ADR-0004](0004-toplevel-shared-counters.md) sit outside it.
 
 ## Alternatives considered
 
@@ -72,13 +72,10 @@ shifts the ranks below it, which is fine: only the relative order matters.
 
 ## Implementation
 
-- `src/gcmon/exporters/perfetto_format.py`, `_COUNTER_GROUP_NAME = "GC Metrics"`.
-- `:728-752`, `_emit_counter_group_descriptor`, emitted once per `(pid, iid)`, with the
-  docstring recording *why* the group is a plain custom track.
-- `:150-162`, `_COUNTER_RANKS`.
-- `:790-802`, the grouped counter branch, parenting to the group UUID.
-- Tests: `tests/exporters/test_perfetto_format.py`
-  (`test_counter_tracks_parented_to_counter_group`);
+- `src/gcmon/exporters/perfetto_format.py` names the group track, emits its descriptor
+  once per `(pid, iid)` with a docstring recording *why* the group is a plain custom
+  track, holds the rank table, and parents each per-generation counter to the group UUID.
+- Tests: `tests/exporters/test_perfetto_format.py` covers the parenting;
   `tests/exporters/test_perfetto_exporter_integration.py` asserts the counter rows'
   `parent_id` is non-NULL and equals the group row, the assertion that would have caught
   the original bug.

@@ -99,6 +99,9 @@ class TrackEventField(IntEnum):
 
 
 class DebugAnnotationField(IntEnum):
+    # Not 1. Upstream moved the name string to 10 and left field 1 holding a
+    # ``uint64`` interned ID in the same oneof, so a string written at 1 is
+    # dropped or read as a garbage IID. Do not "fix" this back (ADR-0001).
     NAME = 10
     BOOL_VALUE = 2
     INT_VALUE = 4

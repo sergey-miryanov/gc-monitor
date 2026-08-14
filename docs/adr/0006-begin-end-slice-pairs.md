@@ -24,10 +24,9 @@ sides disagreed on the shape of a span.
 
 The Chrome backend emits begin/end pairs. `ph: "X"` is not produced.
 
-- The `PauseEvent` / `IncrementalEvent` types and their `pause_event()` / `inc_event()`
-  factories are replaced by `BeginEvent` / `EndEvent` and `begin_event()` / `end_event()`.
-- `convert_item_to_trace_format` emits a begin/end pair per span rather than a single
-  complete event.
+- The event model's span types and their factories are begin/end pairs; the complete-event
+  types they replaced are gone.
+- The converter emits a begin/end pair per span rather than a single complete event.
 - The Chrome trace reader parses `ph: "B"` and `ph: "E"`; `ph: "X"` parsing is removed.
 - Timestamp normalization covers `"B"`, `"E"`, `"C"` and `"I"` events.
 
@@ -45,8 +44,8 @@ carrying independent metadata at each end is not derivable from a complete event
   so nothing downstream had to change.
 - A truncated or interrupted Chrome trace can end with an unmatched `"B"`. Both viewers
   tolerate this; a complete event could never be half-written.
-- The Chrome converter no longer calls `dur_to_us`. Duration is a property of the pair,
-  not of a record.
+- The Chrome converter no longer converts a duration to microseconds. Duration is a
+  property of the pair, not of a record.
 
 ## Alternatives considered
 
@@ -58,9 +57,8 @@ carrying independent metadata at each end is not derivable from a complete event
 
 ## Implementation
 
-- `src/gcmon/trace_event.py`, `BeginEvent` / `EndEvent` and the `begin_event()` /
-  `end_event()` factories.
-- `src/gcmon/exporters/trace_converter.py`, which emits the pairs.
-- `src/gcmon/exporters/chrome_trace_io.py`, where `_parse_events` handles `"B"` / `"E"`
-  and `_normalize_trace_timestamps` collects `"B"`, `"E"`, `"C"`, `"I"`.
-- `tests/helpers.py`, `assert_is_begin` / `assert_is_end`.
+- `src/gcmon/trace_event.py` holds the begin and end event types and their factories.
+- `src/gcmon/exporters/trace_converter.py` emits the pairs.
+- `src/gcmon/exporters/chrome_trace_io.py` parses `"B"` / `"E"` on the way in, and
+  normalizes timestamps across `"B"`, `"E"`, `"C"` and `"I"`.
+- `tests/helpers.py` carries the begin/end assertions the suites share.

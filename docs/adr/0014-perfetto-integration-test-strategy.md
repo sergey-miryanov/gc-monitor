@@ -1,4 +1,4 @@
-# ADR-0014: Validate traces against the real trace processor; gate only stress and benchmarks
+# ADR-0014: Validate traces against the real trace processor; deselect slow suites by marker
 
 - **Status:** Accepted
 - **Date:** 2026-06-12 (stress marker) / 2026-06-18 (trace-processor tests) / 2026-08-02
@@ -17,8 +17,8 @@ Only the trace processor can settle whether a trace means what you think it mean
 the same binary the Perfetto UI runs in the browser.
 
 Separately, `ControlClient` is the child-side IPC surface used by each monitored process.
-Its `_send()` and `close()` paths are locked, and the *server* side had a thread-safety
-class, but the client side had no regression guard.
+Its send and `close()` paths are locked, and the *server* side had a thread-safety suite,
+but the client side had no regression guard.
 
 ## Decision
 
@@ -109,16 +109,17 @@ tests do not assert on it.
 
 ## Implementation
 
-- `pyproject.toml:54`, `perfetto` in `[tool.poetry.group.dev.dependencies]`; `:99-103`, the
-  `stress`, `benchmark` and `fuzz` marker registrations; `:104`, the `addopts` deselection.
+- `pyproject.toml` holds `perfetto` in `[tool.poetry.group.dev.dependencies]`, the `stress`,
+  `benchmark` and `fuzz` marker registrations, and the `addopts` deselection.
 - `.github/workflows/ci.yml`, the always-on `test` job, plus the separate `stress-test` and
   `fuzz-test` jobs.
 - `tests/exporters/test_perfetto_emission_order_fuzz.py`, the only `fuzz`-marked file: it
   pins ADR-0011's emission-order claims, positive case and negative control both.
-- `tests/exporters/test_perfetto_exporter_integration.py`, the `trace_processor` fixture,
-  the `_write_trace` helper, and the chrome/perfetto parametrization.
+- `tests/exporters/test_perfetto_exporter_integration.py` holds the trace-processor fixture,
+  the trace-writing helper, and the chrome/perfetto parametrization.
 - `tests/test_convert_cmd_perfetto.py`, the same approach applied to the `combine` paths,
   including the chrome↔perfetto content-equivalence test.
-- `tests/control/test_control_client_thread_safety.py`, `TestConcurrentSend` and
-  `TestSendCloseRace`, both marked `stress`.
-- `tests/exporters/test_exporter_thread_safety.py:593`, `TestMetaDedupRaceClosed`.
+- `tests/control/test_control_client_thread_safety.py` covers concurrent sends and the
+  send/close race, both marked `stress`.
+- `tests/exporters/test_exporter_thread_safety.py` covers the meta-dedup race from
+  [ADR-0008](0008-buffered-exporter-and-encoder-protocol.md).

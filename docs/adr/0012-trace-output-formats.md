@@ -55,8 +55,7 @@ verbatim.
 state. `close()` closes Chrome inside a `try` and Perfetto in the `finally`, so a Chrome
 failure still closes Perfetto.
 
-`derive_combined_paths(base)` turns one `-o` argument into two files using
-`Path.stem`, which strips only the last extension:
+One `-o` argument becomes two files via `Path.stem`, which strips only the last extension:
 
 | `-o` | chrome | perfetto |
 |---|---|---|
@@ -102,21 +101,21 @@ included. Its whitelist had omitted both, so `GCMON_FORMAT=perfetto` fell back t
   `-o` and writes one file.
 - **Auto-deriving the output extension from `--output-format` in `combine`.** Rejected:
   you control `-o`, and rewriting a path you typed would surprise you.
-- **A custom `cmdline_provider` for `combine`.** Rejected: the default degrades gracefully,
+- **A custom cmdline provider for `combine`.** Rejected: the default degrades gracefully,
   and historical pids have no cmdline to find.
 
 ## Implementation
 
-- `src/gcmon/commands/convert_cmd.py:65-70`, `--output-format` choices; `:90-95`, the
+- `src/gcmon/commands/convert_cmd.py` holds the `--output-format` choices and the
   `chrome → jsonl` rejection.
-- `src/gcmon/exporters/chrome_trace_io.py:169-230`, `combine_files`, with the `jsonl → jsonl`
-  fast path at `:182`, per-file normalization in the load loop, and the `perfetto` branch at
-  `:222-228`.
-- `src/gcmon/exporters/combined_exporter.py:14`, `derive_combined_paths`; `:36`,
-  `CombinedTraceExporter`.
-- `src/gcmon/exporters/exporter_factory.py:27-31`, the `chrome+perfetto` case.
-- `src/gcmon/_env.py:135`, the `get_env_format` whitelist.
-- Tests: `tests/test_convert_cmd_perfetto.py` (609 lines, trace-processor driven; the
-  chrome↔perfetto content-equivalence class at `:465`);
-  `tests/exporters/test_combined_exporter.py` and `test_combined_exporter_integration.py`;
-  `tests/monitoring/test_monitor_cmd.py:208-267` (end-to-end, both files written).
+- `src/gcmon/exporters/chrome_trace_io.py` combines the inputs: the `jsonl → jsonl` fast
+  path, per-file normalization in the load loop, and the `perfetto` branch.
+- `src/gcmon/exporters/combined_exporter.py` derives the two paths and forwards to both
+  sub-exporters.
+- `src/gcmon/exporters/exporter_factory.py` handles the `chrome+perfetto` case.
+- `src/gcmon/_env.py` holds the `GCMON_FORMAT` whitelist.
+- Tests: `tests/test_convert_cmd_perfetto.py` is trace-processor driven and carries the
+  chrome↔perfetto content-equivalence assertions;
+  `tests/exporters/test_combined_exporter.py` and `test_combined_exporter_integration.py`
+  cover the forwarder; `tests/monitoring/test_monitor_cmd.py` checks end-to-end that both
+  files are written.

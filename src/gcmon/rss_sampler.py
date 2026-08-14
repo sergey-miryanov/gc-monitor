@@ -1,4 +1,8 @@
-"""RSS (Resident Set Size) sampling for monitored processes."""
+"""RSS (Resident Set Size) sampling for monitored processes.
+
+Why sampling lives in a class of its own, on a sentinel track, behind a flag:
+ADR-0013. The loop drives it once per tick, after reporting liveness (ADR-0011).
+"""
 
 import logging
 import time

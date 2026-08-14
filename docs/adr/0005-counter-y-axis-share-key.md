@@ -25,17 +25,18 @@ half of the requirement holds and sharing is scoped to a single process.
 `G2 collected` all get `y_axis_share_key = "collected"`; the per-generation `candidates`,
 `duration` and `uncollectable` tracks get their own metric names.
 
-There is **no lookup table**, on purpose. The grouped-counter emission path passes
-`y_axis_share_key=metric`, so any metric added to the counter payload in future gets
-correct Y-axis sharing with no code change. This is the whole point of keying on the name.
+There is **no lookup table**, on purpose. The grouped-counter emission path sets
+`y_axis_share_key` to the metric name it already has, so any metric added to the counter
+payload in future gets correct Y-axis sharing with no code change. This is the whole point
+of keying on the name.
 
 Two normalizations guard the edges:
 
-- `y_axis_share_key=""` is treated as `None`: no field is emitted, and the
+- An empty share key is treated as an absent one: no field is emitted, and the
   `CounterDescriptor` stays the empty submessage. This defends against silently disabling
   sharing for a future metric with an empty name.
-- A non-counter track (`is_counter=False`) ignores any share key passed to it; field 8 is
-  not emitted at all.
+- A track that is not a counter ignores any share key passed to it; field 8 is not emitted
+  at all.
 
 When a share key is set, the `CounterDescriptor` submessage contains **only** field 7. No
 other `CounterDescriptor` field (`type`, `categories`, `unit`, `unit_multiplier`,
@@ -61,30 +62,31 @@ minimal.
   Perfetto version surfaces it, with no test edit. The wire-level tests are the source of
   truth.
 - Per [ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md), the `CounterDescriptor`
-  submessage is hand-encoded via a local `CounterDescriptorField` enum. Do not reach for
-  the generated class from the `perfetto` package.
+  submessage is hand-encoded against a local field-number enum. Do not reach for the
+  generated class from the `perfetto` package.
 
 ## Alternatives considered
 
-- **A `_Y_AXIS_SHARE_KEYS` dict mapping metric to key.** Rejected: it duplicates
-  the metric name and needs an edit whenever someone adds a metric. Forget the edit and
-  that metric silently loses its shared axis.
+- **A lookup table mapping metric to share key.** Rejected: it duplicates the metric name
+  and needs an edit whenever someone adds a metric. Forget the edit and that metric
+  silently loses its shared axis.
 - **A share key on `heap_size` / `rss` for forward-compatibility.** Rejected: no peers, so
   it is bytes on the wire that do nothing.
-- **Setting `unit` / `unit_name` at the same time.** Deferred to a separate change;
-  `test_only_share_key_field_is_set_no_other_counter_fields` locks the current minimal
-  submessage so the scope creep would be caught.
+- **Setting `unit` / `unit_name` at the same time.** Deferred to a separate change; a
+  wire-level test locks the current minimal submessage, so the scope creep would be
+  caught.
 
 ## Implementation
 
-- `src/gcmon/exporters/perfetto_proto.py`, `CounterDescriptorField.Y_AXIS_SHARE_KEY = 7`.
-- `src/gcmon/exporters/perfetto_builders.py`, the emit logic in `build_track_descriptor`:
-  populated submessage when the key is truthy, empty submessage otherwise, nothing at all
-  when `is_counter=False`.
-- `src/gcmon/exporters/perfetto_format.py`, `_emit_counter_track_descriptor`, which passes
-  `y_axis_share_key=metric` on the grouped branch and omits it on the top-level branch.
-- Tests: `tests/exporters/test_perfetto_builders.py`, `test_y_axis_share_key_emitted_at_field_8`
-  and its neighbours (empty-submessage fallback, non-counter ignore, empty-string
-  normalization, only-field-7 guard); `tests/exporters/test_perfetto_counter_tracks.py` for
-  the same values as reached through a convert pass;
-  `tests/exporters/test_perfetto_exporter_integration.py:547-595` (the `xfail`'d SQL pair).
+- `src/gcmon/exporters/perfetto_proto.py` carries `y_axis_share_key` as field 7 of
+  `CounterDescriptor`.
+- `src/gcmon/exporters/perfetto_builders.py` decides what reaches the wire: a populated
+  submessage when the key is truthy, an empty one otherwise, and nothing at all for a
+  track that is not a counter.
+- `src/gcmon/exporters/perfetto_format.py` passes the metric name as the share key on the
+  grouped branch and omits it on the top-level branch.
+- Tests: `tests/exporters/test_perfetto_builders.py` covers field 8 at the wire level
+  (empty-submessage fallback, non-counter ignore, empty-string normalization,
+  only-field-7 guard); `tests/exporters/test_perfetto_counter_tracks.py` checks the same
+  values as reached through a convert pass;
+  `tests/exporters/test_perfetto_exporter_integration.py` holds the `xfail`'d SQL pair.

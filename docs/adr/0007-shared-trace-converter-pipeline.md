@@ -21,16 +21,14 @@ begin/end pair, nothing structural stood in the way of sharing the conversion.
 ## Decision
 
 A single pipeline `TGCStatsInfo → list[TraceEvent]` lives in
-`src/gcmon/exporters/trace_converter.py` (`convert_item_to_trace_format`,
-`convert_to_trace_format`). It owns the only copy of the sub-phase logic and the naming
-strings.
+`src/gcmon/exporters/trace_converter.py`. It owns the only copy of the sub-phase logic and
+the naming strings.
 
-`TraceEvent`, the union of `BeginEvent`, `EndEvent`, `InstantEvent`, `CounterEvent`,
-`ProcessMeta` and `ThreadMeta` in `src/gcmon/trace_event.py`, is the contract between the
-converter and the backends. Each backend consumes that list and does nothing but encode:
-Chrome to JSON, Perfetto to protobuf via `convert_trace_events_to_perfetto`. Neither
-inspects `TGCStatsInfo` fields any more. `PerfettoTrackState` remains for track UUID
-management, and cmdline handling is untouched.
+`TraceEvent`, the union of the begin, end, instant and counter events plus `ProcessMeta`
+and `ThreadMeta` in `src/gcmon/trace_event.py`, is the contract between the converter and
+the backends. Each backend consumes that list and does nothing but encode: Chrome to JSON,
+Perfetto to protobuf. Neither inspects `TGCStatsInfo` fields any more. Track UUID
+management stays where it was, and cmdline handling is untouched.
 
 The refactor also settled two behaviours:
 
@@ -41,14 +39,14 @@ carried one. Descriptors are now time-independent across the board. Consumers mu
 on a descriptor timestamp.
 
 **Invalid-timestamp filtering moved to the producer.** The `ts_start < ts_stop` guard now
-lives in `EventsMonitor.poll`, not in the Perfetto converter. This is an intentional
+lives in the monitor's poll, not in the Perfetto converter. This is an intentional
 behaviour change for the Chrome backend, which previously emitted zero-duration events for
 such records and now drops them the way Perfetto always did. Filtering at the producer is
 exporter-agnostic and keeps the shared converter pure: filter once, emit everywhere.
 
 **`ProcessMeta` precedes `ThreadMeta`** for a given pid. This is part of the public
-contract of the event stream. `convert_trace_events_to_perfetto` synthesizes a process
-descriptor defensively if a `ThreadMeta` arrives first, but callers should not rely on that.
+contract of the event stream. The Perfetto conversion synthesizes a process descriptor
+defensively if a `ThreadMeta` arrives first, but callers should not rely on that.
 
 ## Consequences
 
@@ -58,12 +56,12 @@ descriptor defensively if a `ThreadMeta` arrives first, but callers should not r
   described in [ADR-0012](0012-trace-output-formats.md).
 - `chrome_trace_format.py` became a thin re-export module so existing importers keep working.
 - Records with `ts_start >= ts_stop` no longer reach any exporter. If you are debugging
-  "an event I expected is missing from the Chrome trace", `EventsMonitor.poll` is where it
+  "an event I expected is missing from the Chrome trace", the monitor's poll is where it
   was dropped.
 - Adding an output format means writing an encoder, not a converter.
   [ADR-0008](0008-buffered-exporter-and-encoder-protocol.md) builds on that.
-- `LossMsg` is emitted from `_ingest`, so one converter branch carries it to every exporter.
-  See [ADR-0015](0015-gc-loss-spans-on-their-own-track.md).
+- `LossMsg` is emitted from the same poll, so one converter branch carries it to every
+  exporter. See [ADR-0015](0015-gc-loss-spans-on-their-own-track.md).
 
 ## Alternatives considered
 
@@ -79,13 +77,12 @@ descriptor defensively if a `ThreadMeta` arrives first, but callers should not r
 
 ## Implementation
 
-- `src/gcmon/exporters/trace_converter.py:33`, `convert_item_to_trace_format`; `:294`,
-  `convert_to_trace_format`.
-- `src/gcmon/trace_event.py`, the `TraceEvent` union and factories.
-- `src/gcmon/exporters/perfetto_format.py`, `convert_trace_events_to_perfetto`.
-  `_emit_counter_track_descriptor` returns `(uuid, bytes)` so the call site does not look
-  the UUID up twice.
-- `src/gcmon/monitor.py`, `_ingest`'s per-`(pid, iid, gen)` `collections` cursor and the
-  `ts_start < ts_stop` validity guard in `_is_complete`.
-- Tests: `test_poll_skips_invalid_timestamp_event`, `test_poll_skips_equal_timestamp_event`,
-  `test_invalid_timestamps_produces_events`, `test_equal_timestamps_produces_events`.
+- `src/gcmon/exporters/trace_converter.py` converts one record, and a whole batch, to
+  `TraceEvent`s.
+- `src/gcmon/trace_event.py` holds the `TraceEvent` union and its factories.
+- `src/gcmon/exporters/perfetto_format.py` encodes those events, emitting a counter track's
+  descriptor and its UUID together so the call site does not look the UUID up twice.
+- `src/gcmon/monitor.py` keeps the per-`(pid, iid, gen)` `collections` cursor and applies
+  the `ts_start < ts_stop` validity guard before anything reaches the converter.
+- Tests: `tests/monitoring/test_monitor.py` covers the records the poll drops, and
+  `tests/exporters/test_perfetto_format.py` the events that survive to conversion.

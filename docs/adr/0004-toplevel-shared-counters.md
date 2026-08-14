@@ -22,21 +22,21 @@ Naming is a second constraint on any fix. The encoder names a counter track
 
 ## Decision
 
-**`heap_size` is emitted as its own counter event**, separate from the per-generation one:
-`counter_event(pid, tid, "heap_size", ts_start_ns, {"heap_size": ...})`. It is removed from
-the per-generation `counter_data` payload, which now carries only `collected`, `candidates`,
+**`heap_size` is emitted as its own counter event**, named `heap_size` and carrying a
+single arg of the same name, separate from the per-generation one. It is removed from the
+per-generation counter payload, which now carries only `collected`, `candidates`,
 `duration`, and `uncollectable` (the last only when non-zero). All generations on a
 `(pid, tid)` feed the same single `heap_size` track; latest value wins on the time axis,
 which is the correct semantics for a process-wide gauge.
 
-**Single-argument counter events use the metric as the display name.** When
-`len(event.args) == 1`, the Perfetto track name is the metric alone (`heap_size`, not
-`heap_size heap_size`); the Chrome encoder blanks the event name for the same reason,
+**Single-argument counter events use the metric as the display name.** When a counter
+event carries exactly one arg, the Perfetto track name is the metric alone (`heap_size`,
+not `heap_size heap_size`); the Chrome encoder blanks the event name for the same reason,
 since Chrome's trace processor derives the track name as `f"{event_name} {arg_key}"`.
 
-**`_TOPLEVEL_COUNTER_METRICS = frozenset({"heap_size", "rss"})` is the single switch.**
-Metrics in this set are parented directly to the process track, outside the collapsible
-`GC Metrics` group. Adding a metric to the set moves it out of the group.
+**One set of metric names is the switch**, holding `heap_size` and `rss`. Metrics in it
+are parented directly to the process track, outside the collapsible `GC Metrics` group.
+Adding a metric to the set moves it out of the group.
 
 `heap_size` stays on the `GC Pause(N)` slice's args as well, so it remains queryable
 per-pause from the slice `args` table.
@@ -47,14 +47,14 @@ per-pause from the slice `args` table.
 - **Accepted trade-off:** because these tracks are parented to the OS-scoped process
   track, the trace processor drops their `sibling_order_rank` (the rule from
   [ADR-0003](0003-gc-metrics-group-track.md)). Their position is a UI heuristic; in the
-  Perfetto UI they render *below* the `GC Metrics` group. `_COUNTER_RANKS["heap_size"]`
-  is retained for documentation and forward-compatibility but is not honored.
-- **Chrome-consumer break:** `convert_item_to_trace_format` now emits two `C` events per
-  item rather than one. Downstream Chrome-trace tooling that assumed a single counter event
-  per GC pause, and read every metric from it, must read the consolidated event separately.
-  No consumer in this repository made that assumption.
-- New process-level metrics need only be added to `_TOPLEVEL_COUNTER_METRICS`; the naming
-  and parenting fall out.
+  Perfetto UI they render *below* the `GC Metrics` group. A rank for `heap_size` is
+  retained for documentation and forward-compatibility but is not honored.
+- **Chrome-consumer break:** the converter now emits two `C` events per item rather than
+  one. Downstream Chrome-trace tooling that assumed a single counter event per GC pause,
+  and read every metric from it, must read the consolidated event separately. No consumer
+  in this repository made that assumption.
+- New process-level metrics need only be added to the top-level set; the naming and
+  parenting fall out.
 
 ## Alternatives considered
 
@@ -73,15 +73,13 @@ per-pause from the slice `args` table.
 
 ## Implementation
 
-- `src/gcmon/exporters/trace_converter.py:50-56`, per-generation `counter_data`, without
-  `heap_size`.
-- `:281-289`, the separate consolidated `heap_size` counter event.
-- `src/gcmon/exporters/perfetto_format.py`, `_TOPLEVEL_COUNTER_METRICS`.
-- `:775-787`, the top-level branch, parenting directly to the process track.
-- `src/gcmon/exporters/encoder.py`, where `JsonEventEncoder` blanks the name of single-arg
-  counter events so Chrome does not derive a doubled track name.
-- Tests: `tests/exporters/test_chrome_trace_format.py:359-384`
-  (`test_heap_size_counter_event_is_shared_across_generations`, asserting
-  `"heap_size" not in` the per-generation args);
+- `src/gcmon/exporters/trace_converter.py` builds the per-generation counter payload
+  without `heap_size`, and emits the consolidated `heap_size` event beside it.
+- `src/gcmon/exporters/perfetto_format.py` holds the top-level metric set and parents
+  those tracks directly to the process track.
+- `src/gcmon/exporters/encoder.py` blanks the name of single-arg counter events in the
+  Chrome encoder, so Chrome does not derive a doubled track name.
+- Tests: `tests/exporters/test_chrome_trace_format.py` asserts `heap_size` is absent from
+  the per-generation args and shared across generations;
   `tests/exporters/test_perfetto_exporter_integration.py` asserts exactly one `heap_size`
   track and zero `G{N} heap_size` tracks.

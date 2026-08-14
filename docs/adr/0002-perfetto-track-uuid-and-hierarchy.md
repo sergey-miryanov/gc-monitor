@@ -26,11 +26,10 @@ pushed the thread down below its own counters.
 
 ## Decision
 
-**UUIDs are allocated sequentially from a per-trace counter starting at 1**
-(`PerfettoTrackState._alloc_uuid`), lazily, on first use of each track. The state object
-maps identity (`pid`, `(pid, iid)`, `(pid, iid, name, metric)`) to the allocated UUID, so
-the same track reuses its UUID across flushes. Collision-freedom comes from the counter,
-not from bit arithmetic.
+**UUIDs are allocated sequentially from a per-trace counter starting at 1**, lazily, on
+first use of each track. The state object maps identity (`pid`, `(pid, iid)`,
+`(pid, iid, name, metric)`) to the allocated UUID, so the same track reuses its UUID
+across flushes. Collision-freedom comes from the counter, not from bit arithmetic.
 
 **`uuid = 0` is reserved.** It is Perfetto's special root descriptor, used to carry
 `process_ordering` / `thread_ordering` hints. It is not a parent, and nothing may point
@@ -74,14 +73,15 @@ with it.
 
 ## Implementation
 
-- `src/gcmon/exporters/perfetto_track_state.py`, `PerfettoTrackState._next_uuid` seeded to
-  `1` and `_alloc_uuid`.
-- `:234`, `:239`, `get_process_track_uuid` and `get_thread_track_uuid` (lazy, memoized).
-- `:79-83`, `ProcessDescriptorField` (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`,
-  `START_TIMESTAMP_NS = 7`); the sub-message itself is written at `TrackDescriptor` field 3.
-- `:705-725`, `_emit_thread_descriptor`: `parent_uuid` = process track,
-  `sibling_order_rank = 0`, no `child_ordering`.
-- `:324`, `build_track_descriptor`, which omits `parent_uuid` when it is `None`.
+- `src/gcmon/exporters/perfetto_track_state.py` holds the counter, seeded to `1`, and the
+  lazy memoized lookups that hand out the process and thread track UUIDs.
+- `src/gcmon/exporters/perfetto_proto.py` carries the `ProcessDescriptor` field numbers
+  (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`, `START_TIMESTAMP_NS = 7`); the
+  sub-message itself is written at `TrackDescriptor` field 3.
+- `src/gcmon/exporters/perfetto_format.py` emits the thread descriptor with `parent_uuid`
+  set to the process track, `sibling_order_rank = 0` and no `child_ordering`.
+- `src/gcmon/exporters/perfetto_builders.py` omits `parent_uuid` from the wire when it is
+  `None`.
 - Tests: `tests/exporters/test_perfetto_track_state.py` for uuid allocation,
   `tests/exporters/test_perfetto_format.py` for the emitted hierarchy,
   `tests/exporters/test_perfetto_exporter_integration.py` (the trace-processor `track`

@@ -53,7 +53,7 @@ cmdline. No exception escapes, and the trace stays valid.
 
 The exporter collects cmdline for the main pid and each child, and emits it on the first
 `TrackDescriptor` for each. [ADR-0008](0008-buffered-exporter-and-encoder-protocol.md)'s
-atomic `_build_meta` guarantees that happens exactly once.
+atomic meta building guarantees that happens exactly once.
 
 ## Consequences
 
@@ -91,15 +91,14 @@ atomic `_build_meta` guarantees that happens exactly once.
 
 ## Implementation
 
-- `src/gcmon/exporters/perfetto_proto.py`, `ProcessDescriptorField`
-  (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`); `TrackDescriptorField.DESCRIPTION = 14`.
-- `src/gcmon/exporters/perfetto_format.py`, `_START_PROCESS_INSTANT_NAME = "Start Process"`,
-  emitted by `_emit_start_process_marker` and driven by `_maybe_emit_start_process_marker`.
-- `src/gcmon/exporters/perfetto_process_lifetime.py`,
-  `_emit_process_lifetime_slice`, which puts the cmdline on the `Processes` slice's BEGIN
-  alongside the `real_start_ts` / `real_end_ts` annotations
+- `src/gcmon/exporters/perfetto_proto.py` carries the `ProcessDescriptor` field numbers
+  (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`) and `TrackDescriptor.description` at
+  field 14.
+- `src/gcmon/exporters/perfetto_format.py` names the `Start Process` marker and emits it at
+  most once per pid.
+- `src/gcmon/exporters/perfetto_process_lifetime.py` puts the cmdline on the `Processes`
+  slice's BEGIN alongside the `real_start_ts` / `real_end_ts` annotations
   ([ADR-0011](0011-process-lifetime-and-ordering.md)).
-- `src/gcmon/exporters/encoder.py:113`, the lazy `import psutil` in
-  `_default_cmdline_provider`; `:126`, `_ensure_cmdline`.
-- `src/gcmon/exporters/perfetto_track_state.py`, `PerfettoTrackState.set_cmdline` /
-  `get_cmdline`.
+- `src/gcmon/exporters/encoder.py` holds the default provider, with its lazy
+  `import psutil`, and registers each pid's cmdline once.
+- `src/gcmon/exporters/perfetto_track_state.py` stores a pid's cmdline and hands it back.
