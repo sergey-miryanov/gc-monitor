@@ -239,7 +239,12 @@ type LifetimeKey = tuple[int, int, int]
 
 
 class LossTotals(msgspec.Struct):
-    """Records gcmon never read, and the pause time they held."""
+    """Records gcmon never read, and the pause time they held.
+
+    The accumulator: one slot per key while a run is in progress, and the
+    scratch a fold adds into. It stays inside `StreamingStats`, which hands
+    out `PauseTotals` instead.
+    """
 
     count: int = 0
     pause_ns: int = 0
@@ -306,7 +311,17 @@ class PauseTotals(msgspec.Struct, frozen=True):
 
 
 class LifetimeTotals(msgspec.Struct):
-    """One ring's own cumulative counters, as the target keeps them."""
+    """One ring's own cumulative counters, as the target keeps them.
+
+    The accumulator, as `LossTotals` is for loss: the slot a poll overwrites,
+    and the scratch a fold adds into. Unlike loss it is also what a read
+    hands back, since both reads sum into fresh scratch rather than
+    returning a slot.
+
+    Never added to a `PauseTotals`: this covers the interpreter's whole life,
+    including collections that ran before gcmon attached, where the pause
+    numbers cover only what gcmon monitored.
+    """
 
     collections: int = 0
     duration_s: float = 0.0
