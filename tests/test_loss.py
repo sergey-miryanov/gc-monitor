@@ -991,14 +991,14 @@ class TestTheStatsAreRecordedWhateverIsDrawn:
     def test_the_collections_reach_the_table(self) -> None:
         stats = self.ingested().stats
 
-        assert stats.lost_count(PID, 0) == 3
-        assert stats.lost_pause_ns(PID, 0) > 0
+        assert stats.pause_totals(PID, 0).lost_count == 3
+        assert stats.pause_totals(PID, 0).lost_pause_ns > 0
 
     def test_the_exact_totals_include_them(self) -> None:
         stats = self.ingested().stats
 
-        assert stats.exact_count(PID, 0) == 5
-        assert stats.coverage(PID, 0) == pytest.approx(2 / 5)
+        assert stats.pause_totals(PID, 0).exact_count == 5
+        assert stats.pause_totals(PID, 0).coverage == pytest.approx(2 / 5)
 
 
 class TestForgettingAPid:

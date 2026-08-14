@@ -260,46 +260,46 @@ class TestExactTotals:
     def test_exact_is_sampled_plus_lost(self) -> None:
         stats = self._stats()
 
-        assert stats.exact_count(1, 0) == 10
-        assert stats.exact_pause_ns(1, 0) == 10_000
+        assert stats.pause_totals(1, 0).exact_count == 10
+        assert stats.pause_totals(1, 0).exact_pause_ns == 10_000
 
     def test_coverage_and_scale_agree_with_the_totals(self) -> None:
         stats = self._stats()
 
-        assert stats.coverage(1, 0) == pytest.approx(0.3)
-        assert stats.scale_factor(1, 0) == pytest.approx(10 / 3)
+        assert stats.pause_totals(1, 0).coverage == pytest.approx(0.3)
+        assert stats.pause_totals(1, 0).scale_factor == pytest.approx(10 / 3)
 
     def test_an_untouched_generation_is_neutral(self) -> None:
         """1.0 rather than a division by zero, so no call site has to guard."""
         stats = StreamingStats()
 
-        assert stats.coverage(1, 2) == 1.0
-        assert stats.scale_factor(1, 2) == 1.0
-        assert stats.exact_count(1, 2) == 0
+        assert stats.pause_totals(1, 2).coverage == 1.0
+        assert stats.pause_totals(1, 2).scale_factor == 1.0
+        assert stats.pause_totals(1, 2).exact_count == 0
 
     def test_a_lossless_run_reports_full_coverage(self) -> None:
         stats = StreamingStats()
         stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
 
-        assert stats.coverage(1, 0) == 1.0
-        assert stats.exact_count(1, 0) == 1
+        assert stats.pause_totals(1, 0).coverage == 1.0
+        assert stats.pause_totals(1, 0).exact_count == 1
 
     def test_totals_span_every_pid(self) -> None:
         stats = self._stats()
         stats.update(2, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
         stats.record_loss(2, 0, 1, 1_000)
 
-        assert stats.exact_count(None, 0) == 12
-        assert stats.exact_count(2, 0) == 2
+        assert stats.pause_totals(None, 0).exact_count == 12
+        assert stats.pause_totals(2, 0).exact_count == 2
 
     def test_loss_survives_a_pid_the_monitor_forgets(self) -> None:
         """Recorded per poll rather than flushed at the end, so a child that
         exits mid-run still counts."""
         stats = self._stats()
-        before = stats.exact_count(None, 0)
+        before = stats.pause_totals(None, 0).exact_count
 
-        assert before == stats.exact_count(None, 0)
-        assert stats.lost_count(1, 0) == 7
+        assert before == stats.pause_totals(None, 0).exact_count
+        assert stats.pause_totals(1, 0).lost_count == 7
 
 
 class TestTotalsLeaveTheAccumulatorBehind:
@@ -449,7 +449,7 @@ class TestCoverageAdvisory:
         stats.record_loss(1, 0, 1, 1_000)
         stats.check_coverage_advisory(1)
 
-        assert stats.coverage(1, 0) > StreamingStats.COVERAGE_ADVISORY
+        assert stats.pause_totals(1, 0).coverage > StreamingStats.COVERAGE_ADVISORY
         assert self.ADVISORY not in caplog.text
 
     def test_it_fires_once_across_many_ticks(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -493,7 +493,7 @@ class TestCoverageAdvisory:
         self._sampled(stats, 100)
         stats.check_coverage_advisory(1)
 
-        assert stats.coverage(1, 0) > StreamingStats.COVERAGE_ADVISORY
+        assert stats.pause_totals(1, 0).coverage > StreamingStats.COVERAGE_ADVISORY
         assert self.ADVISORY not in caplog.text
 
     def test_a_run_that_is_genuinely_blind_still_warns(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -535,8 +535,8 @@ class TestLifetimeTotals:
         stats.record_lifetime(1, 0, 0, 500, 0.5)
         stats.record_lifetime(1, 1, 0, 300, 0.3)
 
-        assert stats.lifetime_count(1, 0) == 800
-        assert stats.lifetime_pause_ns(1, 0) == 800_000_000
+        assert stats.lifetime_totals_by_gen()[0].collections == 800
+        assert stats.lifetime_totals_by_gen()[0].pause_ns == 800_000_000
 
     def test_the_newest_value_replaces_the_last(self) -> None:
         """Cumulative in the target, so polls report a running total, not a
@@ -545,7 +545,7 @@ class TestLifetimeTotals:
         stats.record_lifetime(1, 0, 0, 500, 0.5)
         stats.record_lifetime(1, 0, 0, 900, 0.9)
 
-        assert stats.lifetime_count(1, 0) == 900
+        assert stats.lifetime_totals_by_gen()[0].collections == 900
 
     def test_it_can_exceed_the_observed_span(self) -> None:
         """The point of reporting it: what ran before gcmon attached is not
@@ -554,6 +554,6 @@ class TestLifetimeTotals:
         stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
         stats.record_lifetime(1, 0, 0, 5_000, 5.0)
 
-        assert stats.lifetime_count(1, 0) == 5_000
-        assert stats.exact_count(1, 0) == 1
-        assert stats.coverage(1, 0) == 1.0
+        assert stats.lifetime_totals_by_gen()[0].collections == 5_000
+        assert stats.pause_totals(1, 0).exact_count == 1
+        assert stats.pause_totals(1, 0).coverage == 1.0

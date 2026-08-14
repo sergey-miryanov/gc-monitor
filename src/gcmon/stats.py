@@ -455,23 +455,6 @@ class StreamingStats:
             return Stats()
         return pid_data["pause"][gen]
 
-    def _lost(self, pid: int | None, gen: int) -> LossTotals:
-        """One pid's generation, or that generation over every pid."""
-        if pid is not None:
-            return self._loss.get((pid, gen), LossTotals())
-
-        total = LossTotals()
-        for (_pid, key_gen), loss in self._loss.items():
-            if key_gen == gen:
-                total.add(loss.count, loss.pause_ns)
-        return total
-
-    def lost_count(self, pid: int | None, gen: int) -> int:
-        return self._lost(pid, gen).count
-
-    def lost_pause_ns(self, pid: int | None, gen: int) -> int:
-        return self._lost(pid, gen).pause_ns
-
     def pause_totals(self, pid: int | None, gen: int) -> PauseTotals:
         """One generation's pause totals, read once.
 
@@ -480,8 +463,17 @@ class StreamingStats:
         re-read a field at a time.
         """
         sampled = self._sampled(pid, gen)
-        lost = self._lost(pid, gen)
-        return PauseTotals(sampled.count(), sampled.sum(), lost.count, lost.pause_ns)
+        if pid is not None:
+            lost = self._loss.get((pid, gen), LossTotals())
+            return PauseTotals(sampled.count(), sampled.sum(), lost.count, lost.pause_ns)
+
+        lost_count = 0
+        lost_pause_ns = 0
+        for (_pid, key_gen), loss in self._loss.items():
+            if key_gen == gen:
+                lost_count += loss.count
+                lost_pause_ns += loss.pause_ns
+        return PauseTotals(sampled.count(), sampled.sum(), lost_count, lost_pause_ns)
 
     def pause_totals_by_gen(self) -> dict[int, PauseTotals]:
         """Every generation's pause totals over every pid, folding the loss
@@ -503,22 +495,6 @@ class StreamingStats:
             )
         return by_gen
 
-    def exact_count(self, pid: int | None, gen: int) -> int:
-        """Collections over the observed span, seen and unseen alike."""
-        return self.pause_totals(pid, gen).exact_count
-
-    def exact_pause_ns(self, pid: int | None, gen: int) -> float:
-        """Pause time over the same span: sampled plus lost, per ADR-0015."""
-        return self.pause_totals(pid, gen).exact_pause_ns
-
-    def coverage(self, pid: int | None, gen: int) -> float:
-        """Observed share of the span, in ``[0, 1]``."""
-        return self.pause_totals(pid, gen).coverage
-
-    def scale_factor(self, pid: int | None, gen: int) -> float:
-        """Multiplier taking a sampled pause sum to the exact one."""
-        return self.pause_totals(pid, gen).scale_factor
-
     def _lost_by_gen(self) -> dict[int, LossTotals]:
         """Fold every pid's totals into a per-gen one in a single pass."""
         by_gen: dict[int, LossTotals] = {}
@@ -532,22 +508,6 @@ class StreamingStats:
         for (_pid, _iid, gen), totals in self._lifetime.items():
             by_gen.setdefault(gen, LifetimeTotals()).add(totals.collections, totals.duration_s)
         return by_gen
-
-    def _lifetime_totals(self, pid: int | None, gen: int) -> LifetimeTotals:
-        """Summed over the interpreters of *pid*, or of every pid."""
-        summed = LifetimeTotals()
-        for (key_pid, _iid, key_gen), totals in self._lifetime.items():
-            if key_gen == gen and (pid is None or key_pid == pid):
-                summed.add(totals.collections, totals.duration_s)
-        return summed
-
-    def lifetime_count(self, pid: int | None, gen: int) -> int:
-        """Collections since the interpreter started, not since gcmon attached."""
-        return self._lifetime_totals(pid, gen).collections
-
-    def lifetime_pause_ns(self, pid: int | None, gen: int) -> int:
-        """Pause time over that same whole history."""
-        return secs_to_ns(self._lifetime_totals(pid, gen).duration_s)
 
     @property
     def read_time(self) -> Stats:
