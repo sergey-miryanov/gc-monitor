@@ -42,7 +42,7 @@ _GEN_KEYS: dict[int, _GenKeys] = {
         f"pause_gen_{gen}_lifetime_count",
         f"pause_gen_{gen}_lifetime_sum",
     )
-    for gen in (0, 1, 2)
+    for gen in StreamingStats.GENS
 }
 
 
