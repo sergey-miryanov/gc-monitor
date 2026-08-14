@@ -289,16 +289,16 @@ class TestExactTotals:
         stats.update(2, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
         stats.record_loss(2, 0, 1, 1_000)
 
-        assert stats.pause_totals(None, 0).exact_count == 12
+        assert stats.pause_totals_by_gen()[0].exact_count == 12
         assert stats.pause_totals(2, 0).exact_count == 2
 
     def test_loss_survives_a_pid_the_monitor_forgets(self) -> None:
         """Recorded per poll rather than flushed at the end, so a child that
         exits mid-run still counts."""
         stats = self._stats()
-        before = stats.pause_totals(None, 0).exact_count
+        before = stats.pause_totals_by_gen()[0].exact_count
 
-        assert before == stats.pause_totals(None, 0).exact_count
+        assert before == stats.pause_totals_by_gen()[0].exact_count
         assert stats.pause_totals(1, 0).lost_count == 7
 
 
@@ -374,7 +374,7 @@ class TestRingGeometry:
 
         stats.record_ring_geometry(ring(0, 11) + ring(1, 3) + ring(2, 3))
 
-        assert [stats.ring_size(gen) for gen in (0, 1, 2)] == [11, 3, 3]
+        assert [stats._ring_size_for(gen) for gen in (0, 1, 2)] == [11, 3, 3]
 
     def test_an_unwritten_slot_still_counts(self) -> None:
         """Counting written records would report 1 for a ring holding one
@@ -383,7 +383,7 @@ class TestRingGeometry:
 
         stats.record_ring_geometry(ring(2, written=1, empty=2))
 
-        assert stats.ring_size(2) == 3
+        assert stats._ring_size_for(2) == 3
 
     def test_only_the_main_interpreter_sets_the_size(self) -> None:
         """`all_interpreters=True` concatenates the rings, so a count that took
@@ -392,7 +392,7 @@ class TestRingGeometry:
 
         stats.record_ring_geometry(ring(0, 11) + ring(0, 20, iid=1))
 
-        assert stats.ring_size(0) == 11
+        assert stats._ring_size_for(0) == 11
 
     def test_the_first_poll_settles_it(self) -> None:
         """The build cannot change under a running monitor, so later polls do
@@ -402,7 +402,7 @@ class TestRingGeometry:
         stats.record_ring_geometry(ring(0, 11))
         stats.record_ring_geometry(ring(0, 20))
 
-        assert stats.ring_size(0) == 11
+        assert stats._ring_size_for(0) == 11
 
     def test_an_empty_poll_leaves_it_open(self) -> None:
         """A read returning nothing must not latch a geometry of zero."""
@@ -411,12 +411,12 @@ class TestRingGeometry:
         stats.record_ring_geometry([])
         stats.record_ring_geometry(ring(0, 11))
 
-        assert stats.ring_size(0) == 11
+        assert stats._ring_size_for(0) == 11
 
     def test_it_is_unknown_before_any_poll(self) -> None:
         stats = StreamingStats()
 
-        assert stats.ring_size(0) == 0
+        assert stats._ring_size_for(0) == 0
 
 
 class TestCoverageAdvisory:

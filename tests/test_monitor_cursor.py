@@ -271,4 +271,4 @@ class TestPollIntegration:
         with patch("gcmon.monitor.get_gc_stats", side_effect=[poll_0]):
             assert monitor.poll(PID) == PollStatus.OK
 
-        assert [stats.ring_size(gen) for gen in (0, 1, 2)] == [11, 3, 3]
+        assert [stats._ring_size_for(gen) for gen in (0, 1, 2)] == [11, 3, 3]

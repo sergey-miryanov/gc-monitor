@@ -156,7 +156,7 @@ class TestBuildRows:
 
     def test_skips_zero_count_stats(self) -> None:
         stats = {0: Stats()}
-        rows = _build_rows(stats, "Test", StreamingStats(), None, False)
+        rows = _build_rows(stats, "Test", {}, False)
         assert len(rows) == 0
 
     def test_formats_values_correctly(self) -> None:
@@ -165,7 +165,7 @@ class TestBuildRows:
             s.update(v)
         s.materialize()
 
-        rows = _build_rows({0: s}, "Test", StreamingStats(), None, False)
+        rows = _build_rows({0: s}, "Test", {}, False)
         assert len(rows) == 1
         row = rows[0]
         assert row[0] == "Test(0)"
@@ -180,7 +180,7 @@ class TestBuildRows:
             s.update(1000.0)
             stats_dict[gen] = s
 
-        rows = _build_rows(stats_dict, "Test", StreamingStats(), None, False)
+        rows = _build_rows(stats_dict, "Test", {}, False)
         generations = [int(r[0].split("(")[1].rstrip(")")) for r in rows]
         assert generations == [0, 1, 2]
 

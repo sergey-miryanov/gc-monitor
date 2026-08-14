@@ -399,7 +399,7 @@ class StreamingStats:
         # subinterpreter and shares their geometry.
         self._ring_size = Counter(event.gen for event in events if event.iid == MAIN_INTERPRETER)
 
-    def ring_size(self, gen: int) -> int:
+    def _ring_size_for(self, gen: int) -> int:
         """Records the *gen* ring holds, or 0 before any poll reported it."""
         return self._ring_size.get(gen, 0)
 
@@ -424,7 +424,7 @@ class StreamingStats:
             if not totals.lost_count or totals.coverage >= self.COVERAGE_ADVISORY:
                 continue
             self._coverage_warned = True
-            size = self.ring_size(gen)
+            size = self._ring_size_for(gen)
             logger.warning(
                 "PID %s generation %s: only %.0f%% of collections observed. The ring buffer CPython "
                 "exports holds %s record%s, so a target that runs collections more often than gcmon "
@@ -446,34 +446,24 @@ class StreamingStats:
         """
         self._lifetime[(pid, iid, gen)] = LifetimeTotals(collections, duration_s)
 
-    def _sampled(self, pid: int | None, gen: int) -> Stats:
-        """The pause durations gcmon sampled, for one pid or all of them."""
-        if pid is None:
-            return self.metrics["pause"][gen]
+    def _sampled(self, pid: int, gen: int) -> Stats:
+        """The pause durations gcmon sampled for one pid's generation."""
         pid_data = self.get_pid_stats(pid)
         if pid_data is None:
             return Stats()
         return pid_data["pause"][gen]
 
-    def pause_totals(self, pid: int | None, gen: int) -> PauseTotals:
-        """One generation's pause totals, read once.
+    def pause_totals(self, pid: int, gen: int) -> PauseTotals:
+        """One pid's generation, read once.
 
-        The four numbers answer everything a caller can ask about a
-        generation, so they are gathered here and derived from rather than
-        re-read a field at a time.
+        The four numbers answer everything a caller can ask about it, so
+        they are gathered here and derived from rather than re-read a field
+        at a time. Two dict lookups; every pid at once is
+        :meth:`pause_totals_by_gen`, which costs a pass instead.
         """
         sampled = self._sampled(pid, gen)
-        if pid is not None:
-            lost = self._loss.get((pid, gen), LossTotals())
-            return PauseTotals(sampled.count(), sampled.sum(), lost.count, lost.pause_ns)
-
-        lost_count = 0
-        lost_pause_ns = 0
-        for (_pid, key_gen), loss in self._loss.items():
-            if key_gen == gen:
-                lost_count += loss.count
-                lost_pause_ns += loss.pause_ns
-        return PauseTotals(sampled.count(), sampled.sum(), lost_count, lost_pause_ns)
+        lost = self._loss.get((pid, gen), LossTotals())
+        return PauseTotals(sampled.count(), sampled.sum(), lost.count, lost.pause_ns)
 
     def pause_totals_by_gen(self) -> dict[int, PauseTotals]:
         """Every generation's pause totals over every pid, folding the loss

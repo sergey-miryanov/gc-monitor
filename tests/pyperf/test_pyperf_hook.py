@@ -589,8 +589,8 @@ class TestLossIsNeverReplayedAsACollection:
         assert stats.updated == []
         assert stats.count() == 0
         assert stats.pause_totals(12345, 0).lost_count == 2
-        assert stats.pause_totals(None, 0).exact_count == 2
-        assert stats.pause_totals(None, 0).coverage == 0.0
+        assert stats.pause_totals_by_gen()[0].exact_count == 2
+        assert stats.pause_totals_by_gen()[0].coverage == 0.0
         assert to_metrics(stats)["pause_count"] == 2
 
     def test_a_loss_only_capture_publishes_nothing_rather_than_zeroes(
