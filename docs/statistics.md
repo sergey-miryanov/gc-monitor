@@ -95,9 +95,9 @@ the same reason.
 Both are blank on rows with no generation, such as `Read Time`.
 
 If coverage falls below 90%, gcmon logs one advisory per session, naming the
-generation it read least of and suggesting a smaller `--rate`. That is worth
-trying, not a fix: polling faster may observe more, but it will not lift `Cov`
-to 100%; [How gcmon reads a process](monitoring.md) covers why.
+first generation it read too little of and suggesting a smaller `--rate`. That
+is worth trying, not a fix: polling faster may observe more, but it will not
+lift `Cov` to 100%; [How gcmon reads a process](monitoring.md) covers why.
 
 ## Percentiles are sampled and read high
 

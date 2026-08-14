@@ -68,6 +68,16 @@ class TestCoverageWarning:
 
         assert f"PID {PID} generation 0: only 20% {ADVISORY}" in caplog.text
 
+    def test_a_figure_under_the_floor_does_not_read_as_meeting_it(
+        self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """225 read of 251 is 89.6%, which rounds to the very floor the
+        warning fires below. `Cov` has the same hazard and the same answer."""
+        poll(monitor, PID, range(1, 225))
+        poll(monitor, PID, [251])
+
+        assert f"only 89% {ADVISORY}" in caplog.text
+
     def test_it_stays_quiet_above_the_threshold(self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture) -> None:
         poll(monitor, PID, range(1, 100))
         poll(monitor, PID, [101])

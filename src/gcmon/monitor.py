@@ -185,13 +185,15 @@ class EventsMonitor:
         gen, coverage = low
         self._coverage_warned = True
         logger.warning(
-            "PID %s generation %s: only %.0f%% of collections observed. Counts and sums are "
+            "PID %s generation %s: only %s%% of collections observed. Counts and sums are "
             "reconstructed and exact; percentiles cover only what was sampled and read high. "
             "Polling more often (a smaller --rate) may observe more, unless the target collects "
             "faster than gcmon can poll.",
             pid,
             gen,
-            coverage * 100,
+            # Truncated, not rounded: 89.6% rounds to "90%", which reads as
+            # the floor this fires below rather than as a figure under it.
+            int(coverage * 100),
         )
 
     def stop(self) -> None:
