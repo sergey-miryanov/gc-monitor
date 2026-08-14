@@ -308,9 +308,6 @@ class LifetimeTotals(msgspec.Struct):
     A poll overwrites the slot, and a fold sums slots into a fresh one. Both
     reads return that fresh one, never a slot, so this side needs no
     freezing.
-
-    Do not add these to a `PauseTotals`. They cover the interpreter's whole
-    life, including collections that ran before gcmon attached.
     """
 
     collections: int = 0
@@ -478,11 +475,7 @@ class StreamingStats:
         return PauseTotals(sampled.count(), sampled.sum(), lost.count, lost.pause_ns)
 
     def pause_totals_by_gen(self) -> dict[int, PauseTotals]:
-        """Every generation's pause totals over every pid.
-
-        Folds the loss dict once, where asking per generation folds it three
-        times.
-        """
+        """Every generation's pause totals over every pid."""
         lost = self._lost_by_gen()
         by_gen = {}
         for gen in self.GENS:

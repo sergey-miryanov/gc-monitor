@@ -1,10 +1,5 @@
 """The flat metric names a benchmark reads a gcmon run through.
 
-`StreamingStats` keeps the run; this turns it into the names
-[`docs/pyperf.md`](../../../docs/pyperf.md) publishes. Those names are a
-benchmark author's contract, so the module that folds GC records does not
-spell them.
-
 Durations arrive in nanoseconds and leave in the milliseconds pyperf
 reports.
 """
@@ -53,10 +48,6 @@ def to_metrics(stats: StreamingStats) -> dict[str, int | float]:
     counters say it missed. ``p99`` stays sampled and reads high, since a
     long run delays the next one and its record survives in the ring more
     often than a short one's. No scale factor corrects a quantile.
-
-    Both totals fold per generation once, up front, which keeps a call that
-    is otherwise three quantiles from rescanning each dict per field. A
-    generation that recorded nothing is left out rather than zeroed.
     """
     result: dict[str, int | float] = {}
     pauses = stats.pause_totals_by_gen()
