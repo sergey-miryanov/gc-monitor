@@ -415,13 +415,23 @@ class StreamingStats:
         check inside `record_loss` would divide that poll's gap into the
         sample as it stood before the poll: two polls of 2 then 100 records
         with one lost warned "only 67%" of a run that ended at 99%.
+
+        Runs after every poll of every pid, and in a healthy run never fires,
+        so it reads the two counts coverage needs rather than a whole
+        `PauseTotals`. Loss comes first because it is one lookup and settles
+        most generations: one that lost nothing cannot be under-covered.
         """
         if self._coverage_warned:
             return
 
         for gen in self.GENS:
-            totals = self.pause_totals(pid, gen)
-            if not totals.lost_count or totals.coverage >= self.COVERAGE_ADVISORY:
+            lost = self._loss.get((pid, gen))
+            if lost is None or not lost.count:
+                continue
+            # Something was lost, so the denominator cannot be zero.
+            sampled = self._sampled(pid, gen).count()
+            coverage = sampled / (sampled + lost.count)
+            if coverage >= self.COVERAGE_ADVISORY:
                 continue
             self._coverage_warned = True
             size = self._ring_size_for(gen)
@@ -432,7 +442,7 @@ class StreamingStats:
                 "reconstructed and exact; percentiles cover only what was sampled and read high.",
                 pid,
                 gen,
-                totals.coverage * 100,
+                coverage * 100,
                 size,
                 "" if size == 1 else "s",
             )
