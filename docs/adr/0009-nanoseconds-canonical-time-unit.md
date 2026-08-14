@@ -46,9 +46,6 @@ looking at bytes on disk.
   precision is not recoverable from the file. Re-capture.
 - Chrome output loses sub-microsecond precision to the integer division. The format's
   microsecond resolution is the source of that, not this change.
-- When reading tests, watch the boundary: in-memory assertions are in nanoseconds,
-  assertions against decoded JSON are in microseconds. The same literal means different
-  things on either side of `JsonEventEncoder`.
 - The standalone trace-writing helper was deleted; `combine` goes through
   `JsonEventEncoder` too, so exactly one code path knows about the ns→µs division.
 

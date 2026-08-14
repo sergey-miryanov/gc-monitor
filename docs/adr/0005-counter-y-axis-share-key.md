@@ -61,9 +61,6 @@ minimal.
   `strict=False` means they flip to passing, rather than to XPASS-and-fail, when a future
   Perfetto version surfaces it, with no test edit. The wire-level tests are the source of
   truth.
-- Per [ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md), the `CounterDescriptor`
-  submessage is hand-encoded against a local field-number enum. Do not reach for the
-  generated class from the `perfetto` package.
 
 ## Alternatives considered
 

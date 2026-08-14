@@ -83,11 +83,10 @@ tests do not assert on it.
   ([ADR-0011](0011-process-lifetime-and-ordering.md)) and `y_axis_share_key`
   ([ADR-0005](0005-counter-y-axis-share-key.md)) are UI rendering hints that the trace
   processor does not surface as columns. Tests touching them are schema-validity guards or
-  permanent `xfail(strict=False)`, and their docstrings say so. Do not "fix" those by
-  asserting on columns that do not exist.
-- Stress tests are the only probabilistic tests in the suite. If one flakes on a slow CI
-  runner, raise the iteration count. Do not add a `sleep`: it widens no window and
-  hides the contention.
+  permanent `xfail(strict=False)`; asserting on a column that does not exist is not
+  available as a fix.
+- Stress tests are the only probabilistic tests in the suite, so they are the only ones
+  whose failures can depend on how loaded the runner is.
 
 ## Alternatives considered
 

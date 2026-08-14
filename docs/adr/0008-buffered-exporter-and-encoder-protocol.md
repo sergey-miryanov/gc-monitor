@@ -58,13 +58,11 @@ The split settled three further questions:
   dependency on the base class.
 - Output bytes were unchanged by the refactor, verified by the existing structural tests,
   which decode the output and assert on each meaningful field.
-- `close()` is idempotent, guarded by a closed flag.
-- **`add_event` after `close()` silently drops the event.** The base does not check that
-  flag on the add path. This matches the pre-refactor behaviour, and the alternative is
-  raising from a monitoring callback during shutdown.
-- `flush_threshold <= 0` means "always flush": the first event triggers a write.
-- The encoder catches a cmdline provider failure, logs a warning, and emits the descriptor
-  without a cmdline. A `psutil` error never costs you the trace.
+- `close()` is idempotent.
+- **`add_event` after `close()` silently drops the event.** This matches the pre-refactor
+  behaviour, and the alternative is raising from a monitoring callback during shutdown.
+- A cmdline provider failure costs the descriptor its cmdline and nothing else. A `psutil`
+  error never costs you the trace.
 
 ## Alternatives considered
 

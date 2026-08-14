@@ -85,11 +85,6 @@ the runtime tree. Sub-messages are built field-by-field using the local encoder 
 - Byte-level parity with the official package was verified once: over a full GC trace both
   encoders produced identical output, and the trace processor reported matching rows
   across the `track`, `process`, `thread`, `slice`, and `counter` tables.
-- **Prove a no-behaviour-change refactor by comparing emitted bytes, not by a green
-  suite.** Some tests assert packets are present without asserting order, and order is
-  load-bearing on the `Processes` track. Pin the sequence id explicitly, or the default
-  derived from the encoder instance changes every run and swamps the comparison. This is
-  how the five-module split was verified.
 
 ## Alternatives considered
 

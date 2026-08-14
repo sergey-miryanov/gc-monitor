@@ -55,9 +55,8 @@ defensively if a `ThreadMeta` arrives first, but callers should not rely on that
   That equivalence is now directly testable, and is asserted by the chrome↔perfetto tests
   described in [ADR-0012](0012-trace-output-formats.md).
 - `chrome_trace_format.py` became a thin re-export module so existing importers keep working.
-- Records with `ts_start >= ts_stop` no longer reach any exporter. If you are debugging
-  "an event I expected is missing from the Chrome trace", the monitor's poll is where it
-  was dropped.
+- Records with `ts_start >= ts_stop` no longer reach any exporter, and the monitor's poll
+  is the one place that drops them.
 - Adding an output format means writing an encoder, not a converter.
   [ADR-0008](0008-buffered-exporter-and-encoder-protocol.md) builds on that.
 - `LossMsg` is emitted from the same poll, so one converter branch carries it to every
