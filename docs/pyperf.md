@@ -26,8 +26,10 @@ In pyperf metadata, with `N` the generation, 0 through 2:
 - `gc_pause_gen_N_sum` - total pause time, in milliseconds
 - `gc_pause_gen_N_count` - pauses counted
 - `gc_pause_count` - the same count over every generation and process
-- `gc_pause_gen_N_coverage` - the share of that generation's records gcmon read, in `[0, 1]`
-- `gc_pause_gen_N_lifetime_count`, `gc_pause_gen_N_lifetime_sum` - runs and pause time since the *interpreter* started
+- `gc_pause_gen_N_coverage` - the share of that generation's records gcmon read,
+  in `[0, 1]`
+- `gc_pause_gen_N_lifetime_count`, `gc_pause_gen_N_lifetime_sum` - runs and
+  pause time since the *interpreter* started
 - `gc_heap_size_p99` - P99 across the per-process peak live object counts
 
 ### `sum` and `count` are exact, `p99` is sampled

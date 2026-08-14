@@ -2,9 +2,9 @@
 
 gcmon collects a stream of GC records from a running process. Each time the
 collector finishes a run, CPython writes one record describing it: the
-generation, the start and stop times, what the run freed, the heap size, and
-the target's running totals. gcmon derives everything else it prints or draws
-from those records. Read them as they arrive, or save them and come back later.
+generation, the start and stop times, what the run freed, the heap size, and the
+target's running totals. gcmon derives everything else it prints or draws from
+those records. Read them as they arrive, or save them and come back later.
 
 gcmon sits outside the process it watches, injecting nothing and pausing
 nothing. It reads what CPython already wrote, so the target runs at full speed
@@ -16,13 +16,13 @@ CPython keeps one small fixed buffer per generation and writes each new record
 into it. gcmon reads the whole buffer on every poll.
 
 The buffer holds the newest few records and never blocks. When it is full,
-CPython drops the oldest record to make room, and nothing else describes the
-run it held.
+CPython drops the oldest record to make room, and nothing else describes the run
+it held.
 
 How many records it holds depends on the CPython version and build. A
-free-threaded build keeps one per generation, so only the newest survives to
-the next poll. gcmon reads that size off the first poll that returns records
-and keeps it for the session.
+free-threaded build keeps one per generation, so only the newest survives to the
+next poll. gcmon reads that size off the first poll that returns records and
+keeps it for the session.
 
 ## Polling
 
@@ -48,8 +48,8 @@ narrows that interval further.
 For each generation CPython keeps two cumulative numbers: how many runs have
 finished, and how long they took together. Every record carries both as they
 stood at its own run. A dropped record takes nothing off either total, so the
-difference between two polls gives how many runs gcmon missed and what they
-cost together.
+difference between two polls gives how many runs gcmon missed and what they cost
+together.
 
 Three numbers in the stream come off those counters exactly:
 

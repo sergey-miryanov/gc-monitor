@@ -1,8 +1,10 @@
 # RSS Tracking
 
-RSS (Resident Set Size) tracking samples the physical memory usage of each monitored process and emits it as a process-level counter track.
+RSS (Resident Set Size) tracking samples the physical memory usage of each
+monitored process and emits it as a process-level counter track.
 
-Supported by the `chrome` and `perfetto` formats. The `jsonl` and `stdout` formats discard RSS samples; `--rss` logs a warning when combined with them.
+Supported by the `chrome` and `perfetto` formats. The `jsonl` and `stdout`
+formats discard RSS samples; `--rss` logs a warning when combined with them.
 
 ## How to Use
 
@@ -24,18 +26,28 @@ pip install gcmon[cmdline]
 ```
 
 When this extra is installed:
-- The Perfetto exporter reads the command line of each monitored process and records it in the trace, where it labels the process track and is queryable from SQL — see [Process command lines](formats.md#process-command-lines).
-- RSS tracking (`--rss`) can sample Resident Set Size via `psutil.Process(pid).memory_info().rss`.
+- The Perfetto exporter reads the command line of each monitored process and
+  records it in the trace, where it labels the process track and is queryable
+  from SQL — see [Process command lines](formats.md#process-command-lines).
+- RSS tracking (`--rss`) can sample Resident Set Size via
+  `psutil.Process(pid).memory_info().rss`.
 
-Without this extra, the `cmdline` field is omitted and `--rss` is silently ignored (an info log is emitted at startup). All other trace data is unaffected.
+Without this extra, the `cmdline` field is omitted and `--rss` is silently
+ignored (an info log is emitted at startup). All other trace data is unaffected.
 
 ## How It Works
 
-- RSS sampling runs inside the GC poll loop, so its effective rate is capped by `--rate`. If `--rss-interval` is shorter than `--rate`, a warning is logged and RSS is sampled at the poll rate.
-- Only PIDs that returned a successful GC poll status are sampled — no stale data for dead processes.
-- The counter track is process-level (`tid=-1`), parented directly to the process track outside the `GC Metrics` group.
-- The `rss` counter track displays in the Perfetto UI with the name `"rss"` and the value in bytes.
-- Graceful degradation: if `psutil` is not installed, `--rss` is ignored without crashing.
+- RSS sampling runs inside the GC poll loop, so its effective rate is capped by
+  `--rate`. If `--rss-interval` is shorter than `--rate`, a warning is logged
+  and RSS is sampled at the poll rate.
+- Only PIDs that returned a successful GC poll status are sampled — no stale
+  data for dead processes.
+- The counter track is process-level (`tid=-1`), parented directly to the
+  process track outside the `GC Metrics` group.
+- The `rss` counter track displays in the Perfetto UI with the name `"rss"` and
+  the value in bytes.
+- Graceful degradation: if `psutil` is not installed, `--rss` is ignored without
+  crashing.
 
 ## SQL Query Example
 
