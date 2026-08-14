@@ -94,8 +94,8 @@ def _build_rows(
     """One row per generation that recorded anything.
 
     *pause_totals* covers whichever scope the block is for, read once by the
-    caller: every metric's rows lean on the same per-generation numbers, so
-    looking them up here would repeat the work nine times over.
+    caller. All nine metrics lean on the same per-generation numbers, so
+    looking them up here would repeat the work per metric.
 
     *exact* separates the `GC Pause` rows, whose companion numbers come from
     the target's own counters, from the sub-phase rows, whose companions are

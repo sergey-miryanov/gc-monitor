@@ -1,12 +1,12 @@
 """The flat metric names a benchmark reads a gcmon run through.
 
 `StreamingStats` keeps the run; this turns it into the names
-[`docs/pyperf.md`](../../../docs/pyperf.md) publishes. The two are apart on
-purpose: what a benchmark author calls a number is a contract of its own, and
-the module that folds GC records should not have to spell it.
+[`docs/pyperf.md`](../../../docs/pyperf.md) publishes. Those names are a
+benchmark author's contract, so the module that folds GC records does not
+spell them.
 
-Durations arrive in nanoseconds and leave in milliseconds, which is what
-pyperf reports in.
+Durations arrive in nanoseconds and leave in the milliseconds pyperf
+reports.
 """
 
 from __future__ import annotations
@@ -51,13 +51,12 @@ def to_metrics(stats: StreamingStats) -> dict[str, int | float]:
 
     Sums and counts are exact: what gcmon saw plus what the target's own
     counters say it missed. ``p99`` stays sampled and reads high, since a
-    long run delays the next one, so its record survives in the ring more
+    long run delays the next one and its record survives in the ring more
     often than a short one's. No scale factor corrects a quantile.
 
-    Both totals fold per generation once, up front. Reading them a field at a
-    time would rescan each dict per field and dominate a call that is
-    otherwise three quantiles. A generation that recorded nothing is left out
-    rather than published as a zero.
+    Both totals fold per generation once, up front, which keeps a call that
+    is otherwise three quantiles from rescanning each dict per field. A
+    generation that recorded nothing is left out rather than zeroed.
     """
     result: dict[str, int | float] = {}
     pauses = stats.pause_totals_by_gen()

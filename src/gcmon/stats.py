@@ -241,9 +241,8 @@ type LifetimeKey = tuple[int, int, int]
 class LossTotals(msgspec.Struct):
     """Records gcmon never read, and the pause time they held.
 
-    The accumulator: one slot per key while a run is in progress, and the
-    scratch a fold adds into. It stays inside `StreamingStats`, which hands
-    out `PauseTotals` instead.
+    `StreamingStats` accumulates into one of these per key and hands readers
+    a `PauseTotals` instead.
     """
 
     count: int = 0
@@ -257,17 +256,11 @@ class LossTotals(msgspec.Struct):
 class PauseTotals(msgspec.Struct, frozen=True):
     """One generation's pauses, for one pid or for all of them.
 
-    Everything `--stats` prints about a generation follows from these four
-    numbers, so they are read once and the rest is arithmetic. Asking for
-    coverage and then for the exact count used to re-read both sides to
-    derive each.
-
-    Frozen because the pid branch hands back what `StreamingStats` keeps: a
-    caller that accumulated into it would corrupt that pid's totals, and one
-    that accumulated into a summed one would silently write to nothing.
-
     `sampled_*` is what gcmon measured, `lost_*` what the target's counters
-    say it missed, and ADR-0015 is why adding them is exact.
+    say it missed. ADR-0015 covers why adding them is exact.
+
+    Frozen because both reads build one from four scalars. A write to what
+    you got back would land on a snapshot gcmon never reads again.
     """
 
     sampled_count: int = 0
@@ -289,8 +282,7 @@ class PauseTotals(msgspec.Struct, frozen=True):
     def coverage(self) -> float:
         """Observed share of those collections, in ``[0, 1]``.
 
-        An empty generation lost nothing, so it reports 1.0 and spares every
-        call site a division guard.
+        An empty generation reports 1.0, so no call site needs a guard.
         """
         exact = self.exact_count
         if exact == 0:
@@ -302,8 +294,8 @@ class PauseTotals(msgspec.Struct, frozen=True):
         """Multiplier taking a sampled pause sum to the exact one.
 
         Sub-phases have no exact counterpart but partition the pause, so
-        scaling a measured phase sum by this estimates it. It cannot correct
-        a percentile, see ADR-0015.
+        scaling a measured phase sum estimates it. It cannot correct a
+        percentile (ADR-0015).
         """
         if self.sampled_pause_ns == 0:
             return 1.0
@@ -313,14 +305,12 @@ class PauseTotals(msgspec.Struct, frozen=True):
 class LifetimeTotals(msgspec.Struct):
     """One ring's own cumulative counters, as the target keeps them.
 
-    The accumulator, as `LossTotals` is for loss: the slot a poll overwrites,
-    and the scratch a fold adds into. Unlike loss it is also what a read
-    hands back, since both reads sum into fresh scratch rather than
-    returning a slot.
+    A poll overwrites the slot, and a fold sums slots into a fresh one. Both
+    reads return that fresh one, never a slot, so this side needs no
+    freezing.
 
-    Never added to a `PauseTotals`: this covers the interpreter's whole life,
-    including collections that ran before gcmon attached, where the pause
-    numbers cover only what gcmon monitored.
+    Do not add these to a `PauseTotals`. They cover the interpreter's whole
+    life, including collections that ran before gcmon attached.
     """
 
     collections: int = 0
@@ -332,10 +322,9 @@ class LifetimeTotals(msgspec.Struct):
 
     @property
     def pause_ns(self) -> int:
-        """The same history in the unit every other duration is kept in.
+        """The same history in nanoseconds.
 
-        The target counts seconds here and nanoseconds everywhere else, so
-        the conversion lives once, beside the field it converts.
+        The target counts seconds here and nanoseconds everywhere else.
         """
         return secs_to_ns(self.duration_s)
 
@@ -431,10 +420,10 @@ class StreamingStats:
         sample as it stood before the poll: two polls of 2 then 100 records
         with one lost warned "only 67%" of a run that ended at 99%.
 
-        Runs after every poll of every pid, and in a healthy run never fires,
+        Every poll of every pid runs this, and a healthy run never fires it,
         so it reads the two counts coverage needs rather than a whole
-        `PauseTotals`. Loss comes first because it is one lookup and settles
-        most generations: one that lost nothing cannot be under-covered.
+        `PauseTotals`. Loss comes first: one lookup, and a generation that
+        lost nothing cannot be under-covered.
         """
         if self._coverage_warned:
             return
@@ -481,9 +470,7 @@ class StreamingStats:
     def pause_totals(self, pid: int, gen: int) -> PauseTotals:
         """One pid's generation, read once.
 
-        The four numbers answer everything a caller can ask about it, so
-        they are gathered here and derived from rather than re-read a field
-        at a time. Two dict lookups; every pid at once is
+        Two dict lookups. Every pid at once is
         :meth:`pause_totals_by_gen`, which costs a pass instead.
         """
         sampled = self._sampled(pid, gen)
@@ -491,11 +478,10 @@ class StreamingStats:
         return PauseTotals(sampled.count(), sampled.sum(), lost.count, lost.pause_ns)
 
     def pause_totals_by_gen(self) -> dict[int, PauseTotals]:
-        """Every generation's pause totals over every pid, folding the loss
-        dict once.
+        """Every generation's pause totals over every pid.
 
-        The whole-run answer: a caller wanting all three generations asks
-        once rather than folding per generation.
+        Folds the loss dict once, where asking per generation folds it three
+        times.
         """
         lost = self._lost_by_gen() if self._loss else {}
         by_gen = {}
@@ -541,8 +527,8 @@ class StreamingStats:
     def heap_size_p99(self) -> float | None:
         """The 99th percentile of the per-pid high-water heap sizes.
 
-        ``None`` when no record carried one, which a caller reports by
-        leaving the metric out rather than publishing a zero.
+        ``None`` when no record carried one, so a caller leaves the metric
+        out rather than publishing a zero.
         """
         if not self._heap_size:
             return None

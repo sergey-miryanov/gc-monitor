@@ -1,7 +1,7 @@
 """Tests for the flat metric names a benchmark reads a run through.
 
-These moved here with the projection: the keys are pyperf's contract, not
-something `StreamingStats` should have to know.
+These moved here with the projection. The keys are pyperf's contract, and
+`StreamingStats` has no reason to know them.
 """
 
 from __future__ import annotations

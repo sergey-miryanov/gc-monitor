@@ -303,8 +303,8 @@ class TestExactTotals:
 
 
 class TestTotalsLeaveTheAccumulatorBehind:
-    """The accumulators stay inside `StreamingStats`; a read gets a frozen
-    answer, so no caller can add into gcmon's own totals."""
+    """`StreamingStats` keeps its accumulators and answers from copies of
+    them, so a caller writing to what it got back changes nothing."""
 
     def test_one_pid_gets_an_answer_rather_than_the_slot(self) -> None:
         stats = StreamingStats()
@@ -318,8 +318,6 @@ class TestTotalsLeaveTheAccumulatorBehind:
         assert stats.pause_totals(1, 0).lost_count == 7
 
     def test_every_pid_gets_one_too(self) -> None:
-        """The summed branch would have swallowed the write rather than
-        misplacing it, which is the harder bug of the two to notice."""
         stats = StreamingStats()
         stats.record_loss(1, 0, 7, 7_000)
         stats.record_loss(2, 0, 1, 1_000)
@@ -344,9 +342,9 @@ class TestTotalsLeaveTheAccumulatorBehind:
         assert stats.pause_totals(1, 0).lost_pause_ns == 7_000
 
     def test_lifetime_reads_hand_back_scratch(self) -> None:
-        """This side sums over interpreters into a fresh struct, so a caller
-        that writes to what it got back touches nothing gcmon keeps. The
-        pause side is frozen instead, since its per-pid read is the slot."""
+        """`LifetimeTotals` is the accumulator a fold adds into, so this side
+        cannot be frozen the way the pause side is. The fold still sums into
+        a fresh one, which is what the write below lands on."""
         stats = StreamingStats()
         stats.record_lifetime(1, 0, 0, 40, 4.0)
         stats.record_lifetime(1, 1, 0, 2, 0.5)
