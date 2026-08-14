@@ -54,6 +54,7 @@ class EventsMonitor:
         self._enabled = True
         self._pids: dict[int, PidState] = {}
         self._stats = stats
+        self._coverage_warned = False
 
     def get_child_pids(self) -> list[int] | None:
         """Every descendant of the target, or ``None`` when the read failed.
@@ -83,7 +84,6 @@ class EventsMonitor:
             events = get_gc_stats(pid, all_interpreters=True)
             ts_read_stop = time.monotonic_ns()
             self._stats.record_read_time(ts_read_stop - ts_read_start)
-            self._stats.record_ring_geometry(events)
             self._ingest(pid, events, ts_read_start)
 
             return PollStatus.OK
@@ -160,7 +160,39 @@ class EventsMonitor:
             self._exporter.add_event(pid, event)
             self._stats.update(pid, event)
 
-        self._stats.check_coverage_advisory(pid)
+        self._warn_low_coverage(pid)
+
+    def _warn_low_coverage(self, pid: int) -> None:
+        """Say once per run that gcmon is reading too little of its target.
+
+        Called after a poll has folded both its loss and its records. The loop
+        above records every ring's gap before it updates any of them, so a
+        check made earlier divides that poll's gap into the sample as it stood
+        before the poll: two polls of 2 then 100 records with one lost warned
+        "only 67%" of a run that ended at 99%.
+
+        One monitor polls one process tree for the length of a run, so the
+        latch here is per run, and one warning covers every pid in the tree.
+        The remedy is the poll rate, which no pid or generation owns.
+        """
+        if self._coverage_warned:
+            return
+
+        low = self._stats.low_coverage(pid)
+        if low is None:
+            return
+
+        gen, coverage = low
+        self._coverage_warned = True
+        logger.warning(
+            "PID %s generation %s: only %.0f%% of collections observed. Counts and sums are "
+            "reconstructed and exact; percentiles cover only what was sampled and read high. "
+            "Polling more often (a smaller --rate) may observe more, unless the target collects "
+            "faster than gcmon can poll.",
+            pid,
+            gen,
+            coverage * 100,
+        )
 
     def stop(self) -> None:
         """Close the exporter and stop accepting polls.

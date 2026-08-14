@@ -86,8 +86,8 @@ see, with the three generations concatenated. Every consumer will re-derive the 
 
 The ring's capacity is in the same position. It is not returned either, but every slot comes back
 whether or not it holds a finished collection, so counting the records one poll gives back for a
-generation yields the size. gcmon does that to name it in the advisory it logs on a low-coverage
-run. The technique rests on unwritten slots being returned, which nothing documents.
+generation yields the size. The technique rests on unwritten slots being returned, which nothing
+documents.
 
 **Suggested fix.** Add `index` to the returned structure, or return the records rotated into
 chronological order. The first is a two-line change. Either way, document that unwritten slots

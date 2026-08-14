@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from gcmon.data import GCStatsInfo
 from gcmon.stats import HAS_DDSKETCH, Stats, StreamingStats
 from tests.helpers import create_mock_stats_item
 
@@ -355,176 +354,66 @@ class TestTotalsLeaveTheAccumulatorBehind:
         assert stats.lifetime_totals_by_gen()[0].pause_ns == 4_500_000_000
 
 
-def ring(gen: int, written: int, empty: int = 0, iid: int = 0) -> list[GCStatsInfo]:
-    """One generation's slots as a poll returns them, empty ones included."""
-    return [create_mock_stats_item(gen=gen, iid=iid, collections=n) for n in range(written)] + [
-        create_mock_stats_item(gen=gen, iid=iid, ts_start=0, ts_stop=0, collections=0) for _ in range(empty)
-    ]
+class TestLowCoverage:
+    """Which generation gcmon read too little of, and how little.
 
-
-class TestRingGeometry:
-    """gcmon stops hardcoding `GC_YOUNG_STATS_SIZE` and `GC_OLD_STATS_SIZE` by
-    counting what a poll returns: every slot comes back, so the count is the
-    capacity of the build gcmon is actually attached to."""
-
-    def test_it_counts_every_slot_a_poll_returned(self) -> None:
-        stats = StreamingStats()
-
-        stats.record_ring_geometry(ring(0, 11) + ring(1, 3) + ring(2, 3))
-
-        assert [stats._ring_size_for(gen) for gen in (0, 1, 2)] == [11, 3, 3]
-
-    def test_an_unwritten_slot_still_counts(self) -> None:
-        """Counting written records would report 1 for a ring holding one
-        collection, and make the advisory understate it by two."""
-        stats = StreamingStats()
-
-        stats.record_ring_geometry(ring(2, written=1, empty=2))
-
-        assert stats._ring_size_for(2) == 3
-
-    def test_only_the_main_interpreter_sets_the_size(self) -> None:
-        """`all_interpreters=True` concatenates the rings, so a count that took
-        every interpreter would read 31 slots for gen 0 here."""
-        stats = StreamingStats()
-
-        stats.record_ring_geometry(ring(0, 11) + ring(0, 20, iid=1))
-
-        assert stats._ring_size_for(0) == 11
-
-    def test_the_first_poll_settles_it(self) -> None:
-        """The build cannot change under a running monitor, so later polls do
-        not re-count. A subinterpreter starting mid-run cannot move it."""
-        stats = StreamingStats()
-
-        stats.record_ring_geometry(ring(0, 11))
-        stats.record_ring_geometry(ring(0, 20))
-
-        assert stats._ring_size_for(0) == 11
-
-    def test_an_empty_poll_leaves_it_open(self) -> None:
-        """A read returning nothing must not latch a geometry of zero."""
-        stats = StreamingStats()
-
-        stats.record_ring_geometry([])
-        stats.record_ring_geometry(ring(0, 11))
-
-        assert stats._ring_size_for(0) == 11
-
-    def test_it_is_unknown_before_any_poll(self) -> None:
-        stats = StreamingStats()
-
-        assert stats._ring_size_for(0) == 0
-
-
-class TestCoverageAdvisory:
-    """One warning per run, and only when the ring is actually overflowing.
-
-    It names the read-cost floor that bounds `--rate`, which is worth saying
-    once and unbearable per poll, since a lossy run records loss every tick.
+    The answer is a pair of numbers, so nothing here reads a log: wording it
+    and saying it once belong to the monitor, and `test_monitor_coverage.py`
+    holds those.
     """
-
-    ADVISORY = "of collections observed"
 
     def _sampled(self, stats: StreamingStats, count: int) -> None:
         for _ in range(count):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
 
-    def test_it_fires_below_the_threshold(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_it_names_the_generation_and_its_coverage(self) -> None:
         stats = StreamingStats()
         self._sampled(stats, 3)
 
         stats.record_loss(1, 0, 7, 7_000)
-        stats.check_coverage_advisory(1)
 
-        assert self.ADVISORY in caplog.text
-        assert "ring buffer" in caplog.text
+        low = stats.low_coverage(1)
+        assert low is not None
+        gen, coverage = low
+        assert gen == 0
+        assert coverage == pytest.approx(0.3)
 
-    def test_it_stays_quiet_above_the_threshold(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_a_covered_run_answers_nothing(self) -> None:
         stats = StreamingStats()
         self._sampled(stats, 99)
 
         stats.record_loss(1, 0, 1, 1_000)
-        stats.check_coverage_advisory(1)
 
         assert stats.pause_totals(1, 0).coverage > StreamingStats.COVERAGE_ADVISORY
-        assert self.ADVISORY not in caplog.text
+        assert stats.low_coverage(1) is None
 
-    def test_it_fires_once_across_many_ticks(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_a_run_that_lost_nothing_answers_nothing(self) -> None:
+        """The shortcut the check leads with: a generation that lost nothing
+        is fully covered, whatever its sample size."""
         stats = StreamingStats()
         self._sampled(stats, 3)
 
-        for _ in range(20):
-            stats.record_loss(1, 0, 7, 7_000)
-            stats.check_coverage_advisory(1)
+        assert stats.low_coverage(1) is None
 
-        assert caplog.text.count(self.ADVISORY) == 1
-
-    def test_one_generation_warning_covers_the_run(self, caplog: pytest.LogCaptureFixture) -> None:
-        """The latch is per run, not per key: the advice is about the poll
-        rate, which no generation owns."""
+    def test_one_pids_loss_does_not_answer_for_another(self) -> None:
         stats = StreamingStats()
         self._sampled(stats, 3)
 
-        stats.record_loss(1, 0, 7, 7_000)
-        stats.record_loss(1, 1, 7, 7_000)
         stats.record_loss(2, 0, 7, 7_000)
-        stats.check_coverage_advisory(1)
-        stats.check_coverage_advisory(2)
 
-        assert caplog.text.count(self.ADVISORY) == 1
+        assert stats.low_coverage(1) is None
+        assert stats.low_coverage(2) == (0, 0.0), "pid 2 sampled nothing of what it lost"
 
-    def test_the_polls_own_records_count_before_it_fires(self, caplog: pytest.LogCaptureFixture) -> None:
-        """`_ingest` records every key's gap before it updates any of them, so
-        a check inside `record_loss` would divide this poll's gap into the
-        sample as it stood before this poll.
-
-        Two polls, 2 records then 100 with 1 lost: measured at `record_loss`
-        the coverage reads 2/3, and the latch would keep that figure for a run
-        that ends at 99%.
-        """
-        stats = StreamingStats()
-        self._sampled(stats, 2)
-        stats.check_coverage_advisory(1)
-
-        stats.record_loss(1, 0, 1, 1_000)
-        self._sampled(stats, 100)
-        stats.check_coverage_advisory(1)
-
-        assert stats.pause_totals(1, 0).coverage > StreamingStats.COVERAGE_ADVISORY
-        assert self.ADVISORY not in caplog.text
-
-    def test_a_run_that_is_genuinely_blind_still_warns(self, caplog: pytest.LogCaptureFixture) -> None:
-        """The guard above must not buy its quiet by never firing."""
-        stats = StreamingStats()
-        self._sampled(stats, 1)
-
-        stats.record_loss(1, 0, 50, 50_000)
-        stats.check_coverage_advisory(1)
-
-        assert self.ADVISORY in caplog.text
-
-    def test_it_names_the_size_the_target_reported(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_asking_twice_answers_twice(self) -> None:
+        """No latch of its own. Every poll asks, and a second reader must not
+        be told a blind run is healthy because the first one asked first."""
         stats = StreamingStats()
         self._sampled(stats, 3)
-        stats.record_ring_geometry(ring(0, 11))
-
         stats.record_loss(1, 0, 7, 7_000)
-        stats.check_coverage_advisory(1)
 
-        assert "holds 11 records" in caplog.text
-
-    def test_a_one_slot_ring_reads_as_one_record(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Both sizes are 1 under `Py_GIL_DISABLED`, where the advisory matters
-        most and where a hardcoded 11 would have been wrong."""
-        stats = StreamingStats()
-        self._sampled(stats, 3)
-        stats.record_ring_geometry(ring(0, 1))
-
-        stats.record_loss(1, 0, 7, 7_000)
-        stats.check_coverage_advisory(1)
-
-        assert "holds 1 record," in caplog.text
+        first = stats.low_coverage(1)
+        assert first is not None
+        assert stats.low_coverage(1) == first
 
 
 class TestLifetimeTotals:

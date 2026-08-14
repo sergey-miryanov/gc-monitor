@@ -315,8 +315,9 @@ class TestTheRingModel:
 
     def test_an_unwritten_slot_still_names_its_generation(self) -> None:
         """Gen 2 collected twice in the whole capture, so its ring never
-        fills. `record_ring_geometry` counts those slots and would read the
-        ring as shorter than it is if they came back under another gen."""
+        fills. A real poll returns those unwritten slots under their own
+        generation, and a replay that filed them elsewhere would hand the
+        monitor a batch no target ever produces."""
         held = ring_at(capture_records()[2], 2, RING_SIZES[2], 0)
 
         assert [slot.gen for slot in held] == [2, 2, 2]

@@ -77,10 +77,9 @@ def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> Non
     ``collections`` and ``duration`` are the target's cumulative totals, so
     the newest record of each ring carries what the monitor recorded live.
 
-    Loss goes in last, summed per ``(pid, gen)``, so the coverage advisory
-    sees the whole sample rather than however much of it preceded a loss
-    record in the file. One record covers a poll interval and names every
-    generation active in it, so the entries sum, not the records.
+    Loss is summed per ``(pid, gen)`` before it goes in: one record covers a
+    poll interval and names every generation active in it, so the entries sum,
+    not the records.
 
     Order between the two guards does not matter, since no record answers to
     both. Were they ever to overlap, a loss record would fold in here as a
