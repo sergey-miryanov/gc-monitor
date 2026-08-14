@@ -1,6 +1,7 @@
 """Statistics output formatting for GC monitoring."""
 
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from .data import dur_to_ms
@@ -141,6 +142,42 @@ def _coverage_cell(coverage: float, lost: int) -> str:
 def _factor_cell(factor: float, lost: int) -> str:
     cell = f"{factor:.3f}"
     return ">1.000" if lost and cell == "1.000" else cell
+
+
+def summary_lines(stats: StreamingStats, trace_path: Path | None) -> list[str]:
+    """What the run captured, as the lines a monitoring command logs.
+
+    *trace_path* is where the trace was written, or ``None`` when it went to
+    stdout and there is no file to name.
+
+    A run that read everything says how many records it read, which is the
+    whole of what it has to say. Where the target collected more than gcmon
+    could read, that count alone leaves an operator calibrating against a
+    number that can be off by most of an order of magnitude, so it carries
+    what it is a share of. The two figures printed are the ones the printed
+    percentage divides, so the arithmetic checks out on the page. They cover
+    every record and every generation of every pid, which is wider than any
+    one row of the `--stats` table and a fraction off its `Cov` column, since
+    that column counts only records carrying a pause.
+
+    Returned rather than printed: `--format stdout` writes the trace itself to
+    stdout, and every caller logs these instead, at one level, so no
+    `--log-level` separates the count from what qualifies it.
+    """
+    sampled = stats.count()
+    lost = sum(totals.lost_count for totals in stats.pause_totals_by_gen().values())
+
+    lines = ["Monitoring complete."]
+    if lost:
+        observed = _coverage_cell(sampled / (sampled + lost), lost)
+        lines.append(f"Total events: {sampled} (+{lost} reconstructed, {observed} observed)")
+        lines.append("Run with --stats for the per-generation breakdown.")
+    else:
+        lines.append(f"Total events: {sampled}")
+
+    if trace_path is not None:
+        lines.append(f"Trace saved to: {trace_path}")
+    return lines
 
 
 def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.PLAIN) -> None:

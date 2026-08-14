@@ -4,6 +4,8 @@ from unittest.mock import ANY, MagicMock
 
 import pytest
 
+from gcmon.stats import PauseTotals
+
 
 class TestRunMonitoringLoop:
     """Tests for run_monitoring_loop."""
@@ -99,6 +101,50 @@ class TestRunMonitoringLoop:
         run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options(output_format="stdout"))
 
         assert "Trace saved to" not in caplog.text
+
+    def test_a_lossy_run_qualifies_the_count(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict[str, MagicMock],
+    ) -> None:
+        """The command logs whatever `summary_lines` builds. What it builds is
+        `tests/stats/test_stats_output.py`; that it reaches the log is here."""
+        from gcmon.commands.monitoring_base import run_monitoring_loop
+
+        stats = mock_monitoring_base_deps["StreamingStats"].return_value
+        stats.count.return_value = 1234
+        stats.pause_totals_by_gen.return_value = {0: PauseTotals(1234, 0.0, 8566, 0)}
+
+        run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
+
+        assert "Total events: 1234 (+8566 reconstructed, 12.6% observed)" in caplog.text
+
+    def test_the_whole_summary_logs_at_one_level(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict[str, MagicMock],
+    ) -> None:
+        """A count at one level and the figure qualifying it at another is a
+        `--log-level` away from a number with nothing to read it against."""
+        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.stats_output import summary_lines
+
+        stats = mock_monitoring_base_deps["StreamingStats"].return_value
+        stats.count.return_value = 1234
+        stats.pause_totals_by_gen.return_value = {0: PauseTotals(1234, 0.0, 8566, 0)}
+
+        run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
+
+        expected = summary_lines(stats, monitoring_options().output_path)
+        logged = [record for record in caplog.records if record.getMessage() in expected]
+        assert [record.getMessage() for record in logged] == expected
+        assert {record.levelname for record in logged} == {"INFO"}
 
     def test_show_stats_calls_print_stats(
         self,

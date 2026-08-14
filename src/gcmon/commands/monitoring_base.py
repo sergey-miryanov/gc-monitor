@@ -12,7 +12,7 @@ from gcmon.monitor_loop import MonitorLoop
 from gcmon.rss_sampler import RssSampler
 from gcmon.run_policy import RunnerFactory
 from gcmon.stats import StreamingStats
-from gcmon.stats_output import print_stats
+from gcmon.stats_output import print_stats, summary_lines
 from gcmon.target_process import ProcessRunnerFactory
 from gcmon.utils import replace_signals
 from gcmon.wait_policy import WaitPolicyFactory
@@ -80,10 +80,9 @@ def run_monitoring_loop(
             runner.wait(timeout=2.0)
             returncode = runner.returncode or 0
 
-        logger.info("Monitoring complete.")
-        logger.info("Total events: %s", stats.count())
-        if options.output_format != "stdout":
-            logger.info("Trace saved to: %s", options.output_path)
+        trace_path = None if options.output_format == "stdout" else options.output_path
+        for line in summary_lines(stats, trace_path):
+            logger.info("%s", line)
 
         if options.show_stats:
             print_stats(stats, table_format=options.table_format)
