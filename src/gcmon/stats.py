@@ -483,7 +483,7 @@ class StreamingStats:
         Folds the loss dict once, where asking per generation folds it three
         times.
         """
-        lost = self._lost_by_gen() if self._loss else {}
+        lost = self._lost_by_gen()
         by_gen = {}
         for gen in self.GENS:
             sampled = self.metrics["pause"][gen]
