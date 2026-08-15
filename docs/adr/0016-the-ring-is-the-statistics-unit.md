@@ -56,9 +56,10 @@ percentile buffer restarts, so the quantiles that follow describe the records re
 previous behaviour created a fresh entry and shadowed the materialized one, which then never
 printed, one of the ways `Total` could exceed the rows beneath it.
 
-**The coverage advisory tests rings.** It names the interpreter alongside the pid and
-generation, and it still fires once per run, latched in `gcmon.monitor`: the remedy it suggests
-is `--rate`, which no ring owns.
+**The coverage advisory tests rings.** It names the least covered one, interpreter alongside pid
+and generation, and it still fires once per run, latched in `gcmon.monitor`: the remedy it
+suggests is `--rate`, which no ring owns. Saying it once is what decides the worst over the
+first, since a marginal figure would otherwise stand for the whole capture.
 
 **The lifetime note folds, and says what it folded.** One line per generation whatever the size
 of the tree, stating the interpreter and process counts it summed over:

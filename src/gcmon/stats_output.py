@@ -174,8 +174,8 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
     """Two levels: the run, then one block per ring.
 
     Rings sort by `(pid, iid)`, so a process's interpreters stay adjacent and
-    in interpreter order. `Read Time` is monitor-side and belongs to no ring,
-    so its first cell stays empty.
+    in order. `Read Time` is monitor-side and belongs to no ring, so its first
+    cell stays empty.
     """
     all_rows: list[list[str] | Any] = []
 
@@ -207,7 +207,7 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
                 if has_rows:
                     all_rows.append(_SEP_PHASE)
                 for row in rows:
-                    # Both parts on every ring row, `12345:0` on an ordinary
+                    # Both parts on every row, `12345:0` on a
                     # single-interpreter run too: dropping the `:0` would
                     # leave a header naming two fields over cells holding one.
                     all_rows.append([f"{pid}:{iid}" if first else "", *row])
@@ -251,9 +251,9 @@ def _print_footer(stats: StreamingStats) -> None:
             f"Gen{gen} {totals.collections} in {dur_to_ms(totals.pause_ns):.3f} ms" for gen, totals in lifetime
         )
         interpreters, processes = stats.lifetime_scope()
-        # One line per generation whatever the size of the tree, naming what
-        # it summed over: interpreters start at different moments, and a
-        # reused pid folds two processes into one figure.
+        # One line per generation whatever the size of the tree. The counts
+        # say what it summed over: interpreters start at different moments,
+        # and a reused pid folds two processes into one figure.
         #
         # "monitored window included" covers that window rather than
         # excluding it, so the note must not read as a figure to add to

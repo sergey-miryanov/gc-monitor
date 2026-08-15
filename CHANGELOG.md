@@ -4,8 +4,8 @@
 
 ### Breaking changes
 
-- The `--stats` table reports one block per interpreter instead of one per process: the first column is headed `PID:IID` and every row carries both parts, `12345:0` on a single-interpreter run included. `Total` is unchanged, and is now the only row that blends interpreters
-- The low-coverage advisory measures each interpreter on its own and names it. It fires on captures that used to pass, where a busy interpreter lifted a starved one over the 90% floor
+- The `--stats` table reports one block per interpreter instead of one per process: `PID:IID` on every row, `12345:0` included. `Total` is unchanged, and is now the only blended row
+- The low-coverage advisory measures each interpreter on its own and names the least covered. It fires on captures a busy interpreter used to lift over the 90% floor
 
 ### Features
 
@@ -14,7 +14,7 @@
 
 ### Bugfixes
 
-- Keep the statistics an interpreter accumulated before it was evicted from the active set: `Count` and `Sum` now cover both stretches, where a resumed interpreter used to start blank and hide its own history behind an empty row
+- Keep what an interpreter accumulated before eviction: `Count` and `Sum` cover both stretches, where a resumed interpreter used to start blank
 
 ## Version 0.5.0 (2026-08-14)
 

@@ -620,8 +620,8 @@ class TestLossIsNeverReplayedAsACollection:
 
 
 class TestReplayKeepsTheInterpretersApart:
-    """A loss record names the interpreter it belongs to, and `_replay` has to
-    key on it: a capture read back from JSONL reports what the live run
+    """A loss record names the interpreter it belongs to, so `_replay` keys on
+    it. A capture read back from JSONL has to report what the live run
     reported, and the live run reports per ring.
     """
 

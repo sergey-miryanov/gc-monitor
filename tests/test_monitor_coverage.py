@@ -65,8 +65,8 @@ def poll(monitor: EventsMonitor, pid: int, collections: Sequence[int], gen: int 
 def poll_rings(monitor: EventsMonitor, pid: int, rings: list[GCStatsInfo]) -> None:
     """One poll of *pid* returning several rings at once.
 
-    A read hands back the whole buffer of every interpreter in the process,
-    which is what a starved interpreter has to sit inside to be found.
+    A read hands back every interpreter's buffer together, which is where a
+    starved interpreter sits.
     """
     monitor._ingest(pid, rings, next(_POLL_CLOCK))
 

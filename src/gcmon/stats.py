@@ -80,9 +80,9 @@ class Stats:
     def _resume(self) -> None:
         """Reopen a materialized instance for more values.
 
-        `count` and `sum` carry across untouched. The settled percentiles go:
-        they describe the stretch before the eviction, and the buffer that
-        replaces them covers the one the counts beside it will grow over.
+        `count` and `sum` carry across. The settled percentiles go: they
+        cover the stretch before the eviction, and a fresh buffer covers what
+        follows.
         """
         self._percentiles = None
         if HAS_DDSKETCH:
@@ -234,8 +234,8 @@ METRICS: dict[str, Metric] = {
 
 TStatsData = dict[str, dict[int, Stats]]
 
-# (pid, iid). One interpreter's sampled metrics, each a dict over the
-# generations, so one ring's durations are one of those generations.
+# (pid, iid). One interpreter's sampled metrics, a generation dict per
+# metric. One ring's durations are one of those generations.
 type RingKey = tuple[int, int]
 
 # (pid, iid, gen). `record_loss` delivers increments, and a fold over them
@@ -350,9 +350,9 @@ def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
 
 
 class StreamingStats:
-    # Counted per (pid, iid), one entry carrying that interpreter's three
-    # generations. At the footprint an entry had before, 256 buys the 64
-    # processes the bound used to admit four interpreters each.
+    # Counted per (pid, iid): one entry holds that interpreter's three
+    # generations. An entry costs what it did when the bound was 64
+    # processes, so 256 gives each of those processes four interpreters.
     MAX_ACTIVE_RINGS = 256
     GENS = (0, 1, 2)
     # Under this, the sampled percentiles cover too little of the run to leave
@@ -385,8 +385,8 @@ class StreamingStats:
         if key not in self._metrics_per_ring:
             # A ring seen again after an eviction resumes the entry it left
             # behind, so its `Count` and `Sum` cover both stretches. Starting
-            # it blank shadowed the materialized one, which then never
-            # printed, and let `Total` exceed the rows beneath it.
+            # it blank hid the materialized entry and let `Total` exceed the
+            # rows beneath it.
             resumed = self._materialized_metrics.pop(key, None)
             if len(self._metrics_per_ring) >= self.MAX_ACTIVE_RINGS:
                 self._evict()
@@ -402,8 +402,8 @@ class StreamingStats:
     def _evict(self) -> None:
         """Settle the least recently used ring's percentiles and set it aside.
 
-        Checked on a resumed entry as well as a fresh one, so the active set
-        holds to its bound however often a ring comes back.
+        `update` checks the bound before a resumed entry as well as a fresh
+        one, so the active set holds however often a ring comes back.
         """
         old_key, old_stats = self._metrics_per_ring.popitem(last=False)
         for phase_stats in old_stats.values():
@@ -425,11 +425,10 @@ class StreamingStats:
 
         Idempotent: the caller owns the warn-once latch and the wording.
 
-        The worst rather than the first the scan reaches, because the caller
-        says it once: a marginal 87% would otherwise stand for a capture
-        holding an interpreter at 5%. The latch still keeps whichever answer
-        came first in time, so a ring that collapses after the warning fires
-        goes unnamed either way.
+        The caller says it once, so a marginal 87% must not stand for a
+        capture holding an interpreter at 5%. The latch keeps whichever
+        answer came first in time, so a ring that collapses after the warning
+        fires goes unnamed.
 
         Every poll of every pid asks, so it reads the two counts coverage
         needs rather than building a `PauseTotals`. Loss leads: a ring that
@@ -497,12 +496,12 @@ class StreamingStats:
         """How many interpreters, in how many processes, the lifetime fold
         covers.
 
-        The footnote states both, so a reader can tell one interpreter's own
+        The footnote states both, so a reader can tell one interpreter's
         history from a sum over five that started at different moments.
 
-        The second count is distinct pids, which a reused pid understates:
-        two processes that held it in turn fold into one entry here, as they
-        do in the figure beside it (ADR-0016).
+        The second count is distinct pids. A reused pid understates it: the
+        two processes that held it fold into one entry here, as they do in
+        the figure beside it (ADR-0016).
         """
         interpreters = {(pid, iid) for (pid, iid, _gen), totals in self._lifetime.items() if totals.collections}
         return len(interpreters), len({pid for pid, _iid in interpreters})
@@ -524,8 +523,8 @@ class StreamingStats:
     def get_ring_stats(self, pid: int, iid: int) -> TStatsData | None:
         """One interpreter's sampled metrics, active or set aside.
 
-        A ring lives in one of the two dicts and never both, since an evicted
-        one is resumed rather than replaced.
+        A ring lives in one dict or the other, since an evicted one resumes
+        rather than starting again.
         """
         key = (pid, iid)
         return self._metrics_per_ring.get(key) or self._materialized_metrics.get(key)

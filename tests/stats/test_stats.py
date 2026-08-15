@@ -89,8 +89,8 @@ class TestStatsMaterialize:
         assert stats_with_data.sum() == 2_100.0
 
     def test_update_after_materialize_restarts_the_percentiles(self, stats_with_data: Stats) -> None:
-        """The settled ones describe the stretch before the eviction, which is
-        not the one the counts beside them now cover."""
+        """The settled ones cover the stretch before the eviction, and the
+        counts beside them now cover both."""
         stats_with_data.materialize()
         settled = stats_with_data.percentiles
         assert settled is not None and settled[50] == 300.0
@@ -393,8 +393,8 @@ class TestLowCoverage:
         assert coverage == pytest.approx(0.3)
 
     def test_a_starved_interpreter_answers_beside_a_covered_one(self) -> None:
-        """The blended figure clears the floor, which is what kept this quiet
-        while the key was per process."""
+        """The blended figure clears the floor, so a per-process key kept
+        this quiet."""
         stats = StreamingStats()
         self._sampled(stats, 99, iid=0)
         self._sampled(stats, 2, iid=1)
@@ -409,8 +409,8 @@ class TestLowCoverage:
         assert coverage == pytest.approx(0.2)
 
     def test_it_answers_with_the_worst_ring_rather_than_the_first(self) -> None:
-        """The caller says it once, so a marginal figure must not stand in for
-        a capture holding an interpreter at a tenth of its collections."""
+        """The caller says it once, so a marginal figure must not stand for a
+        capture holding an interpreter at a tenth of its collections."""
         stats = StreamingStats()
         self._sampled(stats, 87, iid=0)
         stats.record_loss(1, 0, 0, 13, 13_000)
@@ -513,8 +513,8 @@ class TestLifetimeTotals:
 class TestTwoInterpretersOfOnePid:
     """The arithmetic the old key could not carry.
 
-    Every statistics test drove one interpreter, and one interpreter cannot
-    supply an input a per-process figure and a per-ring one disagree on.
+    Every statistics test drove one interpreter, and on that input a
+    per-process figure and a per-ring one are the same number.
     """
 
     def _stats(self) -> StreamingStats:
@@ -542,8 +542,8 @@ class TestTwoInterpretersOfOnePid:
         assert stats.pause_totals(1, 1, 0).sampled_pause_ns == 5_000
 
     def test_the_run_still_folds_to_one_answer(self) -> None:
-        """Rings are what the key separates; a roll-up over all of them is
-        still one number, and it is the one `Total` prints."""
+        """The key separates rings; a roll-up over all of them is one number,
+        and `Total` prints it."""
         stats = self._stats()
         totals = stats.pause_totals_by_gen()[0]
 
@@ -559,8 +559,8 @@ class TestTwoInterpretersOfOnePid:
 class TestAnEvictionRoundTrip:
     """A ring seen again after eviction resumes the entry it left behind.
 
-    Starting it blank shadowed the materialized one, which then never printed
-    and let `Total` exceed the rows beneath it.
+    Starting it blank hid the materialized entry and let `Total` exceed the
+    rows beneath it.
     """
 
     def _evicted(self) -> StreamingStats:

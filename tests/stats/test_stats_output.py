@@ -324,8 +324,8 @@ class TestPrintStatsEdgeCases:
 def table_rows(out: str) -> list[list[str]]:
     """Every row of the printed table, header first, cells stripped.
 
-    A separator carries no letters or digits, which is what tells it from a
-    row whose first cell is empty.
+    Separators carry no letters or digits; a row whose first cell is empty
+    still does.
     """
     rows = []
     for line in out.splitlines():
@@ -340,8 +340,8 @@ def table_rows(out: str) -> list[list[str]]:
 class TestTheTablePrintsRings:
     """One block per `(pid, iid)`, under a `Total` block for the run.
 
-    The per-process block went with them: its rows blended interpreters the
-    trace keeps apart.
+    The per-process block is gone: its rows blended interpreters the trace
+    keeps apart.
     """
 
     def _one_interpreter(self) -> StreamingStats:

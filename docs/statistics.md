@@ -50,9 +50,8 @@ $ gcmon 12345 --stats --table-format md
 
 The first column reads `PID:IID`: the process, then the interpreter inside it.
 A target running sub-interpreters prints `12345:0`, `12345:1` and so on, each
-describing that interpreter alone, and `Total` is the one row that folds them
-together. Every process carries an interpreter 0, so an ordinary run reads
-`12345:0` rather than `12345`.
+row describing that interpreter alone, and `Total` folds them together. Every
+process has an interpreter 0, so an ordinary run reads `12345:0`.
 
 ## Three intervals, and which one a cell reports
 
@@ -72,8 +71,8 @@ three intervals:
   and `F`.
 
 Always write the qualifier: bare *lifetime* means a process's span on the
-`Processes` track ([ADR-0011](adr/0011-process-lifetime-and-ordering.md)),
-which is a wall-clock interval rather than a count of collections.
+`Processes` track ([ADR-0011](adr/0011-process-lifetime-and-ordering.md)), a
+wall-clock interval.
 
 The observed span starts at the first record gcmon read. gcmon cannot tell "ran
 before we attached" from "lost", so an earlier run falls outside the span and
@@ -112,8 +111,8 @@ Both are blank on rows with no generation, such as `Read Time`.
 If any one interpreter's coverage falls below 90%, gcmon logs one advisory per
 session, naming the process, the interpreter and the generation of the least
 covered ring, and suggesting a smaller `--rate`. A starved interpreter beside a
-busy one trips it on its own figure rather than the process average. Polling
-faster may observe more, but it will not lift `Cov` to 100%;
+busy one trips it on its own figure. Polling faster may observe more, but it
+will not lift `Cov` to 100%;
 [How gcmon reads a process](monitoring.md) covers why.
 
 ## Percentiles are sampled and read high
@@ -124,9 +123,9 @@ its record sits in the ring slot for longer and is likelier to survive until the
 next poll. Long pauses are over-represented among the survivors, so **the
 reported percentiles read high**, the more so the lower `Cov` is.
 
-`Total`'s percentiles carry a second qualification: they are quantiles of a
-mixture, over every interpreter and every process the run watched. The ring
-rows below keep those apart, so read the shape off one of them.
+`Total`'s percentiles mix one more thing: every interpreter and every process
+the run watched. The ring rows below keep those apart, so read the shape off
+one of them.
 
 `F` does not fix this. It is a ratio of two totals, so applying it to a quantile
 would assume the sampled and unsampled pauses share a shape, which is what the
