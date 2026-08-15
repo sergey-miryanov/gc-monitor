@@ -684,6 +684,21 @@ class TestTheBoundOnRunningRings:
 
         assert stats.lifetime_totals_by_gen()[0].collections == 400
 
+    def test_a_successor_on_a_declined_pid_can_get_a_row(self) -> None:
+        """The decline was made against the process that held the pid, and it
+        goes with the entry when that process exits. A successor arriving to a
+        free slot has a whole life to record, so a row covers all of it."""
+        stats = self._full()
+        stats.materialize(0)
+        stats.materialize(9_999)
+
+        stats.update(9_999, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+
+        assert stats.rings() == sorted(
+            [*((pid, 0, 1) for pid in range(StreamingStats.MAX_ACTIVE_RINGS)), (9_999, 0, 2)]
+        )
+        assert stats.untracked_rings() == 1
+
     def test_a_ring_that_only_lost_gets_no_row(self) -> None:
         """`record_loss` opens an entry for its counters, which is not a row.
         Printing one would give an empty block a heading."""

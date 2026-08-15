@@ -342,14 +342,20 @@ class RingStats(msgspec.Struct):
     One entry per key, so a ring's three kinds of number settle together on
     the exit that ends them and travel together into the report.
 
-    `metrics` is ``None`` on a ring the bound declined. Sample buffers are
-    what the bound caps, at a thousand values a generation a metric, while the
-    two counter dicts beside them hold four numbers a generation. Every ring
-    keeps those whatever the table can hold, so `Total` and the footer stay
-    whole.
+    `metrics` is ``None`` until the ring is admitted, and stays ``None`` where
+    the bound declined it. Sample buffers are what the bound caps, at a
+    thousand values a generation a metric, while the two counter dicts beside
+    them hold four numbers a generation. Every ring keeps those whatever the
+    table can hold, so `Total` and the footer stay whole.
+
+    `declined` is what tells the two apart, and it needs no scoping of its
+    own: an exit settles this entry and gives whatever claims the pid next a
+    fresh one, so a decline lasts exactly as long as the process it was made
+    against.
     """
 
     metrics: TStatsData | None = None
+    declined: bool = False
     loss: dict[int, LossTotals] = msgspec.field(default_factory=dict)
     lifetime: dict[int, LifetimeTotals] = msgspec.field(default_factory=dict)
 
@@ -414,10 +420,6 @@ class StreamingStats:
         self._index_per_pid: dict[int, int] = {}
         # The pids gcmon has records from and has not seen exit.
         self._open_pids: set[int] = set()
-        # Rings that reached `update` with no slot to take. Their records
-        # reach `Total` and their own counters, and the footer says how many
-        # rings have no row.
-        self._untracked_rings: set[IndexedRing] = set()
         self._bound_warned = False
         # Process-wide, with no generation and no interpreter affinity
         # (ADR-0004), so the high-water mark stays keyed on the process. Two
@@ -437,7 +439,7 @@ class StreamingStats:
         self._heap_size[(pid, index)] = max(self._heap_size.get((pid, index), 0), item.heap_size)
 
         ring = self._ring(pid, item.iid)
-        metrics = ring.metrics or self._admit(ring, (pid, item.iid), index)
+        metrics = ring.metrics or self._admit(ring, (pid, item.iid))
         if metrics is None:
             return
 
@@ -473,7 +475,7 @@ class StreamingStats:
         index = self._index_per_pid.get(pid, 1)
         return index if pid in self._open_pids else index - 1
 
-    def _admit(self, ring: RingStats, key: RingKey, index: int) -> TStatsData | None:
+    def _admit(self, ring: RingStats, key: RingKey) -> TStatsData | None:
         """Give *ring* its sample buffers, or ``None`` where none are free.
 
         A ring gets them on its first record and keeps them until its process
@@ -485,24 +487,24 @@ class StreamingStats:
         unbroken stretch, so a row's `Count` and its percentiles always cover
         the same records.
         """
-        if (*key, index) in self._untracked_rings:
-            # Declined once, declined for as long as this process holds the
-            # pid. A slot freed by another process's exit would otherwise open
-            # a row covering the tail of a ring's life, with nothing on it
-            # marking where it starts.
+        if ring.declined:
+            # Declined once, declined for as long as this entry stands. A slot
+            # freed by another process's exit would otherwise open a row
+            # covering the tail of a ring's life, with nothing on it marking
+            # where it starts.
             return None
 
         if self._admitted_rings >= self.MAX_ACTIVE_RINGS:
-            self._decline(key, index)
+            self._decline(ring, key)
             return None
 
         ring.metrics = {metric: {gen: Stats() for gen in self.GENS} for metric in METRICS}
         self._admitted_rings += 1
         return ring.metrics
 
-    def _decline(self, key: RingKey, index: int) -> None:
+    def _decline(self, ring: RingStats, key: RingKey) -> None:
         """Note that this ring gets no row, saying why the first time."""
-        self._untracked_rings.add((*key, index))
+        ring.declined = True
         if self._bound_warned:
             return
 
@@ -584,9 +586,8 @@ class StreamingStats:
         polled it.
         """
         worst: tuple[int, int, float] | None = None
-        index = self._index_per_pid.get(pid, 1)
         for (ring_pid, iid), ring in self._metrics_per_ring.items():
-            if ring_pid != pid or (pid, iid, index) in self._untracked_rings:
+            if ring_pid != pid or ring.declined:
                 # A declined ring has a sampled count of zero here, which would
                 # read as nothing observed. gcmon read its records and counted
                 # them in `Total`, so the advisory has nothing to say about it.
@@ -720,7 +721,7 @@ class StreamingStats:
         footer states the count rather than leaving a reader to add the rows
         up and find them short.
         """
-        return len(self._untracked_rings)
+        return sum(1 for ring in self._entries() if ring.declined)
 
     def count(self) -> int:
         return self._count
