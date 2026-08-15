@@ -54,7 +54,7 @@ class Stats:
 
     def update(self, value: float) -> None:
         if self._percentiles is not None:
-            raise RuntimeError("Cannot update Stats after materialize() has been called")
+            self._resume()
 
         if self._sketch is not None:
             self._sketch.add(value)
@@ -76,6 +76,17 @@ class Stats:
         }
         self._data.clear()
         self._sketch = None
+
+    def _resume(self) -> None:
+        """Reopen a materialized instance for more values.
+
+        `count` and `sum` carry across untouched. The settled percentiles go:
+        they describe the stretch before the eviction, and the buffer that
+        replaces them covers the one the counts beside it will grow over.
+        """
+        self._percentiles = None
+        if HAS_DDSKETCH:
+            self._sketch = DDSketch(relative_accuracy=self.REL_ACCURACY)
 
     def average(self) -> float:
         if self._count == 0:
@@ -223,9 +234,13 @@ METRICS: dict[str, Metric] = {
 
 TStatsData = dict[str, dict[int, Stats]]
 
-# (pid, gen). `record_loss` delivers increments, so two interpreters of one
-# pid add into the same slot.
-type LossKey = tuple[int, int]
+# (pid, iid). One interpreter's sampled metrics, each a dict over the
+# generations, so one ring's durations are one of those generations.
+type RingKey = tuple[int, int]
+
+# (pid, iid, gen). `record_loss` delivers increments, and a fold over them
+# waits for a read, so two interpreters of one pid stay apart.
+type LossKey = tuple[int, int, int]
 
 # (pid, iid, gen). Lifetime totals are cumulative and overwrite each other, so
 # every interpreter keeps a slot of its own and the summing waits for a read.
@@ -335,7 +350,10 @@ def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
 
 
 class StreamingStats:
-    MAX_ACTIVE_PIDS = 64
+    # Counted per (pid, iid), one entry carrying that interpreter's three
+    # generations. At the footprint an entry had before, 256 buys the 64
+    # processes the bound used to admit four interpreters each.
+    MAX_ACTIVE_RINGS = 256
     GENS = (0, 1, 2)
     # Under this, the sampled percentiles cover too little of the run to leave
     # a reader working it out from `Cov`, so gcmon says so once.
@@ -345,8 +363,10 @@ class StreamingStats:
         self._count: int = 0
         # Phase durations in nanoseconds, per metric and generation.
         self.metrics: TStatsData = {metric: {gen: Stats() for gen in self.GENS} for metric in METRICS}
-        self._metrics_per_pid: OrderedDict[int, TStatsData] = OrderedDict()
-        self._materialized_metrics: dict[int, TStatsData] = {}
+        self._metrics_per_ring: OrderedDict[RingKey, TStatsData] = OrderedDict()
+        self._materialized_metrics: dict[RingKey, TStatsData] = {}
+        # Process-wide, with no generation and no interpreter affinity
+        # (ADR-0004), so the high-water mark stays keyed on the pid.
         self._heap_size: dict[int, int] = {}
         self._read_time: Stats = Stats()
         # `record_loss` hands over one poll's gap at a time, so these sum.
@@ -361,29 +381,42 @@ class StreamingStats:
         for metric in METRICS:
             _record(self.metrics, item, metric)
 
-        if pid not in self._metrics_per_pid:
-            if len(self._metrics_per_pid) >= self.MAX_ACTIVE_PIDS:
-                old_pid, old_stats = self._metrics_per_pid.popitem(last=False)
-                for phase_stats in old_stats.values():
-                    for s in phase_stats.values():
-                        s.materialize()
-                self._materialized_metrics[old_pid] = old_stats
+        key = (pid, item.iid)
+        if key not in self._metrics_per_ring:
+            # A ring seen again after an eviction resumes the entry it left
+            # behind, so its `Count` and `Sum` cover both stretches. Starting
+            # it blank shadowed the materialized one, which then never
+            # printed, and let `Total` exceed the rows beneath it.
+            resumed = self._materialized_metrics.pop(key, None)
+            if len(self._metrics_per_ring) >= self.MAX_ACTIVE_RINGS:
+                self._evict()
+            self._metrics_per_ring[key] = resumed or {m: {gen: Stats() for gen in self.GENS} for m in METRICS}
 
-            self._metrics_per_pid[pid] = {m: {gen: Stats() for gen in self.GENS} for m in METRICS}
-
-        self._metrics_per_pid.move_to_end(pid)
+        self._metrics_per_ring.move_to_end(key)
 
         for metric in METRICS:
-            _record(self._metrics_per_pid[pid], item, metric)
+            _record(self._metrics_per_ring[key], item, metric)
 
         self._heap_size[pid] = max(self._heap_size.get(pid, 0), item.heap_size)
+
+    def _evict(self) -> None:
+        """Settle the least recently used ring's percentiles and set it aside.
+
+        Checked on a resumed entry as well as a fresh one, so the active set
+        holds to its bound however often a ring comes back.
+        """
+        old_key, old_stats = self._metrics_per_ring.popitem(last=False)
+        for phase_stats in old_stats.values():
+            for s in phase_stats.values():
+                s.materialize()
+        self._materialized_metrics[old_key] = old_stats
 
     def record_read_time(self, duration_ns: int) -> None:
         self._read_time.update(duration_ns)
 
-    def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
+    def record_loss(self, pid: int, iid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
         """Record one interval's worth of records gcmon did not read."""
-        self._loss.setdefault((pid, gen), LossTotals()).add(lost_count, lost_pause_ns)
+        self._loss.setdefault((pid, iid, gen), LossTotals()).add(lost_count, lost_pause_ns)
 
     def low_coverage(self, pid: int) -> tuple[int, float] | None:
         """The first generation of *pid* below `COVERAGE_ADVISORY`, and its
@@ -391,17 +424,22 @@ class StreamingStats:
 
         Idempotent: the caller owns the warn-once latch and the wording.
 
-        Every poll of every pid asks, so it reads the two counts coverage needs
-        rather than building a `PauseTotals`. Loss comes first: one lookup, and
-        a generation that lost nothing cannot be under-covered.
+        Both counts fold the pid's interpreters together, which is the figure
+        this has always answered with. Loss comes first: a generation that
+        lost nothing cannot be under-covered.
         """
+        lost_by_gen: dict[int, int] = {}
+        for (loss_pid, _iid, gen), lost in self._loss.items():
+            if loss_pid == pid and lost.count:
+                lost_by_gen[gen] = lost_by_gen.get(gen, 0) + lost.count
+
         for gen in self.GENS:
-            lost = self._loss.get((pid, gen))
-            if lost is None or not lost.count:
+            lost_count = lost_by_gen.get(gen, 0)
+            if not lost_count:
                 continue
             # Something was lost, so the denominator cannot be zero.
-            sampled = self._sampled(pid, gen).count()
-            coverage = sampled / (sampled + lost.count)
+            sampled = sum(self._sampled(pid, iid, gen).count() for ring_pid, iid in self.rings() if ring_pid == pid)
+            coverage = sampled / (sampled + lost_count)
             if coverage < self.COVERAGE_ADVISORY:
                 return gen, coverage
         return None
@@ -414,30 +452,30 @@ class StreamingStats:
         """
         self._lifetime[(pid, iid, gen)] = LifetimeTotals(collections, duration_s)
 
-    def _sampled(self, pid: int, gen: int) -> Stats:
-        """The pause durations gcmon sampled for one pid's generation."""
-        pid_data = self.get_pid_stats(pid)
-        if pid_data is None:
+    def _sampled(self, pid: int, iid: int, gen: int) -> Stats:
+        """The pause durations gcmon sampled for one ring."""
+        ring_data = self.get_ring_stats(pid, iid)
+        if ring_data is None:
             return Stats()
-        return pid_data["pause"][gen]
+        return ring_data["pause"][gen]
 
-    def pause_totals(self, pid: int, gen: int) -> PauseTotals:
-        """One pid's generation, read once.
+    def pause_totals(self, pid: int, iid: int, gen: int) -> PauseTotals:
+        """One ring, read once.
 
-        Two dict lookups. Every pid at once is
+        Two dict lookups. Every ring at once is
         :meth:`pause_totals_by_gen`, which costs a pass instead.
         """
-        sampled = self._sampled(pid, gen)
-        lost = self._loss.get((pid, gen), LossTotals())
+        sampled = self._sampled(pid, iid, gen)
+        lost = self._loss.get((pid, iid, gen), LossTotals())
         return PauseTotals(sampled.count(), sampled.sum(), lost.count, lost.pause_ns)
 
     def pause_totals_by_gen(self) -> dict[int, PauseTotals]:
-        """Every generation's pause totals over every pid."""
+        """Every generation's pause totals over every ring."""
         # Folded here rather than behind a helper, which had this one caller,
         # and skipped when nothing was lost.
         lost: dict[int, LossTotals] = {}
         if self._loss:
-            for (_pid, gen), loss in self._loss.items():
+            for (_pid, _iid, gen), loss in self._loss.items():
                 lost.setdefault(gen, LossTotals()).add(loss.count, loss.pause_ns)
 
         pause = self.metrics["pause"]
@@ -467,11 +505,17 @@ class StreamingStats:
         """Read durations in nanoseconds, over every polled pid."""
         return self._read_time
 
-    def get_pid_stats(self, pid: int) -> TStatsData | None:
-        return self._metrics_per_pid.get(pid) or self._materialized_metrics.get(pid)
+    def get_ring_stats(self, pid: int, iid: int) -> TStatsData | None:
+        """One interpreter's sampled metrics, active or set aside.
 
-    def pids(self) -> set[int]:
-        return set(self._metrics_per_pid) | set(self._materialized_metrics)
+        A ring lives in one of the two dicts and never both, since an evicted
+        one is resumed rather than replaced.
+        """
+        key = (pid, iid)
+        return self._metrics_per_ring.get(key) or self._materialized_metrics.get(key)
+
+    def rings(self) -> set[RingKey]:
+        return set(self._metrics_per_ring) | set(self._materialized_metrics)
 
     def count(self) -> int:
         return self._count

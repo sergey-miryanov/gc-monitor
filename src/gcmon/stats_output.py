@@ -179,17 +179,17 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
                 first = False
             has_rows = True
 
-    for pid in sorted(stats.pids()):
+    for pid, iid in sorted(stats.rings()):
         all_rows.append(_SEP_GROUP)
-        pid_data = stats.get_pid_stats(pid)
-        if pid_data is None:
+        ring_data = stats.get_ring_stats(pid, iid)
+        if ring_data is None:
             continue
 
-        pid_totals = {gen: stats.pause_totals(pid, gen) for gen in stats.GENS}
+        ring_totals = {gen: stats.pause_totals(pid, iid, gen) for gen in stats.GENS}
         first = True
         has_rows = False
         for metric_key, metric in METRICS.items():
-            rows = _build_rows(pid_data.get(metric_key, {}), metric.name, pid_totals, metric_key == "pause")
+            rows = _build_rows(ring_data.get(metric_key, {}), metric.name, ring_totals, metric_key == "pause")
             if rows:
                 if has_rows:
                     all_rows.append(_SEP_PHASE)

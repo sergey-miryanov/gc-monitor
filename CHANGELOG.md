@@ -6,6 +6,10 @@
 
 - Minor tweaks to summary and warning messages when events are lost
 
+### Bugfixes
+
+- Keep the statistics an interpreter accumulated before it was evicted from the active set: `Count` and `Sum` now cover both stretches, where a resumed interpreter used to start blank and hide its own history behind an empty row
+
 ## Version 0.5.0 (2026-08-14)
 
 ### Breaking changes

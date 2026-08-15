@@ -143,7 +143,7 @@ class EventsMonitor:
             gens_by_iid.setdefault(iid, []).append(gen_loss)
             self._stats.record_lifetime(pid, iid, gen, accumulator.last_collections, accumulator.last_duration)
             if gen_loss.lost_count:
-                self._stats.record_loss(pid, gen, gen_loss.lost_count, gen_loss.lost_pause_ns)
+                self._stats.record_loss(pid, iid, gen, gen_loss.lost_count, gen_loss.lost_pause_ns)
             fresh.extend(unseen)
 
         for iid, gens in gens_by_iid.items():

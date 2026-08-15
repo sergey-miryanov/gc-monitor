@@ -1,7 +1,7 @@
 """Benchmarks for the streaming statistics hot path.
 
 gcmon feeds every GC event through StreamingStats to keep running percentiles
-and per-pid aggregates. These benchmarks cover the ingest loop, quantile
+and per-ring aggregates. These benchmarks cover the ingest loop, quantile
 computation, and the final aggregation step.
 """
 
@@ -34,9 +34,10 @@ def test_streaming_stats_update_single_pid(benchmark: BenchmarkFixture) -> None:
 
 @pytest.mark.benchmark
 def test_streaming_stats_update_many_pids(benchmark: BenchmarkFixture) -> None:
-    # Spread events across more pids than MAX_ACTIVE_PIDS to exercise the
-    # eviction + materialize path.
-    events = [(1000 + (i % 128), make_gc_event(i, pid=1000 + (i % 128))) for i in range(EVENT_COUNT)]
+    # Spread events across more pids than MAX_ACTIVE_RINGS to exercise the
+    # eviction + materialize path. The name stays so CodSpeed keeps one series
+    # across the bound's move from processes to rings.
+    events = [(1000 + (i % 300), make_gc_event(i, pid=1000 + (i % 300))) for i in range(EVENT_COUNT)]
 
     def run() -> StreamingStats:
         stats = StreamingStats()

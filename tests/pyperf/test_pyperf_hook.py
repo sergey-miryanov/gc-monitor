@@ -142,7 +142,7 @@ class _RecordingStats(StreamingStats):
     def __init__(self) -> None:
         super().__init__()
         self.updated: list[TGCStatsInfo] = []
-        self.losses: list[tuple[int, int, int, int]] = []
+        self.losses: list[tuple[int, int, int, int, int]] = []
 
     @override
     def update(self, pid: int, item: TGCStatsInfo) -> None:
@@ -156,9 +156,9 @@ class _RecordingStats(StreamingStats):
         super().update(pid, item)
 
     @override
-    def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
-        self.losses.append((pid, gen, lost_count, lost_pause_ns))
-        super().record_loss(pid, gen, lost_count, lost_pause_ns)
+    def record_loss(self, pid: int, iid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
+        self.losses.append((pid, iid, gen, lost_count, lost_pause_ns))
+        super().record_loss(pid, iid, gen, lost_count, lost_pause_ns)
 
 
 def _replay_asking_is_loss_first(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> None:
@@ -565,7 +565,7 @@ class TestLossIsNeverReplayedAsACollection:
 
         assert [item for item in stats.updated if is_loss(item)] == []
         assert len(stats.updated) == 2
-        assert stats.losses == [(12345, 0, 2, 7_000_000)]
+        assert stats.losses == [(12345, 0, 0, 2, 7_000_000)]
 
     def test_the_guard_order_does_not_change_what_gets_folded(self, tmp_path: Path) -> None:
         """Same capture, both branch orders, same statistics."""
@@ -588,7 +588,7 @@ class TestLossIsNeverReplayedAsACollection:
 
         assert stats.updated == []
         assert stats.count() == 0
-        assert stats.pause_totals(12345, 0).lost_count == 2
+        assert stats.pause_totals(12345, 0, 0).lost_count == 2
         assert stats.pause_totals_by_gen()[0].exact_count == 2
         assert stats.pause_totals_by_gen()[0].coverage == 0.0
         assert to_metrics(stats)["pause_count"] == 2

@@ -77,15 +77,15 @@ def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> Non
     ``collections`` and ``duration`` are the target's cumulative totals, so
     the newest record of each ring carries what the monitor recorded live.
 
-    Loss is summed per ``(pid, gen)`` before it goes in: one record covers a
-    poll interval and names every generation active in it, so its entries sum
-    rather than its records.
+    Loss is summed per ``(pid, iid, gen)`` before it goes in: one record covers
+    one interpreter's poll interval and names every generation active in it, so
+    its entries sum rather than its records.
 
     Order between the two guards does not matter, since no record answers to
     both. Were they ever to overlap, a loss record would fold in here as a
     collection and inflate the very numbers it carries to correct.
     """
-    lost: dict[tuple[int, int], tuple[int, int]] = {}
+    lost: dict[tuple[int, int, int], tuple[int, int]] = {}
     newest: dict[tuple[int, int, int], TGCStatsInfo] = {}
 
     for pid, items in parsed.items():
@@ -97,15 +97,16 @@ def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> Non
                     newest[ring] = item
             elif is_loss(item):
                 for entry in item.gens:
-                    seen_count, seen_pause = lost.get((pid, entry.gen), (0, 0))
-                    lost[(pid, entry.gen)] = (seen_count + entry.lost_count, seen_pause + entry.lost_pause_ns)
+                    ring = (pid, item.iid, entry.gen)
+                    seen_count, seen_pause = lost.get(ring, (0, 0))
+                    lost[ring] = (seen_count + entry.lost_count, seen_pause + entry.lost_pause_ns)
 
     for (pid, iid, gen), record in newest.items():
         stats.record_lifetime(pid, iid, gen, record.collections, record.duration)
 
-    for (pid, gen), (count, pause_ns) in lost.items():
+    for (pid, iid, gen), (count, pause_ns) in lost.items():
         if count or pause_ns:
-            stats.record_loss(pid, gen, count, pause_ns)
+            stats.record_loss(pid, iid, gen, count, pause_ns)
 
 
 class GCMonitorHook:

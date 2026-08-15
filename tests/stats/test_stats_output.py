@@ -326,7 +326,7 @@ class TestLossColumns:
         stats = StreamingStats()
         for _ in range(3):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
-        stats.record_loss(1, 0, 7, 7_000_000)
+        stats.record_loss(1, 0, 0, 7, 7_000_000)
         return stats
 
     def test_count_and_sum_carry_both_numbers(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -397,7 +397,7 @@ class TestLossColumns:
         stats = StreamingStats()
         for _ in range(1763):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
-        stats.record_loss(1, 0, 8, 8_000_000)
+        stats.record_loss(1, 0, 0, 8, 8_000_000)
 
         print_stats(stats)
         out = capsys.readouterr().out
@@ -410,7 +410,7 @@ class TestLossColumns:
         stats = StreamingStats()
         for _ in range(1_000_000):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
-        stats.record_loss(1, 0, 1, 1_000)
+        stats.record_loss(1, 0, 0, 1, 1_000)
 
         print_stats(stats)
         out = capsys.readouterr().out
@@ -423,7 +423,7 @@ class TestLossColumns:
         stats = StreamingStats()
         for _ in range(1763):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
-        stats.record_loss(1, 0, 8, 8_000_000)
+        stats.record_loss(1, 0, 0, 8, 8_000_000)
 
         print_stats(stats)
         out = capsys.readouterr().out
@@ -444,7 +444,7 @@ class TestTheFooterNotesAreNumbered:
         stats = StreamingStats()
         for _ in range(3):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
-        stats.record_loss(1, 0, 7, 7_000_000)
+        stats.record_loss(1, 0, 0, 7, 7_000_000)
         stats.record_lifetime(1, 0, 0, 18, 0.02)
 
         print_stats(stats)
@@ -461,7 +461,7 @@ class TestTheFooterNotesAreNumbered:
         stats = StreamingStats()
         for _ in range(3):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
-        stats.record_loss(1, 0, 7, 7_000_000)
+        stats.record_loss(1, 0, 0, 7, 7_000_000)
 
         print_stats(stats)
         notes = self._notes(capsys.readouterr().out)
@@ -506,7 +506,7 @@ class TestSummaryLines:
         for _ in range(sampled):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
         if lost:
-            stats.record_loss(1, 0, lost, lost * 1_000_000)
+            stats.record_loss(1, 0, 0, lost, lost * 1_000_000)
         return stats
 
     def test_a_lossless_run_says_only_what_it_read(self) -> None:
@@ -555,8 +555,8 @@ class TestSummaryLines:
         """`Total events` counts every record of every pid, so the number
         beside it has to cover the same ground."""
         stats = self._run(10)
-        stats.record_loss(1, 1, 5, 5_000_000)
-        stats.record_loss(2, 0, 5, 5_000_000)
+        stats.record_loss(1, 0, 1, 5, 5_000_000)
+        stats.record_loss(2, 0, 0, 5, 5_000_000)
 
         _sampled, reconstructed, observed = read_counts(summary_lines(stats, None))
 

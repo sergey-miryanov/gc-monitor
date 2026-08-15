@@ -79,10 +79,25 @@ class TestStatsMaterialize:
         stats.materialize()
         assert not stats.has_sketch
 
-    def test_update_after_materialize_raises(self, stats_with_data: Stats) -> None:
+    def test_update_after_materialize_keeps_the_count_and_the_sum(self, stats_with_data: Stats) -> None:
+        """A ring evicted and seen again resumes this instance, so the two
+        stretches read as one in `Count` and `Sum`."""
         stats_with_data.materialize()
-        with pytest.raises(RuntimeError, match="Cannot update Stats after materialize"):
-            stats_with_data.update(999.0)
+        stats_with_data.update(600.0)
+
+        assert stats_with_data.count() == 6
+        assert stats_with_data.sum() == 2_100.0
+
+    def test_update_after_materialize_restarts_the_percentiles(self, stats_with_data: Stats) -> None:
+        """The settled ones describe the stretch before the eviction, which is
+        not the one the counts beside them now cover."""
+        stats_with_data.materialize()
+        settled = stats_with_data.percentiles
+        assert settled is not None and settled[50] == 300.0
+
+        stats_with_data.update(600.0)
+
+        assert stats_with_data.percentile(50) == 600.0
 
     def test_materialize_called_twice_is_noop(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
@@ -253,43 +268,43 @@ class TestExactTotals:
         stats = StreamingStats()
         for _ in range(sampled):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
-        stats.record_loss(1, 0, lost, lost * 1_000)
+        stats.record_loss(1, 0, 0, lost, lost * 1_000)
         return stats
 
     def test_exact_is_sampled_plus_lost(self) -> None:
         stats = self._stats()
 
-        assert stats.pause_totals(1, 0).exact_count == 10
-        assert stats.pause_totals(1, 0).exact_pause_ns == 10_000
+        assert stats.pause_totals(1, 0, 0).exact_count == 10
+        assert stats.pause_totals(1, 0, 0).exact_pause_ns == 10_000
 
     def test_coverage_and_scale_agree_with_the_totals(self) -> None:
         stats = self._stats()
 
-        assert stats.pause_totals(1, 0).coverage == pytest.approx(0.3)
-        assert stats.pause_totals(1, 0).scale_factor == pytest.approx(10 / 3)
+        assert stats.pause_totals(1, 0, 0).coverage == pytest.approx(0.3)
+        assert stats.pause_totals(1, 0, 0).scale_factor == pytest.approx(10 / 3)
 
     def test_an_untouched_generation_is_neutral(self) -> None:
         """1.0 rather than a division by zero, so no call site has to guard."""
         stats = StreamingStats()
 
-        assert stats.pause_totals(1, 2).coverage == 1.0
-        assert stats.pause_totals(1, 2).scale_factor == 1.0
-        assert stats.pause_totals(1, 2).exact_count == 0
+        assert stats.pause_totals(1, 0, 2).coverage == 1.0
+        assert stats.pause_totals(1, 0, 2).scale_factor == 1.0
+        assert stats.pause_totals(1, 0, 2).exact_count == 0
 
     def test_a_lossless_run_reports_full_coverage(self) -> None:
         stats = StreamingStats()
         stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
 
-        assert stats.pause_totals(1, 0).coverage == 1.0
-        assert stats.pause_totals(1, 0).exact_count == 1
+        assert stats.pause_totals(1, 0, 0).coverage == 1.0
+        assert stats.pause_totals(1, 0, 0).exact_count == 1
 
     def test_totals_span_every_pid(self) -> None:
         stats = self._stats()
         stats.update(2, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
-        stats.record_loss(2, 0, 1, 1_000)
+        stats.record_loss(2, 0, 0, 1, 1_000)
 
         assert stats.pause_totals_by_gen()[0].exact_count == 12
-        assert stats.pause_totals(2, 0).exact_count == 2
+        assert stats.pause_totals(2, 0, 0).exact_count == 2
 
     def test_loss_survives_a_pid_the_monitor_forgets(self) -> None:
         """Recorded per poll rather than flushed at the end, so a child that
@@ -298,7 +313,7 @@ class TestExactTotals:
         before = stats.pause_totals_by_gen()[0].exact_count
 
         assert before == stats.pause_totals_by_gen()[0].exact_count
-        assert stats.pause_totals(1, 0).lost_count == 7
+        assert stats.pause_totals(1, 0, 0).lost_count == 7
 
 
 class TestTotalsLeaveTheAccumulatorBehind:
@@ -307,19 +322,19 @@ class TestTotalsLeaveTheAccumulatorBehind:
 
     def test_one_pid_gets_an_answer_rather_than_the_slot(self) -> None:
         stats = StreamingStats()
-        stats.record_loss(1, 0, 7, 7_000)
+        stats.record_loss(1, 0, 0, 7, 7_000)
 
-        totals = stats.pause_totals(1, 0)
+        totals = stats.pause_totals(1, 0, 0)
         with pytest.raises(AttributeError):
             totals.lost_count = 99  # type: ignore[misc]
 
         assert (totals.lost_count, totals.lost_pause_ns) == (7, 7_000)
-        assert stats.pause_totals(1, 0).lost_count == 7
+        assert stats.pause_totals(1, 0, 0).lost_count == 7
 
     def test_every_pid_gets_one_too(self) -> None:
         stats = StreamingStats()
-        stats.record_loss(1, 0, 7, 7_000)
-        stats.record_loss(2, 0, 1, 1_000)
+        stats.record_loss(1, 0, 0, 7, 7_000)
+        stats.record_loss(2, 0, 0, 1, 1_000)
 
         with pytest.raises(AttributeError):
             stats.pause_totals_by_gen()[0].lost_count = 99  # type: ignore[misc]
@@ -329,16 +344,16 @@ class TestTotalsLeaveTheAccumulatorBehind:
     def test_an_untouched_key_answers_zero(self) -> None:
         stats = StreamingStats()
 
-        assert stats.pause_totals(1, 0).lost_count == 0
+        assert stats.pause_totals(1, 0, 0).lost_count == 0
         assert stats.pause_totals_by_gen()[2].lost_pause_ns == 0
 
     def test_polls_still_accumulate(self) -> None:
         stats = StreamingStats()
-        stats.record_loss(1, 0, 3, 3_000)
-        stats.record_loss(1, 0, 4, 4_000)
+        stats.record_loss(1, 0, 0, 3, 3_000)
+        stats.record_loss(1, 0, 0, 4, 4_000)
 
-        assert stats.pause_totals(1, 0).lost_count == 7
-        assert stats.pause_totals(1, 0).lost_pause_ns == 7_000
+        assert stats.pause_totals(1, 0, 0).lost_count == 7
+        assert stats.pause_totals(1, 0, 0).lost_pause_ns == 7_000
 
     def test_lifetime_reads_hand_back_scratch(self) -> None:
         """`LifetimeTotals` is the accumulator a fold adds into, so this side
@@ -369,7 +384,7 @@ class TestLowCoverage:
         stats = StreamingStats()
         self._sampled(stats, 3)
 
-        stats.record_loss(1, 0, 7, 7_000)
+        stats.record_loss(1, 0, 0, 7, 7_000)
 
         low = stats.low_coverage(1)
         assert low is not None
@@ -381,9 +396,9 @@ class TestLowCoverage:
         stats = StreamingStats()
         self._sampled(stats, 99)
 
-        stats.record_loss(1, 0, 1, 1_000)
+        stats.record_loss(1, 0, 0, 1, 1_000)
 
-        assert stats.pause_totals(1, 0).coverage > StreamingStats.COVERAGE_ADVISORY
+        assert stats.pause_totals(1, 0, 0).coverage > StreamingStats.COVERAGE_ADVISORY
         assert stats.low_coverage(1) is None
 
     def test_a_run_that_lost_nothing_answers_nothing(self) -> None:
@@ -398,7 +413,7 @@ class TestLowCoverage:
         stats = StreamingStats()
         self._sampled(stats, 3)
 
-        stats.record_loss(2, 0, 7, 7_000)
+        stats.record_loss(2, 0, 0, 7, 7_000)
 
         assert stats.low_coverage(1) is None
         assert stats.low_coverage(2) == (0, 0.0), "pid 2 sampled nothing of what it lost"
@@ -408,7 +423,7 @@ class TestLowCoverage:
         be told a blind run is healthy because the first one asked first."""
         stats = StreamingStats()
         self._sampled(stats, 3)
-        stats.record_loss(1, 0, 7, 7_000)
+        stats.record_loss(1, 0, 0, 7, 7_000)
 
         first = stats.low_coverage(1)
         assert first is not None
@@ -441,5 +456,103 @@ class TestLifetimeTotals:
         stats.record_lifetime(1, 0, 0, 5_000, 5.0)
 
         assert stats.lifetime_totals_by_gen()[0].collections == 5_000
-        assert stats.pause_totals(1, 0).exact_count == 1
-        assert stats.pause_totals(1, 0).coverage == 1.0
+        assert stats.pause_totals(1, 0, 0).exact_count == 1
+        assert stats.pause_totals(1, 0, 0).coverage == 1.0
+
+
+class TestTwoInterpretersOfOnePid:
+    """The arithmetic the old key could not carry.
+
+    Every statistics test drove one interpreter, and one interpreter cannot
+    supply an input a per-process figure and a per-ring one disagree on.
+    """
+
+    def _stats(self) -> StreamingStats:
+        """Nine records read of ten on iid 0, one of ten on iid 1. Blended,
+        the pid reads 50%."""
+        stats = StreamingStats()
+        for _ in range(9):
+            stats.update(1, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(1, 0, 0, 1, 1_000)
+
+        stats.update(1, create_mock_stats_item(iid=1, gen=0, ts_start=0, ts_stop=5_000))
+        stats.record_loss(1, 1, 0, 9, 45_000)
+        return stats
+
+    def test_each_interpreter_reports_its_own_coverage(self) -> None:
+        stats = self._stats()
+
+        assert stats.pause_totals(1, 0, 0).coverage == pytest.approx(0.9)
+        assert stats.pause_totals(1, 1, 0).coverage == pytest.approx(0.1)
+
+    def test_the_sampled_durations_stay_apart(self) -> None:
+        stats = self._stats()
+
+        assert stats.pause_totals(1, 0, 0).sampled_pause_ns == 9_000
+        assert stats.pause_totals(1, 1, 0).sampled_pause_ns == 5_000
+
+    def test_the_run_still_folds_to_one_answer(self) -> None:
+        """Rings are what the key separates; a roll-up over all of them is
+        still one number, and it is the one `Total` prints."""
+        stats = self._stats()
+        totals = stats.pause_totals_by_gen()[0]
+
+        assert (totals.sampled_count, totals.lost_count) == (10, 10)
+        assert totals.coverage == pytest.approx(0.5)
+
+    def test_the_two_rings_are_two_entries(self) -> None:
+        stats = self._stats()
+
+        assert stats.rings() == {(1, 0), (1, 1)}
+
+
+class TestAnEvictionRoundTrip:
+    """A ring seen again after eviction resumes the entry it left behind.
+
+    Starting it blank shadowed the materialized one, which then never printed
+    and let `Total` exceed the rows beneath it.
+    """
+
+    def _evicted(self) -> StreamingStats:
+        """Ring (1, 0) with three records, pushed out by a full active set."""
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        for pid in range(2, StreamingStats.MAX_ACTIVE_RINGS + 2):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        return stats
+
+    def test_the_ring_leaves_the_active_set(self) -> None:
+        stats = self._evicted()
+
+        assert (1, 0) not in stats._metrics_per_ring
+        assert (1, 0) in stats._materialized_metrics
+
+    def test_count_and_sum_cover_both_stretches(self) -> None:
+        stats = self._evicted()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+        totals = stats.pause_totals(1, 0, 0)
+
+        assert totals.sampled_count == 4
+        assert totals.sampled_pause_ns == 7_000
+
+    def test_a_resumed_ring_lives_in_one_dict(self) -> None:
+        stats = self._evicted()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+
+        assert (1, 0) in stats._metrics_per_ring
+        assert (1, 0) not in stats._materialized_metrics
+
+    def test_resuming_holds_the_bound(self) -> None:
+        stats = self._evicted()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+
+        assert len(stats._metrics_per_ring) == StreamingStats.MAX_ACTIVE_RINGS
+
+    def test_total_equals_the_sum_of_the_rings(self) -> None:
+        stats = self._evicted()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+
+        rings = sum(stats.pause_totals(pid, iid, 0).sampled_count for pid, iid in stats.rings())
+
+        assert rings == stats.pause_totals_by_gen()[0].sampled_count
