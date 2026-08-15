@@ -494,6 +494,10 @@ class StreamingStats:
 
         The footnote states both, so a reader can tell one interpreter's own
         history from a sum over five that started at different moments.
+
+        The second count is distinct pids, which a reused pid understates:
+        two processes that held it in turn fold into one entry here, as they
+        do in the figure beside it (ADR-0016).
         """
         interpreters = {(pid, iid) for (pid, iid, _gen), totals in self._lifetime.items() if totals.collections}
         return len(interpreters), len({pid for pid, _iid in interpreters})
