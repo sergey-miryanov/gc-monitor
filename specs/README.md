@@ -18,23 +18,49 @@ spec here contradicts an ADR, one of the two is wrong and it is usually the spec
 | [0026](0026-one-process-name-across-live-and-offline-paths.md) | Bug — correctness | XS | A live capture names a process `Process 12345`; the same process combined from JSONL is named `12345` |
 | [0027](0027-thread-descriptor-tid-for-interpreter-zero.md) | Bug — reporting | XS | The main interpreter's `thread.tid` is the pid, so no SQL query reads interpreter ids uniformly |
 | [0028](0028-combined-exporter-reaches-into-sub-exporter-privates.md) | Feature — cleanup | XS | `chrome+perfetto` works only by reading a private attribute, with the type checkers told not to look |
-| [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md) | Feature — cleanup | M | `JsonlExporter` carries three byte-identical copies of the buffer-and-flush logic; the next record type adds a fourth |
+| [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md) | **Superseded** | M | Three byte-identical copies of the buffer-and-flush logic in `JsonlExporter`. 0036 removes them by collapsing the interface that produced them; §4's JSONL-schema argument still stands |
 | [0030](0030-exporter-hygiene-batch.md) | Feature — cleanup | S | Six one-file hazards in the exporter package: rank dict, `getattr` probe, builtin shadow, two undocumented threading contracts, duplicated validation |
 | [0031](0031-readme-output-example-is-labelled-chrome-only.md) | Bug — cosmetic | XS | The README's only trace example is headed "Chrome Trace Output" and captioned as the Perfetto UI |
 | [0033](0033-loss-counter-track.md) | Feature — enhancement | S | The loss row shows where gcmon was blind but not how much was lost; a bar losing 1 record looks like one losing 40 |
 | [0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) | **Superseded** | S | Loss spans reached back across a collection gcmon watched start. ADR-0015's rewrite moved the edge to the poll instant, which is later still |
+| [0035](0035-derive-every-gc-sub-phase-from-one-table.md) | Feature — cleanup | L | CPython's eight optional GC sub-phases are written out by hand in six places; adding the ninth means six edits and nothing fails if one is missed |
+| [0036](0036-one-exporter-method-per-record-kind.md) | Feature — cleanup | M | `EventsExporter` has grown one method per record kind, three of them no-ops, and the CLI keeps a hand-maintained list of which formats really handle RSS |
+| [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md) | Feature — cleanup | M | Two implementations of "emit this pid's process and thread meta"; 0026 exists because they already drifted once |
+| [0038](0038-let-the-monitor-own-the-pid-lifecycle.md) | Feature — cleanup | M | Per-pid state has two owners and is pruned twice against the same set; if they ever disagree a recycled pid reports a loss window that never happened |
+| [0039](0039-split-the-record-model-and-stats-by-concern.md) | Feature — cleanup | S | The record model and the stats module carry three jobs each; `tests/stats/` is already split along a seam the source does not have |
+| [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature — cleanup | M | Every monitoring option is declared three times, and a rejected configuration is echoed to the log as though it had been accepted |
+| [0041](0041-give-the-package-explicit-layers.md) | Feature — cleanup | L | The package's five layers are invisible and unchecked; the dependency direction is clean today and nothing keeps it that way |
+| [0042](0042-name-the-process-session-for-its-role.md) | Feature — cleanup | S | The monitored-process seam is named for a role it does not fill, and its two adapters do not have the same shape |
+| [0043](0043-report-one-version-from-one-source.md) | Bug — reporting | XS | `gcmon.__version__` says `0.1.0` against a `0.5.0` distribution; nothing reads it, nothing checks it, and there is no `--version` to ask |
 
 **Suggested order:** 0025 (the only outage, and it is one word) → 0026 (smallest user-visible
-wrongness) → 0028 (XS, and it shrinks 0029) → 0027 (needs a trace-processor answer before it
-can be settled either way) → 0031 → 0030 → 0029 → 0020. 0024 is the owner's to file and
-depends on nothing here.
+wrongness) → 0043 (XS, and everything below it makes a release more likely, which is when a
+wrong version gets believed) → 0028 (XS, and it shrinks 0036) → 0027 (needs a trace-processor
+answer before it can be settled either way) → 0031 → 0030 → 0035 → 0037 → 0036 → 0039 → 0040 →
+0038 → 0042 → 0020 → 0041. 0024 is the owner's to file and depends on nothing here.
+
+Four ordering constraints inside that run, and only four: 0026 before 0037, which assumes its
+shared naming helper; 0028 before 0036, which it shrinks; 0035 before 0039, which would
+otherwise move nine classes 0035 deletes; and 0039 before 0041, or the same files move twice.
+0038, 0040 and 0042 are independent of everything and can be taken whenever there is an
+appetite for them. 0041 is last on purpose — see its §7, which argues against doing it between
+two changes that actually move code.
 
 0033 came out of the work that landed as ADR-0015 and blocks nothing; it wants a real capture in
 front of you before it can be judged worth a fourth row. 0034 came from the same session and is
 superseded: ADR-0015's rewrite took the span's left edge from the poll clock, which is later than
 the bound 0034 set out to restore. Its §4 still carries the argument for why a temporal bound
 differs from the clipping ADR-0015 rejected, worth reading before anyone proposes narrowing a
-span.
+span. 0029 is superseded by 0036 for the same reason and on the same terms: its §4 is still the
+fullest statement of why the JSONL schema is load-bearing, and 0036 summarizes rather than
+replaces it.
+
+0035–0042 came out of a code-structure review of `src/gcmon` on 2026-08-15. Three findings from
+that review are not in the table because they were already spec'd: the combined exporter's reach
+into a private attribute (0028), the JSONL buffering duplication (0029), and the duplicated
+`combine` format validation (0030 §4.5). 0043 came from installing the package into a clean
+3.15 environment the next day, which is the first thing in five releases to put the built
+distribution's version next to the package's own.
 
 ## Templates
 
