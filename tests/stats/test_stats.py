@@ -589,7 +589,7 @@ class TestAProcessThatExits:
         stats.retain({2})
 
         assert stats._open_pids == {2}
-        assert set(stats._metrics_per_ring) == {(2, 0)}
+        assert set(stats._running_rings) == {(2, 0)}
 
     def test_every_interpreter_of_the_pid_settles(self) -> None:
         stats = StreamingStats()
@@ -598,7 +598,7 @@ class TestAProcessThatExits:
 
         stats.materialize(1)
 
-        assert stats._metrics_per_ring == {}
+        assert stats._running_rings == {}
         assert stats.rings() == [(1, 0, 1), (1, 1, 1)]
 
     def test_the_exit_hands_the_slot_back(self) -> None:

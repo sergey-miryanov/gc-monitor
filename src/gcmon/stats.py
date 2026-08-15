@@ -408,11 +408,11 @@ class StreamingStats:
         self.metrics: TStatsData = {metric: {gen: Stats() for gen in self.GENS} for metric in METRICS}
         # The rings of the processes running now. An entry leaves on the exit
         # that settles it.
-        self._metrics_per_ring: dict[RingKey, RingStats] = {}
+        self._running_rings: dict[RingKey, RingStats] = {}
         # The rings of the processes that have exited, settled and kept for
         # the report. Nothing reopens one, so no successor of a reused pid can
         # add to what its predecessor earned.
-        self._materialized_metrics: dict[IndexedRing, RingStats] = {}
+        self._settled_rings: dict[IndexedRing, RingStats] = {}
         # Running rings holding sample buffers, which is what the bound counts.
         # A ring with only its counters costs too little to bound.
         self._admitted_rings = 0
@@ -453,10 +453,10 @@ class StreamingStats:
         ring the bound turned away as much as from one it admitted.
         """
         key = (pid, iid)
-        ring = self._metrics_per_ring.get(key)
+        ring = self._running_rings.get(key)
         if ring is None:
             ring = RingStats()
-            self._metrics_per_ring[key] = ring
+            self._running_rings[key] = ring
         return ring
 
     def _index(self, pid: int) -> int:
@@ -536,12 +536,12 @@ class StreamingStats:
         self._open_pids.discard(pid)
         self._index_per_pid[pid] = index + 1
 
-        for key in [ring for ring in self._metrics_per_ring if ring[0] == pid]:
-            settled = self._metrics_per_ring.pop(key)
+        for key in [ring for ring in self._running_rings if ring[0] == pid]:
+            settled = self._running_rings.pop(key)
             if settled.metrics is not None:
                 self._admitted_rings -= 1
             settled.settle()
-            self._materialized_metrics[(*key, index)] = settled
+            self._settled_rings[(*key, index)] = settled
 
     def retain(self, pids: Set[int]) -> None:
         """Settle every ring whose process is not in *pids*.
@@ -586,7 +586,7 @@ class StreamingStats:
         polled it.
         """
         worst: tuple[int, int, float] | None = None
-        for (ring_pid, iid), ring in self._metrics_per_ring.items():
+        for (ring_pid, iid), ring in self._running_rings.items():
             if ring_pid != pid or ring.declined:
                 # A declined ring has a sampled count of zero here, which would
                 # read as nothing observed. gcmon read its records and counted
@@ -627,7 +627,7 @@ class StreamingStats:
 
     def _entries(self) -> Iterator[RingStats]:
         """Every ring of the run, running and settled alike."""
-        return chain(self._metrics_per_ring.values(), self._materialized_metrics.values())
+        return chain(self._running_rings.values(), self._settled_rings.values())
 
     def pause_totals_by_gen(self) -> dict[int, PauseTotals]:
         """Every generation's pause totals over every ring."""
@@ -687,14 +687,14 @@ class StreamingStats:
         if index is None:
             index = self._latest_index(pid)
         if pid in self._open_pids and index == self._index_per_pid.get(pid, 1):
-            return self._metrics_per_ring.get((pid, iid))
-        return self._materialized_metrics.get((pid, iid, index))
+            return self._running_rings.get((pid, iid))
+        return self._settled_rings.get((pid, iid, index))
 
     def _keyed_entries(self) -> Iterator[tuple[IndexedRing, RingStats]]:
         """Every ring of the run under the key the report names it by."""
-        for (pid, iid), ring in self._metrics_per_ring.items():
+        for (pid, iid), ring in self._running_rings.items():
             yield (pid, iid, self._index_per_pid.get(pid, 1)), ring
-        yield from self._materialized_metrics.items()
+        yield from self._settled_rings.items()
 
     def get_ring_stats(self, pid: int, iid: int, index: int | None = None) -> TStatsData | None:
         """One interpreter's sampled metrics, still filling or settled.
