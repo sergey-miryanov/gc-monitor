@@ -15,6 +15,7 @@ import pytest
 from gcmon.data import GCStatsInfo
 from gcmon.monitor import EventsMonitor
 from gcmon.poll_status import PollStatus
+from gcmon.stats import StreamingStats
 from tests.helpers import MockExporter, create_mock_stats_item
 
 PID = 12345
@@ -245,6 +246,48 @@ class TestRetain:
 
     def test_retain_keeps_a_pid_with_no_cursors_yet(self, monitor: EventsMonitor) -> None:
         monitor.retain({PID, 999})
+
+
+class TestSettlingAnExitedPid:
+    """The monitor is the only side that learns a pid has gone, so it tells
+    the statistics. ADR-0016: a ring settles then and never before."""
+
+    def test_forget_settles_the_pids_rings(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+
+        monitor.forget(PID)
+
+        assert stats._live_rings == set()
+
+    def test_retain_settles_the_pids_it_leaves_out(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+        ingest(monitor, 999, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+
+        monitor.retain({PID})
+
+        assert stats._live_rings == {(PID, 0)}
+
+    def test_the_settled_row_survives_the_pid(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
+        """What the run printed for a process that exited half way through it
+        still has to be there at the end."""
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+
+        monitor.forget(PID)
+
+        assert stats.rings() == {(PID, 0)}
+        assert stats.pause_totals(PID, 0, 0).sampled_count == 1
+
+    def test_a_successor_on_the_same_pid_adds_nothing(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
+        """`forget` drops the cursor so the successor's records read as new.
+        They reach `Total`, and the row stays the predecessor's."""
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+        monitor.forget(PID)
+
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=9_000)])
+
+        assert stats.pause_totals(PID, 0, 0).sampled_count == 1
+        assert stats.pause_totals_by_gen()[0].sampled_count == 2
+        assert stats.untracked_rings() == 1
 
 
 class TestPollIntegration:

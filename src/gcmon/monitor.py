@@ -99,8 +99,13 @@ class EventsMonitor:
 
     def forget(self, pid: int) -> None:
         """Drop everything held for *pid*, so a reused pid inherits no counter
-        and no poll instant from the process before it."""
+        and no poll instant from the process before it.
+
+        Its statistics stay and settle: they describe a process that ran, and
+        a successor holding the same pid gets no claim on them.
+        """
         self._pids.pop(pid, None)
+        self._stats.materialize(pid)
 
     def retain(self, pids: Set[int]) -> None:
         """Drop the state of every pid outside *pids*.
@@ -110,6 +115,7 @@ class EventsMonitor:
         """
         for pid in self._pids.keys() - pids:
             del self._pids[pid]
+        self._stats.retain(pids)
 
     def _ingest(self, pid: int, events: Sequence[TGCStatsInfo], ts_poll: int) -> None:
         """Emit the records in *events* not seen yet.

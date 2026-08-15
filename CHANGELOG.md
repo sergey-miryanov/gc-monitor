@@ -12,9 +12,12 @@
 - Minor tweaks to summary and warning messages when events are lost
 - The lifetime note under the `--stats` table names the fold it prints: `summed over 3 interpreters in 2 processes`
 
+- An interpreter's statistics settle when its process exits, so its percentiles cover its whole life and its slot goes back. A target that spawns and exits keeps a row per process it ran
+- Warn, and note under the table, when an interpreter gets no row of its own: 256 were already running, or a pid was reused. Those records still count in `Total`
+
 ### Bugfixes
 
-- Keep what an interpreter accumulated before eviction: `Count` and `Sum` cover both stretches, where a resumed interpreter used to start blank
+- Stop a reused PID inheriting the `--stats` row of the process before it, which used to add two processes' records together under one heading
 
 ## Version 0.5.0 (2026-08-14)
 

@@ -138,9 +138,9 @@ See [output formats](formats.md#gc-loss-slices).
 ## The notes under the table
 
 Below the table gcmon prints a numbered note for each thing the cells cannot
-say. Either note may be absent, and a session that read every record from a
+say. Any of them may be absent, and a session that read every record from a
 target that collected nothing before gcmon attached prints no footer at all. A
-lone note still reads `1.`.
+lone note still reads `1.`, so read the wording rather than the number.
 
 **1. Coverage.**
 
@@ -161,6 +161,19 @@ anything was lost, listing only the generations that lost something.
 The third interval above. It changes no cell in the table. The counts say what
 the figure folded: three interpreters that started at different moments, in two
 processes. A run watching one interpreter reads `1 interpreter in 1 process`.
+
+**3. Rings with no row.**
+
+```
+3. 2 rings got no row: gcmon was already tracking 256 interpreters, or a pid was reused. Those records are counted in Total.
+```
+
+gcmon holds detailed statistics for 256 interpreters at once, and a process
+that exits hands its slots back. Two things leave an interpreter without a
+block of its own: it arrived while all 256 were busy, or it took a pid another
+process had already used, whose block belongs to that process. Either way gcmon
+also logs a warning the first time. `Total` still counts every record, so the
+rows can add up to less than the run and this note says by how many rings.
 
 ## Without `[stats]` extra
 

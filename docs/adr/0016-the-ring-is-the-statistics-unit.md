@@ -45,16 +45,22 @@ naming two fields over cells holding one.
 
 **`Total` keeps its percentiles.** They are quantiles of a mixture and the footer says so.
 
-**The active-ring bound is 256**, replacing a bound of 64 processes. A run holds full sampled
-state for that many rings and evicts least-recently-used ones to a materialized form, keeping
-their counts, sums and settled percentiles. At the same footprint per entry as before, 256 buys
-the previous 64 processes four interpreters each.
+**The bound of 256 counts the interpreters still running**, replacing a bound of 64 processes.
+A run holds full sampled state for that many rings. At the same footprint per entry as before,
+256 buys the previous 64 processes four interpreters each.
 
-**Eviction stops discarding history.** A ring seen again after eviction resumes its own entry
-rather than starting blank: `Count` and `Sum` stay exact across the round trip, and only the
-percentile buffer restarts, so the quantiles that follow describe the records read since. The
-previous behaviour created a fresh entry and shadowed the materialized one, which then never
-printed, one of the ways `Total` could exceed the rows beneath it.
+**A ring settles when its process exits, and never before.** gcmon learns which pids are gone on
+the tick that lists the target's children, so it settles their rings there. The sample buffers
+go back, the slots go back, and the four percentiles left behind cover each of those rings end
+to end. A target that spawns and exits keeps a row per process it ran without exhausting the
+bound.
+
+**A ring gets its row on its first record and keeps it for the run.** Where there is no slot to
+give, the ring gets none and its records go to `Total` alone. gcmon says so twice: in a warning
+when it first happens, and in a footer note counting the rings left out. Two cases reach it, 256
+interpreters already running, and a pid claimed by a successor process while its predecessor's
+row stands. A slot freed later opens no row for either, since a row starting mid-life reads as a
+whole one.
 
 **The coverage advisory tests rings.** It names the least covered one, interpreter alongside pid
 and generation, and it still fires once per run, latched in `gcmon.monitor`: the remedy it
@@ -84,17 +90,24 @@ written for and the scope `Total` reports.
   warning noisier on trees that were this incomplete before.
 - **`Total` holds the table's only blended percentile.** Every other row describes one
   distribution.
-- **Footprint scales with interpreters, not processes.** A process creating many interpreters
+- **Footprint scales with interpreters running at once.** A process creating many interpreters
   consumes ring slots that a process-keyed bound gave it for free. A tree wide enough to exhaust
-  the bound degrades by evicting.
-- **`Total` is still a separate accumulator**, fed once per record, so it survives eviction and
-  does not depend on how many rings the table can hold.
+  the bound degrades by leaving its later rings out of the table.
+- **Every printed row covers one process's ring over one unbroken stretch**, so a row's `Count`,
+  its `Sum` and its percentiles always describe the same records. A settled ring cannot take
+  more values: `Stats.materialize` raises on one that tries.
+- **The rows can be short of the run**, which the footer note states as a count. `Total` is fed
+  once per record whatever the table holds, so the run's cost stays whole where its detail does
+  not.
+- **`Total` is still a separate accumulator**, fed once per record, so it does not depend on how
+  many rings the table can hold.
 - **Reading a capture back from JSONL gives the same numbers as reading it live**, because the
   replay path keys loss per ring too. A key without an iid could not.
-- **A reused pid still corrupts the fold.** The new key does not fix it: a successor process's
-  much smaller cumulative counters overwrite its predecessor's, so a folded lifetime total can
-  decrease mid-run. ADR-0015 already accepted the related hazard on the monitor side; closing
-  this one needs an epoch on the pid, and is specified separately.
+- **A reused pid still corrupts the lifetime fold.** The new key does not fix it: a successor
+  process's much smaller cumulative counters overwrite its predecessor's, so a folded lifetime
+  total can decrease mid-run. ADR-0015 already accepted the related hazard on the monitor side;
+  closing this one needs an epoch on the pid, and is specified separately. The sampled table is
+  out of its reach, at the price of printing no row for the successor.
 - **A benchmark's metadata keeps its released key names.** They are flat, run-wide scalars,
   which is the scope a benchmark wants and the scope `Total` reports. Per-ring keys would embed
   pids that differ every run.
@@ -121,6 +134,12 @@ written for and the scope `Total` reports.
   everything has one answer. A roll-up over the interpreters of one process does not.
 - **Bound interpreters per process rather than rings overall**, admitting every interpreter of
   an admitted process. Rejected: the footprint then has no bound in the dimension that grows.
+- **Evict the least recently used ring, and let it resume its entry when it comes back.** This
+  is what the branch did first. Rejected on two counts. A resumed row printed `Count` and `Sum`
+  over the ring's whole life beside percentiles covering only the stretch since it returned, and
+  no column said so. And a materialized entry outlives its process, so a reused pid resumed a
+  dead one and added a second process's records to it. Settling on exit costs the LRU policy and
+  buys back an entry that only one process can ever write to.
 
 ## Implementation
 
@@ -128,10 +147,11 @@ written for and the scope `Total` reports.
   active set, and answers both a ring's totals and a fold over them.
 - `src/gcmon/stats_output.py` builds the table's two levels and the footer notes, and owns the
   `PID:IID` spelling.
-- `src/gcmon/monitor.py` passes the iid it already has in hand when recording loss, and holds
-  the advisory's once-per-run latch.
+- `src/gcmon/monitor.py` passes the iid it already has in hand when recording loss, holds the
+  advisory's once-per-run latch, and settles a pid's rings where it already drops that pid's
+  monitor state.
 - `src/gcmon/pyperf/hook.py` keys loss per ring when replaying a capture from JSONL, so the
   offline path reconstructs what the live path recorded.
 - `tests/stats/test_stats_output.py` pins the table's two levels and the footer wording;
-  `tests/stats/test_stats.py` pins the per-ring arithmetic and the eviction round trip;
+  `tests/stats/test_stats.py` pins the per-ring arithmetic, the settling and the bound;
   `tests/test_loss_replay.py` pins that a replayed capture agrees with the live one.

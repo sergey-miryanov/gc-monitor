@@ -79,25 +79,14 @@ class TestStatsMaterialize:
         stats.materialize()
         assert not stats.has_sketch
 
-    def test_update_after_materialize_keeps_the_count_and_the_sum(self, stats_with_data: Stats) -> None:
-        """A ring evicted and seen again resumes this instance, so the two
-        stretches read as one in `Count` and `Sum`."""
+    def test_update_after_materialize_raises(self, stats_with_data: Stats) -> None:
+        """Settling is final. Taking values again would leave `count` and `sum`
+        covering the whole run while the percentiles beside them covered only
+        what followed, and no column says which."""
         stats_with_data.materialize()
-        stats_with_data.update(600.0)
 
-        assert stats_with_data.count() == 6
-        assert stats_with_data.sum() == 2_100.0
-
-    def test_update_after_materialize_restarts_the_percentiles(self, stats_with_data: Stats) -> None:
-        """The settled ones cover the stretch before the eviction, and the
-        counts beside them now cover both."""
-        stats_with_data.materialize()
-        settled = stats_with_data.percentiles
-        assert settled is not None and settled[50] == 300.0
-
-        stats_with_data.update(600.0)
-
-        assert stats_with_data.percentile(50) == 600.0
+        with pytest.raises(RuntimeError):
+            stats_with_data.update(600.0)
 
     def test_materialize_called_twice_is_noop(self, stats_with_data: Stats) -> None:
         stats_with_data.materialize()
@@ -556,53 +545,157 @@ class TestTwoInterpretersOfOnePid:
         assert stats.rings() == {(1, 0), (1, 1)}
 
 
-class TestAnEvictionRoundTrip:
-    """A ring seen again after eviction resumes the entry it left behind.
+class TestAProcessThatExits:
+    """gcmon settles a ring when its process goes, and never before."""
 
-    Starting it blank hid the materialized entry and let `Total` exceed the
-    rows beneath it.
-    """
-
-    def _evicted(self) -> StreamingStats:
-        """Ring (1, 0) with three records, pushed out by a full active set."""
+    def _ran_and_exited(self) -> StreamingStats:
+        """Ring (1, 0) with three records, its process gone."""
         stats = StreamingStats()
         for _ in range(3):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
-        for pid in range(2, StreamingStats.MAX_ACTIVE_RINGS + 2):
-            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.materialize(1)
         return stats
 
-    def test_the_ring_leaves_the_active_set(self) -> None:
-        stats = self._evicted()
+    def test_the_ring_keeps_its_row(self) -> None:
+        stats = self._ran_and_exited()
 
-        assert (1, 0) not in stats._metrics_per_ring
-        assert (1, 0) in stats._materialized_metrics
+        assert stats.rings() == {(1, 0)}
 
-    def test_count_and_sum_cover_both_stretches(self) -> None:
-        stats = self._evicted()
-        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
-        totals = stats.pause_totals(1, 0, 0)
+    def test_the_percentiles_cover_the_whole_life(self) -> None:
+        stats = self._ran_and_exited()
+        ring = stats.get_ring_stats(1, 0)
 
-        assert totals.sampled_count == 4
-        assert totals.sampled_pause_ns == 7_000
+        assert ring is not None
+        assert ring["pause"][0].percentiles == {50: 1_000, 90: 1_000, 95: 1_000, 99: 1_000}
 
-    def test_a_resumed_ring_lives_in_one_dict(self) -> None:
-        stats = self._evicted()
-        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+    def test_count_and_sum_survive(self) -> None:
+        totals = self._ran_and_exited().pause_totals(1, 0, 0)
 
-        assert (1, 0) in stats._metrics_per_ring
-        assert (1, 0) not in stats._materialized_metrics
+        assert (totals.sampled_count, totals.sampled_pause_ns) == (3, 3_000)
 
-    def test_resuming_holds_the_bound(self) -> None:
-        stats = self._evicted()
-        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+    def test_a_running_ring_stays_open(self) -> None:
+        """Only the pid that went is settled."""
+        stats = self._ran_and_exited()
+        stats.update(2, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.update(2, create_mock_stats_item(gen=0, ts_start=0, ts_stop=5_000))
 
-        assert len(stats._metrics_per_ring) == StreamingStats.MAX_ACTIVE_RINGS
+        assert stats.pause_totals(2, 0, 0).sampled_count == 2
 
-    def test_total_equals_the_sum_of_the_rings(self) -> None:
-        stats = self._evicted()
-        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+    def test_retain_settles_the_pids_it_leaves_out(self) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.update(2, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
 
-        rings = sum(stats.pause_totals(pid, iid, 0).sampled_count for pid, iid in stats.rings())
+        stats.retain({2})
 
-        assert rings == stats.pause_totals_by_gen()[0].sampled_count
+        assert stats._live_rings == {(2, 0)}
+
+    def test_every_interpreter_of_the_pid_settles(self) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=1_000))
+        stats.update(1, create_mock_stats_item(iid=1, gen=0, ts_start=0, ts_stop=1_000))
+
+        stats.materialize(1)
+
+        assert stats._live_rings == set()
+
+    def test_the_exit_hands_the_slot_back(self) -> None:
+        """A target that spawns and exits keeps every row it earned. The bound
+        counts the interpreters running, so the dead ones cost no slot."""
+        stats = StreamingStats()
+        for pid in range(StreamingStats.MAX_ACTIVE_RINGS * 2):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+            stats.materialize(pid)
+
+        assert len(stats.rings()) == StreamingStats.MAX_ACTIVE_RINGS * 2
+        assert stats.untracked_rings() == 0
+
+
+class TestTheBoundOnRunningRings:
+    """Rings arriving to a full set get no row, and their records still count."""
+
+    def _full(self) -> StreamingStats:
+        """Every slot taken by a ring still running, then one more ring."""
+        stats = StreamingStats()
+        for pid in range(StreamingStats.MAX_ACTIVE_RINGS):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.update(9_999, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+        return stats
+
+    def test_the_ring_gets_no_row(self) -> None:
+        stats = self._full()
+
+        assert stats.get_ring_stats(9_999, 0) is None
+        assert (9_999, 0) not in stats.rings()
+
+    def test_it_is_counted_as_untracked(self) -> None:
+        assert self._full().untracked_rings() == 1
+
+    def test_a_repeat_record_counts_the_ring_once(self) -> None:
+        stats = self._full()
+        stats.update(9_999, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+
+        assert stats.untracked_rings() == 1
+
+    def test_the_records_reach_the_run_totals(self) -> None:
+        """`Total` is fed once per record whatever the table can hold, so the
+        run's cost is whole even where its detail is not."""
+        totals = self._full().pause_totals_by_gen()[0]
+
+        assert totals.sampled_count == StreamingStats.MAX_ACTIVE_RINGS + 1
+        assert totals.sampled_pause_ns == StreamingStats.MAX_ACTIVE_RINGS * 1_000 + 4_000
+
+    def test_no_row_loses_its_place_to_the_newcomer(self) -> None:
+        stats = self._full()
+
+        assert len(stats.rings()) == StreamingStats.MAX_ACTIVE_RINGS
+
+    def test_a_freed_slot_does_not_open_a_row_halfway_through(self) -> None:
+        """The ring has been running unrecorded, so a row opened now would
+        cover its tail and read as its whole life."""
+        stats = self._full()
+        stats.materialize(0)
+
+        stats.update(9_999, create_mock_stats_item(gen=0, ts_start=0, ts_stop=4_000))
+
+        assert stats.get_ring_stats(9_999, 0) is None
+
+    def test_the_advisory_passes_over_a_ring_with_no_row(self) -> None:
+        """Its sampled count reads zero, which is not what gcmon observed."""
+        stats = self._full()
+        stats.record_loss(9_999, 0, 0, 99, 99_000)
+
+        assert stats.low_coverage(9_999) is None
+
+
+class TestAReusedPid:
+    """A settled entry describes the process that earned it."""
+
+    def _reused(self) -> StreamingStats:
+        """Ring (1, 0) exits, and a successor claims the pid."""
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.materialize(1)
+        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=9_000))
+        return stats
+
+    def test_the_successor_adds_nothing_to_the_row(self) -> None:
+        """Merging two processes into one row was the hazard: the figures read
+        as one interpreter's history and belonged to two."""
+        totals = self._reused().pause_totals(1, 0, 0)
+
+        assert (totals.sampled_count, totals.sampled_pause_ns) == (1, 1_000)
+
+    def test_the_percentiles_stay_settled(self) -> None:
+        ring = self._reused().get_ring_stats(1, 0)
+
+        assert ring is not None
+        assert ring["pause"][0].percentiles == {50: 1_000, 90: 1_000, 95: 1_000, 99: 1_000}
+
+    def test_the_successor_is_counted_as_untracked(self) -> None:
+        assert self._reused().untracked_rings() == 1
+
+    def test_the_successor_reaches_the_run_totals(self) -> None:
+        totals = self._reused().pause_totals_by_gen()[0]
+
+        assert (totals.sampled_count, totals.sampled_pause_ns) == (2, 10_000)

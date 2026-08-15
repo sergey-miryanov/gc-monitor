@@ -153,16 +153,15 @@ class TestStreamingStatsRingTracking:
         assert ring_stats is not None
         assert "pause" in ring_stats
 
-    def test_get_ring_stats_returns_materialized(
+    def test_get_ring_stats_returns_settled(
         self,
         streaming_stats: StreamingStats,
         gc_stats_item_factory: Callable[..., GCStatsInfo],
     ) -> None:
-        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 1):
-            streaming_stats.update(pid, gc_stats_item_factory())
+        streaming_stats.update(12345, gc_stats_item_factory())
+        streaming_stats.materialize(12345)
 
-        old_pid = 0
-        ring_stats = streaming_stats.get_ring_stats(old_pid, 0)
+        ring_stats = streaming_stats.get_ring_stats(12345, 0)
         assert ring_stats is not None
 
     def test_get_ring_stats_missing_returns_none(self, streaming_stats: StreamingStats) -> None:
@@ -249,21 +248,10 @@ class TestStreamingStatsRingTracking:
                     assert one.count() == 1, f"{metric_key} folded both interpreters"
 
 
-class TestStreamingStatsRingEviction:
-    """Tests for StreamingStats ring eviction."""
+class TestStreamingStatsRingBound:
+    """Tests for the bound on rings gcmon holds detailed statistics for."""
 
-    def test_eviction_materializes_old_ring(
-        self,
-        streaming_stats: StreamingStats,
-        gc_stats_item_factory: Callable[..., GCStatsInfo],
-    ) -> None:
-        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 1):
-            streaming_stats.update(pid, gc_stats_item_factory())
-
-        assert (0, 0) not in streaming_stats._metrics_per_ring
-        assert (0, 0) in streaming_stats._materialized_metrics
-
-    def test_eviction_respects_max_active_rings(
+    def test_the_bound_holds(
         self,
         streaming_stats: StreamingStats,
         gc_stats_item_factory: Callable[..., GCStatsInfo],
@@ -271,31 +259,48 @@ class TestStreamingStatsRingEviction:
         for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 10):
             streaming_stats.update(pid, gc_stats_item_factory())
 
-        assert len(streaming_stats._metrics_per_ring) == StreamingStats.MAX_ACTIVE_RINGS
+        assert len(streaming_stats.rings()) == StreamingStats.MAX_ACTIVE_RINGS
+        assert streaming_stats.untracked_rings() == 10
+
+    def test_the_rings_that_arrived_first_keep_their_rows(
+        self,
+        streaming_stats: StreamingStats,
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        """A ring holds its entry for the run once it has one, so no row is
+        left describing part of a stretch."""
+        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 1):
+            streaming_stats.update(pid, gc_stats_item_factory())
+
+        assert (0, 0) in streaming_stats.rings()
+        assert (StreamingStats.MAX_ACTIVE_RINGS, 0) not in streaming_stats.rings()
 
     def test_the_bound_counts_interpreters_rather_than_processes(
         self,
         streaming_stats: StreamingStats,
         gc_stats_item_factory: Callable[..., GCStatsInfo],
     ) -> None:
-        """One process running many interpreters fills the active set the way
-        many processes do."""
+        """One process running many interpreters fills the bound the way many
+        processes do."""
         for iid in range(StreamingStats.MAX_ACTIVE_RINGS + 1):
             streaming_stats.update(12345, gc_stats_item_factory(iid=iid))
 
-        assert len(streaming_stats._metrics_per_ring) == StreamingStats.MAX_ACTIVE_RINGS
-        assert (12345, 0) in streaming_stats._materialized_metrics
+        assert len(streaming_stats.rings()) == StreamingStats.MAX_ACTIVE_RINGS
+        assert streaming_stats.untracked_rings() == 1
 
-    def test_eviction_fifo_order(
+    def test_a_process_that_exits_frees_its_slots(
         self,
         streaming_stats: StreamingStats,
         gc_stats_item_factory: Callable[..., GCStatsInfo],
     ) -> None:
-        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 1):
+        for pid in range(StreamingStats.MAX_ACTIVE_RINGS):
             streaming_stats.update(pid, gc_stats_item_factory())
+        streaming_stats.materialize(0)
 
-        assert (0, 0) not in streaming_stats._metrics_per_ring
-        assert (StreamingStats.MAX_ACTIVE_RINGS, 0) in streaming_stats._metrics_per_ring
+        streaming_stats.update(9_999, gc_stats_item_factory())
+
+        assert (9_999, 0) in streaming_stats.rings()
+        assert streaming_stats.untracked_rings() == 0
 
 
 class TestStreamingStatsReadTime:

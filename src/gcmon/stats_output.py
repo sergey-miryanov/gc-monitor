@@ -263,6 +263,16 @@ def _print_footer(stats: StreamingStats) -> None:
             f"{_plural(interpreters, 'interpreter')} in {_plural(processes, 'process', 'processes')}: {parts}."
         )
 
+    untracked = stats.untracked_rings()
+    if untracked:
+        # The rows are short of the run and a reader adding them up would find
+        # it, so say the count here rather than leave the gap unexplained.
+        notes.append(
+            f"{_plural(untracked, 'ring')} got no row: gcmon was already tracking "
+            f"{StreamingStats.MAX_ACTIVE_RINGS} interpreters, or a pid was reused. Those records are "
+            f"counted in Total."
+        )
+
     if not notes:
         return
 

@@ -658,6 +658,39 @@ class TestTheLifetimeNoteNamesItsFold:
         assert "monitored window included" in capsys.readouterr().out
 
 
+class TestTheNoteOnRingsWithNoRow:
+    """The rows can add up to less than the run, so the footer says by how
+    many rings rather than leaving a reader to find the gap."""
+
+    def _crowded(self, extra: int) -> StreamingStats:
+        stats = StreamingStats()
+        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + extra):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        return stats
+
+    def test_a_run_that_fits_says_nothing(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._crowded(0))
+
+        assert "got no row" not in capsys.readouterr().out
+
+    def test_it_counts_the_rings_left_out(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._crowded(3))
+
+        assert "3 rings got no row" in capsys.readouterr().out
+
+    def test_one_ring_reads_in_the_singular(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._crowded(1))
+
+        assert "1 ring got no row" in capsys.readouterr().out
+
+    def test_it_points_at_total(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Those records are in the run's cost, which is what the note is for:
+        the detail is missing, the arithmetic is not."""
+        print_stats(self._crowded(1))
+
+        assert "counted in Total" in capsys.readouterr().out
+
+
 POINTER = "Run with --stats for the per-generation breakdown."
 
 _COUNTS = re.compile(r"^Total events: (\d+) \(\+(\d+) reconstructed, ([\d.]+)% observed\)$")
