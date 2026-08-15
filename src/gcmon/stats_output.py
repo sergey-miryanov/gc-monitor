@@ -1,6 +1,7 @@
 """Statistics output formatting for GC monitoring."""
 
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from .data import dur_to_ms
@@ -141,6 +142,25 @@ def _coverage_cell(coverage: float, lost: int) -> str:
 def _factor_cell(factor: float, lost: int) -> str:
     cell = f"{factor:.3f}"
     return ">1.000" if lost and cell == "1.000" else cell
+
+
+def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bool = False) -> list[str]:
+    """Summary lines for monitoring commands."""
+    sampled = stats.count()
+    lost = sum(totals.lost_count for totals in stats.pause_totals_by_gen().values())
+
+    lines = ["Monitoring complete."]
+    if lost:
+        observed = _coverage_cell(sampled / (sampled + lost), lost)
+        lines.append(f"Total events: {sampled} (+{lost} reconstructed, {observed} observed)")
+        if not show_stats:
+            lines.append("Run with --stats for the per-generation breakdown.")
+    else:
+        lines.append(f"Total events: {sampled}")
+
+    if trace_path is not None:
+        lines.append(f"Trace saved to: {trace_path}")
+    return lines
 
 
 def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.PLAIN) -> None:

@@ -1,12 +1,14 @@
 """Tests for stats_output module."""
 
+import re
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
 from gcmon.data import GCStatsInfo
 from gcmon.stats import Stats, StreamingStats
-from gcmon.stats_output import TableFormat, _build_rows, _print_table, print_stats
+from gcmon.stats_output import TableFormat, _build_rows, _print_table, print_stats, summary_lines
 from tests.helpers import create_mock_stats_item
 
 
@@ -474,3 +476,115 @@ class TestTheFooterNotesAreNumbered:
         print_stats(stats)
 
         assert self._notes(capsys.readouterr().out) == []
+
+
+POINTER = "Run with --stats for the per-generation breakdown."
+
+_COUNTS = re.compile(r"^Total events: (\d+) \(\+(\d+) reconstructed, ([\d.]+)% observed\)$")
+
+
+def read_counts(lines: list[str]) -> tuple[int, int, float]:
+    """The three numbers the summary printed, read back off the page.
+
+    Reading them back beats asserting a literal string: a summary quoting the
+    sampled count in both positions satisfies a literal and tells an operator
+    nothing.
+    """
+    match = next(m for m in (_COUNTS.match(line) for line in lines) if m is not None)
+    return int(match[1]), int(match[2]), float(match[3])
+
+
+class TestSummaryLines:
+    """What every run says about its own capture, `--stats` or not.
+
+    The table is the breakdown; these lines are what an operator who asked for
+    nothing still reads, so the count cannot stand there unqualified.
+    """
+
+    def _run(self, sampled: int, lost: int = 0) -> StreamingStats:
+        stats = StreamingStats()
+        for _ in range(sampled):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        if lost:
+            stats.record_loss(1, 0, lost, lost * 1_000_000)
+        return stats
+
+    def test_a_lossless_run_says_only_what_it_read(self) -> None:
+        """Today's three lines to the byte, so no scripted run or CI log
+        reading them has to change."""
+        assert summary_lines(self._run(1234), Path("trace.pftrace")) == [
+            "Monitoring complete.",
+            "Total events: 1234",
+            "Trace saved to: trace.pftrace",
+        ]
+
+    def test_a_stdout_trace_names_no_file(self) -> None:
+        """`--format stdout` writes the trace to stdout, so there is no path
+        to name and the caller passes none."""
+        assert summary_lines(self._run(3), None) == [
+            "Monitoring complete.",
+            "Total events: 3",
+        ]
+
+    def test_a_lossy_run_says_what_the_count_is_a_share_of(self) -> None:
+        assert summary_lines(self._run(1234, lost=8566), Path("trace.pftrace")) == [
+            "Monitoring complete.",
+            "Total events: 1234 (+8566 reconstructed, 12.6% observed)",
+            POINTER,
+            "Trace saved to: trace.pftrace",
+        ]
+
+    def test_the_printed_numbers_come_from_the_stats(self) -> None:
+        stats = self._run(1234, lost=8566)
+        totals = stats.pause_totals_by_gen()[0]
+
+        sampled, reconstructed, _observed = read_counts(summary_lines(stats, None))
+
+        assert sampled == stats.count()
+        assert reconstructed == totals.lost_count
+
+    def test_the_percentage_divides_the_two_numbers_beside_it(self) -> None:
+        """A reader who does the arithmetic on the page gets the figure on the
+        page. It may sit a fraction off the `Cov` column, which counts only
+        records carrying a pause, but it cannot contradict its own line."""
+        sampled, reconstructed, observed = read_counts(summary_lines(self._run(1234, lost=8566), None))
+
+        assert observed == pytest.approx(100 * sampled / (sampled + reconstructed), abs=0.05)
+
+    def test_it_counts_the_loss_of_every_generation_and_pid(self) -> None:
+        """`Total events` counts every record of every pid, so the number
+        beside it has to cover the same ground."""
+        stats = self._run(10)
+        stats.record_loss(1, 1, 5, 5_000_000)
+        stats.record_loss(2, 0, 5, 5_000_000)
+
+        _sampled, reconstructed, observed = read_counts(summary_lines(stats, None))
+
+        assert reconstructed == 10
+        assert observed == pytest.approx(50.0)
+
+    def test_a_gap_too_small_to_show_still_says_so(self) -> None:
+        """2000 read of 2001 rounds to 100.0%, on a line showing one
+        reconstructed. `Cov` has the same problem and the same answer."""
+        assert "Total events: 2000 (+1 reconstructed, <100.0% observed)" in summary_lines(self._run(2000, lost=1), None)
+
+    def test_the_pointer_appears_once_and_only_when_qualified(self) -> None:
+        """It points at the breakdown of a figure the line above it just
+        raised. A run with nothing to break down has nothing to point at."""
+        assert summary_lines(self._run(3, lost=7), Path("trace.pftrace")).count(POINTER) == 1
+        assert POINTER not in summary_lines(self._run(3), Path("trace.pftrace"))
+
+    def test_a_run_that_asked_for_the_table_is_not_sent_for_it(self) -> None:
+        """`--stats` prints the breakdown two lines further down, so pointing
+        the reader at it there would be pointing at the next paragraph."""
+        lines = summary_lines(self._run(3, lost=7), Path("trace.pftrace"), show_stats=True)
+
+        assert POINTER not in lines
+        assert "Total events: 3 (+7 reconstructed, 30.0% observed)" in lines
+
+    def test_it_prints_nothing_itself(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """`--format stdout` puts the JSONL trace on stdout, so a summary that
+        printed would land in the middle of the stream."""
+        summary_lines(self._run(3, lost=7), None)
+
+        assert capsys.readouterr().out == ""

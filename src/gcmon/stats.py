@@ -1,5 +1,4 @@
-import logging
-from collections import Counter, OrderedDict, deque
+from collections import OrderedDict, deque
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -25,11 +24,6 @@ from .protocol import (
     has_mark_alive,
     has_pause_ts,
 )
-
-logger = logging.getLogger("gcmon")
-
-# The interpreter CPython creates at startup, and the last one it tears down.
-MAIN_INTERPRETER = 0
 
 
 def get_quantile_value(buffer: Sequence[float], q: int) -> float:
@@ -360,9 +354,6 @@ class StreamingStats:
         # themselves stay in the monitor. Nothing prunes a dead pid.
         self._loss: dict[LossKey, LossTotals] = {}
         self._lifetime: dict[LifetimeKey, LifetimeTotals] = {}
-        # Slots per ring, keyed by generation.
-        self._ring_size: dict[int, int] = {}
-        self._coverage_warned = False
 
     def update(self, pid: int, item: TGCStatsInfo) -> None:
         self._count += 1
@@ -390,45 +381,20 @@ class StreamingStats:
     def record_read_time(self, duration_ns: int) -> None:
         self._read_time.update(duration_ns)
 
-    def record_ring_geometry(self, events: Sequence[TGCStatsInfo]) -> None:
-        """Count the slots each generation's ring holds, once for the run.
-
-        A target runs the monitor's own Python build, so one answer covers
-        every interpreter of every pid. A poll that returned nothing leaves
-        the dict empty and the next one tries again.
-        """
-        if self._ring_size:
-            return
-
-        # The main interpreter answers for all of them, since it outlives every
-        # subinterpreter and shares their geometry.
-        self._ring_size = Counter(event.gen for event in events if event.iid == MAIN_INTERPRETER)
-
-    def _ring_size_for(self, gen: int) -> int:
-        """Records the *gen* ring holds, or 0 before any poll reported it."""
-        return self._ring_size.get(gen, 0)
-
     def record_loss(self, pid: int, gen: int, lost_count: int, lost_pause_ns: int) -> None:
         """Record one interval's worth of records gcmon did not read."""
         self._loss.setdefault((pid, gen), LossTotals()).add(lost_count, lost_pause_ns)
 
-    def check_coverage_advisory(self, pid: int) -> None:
-        """Warn once if *pid* is reading too little of its target to trust.
+    def low_coverage(self, pid: int) -> tuple[int, float] | None:
+        """The first generation of *pid* below `COVERAGE_ADVISORY`, and its
+        coverage. ``None`` on a healthy run.
 
-        Call it after a poll folds both its loss and its records. `_ingest`
-        records loss for every key before it updates any of them, so the same
-        check inside `record_loss` would divide that poll's gap into the
-        sample as it stood before the poll: two polls of 2 then 100 records
-        with one lost warned "only 67%" of a run that ended at 99%.
+        Idempotent: the caller owns the warn-once latch and the wording.
 
-        Every poll of every pid runs this, and a healthy run never fires it,
-        so it reads the two counts coverage needs rather than a whole
-        `PauseTotals`. Loss comes first: one lookup, and a generation that
-        lost nothing cannot be under-covered.
+        Every poll of every pid asks, so it reads the two counts coverage needs
+        rather than building a `PauseTotals`. Loss comes first: one lookup, and
+        a generation that lost nothing cannot be under-covered.
         """
-        if self._coverage_warned:
-            return
-
         for gen in self.GENS:
             lost = self._loss.get((pid, gen))
             if lost is None or not lost.count:
@@ -436,22 +402,9 @@ class StreamingStats:
             # Something was lost, so the denominator cannot be zero.
             sampled = self._sampled(pid, gen).count()
             coverage = sampled / (sampled + lost.count)
-            if coverage >= self.COVERAGE_ADVISORY:
-                continue
-            self._coverage_warned = True
-            size = self._ring_size_for(gen)
-            logger.warning(
-                "PID %s generation %s: only %.0f%% of collections observed. The ring buffer CPython "
-                "exports holds %s record%s, so a target that runs collections more often than gcmon "
-                "polls overwrites records before they can be read. Counts and sums below are "
-                "reconstructed and exact; percentiles cover only what was sampled and read high.",
-                pid,
-                gen,
-                coverage * 100,
-                size,
-                "" if size == 1 else "s",
-            )
-            return
+            if coverage < self.COVERAGE_ADVISORY:
+                return gen, coverage
+        return None
 
     def record_lifetime(self, pid: int, iid: int, gen: int, collections: int, duration_s: float) -> None:
         """Record one ring's totals since its interpreter started.

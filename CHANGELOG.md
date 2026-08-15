@@ -2,6 +2,10 @@
 
 ## WIP
 
+### Features
+
+- Minor tweaks to summary and warning messages when events are lost
+
 ## Version 0.5.0 (2026-08-14)
 
 ### Breaking changes

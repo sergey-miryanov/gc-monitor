@@ -23,7 +23,6 @@ spec here contradicts an ADR, one of the two is wrong and it is usually the spec
 | [0031](0031-readme-output-example-is-labelled-chrome-only.md) | Bug — cosmetic | XS | The README's only trace example is headed "Chrome Trace Output" and captioned as the Perfetto UI |
 | [0033](0033-loss-counter-track.md) | Feature — enhancement | S | The loss row shows where gcmon was blind but not how much was lost; a bar losing 1 record looks like one losing 40 |
 | [0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) | **Superseded** | S | Loss spans reached back across a collection gcmon watched start. ADR-0015's rewrite moved the edge to the poll instant, which is later still |
-| [0035](0035-end-of-run-summary-says-what-the-capture-is-worth.md) | Bug — reporting | S | Every run ends with `Total events: 1234` and no hint that 1234 is what gcmon sampled, not what the target collected |
 | [0036](0036-statistics-report-the-ring-not-the-process.md) | Bug — correctness | L | The trace draws a row per interpreter; `--stats` folds them into one, so a `P99` describes no interpreter and a starved one hides behind a busy one |
 
 **Suggested order:** 0025 (the only outage, and it is one word) → 0026 (smallest user-visible
