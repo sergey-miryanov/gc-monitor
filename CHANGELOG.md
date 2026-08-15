@@ -10,6 +10,7 @@
 ### Features
 
 - Minor tweaks to summary and warning messages when events are lost
+- The lifetime note under the `--stats` table names the fold it prints: `summed over 3 interpreters in 2 processes`
 
 ### Bugfixes
 

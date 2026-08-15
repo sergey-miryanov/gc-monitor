@@ -128,6 +128,13 @@ def _build_rows(
     return rows
 
 
+def _plural(count: int, noun: str, plural: str | None = None) -> str:
+    """``1 interpreter``, ``3 interpreters``."""
+    if count == 1:
+        return f"{count} {noun}"
+    return f"{count} {plural or noun + 's'}"
+
+
 def _coverage_cell(coverage: float, lost: int) -> str:
     """``Cov`` must never round to a figure the cells beside it contradict.
 
@@ -243,10 +250,18 @@ def _print_footer(stats: StreamingStats) -> None:
         parts = ", ".join(
             f"Gen{gen} {totals.collections} in {dur_to_ms(totals.pause_ns):.3f} ms" for gen, totals in lifetime
         )
-        # "Since interpreter start" covers the monitored window rather than
+        interpreters, processes = stats.lifetime_scope()
+        # One line per generation whatever the size of the tree, naming what
+        # it summed over: interpreters start at different moments, and a
+        # reused pid folds two processes into one figure.
+        #
+        # "monitored window included" covers that window rather than
         # excluding it, so the note must not read as a figure to add to
         # `Count`. `lifetime_count` is the target's own cumulative counter.
-        notes.append(f"Since interpreter start, monitored window included: {parts}.")
+        notes.append(
+            f"Since each interpreter started, monitored window included, summed over "
+            f"{_plural(interpreters, 'interpreter')} in {_plural(processes, 'process', 'processes')}: {parts}."
+        )
 
     if not notes:
         return

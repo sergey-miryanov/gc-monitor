@@ -61,10 +61,15 @@ three intervals:
 - **Exact, over the observed span**: every GC run between the first and last
   record gcmon saw, including those whose records never reached it. `Count` and
   `Sum` report this, reconstructed from the target's cumulative counters.
-- **Lifetime**: everything the interpreter has collected since it started,
-  monitored window included. It appears in the footer under the table, and as
-  `pause_gen_N_lifetime_*` in [pyperf metadata](pyperf.md). It overlaps the
-  other two rather than extending them, so it stays out of `Cov` and `F`.
+- **Lifetime totals**: everything an interpreter has collected since it
+  started, monitored window included. They appear in the footer under the
+  table, and as `pause_gen_N_lifetime_*` in [pyperf metadata](pyperf.md). They
+  overlap the other two rather than extending them, so they stay out of `Cov`
+  and `F`.
+
+Always write the qualifier: bare *lifetime* means a process's span on the
+`Processes` track ([ADR-0011](adr/0011-process-lifetime-and-ordering.md)),
+which is a wall-clock interval rather than a count of collections.
 
 The observed span starts at the first record gcmon read. gcmon cannot tell "ran
 before we attached" from "lost", so an earlier run falls outside the span and
@@ -140,17 +145,19 @@ lone note still reads `1.`.
 1. Coverage: Gen0 20.0%, Gen1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
 ```
 
-The `Cov` column gathered across every PID, plus the rule for reading the
-two-number cells. It appears whenever anything was lost, listing only the
-generations that lost something.
+The `Cov` column gathered across every ring, which is the scope `Total`
+reports, plus the rule for reading the two-number cells. It appears whenever
+anything was lost, listing only the generations that lost something.
 
 **2. Lifetime totals.**
 
 ```
-2. Since interpreter start, monitored window included: Gen0 4820 in 6231.400 ms.
+2. Since each interpreter started, monitored window included, summed over 3 interpreters in 2 processes: Gen0 4820 in 6231.400 ms.
 ```
 
-The third interval above. It changes no cell in the table.
+The third interval above. It changes no cell in the table. The counts say what
+the figure folded: three interpreters that started at different moments, in two
+processes. A run watching one interpreter reads `1 interpreter in 1 process`.
 
 ## Without `[stats]` extra
 

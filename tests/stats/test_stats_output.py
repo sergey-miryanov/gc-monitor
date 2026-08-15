@@ -480,7 +480,7 @@ class TestLossColumns:
         print_stats(stats)
         out = capsys.readouterr().out
 
-        assert "Since interpreter start" in out
+        assert "Since each interpreter started" in out
         assert "Gen0 5000" in out
 
     def test_read_time_leaves_cov_and_f_blank(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -553,7 +553,7 @@ class TestTheFooterNotesAreNumbered:
 
         assert [note.split(".", 1)[0] for note in notes] == ["1", "2"]
         assert "Coverage:" in notes[0]
-        assert "Since interpreter start" in notes[1]
+        assert "Since each interpreter started" in notes[1]
 
     def test_a_lone_note_is_still_numbered(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Numbering that appeared only above some threshold would make the
@@ -577,6 +577,52 @@ class TestTheFooterNotesAreNumbered:
         print_stats(stats)
 
         assert self._notes(capsys.readouterr().out) == []
+
+
+class TestTheLifetimeNoteNamesItsFold:
+    """One line per generation whatever the size of the tree, stating what it
+    summed over: interpreters start at different moments, and a reused pid
+    folds two processes into one figure.
+    """
+
+    _SCOPE = re.compile(r"summed over (\d+) interpreters? in (\d+) process(?:es)?")
+
+    def _scope(self, out: str) -> tuple[int, int]:
+        """The two counts the note printed, read back off the page."""
+        match = self._SCOPE.search(out)
+        assert match is not None, out
+        return int(match[1]), int(match[2])
+
+    def _stats(self, rings: list[tuple[int, int]]) -> StreamingStats:
+        stats = StreamingStats()
+        for pid, iid in rings:
+            stats.update(pid, create_mock_stats_item(iid=iid, gen=0, ts_start=0, ts_stop=1_000_000))
+            stats.record_lifetime(pid, iid, 0, 500, 0.5)
+        return stats
+
+    def test_the_counts_are_the_ones_it_summed(self, capsys: pytest.CaptureFixture[str]) -> None:
+        stats = self._stats([(1, 0), (1, 1), (2, 0)])
+
+        print_stats(stats)
+
+        assert self._scope(capsys.readouterr().out) == stats.lifetime_scope() == (3, 2)
+
+    def test_an_ordinary_run_reads_in_the_singular(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._stats([(1, 0)]))
+
+        assert "summed over 1 interpreter in 1 process:" in capsys.readouterr().out
+
+    def test_the_figure_beside_the_counts_is_the_fold(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._stats([(1, 0), (1, 1), (2, 0)]))
+
+        assert "Gen0 1500 in 1500.000 ms" in capsys.readouterr().out
+
+    def test_it_still_says_the_window_is_included(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """The interval overlaps the monitored window rather than extending
+        it, so the note must not read as a figure to add to `Count`."""
+        print_stats(self._stats([(1, 0)]))
+
+        assert "monitored window included" in capsys.readouterr().out
 
 
 POINTER = "Run with --stats for the per-generation breakdown."

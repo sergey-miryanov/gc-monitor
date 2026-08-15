@@ -488,6 +488,16 @@ class StreamingStats:
             )
         return by_gen
 
+    def lifetime_scope(self) -> tuple[int, int]:
+        """How many interpreters, in how many processes, the lifetime fold
+        covers.
+
+        The footnote states both, so a reader can tell one interpreter's own
+        history from a sum over five that started at different moments.
+        """
+        interpreters = {(pid, iid) for (pid, iid, _gen), totals in self._lifetime.items() if totals.collections}
+        return len(interpreters), len({pid for pid, _iid in interpreters})
+
     def lifetime_totals_by_gen(self) -> dict[int, LifetimeTotals]:
         """Fold every ring's lifetime totals into a per-gen one, single pass."""
         by_gen: dict[int, LifetimeTotals] = {}
