@@ -201,9 +201,9 @@ class TestPrintStatsEdgeCases:
 
         print_stats(stats)
         captured = capsys.readouterr()
-        pid_11111_pos = captured.out.find("11111")
-        pid_22222_pos = captured.out.find("22222")
-        pid_33333_pos = captured.out.find("33333")
+        pid_11111_pos = captured.out.find("11111:0")
+        pid_22222_pos = captured.out.find("22222:0")
+        pid_33333_pos = captured.out.find("33333:0")
         assert pid_11111_pos < pid_22222_pos < pid_33333_pos
 
     def test_total_label_first_metric(
@@ -319,6 +319,107 @@ class TestPrintStatsEdgeCases:
         assert len(lines) >= 2
         assert lines[0].startswith("|")
         assert lines[1].startswith("|")
+
+
+def table_rows(out: str) -> list[list[str]]:
+    """Every row of the printed table, header first, cells stripped.
+
+    A separator carries no letters or digits, which is what tells it from a
+    row whose first cell is empty.
+    """
+    rows = []
+    for line in out.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if any(char.isalnum() for cell in cells for char in cell):
+            rows.append(cells)
+    return rows
+
+
+class TestTheTablePrintsRings:
+    """One block per `(pid, iid)`, under a `Total` block for the run.
+
+    The per-process block went with them: its rows blended interpreters the
+    trace keeps apart.
+    """
+
+    def _one_interpreter(self) -> StreamingStats:
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(12345, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=1_000_000))
+        return stats
+
+    def _two_interpreters(self) -> StreamingStats:
+        """Same pid, different pause distributions: 1 ms against 20 ms."""
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(12345, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=1_000_000))
+            stats.update(12345, create_mock_stats_item(iid=1, gen=0, ts_start=0, ts_stop=20_000_000))
+        return stats
+
+    def test_the_header_names_both_fields(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._one_interpreter())
+
+        assert table_rows(capsys.readouterr().out)[0][0] == "PID:IID"
+
+    def test_an_ordinary_run_still_carries_its_iid(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """`12345:0` on a single-interpreter run as much as on a tree."""
+        print_stats(self._one_interpreter())
+        labels = [row[0] for row in table_rows(capsys.readouterr().out)]
+
+        assert "12345:0" in labels
+        assert "12345" not in labels
+
+    def test_only_the_first_column_moves(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """The regression guard: one interpreter of one pid is the whole run,
+        so its row and `Total` still agree cell for cell."""
+        print_stats(self._one_interpreter())
+        rows = table_rows(capsys.readouterr().out)
+
+        total = next(row for row in rows if row[0] == "Total")
+        ring = next(row for row in rows if row[0] == "12345:0")
+
+        assert total[1:] == ring[1:]
+
+    def test_two_interpreters_print_two_rows(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._two_interpreters())
+        labels = [row[0] for row in table_rows(capsys.readouterr().out)]
+
+        assert labels.count("12345:0") == 1
+        assert labels.count("12345:1") == 1
+
+    def test_each_ring_row_keeps_its_own_distribution(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A `P99` over both would describe neither interpreter."""
+        print_stats(self._two_interpreters())
+        rows = table_rows(capsys.readouterr().out)
+
+        p99 = {row[0]: row[8] for row in rows if row[0] in ("Total", "12345:0", "12345:1")}
+        p50 = {row[0]: row[5] for row in rows if row[0] in ("Total", "12345:0", "12345:1")}
+
+        assert p99["12345:0"] == "1.000"
+        assert p99["12345:1"] == "20.000"
+        # The blend sits between the two, describing neither.
+        assert p50["Total"] not in (p50["12345:0"], p50["12345:1"])
+
+    def test_rings_sort_by_pid_then_interpreter(self, capsys: pytest.CaptureFixture[str]) -> None:
+        stats = StreamingStats()
+        for pid, iid in ((22222, 1), (12345, 1), (22222, 0), (12345, 0)):
+            stats.update(pid, create_mock_stats_item(iid=iid, gen=0, ts_start=0, ts_stop=1_000_000))
+
+        print_stats(stats)
+        labels = [row[0] for row in table_rows(capsys.readouterr().out)[1:] if ":" in row[0]]
+
+        assert labels == ["12345:0", "12345:1", "22222:0", "22222:1"]
+
+    def test_read_time_belongs_to_no_ring(self, capsys: pytest.CaptureFixture[str]) -> None:
+        stats = self._one_interpreter()
+        stats.record_read_time(500_000)
+
+        print_stats(stats)
+        read_time = next(row for row in table_rows(capsys.readouterr().out) if row[1] == "Read Time")
+
+        assert read_time[0] == ""
 
 
 class TestLossColumns:

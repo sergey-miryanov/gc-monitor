@@ -2,6 +2,10 @@
 
 ## WIP
 
+### Breaking changes
+
+- The `--stats` table reports one block per interpreter instead of one per process: the first column is headed `PID:IID` and every row carries both parts, `12345:0` on a single-interpreter run included. `Total` is unchanged, and is now the only row that blends interpreters
+
 ### Features
 
 - Minor tweaks to summary and warning messages when events are lost

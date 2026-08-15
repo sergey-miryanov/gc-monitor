@@ -20,7 +20,7 @@ def _print_table(rows: list[list[str] | Any], table_format: TableFormat = TableF
     if not rows:
         return
 
-    headers = ["PID", "Metric", "Count", "Sum", "Avg", "P50", "P90", "P95", "P99", "Cov", "F"]
+    headers = ["PID:IID", "Metric", "Count", "Sum", "Avg", "P50", "P90", "P95", "P99", "Cov", "F"]
     data = [r for r in rows if r is not _SEP_GROUP and r is not _SEP_PHASE]
     w_type = max(len(h) for h in [headers[0]] + [r[0] for r in data])
     w_metric = max(len(h) for h in [headers[1]] + [r[1] for r in data])
@@ -164,6 +164,12 @@ def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bo
 
 
 def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.PLAIN) -> None:
+    """Two levels: the run, then one block per ring.
+
+    Rings sort by `(pid, iid)`, so a process's interpreters stay adjacent and
+    in interpreter order. `Read Time` is monitor-side and belongs to no ring,
+    so its first cell stays empty.
+    """
     all_rows: list[list[str] | Any] = []
 
     totals = stats.pause_totals_by_gen()
@@ -194,7 +200,10 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
                 if has_rows:
                     all_rows.append(_SEP_PHASE)
                 for row in rows:
-                    all_rows.append([str(pid) if first else "", *row])
+                    # Both parts on every ring row, `12345:0` on an ordinary
+                    # single-interpreter run too: dropping the `:0` would
+                    # leave a header naming two fields over cells holding one.
+                    all_rows.append([f"{pid}:{iid}" if first else "", *row])
                     first = False
                 has_rows = True
 

@@ -2,7 +2,7 @@
 
 Use `--stats` to display a statistics table at the end of monitoring. The table
 reports GC pause durations (p50, p90, p95, p99) and counts per generation, with
-one row per monitored process plus an overall Total row.
+one block per interpreter plus an overall Total block for the run.
 
 Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this
 long), **Sum divided by the monitoring wall time gives the share of the
@@ -23,26 +23,32 @@ are sampling at roughly half the rate you asked for, for the reason given in
 ```bash
 $ gcmon 12345 --stats --table-format md
 
-| PID   | Metric                   |   Count |             Sum |    Avg |    P50 |    P90 |    P95 |    P99 |    Cov |      F |
-|-------|--------------------------|---------|-----------------|--------|--------|--------|--------|--------|--------|--------|
-| Total | GC Pause(0)              |  42/210 |  55.795/240.595 |  1.328 |  1.323 |  1.922 |  2.304 |  2.373 |  20.0% |  4.312 |
-|       | GC Pause(1)              |   18/25 | 116.416/154.216 |  6.468 |  7.026 |  8.468 |  8.890 |  9.655 |  72.0% |  1.325 |
-|       | GC Pause(2)              |       5 |         167.709 | 33.542 | 38.937 | 42.645 | 43.270 | 43.770 | 100.0% |  1.000 |
-|       |                          |         |                 |        |        |        |        |        |        |        |
-|       | GC Deduce Unreachable(0) | 42/~210 | 37.197/~160.397 |  0.886 |  0.882 |  1.281 |  1.536 |  1.582 |  20.0% |  4.312 |
-|       | GC Deduce Unreachable(1) |  18/~25 | 77.611/~102.811 |  4.312 |  4.684 |  5.645 |  5.927 |  6.437 |  72.0% |  1.325 |
-|       | GC Deduce Unreachable(2) |       5 |         111.806 | 22.361 | 25.958 | 28.430 | 28.846 | 29.180 | 100.0% |  1.000 |
-|       |                          |         |                 |        |        |        |        |        |        |        |
-| 12345 | GC Pause(0)              |  42/210 |  55.795/240.595 |  1.328 |  1.323 |  1.922 |  2.304 |  2.373 |  20.0% |  4.312 |
-|       | GC Pause(1)              |   18/25 | 116.416/154.216 |  6.468 |  7.026 |  8.468 |  8.890 |  9.655 |  72.0% |  1.325 |
-|       | GC Pause(2)              |       5 |         167.709 | 33.542 | 38.937 | 42.645 | 43.270 | 43.770 | 100.0% |  1.000 |
-|       |                          |         |                 |        |        |        |        |        |        |        |
-|       | Read Time                |     300 |         750.000 |  2.500 |  2.400 |  3.100 |  3.600 |  5.200 |        |        |
+| PID:IID | Metric                   |   Count |             Sum |    Avg |    P50 |    P90 |    P95 |    P99 |    Cov |      F |
+|---------|--------------------------|---------|-----------------|--------|--------|--------|--------|--------|--------|--------|
+| Total   | GC Pause(0)              |  42/210 |  55.795/240.595 |  1.328 |  1.323 |  1.922 |  2.304 |  2.373 |  20.0% |  4.312 |
+|         | GC Pause(1)              |   18/25 | 116.416/154.216 |  6.468 |  7.026 |  8.468 |  8.890 |  9.655 |  72.0% |  1.325 |
+|         | GC Pause(2)              |       5 |         167.709 | 33.542 | 38.937 | 42.645 | 43.270 | 43.770 | 100.0% |  1.000 |
+|         |                          |         |                 |        |        |        |        |        |        |        |
+|         | GC Deduce Unreachable(0) | 42/~210 | 37.197/~160.397 |  0.886 |  0.882 |  1.281 |  1.536 |  1.582 |  20.0% |  4.312 |
+|         | GC Deduce Unreachable(1) |  18/~25 | 77.611/~102.811 |  4.312 |  4.684 |  5.645 |  5.927 |  6.437 |  72.0% |  1.325 |
+|         | GC Deduce Unreachable(2) |       5 |         111.806 | 22.361 | 25.958 | 28.430 | 28.846 | 29.180 | 100.0% |  1.000 |
+|         |                          |         |                 |        |        |        |        |        |        |        |
+| 12345:0 | GC Pause(0)              |  42/210 |  55.795/240.595 |  1.328 |  1.323 |  1.922 |  2.304 |  2.373 |  20.0% |  4.312 |
+|         | GC Pause(1)              |   18/25 | 116.416/154.216 |  6.468 |  7.026 |  8.468 |  8.890 |  9.655 |  72.0% |  1.325 |
+|         | GC Pause(2)              |       5 |         167.709 | 33.542 | 38.937 | 42.645 | 43.270 | 43.770 | 100.0% |  1.000 |
+|         |                          |         |                 |        |        |        |        |        |        |        |
+|         | Read Time                |     300 |         750.000 |  2.500 |  2.400 |  3.100 |  3.600 |  5.200 |        |        |
 
 1. Coverage: Gen0 20.0%, Gen1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
 ```
 
 *Values in milliseconds, per GC generation (0, 1, 2).*
+
+The first column reads `PID:IID`: the process, then the interpreter inside it.
+A target running sub-interpreters prints `12345:0`, `12345:1` and so on, each
+describing that interpreter alone, and `Total` is the one row that folds them
+together. Every process carries an interpreter 0, so an ordinary run reads
+`12345:0` rather than `12345`.
 
 ## Three intervals, and which one a cell reports
 
@@ -106,6 +112,10 @@ happened, and the difference skews one way. A long run delays the next one, so
 its record sits in the ring slot for longer and is likelier to survive until the
 next poll. Long pauses are over-represented among the survivors, so **the
 reported percentiles read high**, the more so the lower `Cov` is.
+
+`Total`'s percentiles carry a second qualification: they are quantiles of a
+mixture, over every interpreter and every process the run watched. The ring
+rows below keep those apart, so read the shape off one of them.
 
 `F` does not fix this. It is a ratio of two totals, so applying it to a quantile
 would assume the sampled and unsampled pauses share a shape, which is what the
