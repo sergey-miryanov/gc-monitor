@@ -419,27 +419,32 @@ class StreamingStats:
         self._loss.setdefault((pid, iid, gen), LossTotals()).add(lost_count, lost_pause_ns)
 
     def low_coverage(self, pid: int) -> tuple[int, int, float] | None:
-        """The first ring of *pid* under `COVERAGE_ADVISORY`, as its
-        interpreter, its generation and its coverage. ``None`` on a healthy
-        run.
+        """The least covered ring of *pid* when it sits under
+        `COVERAGE_ADVISORY`, as its interpreter, its generation and its
+        coverage. ``None`` on a healthy run.
 
         Idempotent: the caller owns the warn-once latch and the wording.
 
+        The worst rather than the first the scan reaches, because the caller
+        says it once: a marginal 87% would otherwise stand for a capture
+        holding an interpreter at 5%. The latch still keeps whichever answer
+        came first in time, so a ring that collapses after the warning fires
+        goes unnamed either way.
+
         Every poll of every pid asks, so it reads the two counts coverage
-        needs rather than building a `PauseTotals`. Loss leads: one lookup,
-        and a ring that lost nothing cannot be under-covered. "First" is the
-        order the rings started losing in, which is the order they entered
-        the dict.
+        needs rather than building a `PauseTotals`. Loss leads: a ring that
+        lost nothing cannot be under-covered.
         """
+        worst: tuple[int, int, float] | None = None
         for (loss_pid, iid, gen), lost in self._loss.items():
             if loss_pid != pid or not lost.count:
                 continue
             # Something was lost, so the denominator cannot be zero.
             sampled = self._sampled(pid, iid, gen).count()
             coverage = sampled / (sampled + lost.count)
-            if coverage < self.COVERAGE_ADVISORY:
-                return iid, gen, coverage
-        return None
+            if coverage < self.COVERAGE_ADVISORY and (worst is None or coverage < worst[2]):
+                worst = (iid, gen, coverage)
+        return worst
 
     def record_lifetime(self, pid: int, iid: int, gen: int, collections: int, duration_s: float) -> None:
         """Record one ring's totals since its interpreter started.

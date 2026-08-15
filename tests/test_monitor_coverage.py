@@ -137,6 +137,17 @@ class TestCoverageWarning:
         assert blended.coverage > 0.9, "the process-wide figure has to clear the floor"
         assert f"PID {PID} interpreter 1 generation 0: only 20% {ADVISORY}" in caplog.text
 
+    def test_it_names_the_worst_interpreter_of_the_two_under_the_floor(
+        self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Interpreter 0 reads 88 of 100, interpreter 1 two of twenty. One
+        warning per run, so it goes to the one worth reading."""
+        poll_rings(monitor, PID, ring(range(1, 88), iid=0) + ring([1], iid=1))
+        poll_rings(monitor, PID, ring([100], iid=0) + ring([20], iid=1))
+
+        assert f"PID {PID} interpreter 1 generation 0: only 10% {ADVISORY}" in caplog.text
+        assert "interpreter 0" not in caplog.text
+
     def test_this_polls_own_records_count_before_it_fires(
         self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture
     ) -> None:

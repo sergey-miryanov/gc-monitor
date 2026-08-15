@@ -408,6 +408,32 @@ class TestLowCoverage:
         assert (iid, gen) == (1, 0)
         assert coverage == pytest.approx(0.2)
 
+    def test_it_answers_with_the_worst_ring_rather_than_the_first(self) -> None:
+        """The caller says it once, so a marginal figure must not stand in for
+        a capture holding an interpreter at a tenth of its collections."""
+        stats = StreamingStats()
+        self._sampled(stats, 87, iid=0)
+        stats.record_loss(1, 0, 0, 13, 13_000)
+        self._sampled(stats, 1, iid=1)
+        stats.record_loss(1, 1, 0, 19, 19_000)
+
+        low = stats.low_coverage(1)
+        assert low is not None
+        iid, gen, coverage = low
+        assert (iid, gen) == (1, 0), "interpreter 0 dipped first and is the milder of the two"
+        assert coverage == pytest.approx(0.05)
+
+    def test_the_worst_ring_wins_whichever_order_the_loss_arrived_in(self) -> None:
+        stats = StreamingStats()
+        self._sampled(stats, 1, iid=1)
+        stats.record_loss(1, 1, 0, 19, 19_000)
+        self._sampled(stats, 87, iid=0)
+        stats.record_loss(1, 0, 0, 13, 13_000)
+
+        low = stats.low_coverage(1)
+        assert low is not None
+        assert low[:2] == (1, 0)
+
     def test_a_covered_interpreter_does_not_answer_for_a_starved_one(self) -> None:
         stats = StreamingStats()
         self._sampled(stats, 99, iid=0)
