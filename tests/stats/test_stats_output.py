@@ -402,6 +402,39 @@ class TestTheTablePrintsRings:
         # The blend sits between the two, describing neither.
         assert p50["Total"] not in (p50["12345:0"], p50["12345:1"])
 
+    def _one_starved_interpreter(self) -> StreamingStats:
+        """Interpreter 0 read all three of its collections; interpreter 1 read
+        one of ten."""
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(12345, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=1_000_000))
+        stats.update(12345, create_mock_stats_item(iid=1, gen=0, ts_start=0, ts_stop=1_000_000))
+        stats.record_loss(12345, 1, 0, 9, 9_000_000)
+        return stats
+
+    def test_each_ring_row_carries_its_own_coverage(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """What an operator sees: the starved interpreter reads 10% on its own
+        row instead of hiding in a process-wide 30.8%."""
+        print_stats(self._one_starved_interpreter())
+        rows = table_rows(capsys.readouterr().out)
+
+        cov = {row[0]: row[9] for row in rows if row[0] in ("Total", "12345:0", "12345:1")}
+
+        assert cov["12345:0"] == "100.0%"
+        assert cov["12345:1"] == "10.0%"
+        assert cov["Total"] == "30.8%"
+
+    def test_a_ring_that_lost_nothing_prints_one_number_per_cell(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """`3/3` beside a neighbour's `1/10` would say nothing was lost twice
+        over on a table where something was."""
+        print_stats(self._one_starved_interpreter())
+        rows = table_rows(capsys.readouterr().out)
+
+        count = {row[0]: row[2] for row in rows if row[0] in ("12345:0", "12345:1")}
+
+        assert count["12345:0"] == "3"
+        assert count["12345:1"] == "1/10"
+
     def test_rings_sort_by_pid_then_interpreter(self, capsys: pytest.CaptureFixture[str]) -> None:
         stats = StreamingStats()
         for pid, iid in ((22222, 1), (12345, 1), (22222, 0), (12345, 0)):

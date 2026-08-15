@@ -974,6 +974,34 @@ class TestTwoInterpreters:
 
         assert {loss.iid for loss in ingested.recorder.losses} == {0}
 
+    def test_the_row_of_the_interpreter_that_lost_nothing_is_clean(self) -> None:
+        """The table has to say what the trace says: interpreter 3 skips and
+        interpreter 0 does not, so only one row shows a gap.
+
+        Interpreter 3 is the one that loses on purpose. A monitor handing
+        `record_loss` a constant iid would land its gap on interpreter 0 and
+        satisfy the same assertion the other way round.
+        """
+        first = build_run(6, gen=0, iid=0)
+        second = build_run(6, gen=0, iid=3)
+
+        ingested = Ingested()
+        ingested.poll([first[0], second[0]], ts=1_000)
+        ingested.poll([first[1], second[4]], ts=2_000)
+
+        assert ingested.stats.pause_totals(PID, 3, 0).lost_count == 3
+        assert ingested.stats.pause_totals(PID, 0, 0).lost_count == 0
+        assert ingested.stats.pause_totals(PID, 0, 0).coverage == 1.0
+
+    def test_each_row_carries_the_loss_its_own_record_drew(self) -> None:
+        """One arithmetic, two readers: whatever a `GC Loss` record says an
+        interpreter missed is what that interpreter's row counts."""
+        ingested = self.polls()
+
+        for loss in ingested.recorder.losses:
+            drawn = sum(gen.lost_count for gen in loss.gens)
+            assert ingested.stats.pause_totals(PID, loss.iid, 0).lost_count == drawn
+
 
 class TestTheStatsAreRecordedWhateverIsDrawn:
     """`_ingest` records the loss before it builds a record, and the counts
