@@ -619,6 +619,46 @@ class TestLossIsNeverReplayedAsACollection:
         assert after["gc_pause_gen_0_sum"] == pytest.approx(17.0)
 
 
+class TestReplayKeepsTheInterpretersApart:
+    """A loss record names the interpreter it belongs to, and `_replay` has to
+    key on it: a capture read back from JSONL reports what the live run
+    reported, and the live run reports per ring.
+    """
+
+    def capture(self) -> list[dict[str, Any]]:
+        """Interpreter 0 read everything it ran; interpreter 1 read one of
+        ten."""
+        return [
+            _make_jsonl_event(iid=0, collections=5),
+            _make_jsonl_event(iid=1, collections=10, ts_start=1_030_000_000, ts_stop=1_031_000_000),
+            _make_jsonl_loss(iid=1, lost_count=9, lost_pause_ns=9_000_000),
+        ]
+
+    def _replayed(self, tmp_path: Path) -> StreamingStats:
+        stats = StreamingStats()
+        _replay(stats, _parse_jsonl(tmp_path, *self.capture()))
+        return stats
+
+    def test_the_loss_lands_on_the_interpreter_that_lost_it(self, tmp_path: Path) -> None:
+        stats = self._replayed(tmp_path)
+
+        assert stats.pause_totals(12345, 0, 0).lost_count == 0
+        assert stats.pause_totals(12345, 1, 0).lost_count == 9
+
+    def test_each_interpreter_reports_its_own_coverage(self, tmp_path: Path) -> None:
+        stats = self._replayed(tmp_path)
+
+        assert stats.pause_totals(12345, 0, 0).coverage == 1.0
+        assert stats.pause_totals(12345, 1, 0).coverage == pytest.approx(0.1)
+
+    def test_the_run_still_folds_to_one_answer(self, tmp_path: Path) -> None:
+        """`Total` and the benchmark metrics stay run-wide, which is the scope
+        they were released with."""
+        totals = self._replayed(tmp_path).pause_totals_by_gen()[0]
+
+        assert (totals.sampled_count, totals.lost_count) == (2, 9)
+
+
 class TestAggregateGcStats:
     """Test the metric projection over a replayed session."""
 
