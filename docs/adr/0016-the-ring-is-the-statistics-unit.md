@@ -62,10 +62,15 @@ so an interpreter a successor creates late counts as the successor's. The table 
 block plain and marks the ones after it, `12345:0#2` for the second process to hold the pid.
 
 **A ring gets its row on its first record and keeps it until its process exits.** Where there is
-no slot to give, the ring gets none and its records go to `Total` alone. gcmon says so twice: in
+no slot to give, the ring gets none and its records reach `Total` alone. gcmon says so twice: in
 a warning when it first happens, and in a footer note counting the rings left out. Only one case
 reaches it now, 256 interpreters already running. A slot freed later opens no row for that ring,
 since a row starting mid-life reads as a whole one.
+
+**The bound holds back sample buffers, not the ring.** A declined ring still keeps its loss and
+its lifetime counters, four numbers a generation against a thousand values a generation a
+metric, so `Total`, the coverage figures and the lifetime note stay whole on a target too wide
+for the table.
 
 **The coverage advisory tests rings.** It names the least covered one, interpreter alongside pid
 and generation, and it still fires once per run, latched in `gcmon.monitor`: the remedy it
@@ -158,7 +163,9 @@ scope they were written for and the scope `Total` reports.
 ## Implementation
 
 - `src/gcmon/stats.py` keys sampled metrics, loss and lifetime totals on the ring, bounds the
-  active set, and answers both a ring's totals and a fold over them.
+  active set, and answers both a ring's totals and a fold over them. One entry holds all three,
+  so a ring's numbers settle together and travel together, and the index appears in one key
+  rather than in three.
 - `src/gcmon/stats_output.py` builds the table's two levels and the footer notes, and owns the
   `PID:IID` spelling.
 - `src/gcmon/monitor.py` passes the iid it already has in hand when recording loss, holds the

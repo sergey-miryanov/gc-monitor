@@ -669,6 +669,29 @@ class TestTheBoundOnRunningRings:
 
         assert stats.low_coverage(9_999) is None
 
+    def test_its_loss_still_reaches_the_run_totals(self) -> None:
+        """The sample buffers are what the bound withholds. Counters cost four
+        numbers a generation, so a declined ring keeps them and `Cov` under
+        `Total` stays honest."""
+        stats = self._full()
+        stats.record_loss(9_999, 0, 0, 99, 99_000)
+
+        assert stats.pause_totals_by_gen()[0].lost_count == 99
+
+    def test_its_lifetime_still_reaches_the_note(self) -> None:
+        stats = self._full()
+        stats.record_lifetime(9_999, 0, 0, 400, 0.4)
+
+        assert stats.lifetime_totals_by_gen()[0].collections == 400
+
+    def test_a_ring_that_only_lost_gets_no_row(self) -> None:
+        """`record_loss` opens an entry for its counters, which is not a row.
+        Printing one would give an empty block a heading."""
+        stats = StreamingStats()
+        stats.record_loss(7, 0, 0, 5, 5_000)
+
+        assert stats.rings() == []
+
 
 class TestAReusedPid:
     """Two processes held the pid, so the run keeps two of everything.
