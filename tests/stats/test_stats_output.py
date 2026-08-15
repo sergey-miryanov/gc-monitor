@@ -658,6 +658,46 @@ class TestTheLifetimeNoteNamesItsFold:
         assert "monitored window included" in capsys.readouterr().out
 
 
+class TestTheBlockOfAReusedPid:
+    """Two processes held the pid, so the table carries two blocks and the
+    heading says which is which."""
+
+    def _reused(self) -> StreamingStats:
+        stats = StreamingStats()
+        stats.update(12345, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+        stats.materialize(12345)
+        stats.update(12345, create_mock_stats_item(gen=0, ts_start=0, ts_stop=9_000_000))
+        return stats
+
+    def test_the_first_block_reads_plain(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Which is every block of an ordinary run, so nothing widens for a
+        target that reuses no pid."""
+        print_stats(self._reused())
+
+        assert "12345:0 " in capsys.readouterr().out
+
+    def test_the_second_block_says_which_process_it_is(self, capsys: pytest.CaptureFixture[str]) -> None:
+        print_stats(self._reused())
+
+        assert "12345:0#2" in capsys.readouterr().out
+
+    def test_the_two_blocks_carry_their_own_figures(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """One heading over both sets of numbers was the defect."""
+        print_stats(self._reused())
+        rows = table_rows(capsys.readouterr().out)
+
+        sums = {row[0]: row[4] for row in rows if row[0].startswith("12345:0")}
+        assert sums == {"12345:0": "1.000", "12345:0#2": "9.000"}
+
+    def test_an_ordinary_run_carries_no_suffix(self, capsys: pytest.CaptureFixture[str]) -> None:
+        stats = StreamingStats()
+        stats.update(12345, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
+
+        print_stats(stats)
+
+        assert "#" not in capsys.readouterr().out
+
+
 class TestTheNoteOnRingsWithNoRow:
     """The rows can add up to less than the run, so the footer says by how
     many rings rather than leaving a reader to find the gap."""

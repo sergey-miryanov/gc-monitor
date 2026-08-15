@@ -53,6 +53,12 @@ A target running sub-interpreters prints `12345:0`, `12345:1` and so on, each
 row describing that interpreter alone, and `Total` folds them together. Every
 process has an interpreter 0, so an ordinary run reads `12345:0`.
 
+An operating system hands the same pid out again once the process holding it
+has gone, and a long run watching a tree of short-lived workers will see that.
+Each process that held the pid gets a block, and the ones after the first say
+which they are: `12345:0#2` is the second process to run under pid 12345. Their
+counts, their coverage and their history stay apart.
+
 ## Three intervals, and which one a cell reports
 
 A target's collector can run faster than gcmon reads the records it writes, so
@@ -165,15 +171,14 @@ processes. A run watching one interpreter reads `1 interpreter in 1 process`.
 **3. Rings with no row.**
 
 ```
-3. 2 rings got no row: gcmon was already tracking 256 interpreters, or a pid was reused. Those records are counted in Total.
+3. 2 rings got no row: gcmon was already tracking 256 interpreters at once. Those records are counted in Total.
 ```
 
 gcmon holds detailed statistics for 256 interpreters at once, and a process
-that exits hands its slots back. Two things leave an interpreter without a
-block of its own: it arrived while all 256 were busy, or it took a pid another
-process had already used, whose block belongs to that process. Either way gcmon
-also logs a warning the first time. `Total` still counts every record, so the
-rows can add up to less than the run and this note says by how many rings.
+that exits hands its slots back. An interpreter that starts while all 256 are
+busy gets no block of its own, and gcmon logs a warning the first time it
+happens. `Total` still counts every record, so the rows can add up to less than
+the run and this note says by how many rings.
 
 ## Without `[stats]` extra
 

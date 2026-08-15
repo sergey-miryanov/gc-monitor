@@ -542,7 +542,7 @@ class TestTwoInterpretersOfOnePid:
     def test_the_two_rings_are_two_entries(self) -> None:
         stats = self._stats()
 
-        assert stats.rings() == {(1, 0), (1, 1)}
+        assert stats.rings() == [(1, 0, 1), (1, 1, 1)]
 
 
 class TestAProcessThatExits:
@@ -559,7 +559,7 @@ class TestAProcessThatExits:
     def test_the_ring_keeps_its_row(self) -> None:
         stats = self._ran_and_exited()
 
-        assert stats.rings() == {(1, 0)}
+        assert stats.rings() == [(1, 0, 1)]
 
     def test_the_percentiles_cover_the_whole_life(self) -> None:
         stats = self._ran_and_exited()
@@ -588,7 +588,8 @@ class TestAProcessThatExits:
 
         stats.retain({2})
 
-        assert stats._live_rings == {(2, 0)}
+        assert stats._open_pids == {2}
+        assert set(stats._metrics_per_ring) == {(2, 0)}
 
     def test_every_interpreter_of_the_pid_settles(self) -> None:
         stats = StreamingStats()
@@ -597,7 +598,8 @@ class TestAProcessThatExits:
 
         stats.materialize(1)
 
-        assert stats._live_rings == set()
+        assert stats._metrics_per_ring == {}
+        assert stats.rings() == [(1, 0, 1), (1, 1, 1)]
 
     def test_the_exit_hands_the_slot_back(self) -> None:
         """A target that spawns and exits keeps every row it earned. The bound
@@ -626,7 +628,7 @@ class TestTheBoundOnRunningRings:
         stats = self._full()
 
         assert stats.get_ring_stats(9_999, 0) is None
-        assert (9_999, 0) not in stats.rings()
+        assert (9_999, 0, 1) not in stats.rings()
 
     def test_it_is_counted_as_untracked(self) -> None:
         assert self._full().untracked_rings() == 1
@@ -669,33 +671,84 @@ class TestTheBoundOnRunningRings:
 
 
 class TestAReusedPid:
-    """A settled entry describes the process that earned it."""
+    """Two processes held the pid, so the run keeps two of everything.
+
+    Merging them was the hazard: the figures read as one interpreter's history
+    and belonged to two.
+    """
 
     def _reused(self) -> StreamingStats:
-        """Ring (1, 0) exits, and a successor claims the pid."""
+        """A process on pid 1 exits, and a successor claims the pid.
+
+        Each loses two records of ten, so their coverage figures are equal and
+        a row printing one for the other cannot hide behind a coincidence.
+        """
         stats = StreamingStats()
-        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        for _ in range(8):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(1, 0, 0, 2, 2_000)
+        stats.record_lifetime(1, 0, 0, 400, 0.4)
+
         stats.materialize(1)
-        stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=9_000))
+
+        for _ in range(8):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=9_000))
+        stats.record_loss(1, 0, 0, 2, 18_000)
+        stats.record_lifetime(1, 0, 0, 10, 0.01)
         return stats
 
-    def test_the_successor_adds_nothing_to_the_row(self) -> None:
-        """Merging two processes into one row was the hazard: the figures read
-        as one interpreter's history and belonged to two."""
-        totals = self._reused().pause_totals(1, 0, 0)
+    def test_each_process_gets_a_block(self) -> None:
+        assert self._reused().rings() == [(1, 0, 1), (1, 0, 2)]
 
-        assert (totals.sampled_count, totals.sampled_pause_ns) == (1, 1_000)
+    def test_the_predecessor_keeps_its_own_durations(self) -> None:
+        totals = self._reused().pause_totals(1, 0, 0, 1)
 
-    def test_the_percentiles_stay_settled(self) -> None:
-        ring = self._reused().get_ring_stats(1, 0)
+        assert (totals.sampled_count, totals.sampled_pause_ns) == (8, 8_000)
+
+    def test_the_successor_keeps_its_own(self) -> None:
+        totals = self._reused().pause_totals(1, 0, 0, 2)
+
+        assert (totals.sampled_count, totals.sampled_pause_ns) == (8, 72_000)
+
+    def test_the_predecessors_percentiles_stay_settled(self) -> None:
+        ring = self._reused().get_ring_stats(1, 0, 1)
 
         assert ring is not None
         assert ring["pause"][0].percentiles == {50: 1_000, 90: 1_000, 95: 1_000, 99: 1_000}
 
-    def test_the_successor_is_counted_as_untracked(self) -> None:
-        assert self._reused().untracked_rings() == 1
+    def test_the_loss_splits_between_them(self) -> None:
+        """`Cov` and `F` read this, so a shared entry would print one
+        process's gaps against the other's records."""
+        stats = self._reused()
 
-    def test_the_successor_reaches_the_run_totals(self) -> None:
+        assert stats.pause_totals(1, 0, 0, 1).lost_pause_ns == 2_000
+        assert stats.pause_totals(1, 0, 0, 2).lost_pause_ns == 18_000
+
+    def test_the_lifetime_fold_adds_them(self) -> None:
+        """The successor's counters are smaller and used to overwrite the
+        predecessor's, so the folded total could fall mid-run."""
+        assert self._reused().lifetime_totals_by_gen()[0].collections == 410
+
+    def test_the_footnote_counts_two_processes(self) -> None:
+        assert self._reused().lifetime_scope() == (2, 2)
+
+    def test_neither_is_counted_as_untracked(self) -> None:
+        assert self._reused().untracked_rings() == 0
+
+    def test_the_run_totals_hold_both(self) -> None:
         totals = self._reused().pause_totals_by_gen()[0]
 
-        assert (totals.sampled_count, totals.sampled_pause_ns) == (2, 10_000)
+        assert (totals.sampled_count, totals.sampled_pause_ns) == (16, 80_000)
+
+    def test_no_index_reads_the_one_running(self) -> None:
+        """What every caller that names no index means, and what it meant
+        before a pid could carry two blocks."""
+        totals = self._reused().pause_totals(1, 0, 0)
+
+        assert totals.sampled_pause_ns == 72_000
+
+    def test_no_index_reads_the_last_one_after_it_exits(self) -> None:
+        stats = self._reused()
+        stats.materialize(1)
+
+        assert stats.pause_totals(1, 0, 0).sampled_pause_ns == 72_000

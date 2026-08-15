@@ -50,17 +50,22 @@ A run holds full sampled state for that many rings. At the same footprint per en
 256 buys the previous 64 processes four interpreters each.
 
 **A ring settles when its process exits, and never before.** gcmon learns which pids are gone on
-the tick that lists the target's children, so it settles their rings there. The sample buffers
-go back, the slots go back, and the four percentiles left behind cover each of those rings end
-to end. A target that spawns and exits keeps a row per process it ran without exhausting the
-bound.
+the tick that lists the target's children, so it settles their rings there and moves them aside.
+The sample buffers go back, the slots go back, and the four percentiles left behind cover each
+of those rings end to end. A target that spawns and exits keeps a row per process it ran without
+exhausting the bound.
 
-**A ring gets its row on its first record and keeps it for the run.** Where there is no slot to
-give, the ring gets none and its records go to `Total` alone. gcmon says so twice: in a warning
-when it first happens, and in a footer note counting the rings left out. Two cases reach it, 256
-interpreters already running, and a pid claimed by a successor process while its predecessor's
-row stands. A slot freed later opens no row for either, since a row starting mid-life reads as a
-whole one.
+**Everything a run keeps carries an index naming which process held the pid.** It counts from 1
+and advances on the exit gcmon saw, so a successor claiming a pid starts clean: its own entry,
+its own loss, its own lifetime counters. The index belongs to the pid rather than to the ring,
+so an interpreter a successor creates late counts as the successor's. The table prints the first
+block plain and marks the ones after it, `12345:0#2` for the second process to hold the pid.
+
+**A ring gets its row on its first record and keeps it until its process exits.** Where there is
+no slot to give, the ring gets none and its records go to `Total` alone. gcmon says so twice: in
+a warning when it first happens, and in a footer note counting the rings left out. Only one case
+reaches it now, 256 interpreters already running. A slot freed later opens no row for that ring,
+since a row starting mid-life reads as a whole one.
 
 **The coverage advisory tests rings.** It names the least covered one, interpreter alongside pid
 and generation, and it still fires once per run, latched in `gcmon.monitor`: the remedy it
@@ -77,8 +82,8 @@ of the tree, stating the interpreter and process counts it summed over:
 
 **Process-wide quantities stay keyed per process.** `heap_size` has no generation and no thread
 affinity ([ADR-0004](0004-toplevel-shared-counters.md)), so its high-water mark is still taken
-per pid. The end-of-run summary and the coverage footnote stay run-wide, the scope they were
-written for and the scope `Total` reports.
+per process, pid and index. The end-of-run summary and the coverage footnote stay run-wide, the
+scope they were written for and the scope `Total` reports.
 
 ## Consequences
 
@@ -96,6 +101,8 @@ written for and the scope `Total` reports.
 - **Every printed row covers one process's ring over one unbroken stretch**, so a row's `Count`,
   its `Sum` and its percentiles always describe the same records. A settled ring cannot take
   more values: `Stats.materialize` raises on one that tries.
+- **A run can print two blocks under one `PID:IID`**, where the operating system handed the pid
+  out twice. The `#2` on the second says why, and a reader who never sees one loses nothing.
 - **The rows can be short of the run**, which the footer note states as a count. `Total` is fed
   once per record whatever the table holds, so the run's cost stays whole where its detail does
   not.
@@ -103,11 +110,13 @@ written for and the scope `Total` reports.
   many rings the table can hold.
 - **Reading a capture back from JSONL gives the same numbers as reading it live**, because the
   replay path keys loss per ring too. A key without an iid could not.
-- **A reused pid still corrupts the lifetime fold.** The new key does not fix it: a successor
-  process's much smaller cumulative counters overwrite its predecessor's, so a folded lifetime
-  total can decrease mid-run. ADR-0015 already accepted the related hazard on the monitor side;
-  closing this one needs an epoch on the pid, and is specified separately. The sampled table is
-  out of its reach, at the price of printing no row for the successor.
+- **A reused pid no longer corrupts the lifetime fold**, which the index closes: a successor's
+  much smaller cumulative counters write a slot of their own, so the fold adds the two histories
+  instead of losing the longer one to the shorter one that follows. The footnote's process count
+  stops understating a target that recycles pids.
+- **The index depends on gcmon seeing the exit.** A pid recycled between two ticks, with the
+  listing never showing it gone, still reads as one process throughout. ADR-0015 accepted the
+  related hazard on the monitor side, and the cursor there has the same blind spot.
 - **A benchmark's metadata keeps its released key names.** They are flat, run-wide scalars,
   which is the scope a benchmark wants and the scope `Total` reports. Per-ring keys would embed
   pids that differ every run.
@@ -140,6 +149,11 @@ written for and the scope `Total` reports.
   no column said so. And a materialized entry outlives its process, so a reused pid resumed a
   dead one and added a second process's records to it. Settling on exit costs the LRU policy and
   buys back an entry that only one process can ever write to.
+- **Give the successor of a reused pid no block at all**, counting its records in `Total` and
+  naming it in the footer. Tried between the two, and it keeps every block honest for a line of
+  code. Rejected: a live process gets no row so that a dead one can keep its heading, and on a
+  target that recycles pids the table thins out as the run goes on. The index costs one integer
+  per pid and gives both processes what they earned.
 
 ## Implementation
 

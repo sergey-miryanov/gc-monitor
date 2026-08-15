@@ -257,7 +257,7 @@ class TestSettlingAnExitedPid:
 
         monitor.forget(PID)
 
-        assert stats._live_rings == set()
+        assert stats._open_pids == set()
 
     def test_retain_settles_the_pids_it_leaves_out(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
@@ -265,7 +265,7 @@ class TestSettlingAnExitedPid:
 
         monitor.retain({PID})
 
-        assert stats._live_rings == {(PID, 0)}
+        assert stats._open_pids == {PID}
 
     def test_the_settled_row_survives_the_pid(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
         """What the run printed for a process that exited half way through it
@@ -274,20 +274,45 @@ class TestSettlingAnExitedPid:
 
         monitor.forget(PID)
 
-        assert stats.rings() == {(PID, 0)}
+        assert stats.rings() == [(PID, 0, 1)]
         assert stats.pause_totals(PID, 0, 0).sampled_count == 1
 
-    def test_a_successor_on_the_same_pid_adds_nothing(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
-        """`forget` drops the cursor so the successor's records read as new.
-        They reach `Total`, and the row stays the predecessor's."""
+    def test_a_successor_on_the_same_pid_gets_a_block_of_its_own(
+        self, monitor: EventsMonitor, stats: StreamingStats
+    ) -> None:
+        """`forget` drops the cursor so the successor's records read as new,
+        and its numbers land beside its predecessor's rather than on them."""
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
         monitor.forget(PID)
 
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=9_000)])
 
-        assert stats.pause_totals(PID, 0, 0).sampled_count == 1
-        assert stats.pause_totals_by_gen()[0].sampled_count == 2
-        assert stats.untracked_rings() == 1
+        assert stats.rings() == [(PID, 0, 1), (PID, 0, 2)]
+        assert stats.pause_totals(PID, 0, 0, 1).sampled_pause_ns == 1_000
+        assert stats.pause_totals(PID, 0, 0, 2).sampled_pause_ns == 9_000
+        assert stats.untracked_rings() == 0
+
+    def test_a_pid_polled_after_retain_starts_a_second_block(
+        self, monitor: EventsMonitor, stats: StreamingStats
+    ) -> None:
+        """`retain` is the tick's own listing, so it decides a pid has gone
+        the same way `forget` does."""
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+        monitor.retain({999})
+
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=9_000)])
+
+        assert stats.rings() == [(PID, 0, 1), (PID, 0, 2)]
+
+    def test_retain_settles_a_pid_once(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
+        """It runs every tick, and a pid that has gone stays gone. Counting
+        each tick as a fresh process would leave a run of empty blocks."""
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+
+        for _ in range(5):
+            monitor.retain({999})
+
+        assert stats.rings() == [(PID, 0, 1)]
 
 
 class TestPollIntegration:

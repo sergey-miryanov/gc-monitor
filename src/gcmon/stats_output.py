@@ -170,6 +170,17 @@ def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bo
     return lines
 
 
+def _ring_label(pid: int, iid: int, index: int) -> str:
+    """The block's heading.
+
+    A pid the operating system handed out twice carries two blocks, so the
+    second one and any after it say which process they belong to: `12345:0#2`
+    is the second to hold that pid. The first stays plain, which is every
+    block of an ordinary run.
+    """
+    return f"{pid}:{iid}" if index == 1 else f"{pid}:{iid}#{index}"
+
+
 def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.PLAIN) -> None:
     """Two levels: the run, then one block per ring.
 
@@ -192,13 +203,13 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
                 first = False
             has_rows = True
 
-    for pid, iid in sorted(stats.rings()):
+    for pid, iid, index in stats.rings():
         all_rows.append(_SEP_GROUP)
-        ring_data = stats.get_ring_stats(pid, iid)
+        ring_data = stats.get_ring_stats(pid, iid, index)
         if ring_data is None:
             continue
 
-        ring_totals = {gen: stats.pause_totals(pid, iid, gen) for gen in stats.GENS}
+        ring_totals = {gen: stats.pause_totals(pid, iid, gen, index) for gen in stats.GENS}
         first = True
         has_rows = False
         for metric_key, metric in METRICS.items():
@@ -210,7 +221,7 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
                     # Both parts on every row, `12345:0` on a
                     # single-interpreter run too: dropping the `:0` would
                     # leave a header naming two fields over cells holding one.
-                    all_rows.append([f"{pid}:{iid}" if first else "", *row])
+                    all_rows.append([_ring_label(pid, iid, index) if first else "", *row])
                     first = False
                 has_rows = True
 
@@ -269,8 +280,7 @@ def _print_footer(stats: StreamingStats) -> None:
         # it, so say the count here rather than leave the gap unexplained.
         notes.append(
             f"{_plural(untracked, 'ring')} got no row: gcmon was already tracking "
-            f"{StreamingStats.MAX_ACTIVE_RINGS} interpreters, or a pid was reused. Those records are "
-            f"counted in Total."
+            f"{StreamingStats.MAX_ACTIVE_RINGS} interpreters at once. Those records are counted in Total."
         )
 
     if not notes:

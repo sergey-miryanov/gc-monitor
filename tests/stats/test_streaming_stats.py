@@ -127,7 +127,7 @@ class TestStreamingStatsUpdate:
         item2 = gc_stats_item_factory(heap_size=5_000_000)
         streaming_stats.update(12345, item1)
         streaming_stats.update(12345, item2)
-        assert streaming_stats._heap_size[12345] == 5_000_000
+        assert streaming_stats._heap_size[(12345, 1)] == 5_000_000
 
     def test_update_heap_size_is_max_per_pid(
         self,
@@ -138,7 +138,7 @@ class TestStreamingStatsUpdate:
         item_large = gc_stats_item_factory(heap_size=500)
         streaming_stats.update(12345, item_large)
         streaming_stats.update(12345, item_small)
-        assert streaming_stats._heap_size[12345] == 500
+        assert streaming_stats._heap_size[(12345, 1)] == 500
 
 
 class TestStreamingStatsRingTracking:
@@ -146,7 +146,7 @@ class TestStreamingStatsRingTracking:
 
     def test_rings_returns_all_tracked_rings(self, streaming_stats_with_pids: StreamingStats) -> None:
         rings = streaming_stats_with_pids.rings()
-        assert rings == {(11111, 0), (22222, 0), (33333, 0)}
+        assert rings == [(11111, 0, 1), (22222, 0, 1), (33333, 0, 1)]
 
     def test_get_ring_stats_returns_active(self, streaming_stats_with_pids: StreamingStats) -> None:
         ring_stats = streaming_stats_with_pids.get_ring_stats(11111, 0)
@@ -267,13 +267,13 @@ class TestStreamingStatsRingBound:
         streaming_stats: StreamingStats,
         gc_stats_item_factory: Callable[..., GCStatsInfo],
     ) -> None:
-        """A ring holds its entry for the run once it has one, so no row is
-        left describing part of a stretch."""
+        """A ring holds its entry until its process exits, so the newcomer
+        displaces nobody and no row describes part of a stretch."""
         for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 1):
             streaming_stats.update(pid, gc_stats_item_factory())
 
-        assert (0, 0) in streaming_stats.rings()
-        assert (StreamingStats.MAX_ACTIVE_RINGS, 0) not in streaming_stats.rings()
+        assert (0, 0, 1) in streaming_stats.rings()
+        assert (StreamingStats.MAX_ACTIVE_RINGS, 0, 1) not in streaming_stats.rings()
 
     def test_the_bound_counts_interpreters_rather_than_processes(
         self,
@@ -299,7 +299,7 @@ class TestStreamingStatsRingBound:
 
         streaming_stats.update(9_999, gc_stats_item_factory())
 
-        assert (9_999, 0) in streaming_stats.rings()
+        assert (9_999, 0, 1) in streaming_stats.rings()
         assert streaming_stats.untracked_rings() == 0
 
 
