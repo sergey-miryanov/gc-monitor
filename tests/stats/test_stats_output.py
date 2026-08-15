@@ -486,9 +486,9 @@ _COUNTS = re.compile(r"^Total events: (\d+) \(\+(\d+) reconstructed, ([\d.]+)% o
 def read_counts(lines: list[str]) -> tuple[int, int, float]:
     """The three numbers the summary printed, read back off the page.
 
-    Reading them here rather than asserting a literal string is the point: a
-    summary quoting the sampled count in both positions satisfies a literal
-    and tells an operator nothing.
+    Reading them back beats asserting a literal string: a summary quoting the
+    sampled count in both positions satisfies a literal and tells an operator
+    nothing.
     """
     match = next(m for m in (_COUNTS.match(line) for line in lines) if m is not None)
     return int(match[1]), int(match[2]), float(match[3])
@@ -510,8 +510,8 @@ class TestSummaryLines:
         return stats
 
     def test_a_lossless_run_says_only_what_it_read(self) -> None:
-        """Today's three lines to the byte, so no scripted run or CI log that
-        reads them has anything to do about this."""
+        """Today's three lines to the byte, so no scripted run or CI log
+        reading them has to change."""
         assert summary_lines(self._run(1234), Path("trace.pftrace")) == [
             "Monitoring complete.",
             "Total events: 1234",
@@ -546,8 +546,7 @@ class TestSummaryLines:
     def test_the_percentage_divides_the_two_numbers_beside_it(self) -> None:
         """A reader who does the arithmetic on the page gets the figure on the
         page. It may sit a fraction off the `Cov` column, which counts only
-        records carrying a pause, but it cannot contradict its own line.
-        """
+        records carrying a pause, but it cannot contradict its own line."""
         sampled, reconstructed, observed = read_counts(summary_lines(self._run(1234, lost=8566), None))
 
         assert observed == pytest.approx(100 * sampled / (sampled + reconstructed), abs=0.05)
@@ -565,7 +564,7 @@ class TestSummaryLines:
         assert observed == pytest.approx(50.0)
 
     def test_a_gap_too_small_to_show_still_says_so(self) -> None:
-        """2000 read of 2001 rounds to 100.0%, on a line plainly showing one
+        """2000 read of 2001 rounds to 100.0%, on a line showing one
         reconstructed. `Cov` has the same problem and the same answer."""
         assert "Total events: 2000 (+1 reconstructed, <100.0% observed)" in summary_lines(self._run(2000, lost=1), None)
 

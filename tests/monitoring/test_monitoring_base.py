@@ -111,7 +111,7 @@ class TestRunMonitoringLoop:
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
         """The command logs whatever `summary_lines` builds. What it builds is
-        `tests/stats/test_stats_output.py`; that it reaches the log is here."""
+        `tests/stats/test_stats_output.py`'s; that it reaches the log is here."""
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
         stats = mock_monitoring_base_deps["StreamingStats"].return_value
@@ -171,8 +171,8 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        """The command is what knows the table is coming, so it is what tells
-        the summary not to send the reader looking for it."""
+        """Only the command knows the table is coming, so it tells the summary
+        not to send the reader looking for it."""
         from gcmon.commands.monitoring_base import run_monitoring_loop
 
         stats = mock_monitoring_base_deps["StreamingStats"].return_value

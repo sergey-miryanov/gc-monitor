@@ -29,12 +29,12 @@ wrongness) → 0028 (XS, and it shrinks 0029) → 0027 (needs a trace-processor 
 can be settled either way) → 0031 → 0030 → 0029 → 0020. 0024 is the owner's to file and
 depends on nothing here.
 
-0033 came out of the work that landed as ADR-0015 and blocks nothing. It wants a real capture in
+0033 came out of the work that landed as ADR-0015 and blocks nothing; it wants a real capture in
 front of you before it can be judged worth a fourth row. 0034 came from the same session and is
 superseded: ADR-0015's rewrite took the span's left edge from the poll clock, which is later than
 the bound 0034 set out to restore. Its §4 still carries the argument for why a temporal bound
-differs from the clipping ADR-0015 rejected, which is worth reading before anyone proposes
-narrowing a span.
+differs from the clipping ADR-0015 rejected, worth reading before anyone proposes narrowing a
+span.
 
 ## Templates
 

@@ -78,8 +78,8 @@ def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> Non
     the newest record of each ring carries what the monitor recorded live.
 
     Loss is summed per ``(pid, gen)`` before it goes in: one record covers a
-    poll interval and names every generation active in it, so the entries sum,
-    not the records.
+    poll interval and names every generation active in it, so its entries sum
+    rather than its records.
 
     Order between the two guards does not matter, since no record answers to
     both. Were they ever to overlap, a loss record would fold in here as a

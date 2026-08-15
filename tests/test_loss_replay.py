@@ -314,10 +314,10 @@ class TestTheRingModel:
         assert {slot.collections for slot in held} == set(range(40, 51))
 
     def test_an_unwritten_slot_still_names_its_generation(self) -> None:
-        """Gen 2 collected twice in the whole capture, so its ring never
-        fills. A real poll returns those unwritten slots under their own
-        generation, and a replay that filed them elsewhere would hand the
-        monitor a batch no target ever produces."""
+        """Gen 2 collected twice in the whole capture, so its ring never fills.
+        A real poll returns those unwritten slots under their own generation,
+        and a replay that filed them elsewhere would hand the monitor a batch
+        no target ever produces."""
         held = ring_at(capture_records()[2], 2, RING_SIZES[2], 0)
 
         assert [slot.gen for slot in held] == [2, 2, 2]

@@ -170,8 +170,7 @@ def mock_monitoring_base_deps() -> Generator[dict[str, MagicMock]]:
         mock_control_instance.address = "/tmp/test-address"
         deps["ControlServer"].return_value = mock_control_instance
         deps["StreamingStats"].return_value.count.return_value = 5
-        # A lossless run, so the summary reads as it did before loss existed.
-        # Tests about a lossy one set their own totals.
+        # A lossless run. Tests about a lossy one set their own totals.
         lossless: dict[int, PauseTotals] = {}
         deps["StreamingStats"].return_value.pause_totals_by_gen.return_value = lossless
         deps["MonitorLoop"].return_value = MagicMock()

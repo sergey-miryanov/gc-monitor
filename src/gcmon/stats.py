@@ -387,16 +387,13 @@ class StreamingStats:
 
     def low_coverage(self, pid: int) -> tuple[int, float] | None:
         """The first generation of *pid* below `COVERAGE_ADVISORY`, and its
-        coverage.
+        coverage. ``None`` on a healthy run.
 
-        ``None`` when every generation is covered, which is every healthy run.
-        Idempotent: the caller owns any warn-once latch, and the wording that
-        goes with it.
+        Idempotent: the caller owns the warn-once latch and the wording.
 
-        Every poll of every pid asks this and a healthy run never answers, so
-        it reads the two counts coverage needs rather than building a whole
-        `PauseTotals`. Loss comes first: one lookup, and a generation that
-        lost nothing cannot be under-covered.
+        Every poll of every pid asks, so it reads the two counts coverage needs
+        rather than building a `PauseTotals`. Loss comes first: one lookup, and
+        a generation that lost nothing cannot be under-covered.
         """
         for gen in self.GENS:
             lost = self._loss.get((pid, gen))

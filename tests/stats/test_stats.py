@@ -358,8 +358,7 @@ class TestLowCoverage:
     """Which generation gcmon read too little of, and how little.
 
     The answer is a pair of numbers, so nothing here reads a log: wording it
-    and saying it once belong to the monitor, and `test_monitor_coverage.py`
-    holds those.
+    and saying it once belong to the monitor, in `test_monitor_coverage.py`.
     """
 
     def _sampled(self, stats: StreamingStats, count: int) -> None:
@@ -405,7 +404,7 @@ class TestLowCoverage:
         assert stats.low_coverage(2) == (0, 0.0), "pid 2 sampled nothing of what it lost"
 
     def test_asking_twice_answers_twice(self) -> None:
-        """No latch of its own. Every poll asks, and a second reader must not
+        """No latch of its own: every poll asks, and a second reader must not
         be told a blind run is healthy because the first one asked first."""
         stats = StreamingStats()
         self._sampled(stats, 3)

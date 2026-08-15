@@ -165,20 +165,17 @@ class EventsMonitor:
     def _warn_low_coverage(self, pid: int) -> None:
         """Say once per run that gcmon is reading too little of its target.
 
-        Called after a poll has folded both its loss and its records. The loop
-        above records every ring's gap before it updates any of them, so a
-        check made earlier divides that poll's gap into the sample as it stood
-        before the poll: two polls of 2 then 100 records with one lost warned
-        "only 67%" of a run that ended at 99%.
+        Called after a poll folds both its loss and its records: the loop above
+        records every ring's gap before it updates any of them, so an earlier
+        check divides this poll's gap into the sample as it stood before the
+        poll. Two polls of 2 then 100 records with one lost warned "only 67%"
+        of a run that ended at 99%.
 
-        One monitor polls one process tree for the length of a run, so the
-        latch here is per run, and one warning covers every pid in the tree.
-        The remedy is the poll rate, which no pid or generation owns.
-
-        The latch keeps whatever figure first dipped, and a target that
-        thrashed at startup and settled ends far above it, so the warning says
-        "so far". The run's final coverage is the end-of-run summary's to
-        state.
+        One monitor polls one process tree, so the latch is per run and covers
+        every pid in it: the remedy is the poll rate, which no pid or
+        generation owns. It keeps the figure that first dipped, which a run
+        that recovers ends far above, so the warning says "so far" and leaves
+        the final coverage to the end-of-run summary.
         """
         if self._coverage_warned:
             return
@@ -196,8 +193,8 @@ class EventsMonitor:
             "faster than gcmon can poll.",
             pid,
             gen,
-            # Truncated, not rounded: 89.6% rounds to "90%", which reads as
-            # the floor this fires below rather than as a figure under it.
+            # Truncated: 89.6% rounds to "90%", which reads as the floor this
+            # fires below rather than as a figure under it.
             int(coverage * 100),
         )
 

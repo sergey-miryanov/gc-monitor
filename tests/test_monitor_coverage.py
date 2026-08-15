@@ -1,13 +1,12 @@
 """Tests for the warning a run gets when it read too little of its target.
 
-`StreamingStats` answers whether coverage dropped; deciding that is worth
-saying, wording it and saying it once are the monitor's, so every test here
-reads the log. The stats side reads the answer instead, in
-`tests/stats/test_stats.py`.
+`StreamingStats` answers whether coverage dropped; wording that and saying it
+once are the monitor's, so every test here reads the log. The stats side reads
+the answer instead, in `tests/stats/test_stats.py`.
 
 Batches are hand-built and go through `_ingest`, the in-memory pattern
 `test_monitor_cursor.py` uses: no target process, and a `collections` counter
-that skips is the whole of what makes a run lossy.
+that skips is all it takes to make a run lossy.
 """
 
 from collections.abc import Sequence
@@ -22,8 +21,8 @@ from tests.helpers import create_mock_stats_item
 PID = 4242
 OTHER_PID = 4243
 
-# "so far": the run's final coverage is the end-of-run summary's to state, and
-# a run that recovers ends well above the figure warned about here.
+# "so far": a run that recovers ends well above the figure warned about here,
+# and the end-of-run summary states the final one.
 ADVISORY = "of collections observed so far"
 
 # One collection's pause and the interval between two of them, in nanoseconds.
@@ -36,9 +35,9 @@ _POLL_CLOCK = count(1_000_000_000, 100_000_000)
 def ring(collections: Sequence[int], gen: int = 0) -> list[GCStatsInfo]:
     """A poll's ring for one generation, holding the records at *collections*.
 
-    ``duration`` is the target's own cumulative pause total, which is what the
-    loss reconstruction reads, so it counts every run up to the record rather
-    than the ones this poll returned.
+    ``duration`` is the target's cumulative pause total, which is what the loss
+    reconstruction reads, so it counts every run up to the record rather than
+    the ones this poll returned.
     """
     return [
         create_mock_stats_item(
@@ -56,8 +55,8 @@ def poll(monitor: EventsMonitor, pid: int, collections: Sequence[int], gen: int 
     """One poll of *pid*, at the next instant on a clock shared by this file.
 
     `_ingest` bounds a loss record by the two polls around it, so it has to be
-    told when this one happened. Nothing here reads those instants, so they
-    only have to increase.
+    told when this one happened. Nothing here reads those instants; they only
+    have to increase.
     """
     monitor._ingest(pid, ring(collections, gen=gen), next(_POLL_CLOCK))
 
@@ -73,8 +72,8 @@ class TestCoverageWarning:
     def test_a_figure_under_the_floor_does_not_read_as_meeting_it(
         self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """225 read of 251 is 89.6%, which rounds to the very floor the
-        warning fires below. `Cov` has the same hazard and the same answer."""
+        """225 read of 251 is 89.6%, which rounds to the floor the warning
+        fires below. `Cov` has the same hazard and the same answer."""
         poll(monitor, PID, range(1, 225))
         poll(monitor, PID, [251])
 
@@ -109,11 +108,9 @@ class TestCoverageWarning:
     ) -> None:
         """`_ingest` records every ring's gap before it updates any of them, so
         a check made at `record_loss` would divide this poll's gap into the
-        sample as it stood before the poll.
-
-        Two polls, 2 records then 100 with 1 lost: measured that early the
-        coverage reads 2/3, and the latch would keep that figure for a run that
-        ends at 99%.
+        sample as it stood before the poll. Two polls, 2 records then 100 with
+        1 lost: measured that early the coverage reads 2/3, and the latch would
+        keep that figure for a run that ends at 99%.
         """
         poll(monitor, PID, [1, 2])
         poll(monitor, PID, range(4, 104))
@@ -130,9 +127,9 @@ class TestCoverageWarning:
         assert "--rate" in caplog.text
 
     def test_it_reads_as_a_running_figure(self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture) -> None:
-        """The latch keeps the first figure that dipped, and a run that
-        recovers ends far above it. Stated flatly, that number would read as
-        contradicting the end-of-run summary, which states the final one."""
+        """The latch keeps the first figure that dipped, which a run that
+        recovers ends far above. Stated flatly, it would read as contradicting
+        the end-of-run summary's final one."""
         poll(monitor, PID, [1])
         poll(monitor, PID, [10])
         for collections in range(11, 2_000):
@@ -141,8 +138,8 @@ class TestCoverageWarning:
         assert "only 20% of collections observed so far" in caplog.text
 
     def test_it_names_no_ring_geometry(self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture) -> None:
-        """How many slots the target's ring holds is not something an operator
-        can act on, which is the whole reason the wording moved."""
+        """An operator cannot act on how many slots the target's ring holds,
+        which is why the wording moved."""
         poll(monitor, PID, [1])
         poll(monitor, PID, [10])
 
