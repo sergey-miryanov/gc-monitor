@@ -370,17 +370,17 @@ class TestTotalsLeaveTheAccumulatorBehind:
 
 
 class TestLowCoverage:
-    """Which generation gcmon read too little of, and how little.
+    """Which ring gcmon read too little of, and how little.
 
-    The answer is a pair of numbers, so nothing here reads a log: wording it
-    and saying it once belong to the monitor, in `test_monitor_coverage.py`.
+    The answer is three numbers, so nothing here reads a log: wording it and
+    saying it once belong to the monitor, in `test_monitor_coverage.py`.
     """
 
-    def _sampled(self, stats: StreamingStats, count: int) -> None:
+    def _sampled(self, stats: StreamingStats, count: int, iid: int = 0) -> None:
         for _ in range(count):
-            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+            stats.update(1, create_mock_stats_item(iid=iid, gen=0, ts_start=0, ts_stop=1_000))
 
-    def test_it_names_the_generation_and_its_coverage(self) -> None:
+    def test_it_names_the_ring_and_its_coverage(self) -> None:
         stats = StreamingStats()
         self._sampled(stats, 3)
 
@@ -388,9 +388,33 @@ class TestLowCoverage:
 
         low = stats.low_coverage(1)
         assert low is not None
-        gen, coverage = low
-        assert gen == 0
+        iid, gen, coverage = low
+        assert (iid, gen) == (0, 0)
         assert coverage == pytest.approx(0.3)
+
+    def test_a_starved_interpreter_answers_beside_a_covered_one(self) -> None:
+        """The blended figure clears the floor, which is what kept this quiet
+        while the key was per process."""
+        stats = StreamingStats()
+        self._sampled(stats, 99, iid=0)
+        self._sampled(stats, 2, iid=1)
+        stats.record_loss(1, 1, 0, 8, 8_000)
+
+        assert stats.pause_totals_by_gen()[0].coverage > StreamingStats.COVERAGE_ADVISORY
+
+        low = stats.low_coverage(1)
+        assert low is not None
+        iid, gen, coverage = low
+        assert (iid, gen) == (1, 0)
+        assert coverage == pytest.approx(0.2)
+
+    def test_a_covered_interpreter_does_not_answer_for_a_starved_one(self) -> None:
+        stats = StreamingStats()
+        self._sampled(stats, 99, iid=0)
+        self._sampled(stats, 2, iid=1)
+        stats.record_loss(1, 0, 0, 1, 1_000)
+
+        assert stats.low_coverage(1) is None
 
     def test_a_covered_run_answers_nothing(self) -> None:
         stats = StreamingStats()
@@ -402,8 +426,8 @@ class TestLowCoverage:
         assert stats.low_coverage(1) is None
 
     def test_a_run_that_lost_nothing_answers_nothing(self) -> None:
-        """The shortcut the check leads with: a generation that lost nothing
-        is fully covered, whatever its sample size."""
+        """The shortcut the check leads with: a ring that lost nothing is
+        fully covered, whatever its sample size."""
         stats = StreamingStats()
         self._sampled(stats, 3)
 
@@ -416,7 +440,7 @@ class TestLowCoverage:
         stats.record_loss(2, 0, 0, 7, 7_000)
 
         assert stats.low_coverage(1) is None
-        assert stats.low_coverage(2) == (0, 0.0), "pid 2 sampled nothing of what it lost"
+        assert stats.low_coverage(2) == (0, 0, 0.0), "pid 2 sampled nothing of what it lost"
 
     def test_asking_twice_answers_twice(self) -> None:
         """No latch of its own: every poll asks, and a second reader must not

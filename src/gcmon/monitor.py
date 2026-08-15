@@ -171,14 +171,15 @@ class EventsMonitor:
         if low is None:
             return
 
-        gen, coverage = low
+        iid, gen, coverage = low
         self._coverage_warned = True
         logger.warning(
-            "PID %s generation %s: only %s%% of collections observed so far. Counts and sums are "
-            "reconstructed and exact; percentiles cover only what was sampled and read high. "
-            "Polling more often (a smaller --rate) may observe more, unless the target collects "
-            "faster than gcmon can poll.",
+            "PID %s interpreter %s generation %s: only %s%% of collections observed so far. Counts "
+            "and sums are reconstructed and exact; percentiles cover only what was sampled and read "
+            "high. Polling more often (a smaller --rate) may observe more, unless the target "
+            "collects faster than gcmon can poll.",
             pid,
+            iid,
             gen,
             # Truncated: 89.6% would read as "90%", the floor this fires
             # below. The inner round absorbs float error, which takes an exact

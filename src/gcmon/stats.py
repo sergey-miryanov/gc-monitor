@@ -418,30 +418,27 @@ class StreamingStats:
         """Record one interval's worth of records gcmon did not read."""
         self._loss.setdefault((pid, iid, gen), LossTotals()).add(lost_count, lost_pause_ns)
 
-    def low_coverage(self, pid: int) -> tuple[int, float] | None:
-        """The first generation of *pid* below `COVERAGE_ADVISORY`, and its
-        coverage. ``None`` on a healthy run.
+    def low_coverage(self, pid: int) -> tuple[int, int, float] | None:
+        """The first ring of *pid* under `COVERAGE_ADVISORY`, as its
+        interpreter, its generation and its coverage. ``None`` on a healthy
+        run.
 
         Idempotent: the caller owns the warn-once latch and the wording.
 
-        Both counts fold the pid's interpreters together, which is the figure
-        this has always answered with. Loss comes first: a generation that
-        lost nothing cannot be under-covered.
+        Every poll of every pid asks, so it reads the two counts coverage
+        needs rather than building a `PauseTotals`. Loss leads: one lookup,
+        and a ring that lost nothing cannot be under-covered. "First" is the
+        order the rings started losing in, which is the order they entered
+        the dict.
         """
-        lost_by_gen: dict[int, int] = {}
-        for (loss_pid, _iid, gen), lost in self._loss.items():
-            if loss_pid == pid and lost.count:
-                lost_by_gen[gen] = lost_by_gen.get(gen, 0) + lost.count
-
-        for gen in self.GENS:
-            lost_count = lost_by_gen.get(gen, 0)
-            if not lost_count:
+        for (loss_pid, iid, gen), lost in self._loss.items():
+            if loss_pid != pid or not lost.count:
                 continue
             # Something was lost, so the denominator cannot be zero.
-            sampled = sum(self._sampled(pid, iid, gen).count() for ring_pid, iid in self.rings() if ring_pid == pid)
-            coverage = sampled / (sampled + lost_count)
+            sampled = self._sampled(pid, iid, gen).count()
+            coverage = sampled / (sampled + lost.count)
             if coverage < self.COVERAGE_ADVISORY:
-                return gen, coverage
+                return iid, gen, coverage
         return None
 
     def record_lifetime(self, pid: int, iid: int, gen: int, collections: int, duration_s: float) -> None:

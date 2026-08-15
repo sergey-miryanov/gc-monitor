@@ -32,8 +32,8 @@ PERIOD_NS = 2 * PAUSE_NS
 _POLL_CLOCK = count(1_000_000_000, 100_000_000)
 
 
-def ring(collections: Sequence[int], gen: int = 0) -> list[GCStatsInfo]:
-    """A poll's ring for one generation, holding the records at *collections*.
+def ring(collections: Sequence[int], gen: int = 0, iid: int = 0) -> list[GCStatsInfo]:
+    """One ring of a poll, holding the records at *collections*.
 
     ``duration`` is the target's cumulative pause total, which is what the loss
     reconstruction reads, so it counts every run up to the record rather than
@@ -42,6 +42,7 @@ def ring(collections: Sequence[int], gen: int = 0) -> list[GCStatsInfo]:
     return [
         create_mock_stats_item(
             gen=gen,
+            iid=iid,
             collections=n,
             ts_start=n * PERIOD_NS,
             ts_stop=n * PERIOD_NS + PAUSE_NS,
@@ -58,7 +59,16 @@ def poll(monitor: EventsMonitor, pid: int, collections: Sequence[int], gen: int 
     told when this one happened. Nothing here reads those instants; they only
     have to increase.
     """
-    monitor._ingest(pid, ring(collections, gen=gen), next(_POLL_CLOCK))
+    poll_rings(monitor, pid, ring(collections, gen=gen))
+
+
+def poll_rings(monitor: EventsMonitor, pid: int, rings: list[GCStatsInfo]) -> None:
+    """One poll of *pid* returning several rings at once.
+
+    A read hands back the whole buffer of every interpreter in the process,
+    which is what a starved interpreter has to sit inside to be found.
+    """
+    monitor._ingest(pid, rings, next(_POLL_CLOCK))
 
 
 class TestCoverageWarning:
@@ -67,7 +77,7 @@ class TestCoverageWarning:
         poll(monitor, PID, [1])
         poll(monitor, PID, [10])
 
-        assert f"PID {PID} generation 0: only 20% {ADVISORY}" in caplog.text
+        assert f"PID {PID} interpreter 0 generation 0: only 20% {ADVISORY}" in caplog.text
 
     def test_a_figure_under_the_floor_does_not_read_as_meeting_it(
         self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture
@@ -112,6 +122,20 @@ class TestCoverageWarning:
         poll(monitor, OTHER_PID, [10])
 
         assert caplog.text.count(ADVISORY) == 1
+
+    def test_a_starved_interpreter_beside_a_busy_one_fires_and_is_named(
+        self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Interpreter 0 reads everything it ran; interpreter 1 reads two of
+        ten. Folded into one figure the process clears the floor, which is
+        what kept this quiet while coverage was keyed per process.
+        """
+        poll_rings(monitor, PID, ring(range(1, 100), iid=0) + ring([1], iid=1))
+        poll_rings(monitor, PID, ring([100], iid=0) + ring([10], iid=1))
+
+        blended = monitor._stats.pause_totals_by_gen()[0]
+        assert blended.coverage > 0.9, "the process-wide figure has to clear the floor"
+        assert f"PID {PID} interpreter 1 generation 0: only 20% {ADVISORY}" in caplog.text
 
     def test_this_polls_own_records_count_before_it_fires(
         self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture

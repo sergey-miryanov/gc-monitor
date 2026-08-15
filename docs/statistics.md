@@ -100,9 +100,11 @@ the same reason.
 
 Both are blank on rows with no generation, such as `Read Time`.
 
-If coverage falls below 90%, gcmon logs one advisory per session, naming the
-first generation it read too little of and suggesting a smaller `--rate`.
-Polling faster may observe more, but it will not lift `Cov` to 100%;
+If any one interpreter's coverage falls below 90%, gcmon logs one advisory per
+session, naming the process, the interpreter and the generation it read too
+little of, and suggesting a smaller `--rate`. A starved interpreter beside a
+busy one trips it on its own figure rather than the process average. Polling
+faster may observe more, but it will not lift `Cov` to 100%;
 [How gcmon reads a process](monitoring.md) covers why.
 
 ## Percentiles are sampled and read high
