@@ -3,8 +3,7 @@
 gcmon reads another Python process's garbage-collection records out of its
 memory and turns them into a trace and a statistics table. Everything below is
 vocabulary: what a word means here, and which spelling to use when several are
-in circulation. It is a glossary, not a design document — `docs/adr/` records
-decisions and `specs/` records open work.
+in circulation. `docs/adr/` records decisions and `specs/` records open work.
 
 ## Language
 
@@ -21,7 +20,7 @@ _Avoid_: record (for the trace side), slice (that is one shape of event)
 
 **Span**:
 A slice on the `Processes` track, bounding a process's observed lifetime.
-_Avoid_: lifetime (unqualified — see below), duration, extent
+_Avoid_: lifetime (unqualified; see below), duration, extent
 
 ### The things gcmon counts
 
@@ -49,13 +48,13 @@ arithmetic)
 
 ### The three intervals a number can describe
 
-Every figure gcmon prints answers to exactly one of these. Naming which one is
-the whole job of the `--stats` table's two-number cells.
+Every figure gcmon prints answers to one of these, and the two-number cells in
+the `--stats` table are there to say which.
 
 **Sampled**:
-The records gcmon actually read. Percentiles and averages are only ever this,
-and they read high — a long run delays the next one, so its record survives in
-the ring more often than a short one's.
+The records gcmon read. Percentiles and averages are always this, and they read
+high: a long run delays the next one, so its record survives in the ring more
+often than a short one's.
 _Avoid_: observed (means the span, below), measured, actual
 
 **Exact**:
@@ -67,9 +66,9 @@ _Avoid_: true, real, total
 **Lifetime totals**:
 Everything one interpreter has collected since it started, monitored window
 included. Always written with the qualifier: bare **lifetime** means the
-`Processes`-track span above, which is a different thing in a different unit.
-_Avoid_: lifetime (bare), cumulative total (ambiguous — the counters underneath
-are cumulative, the interval is not), since-start count
+`Processes`-track span above.
+_Avoid_: lifetime (bare), cumulative total (the counters underneath are
+cumulative, the interval is not), since-start count
 
 **Observed span**:
 The interval from the first record gcmon read on a ring to the last. What

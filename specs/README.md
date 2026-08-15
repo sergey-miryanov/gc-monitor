@@ -31,10 +31,8 @@ wrongness) → 0028 (XS, and it shrinks 0029) → 0027 (needs a trace-processor 
 can be settled either way) → 0031 → 0030 → 0029 → 0020. 0024 is the owner's to file and
 depends on nothing here.
 
-0036 is the largest open item and the only one that changes what an ordinary run prints. It came
-out of the same ADR-0015 work as 0033 and 0035, and it subsumes the reason 0027 matters: both
-are about reading interpreter identity uniformly, one out of the trace and one out of the table.
-Take it before 0033, which would add a fourth row to a track whose statistics still blend the
+0036 is the largest open item and the only one that changes what an ordinary run prints. Take it
+before 0033, which would add a fourth row to a track whose statistics still blend the
 interpreters it separates.
 
 0033 and 0035 came out of the work that landed as ADR-0015, and neither blocks the other.

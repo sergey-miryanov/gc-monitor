@@ -18,22 +18,21 @@ interpreter rows with three visibly different GC profiles. They then run the sam
 `--stats` and get one `GC Pause(0)` row per process. Its `P99` is a quantile over all three
 interpreters' pauses at once, so it describes none of them. Its `Cov` divides a process-wide
 sampled count by a process-wide lost count, so an interpreter gcmon read a tenth of is averaged
-away against a busy one beside it — and the mid-run advisory, which fires below 90%, stays quiet
+away against a busy one beside it, and the mid-run advisory, which fires below 90%, stays quiet
 on a capture that is not worth keeping. Under the table, a footnote reads "Since interpreter
 start" in the singular, over a figure summed across interpreters that started at different
 moments.
 
-The operator's own words: the folded figures "don't look correct". They are not roundable to
-correct, either — the table has no dimension in which any of it can be checked against what the
-trace plainly shows.
+In the operator's words, the folded figures "don't look correct". Nothing in the table can be
+checked against what the trace shows, because the table has no dimension the trace shares.
 
 ## 2. Evidence
 
 **The interpreter never enters the loss key.** `StreamingStats.record_loss` takes `(pid, gen)`
 and its dict is typed `LossKey = tuple[int, int]`, documented as deliberate: *"`record_loss`
-delivers increments, so two interpreters of one pid add into the same slot."* The increments do
-sum correctly; what is lost is the ability to say afterwards which interpreter they came from.
-That is the irreversible part, and it is why the fix cannot be a wording change.
+delivers increments, so two interpreters of one pid add into the same slot."* The increments sum
+correctly; the attribution is gone, and no downstream wording recovers it. That is why the fix
+cannot be a wording change.
 
 **Sampled durations are keyed per process.** `StreamingStats.update` receives the whole record —
 `TGCStatsInfo` carries `iid` — and keys its per-process metrics on the `pid` argument alone. The
@@ -56,15 +55,14 @@ declares it, and `LossMsg` is constructed with it.
 only the active dict before creating a fresh entry for a process. A process evicted to the
 materialized dict and then seen again gets a blank entry, and `get_pid_stats` prefers the active
 one, so the materialized history is shadowed and never printed. `StreamingStats.metrics`, which
-feeds the `Total` block, is a separate accumulator untouched by eviction — so in that case
-`Total` legitimately exceeds the sum of the rows beneath it. The materialized dict is also never
-pruned.
+feeds the `Total` block, is a separate accumulator untouched by eviction, so in that case
+`Total` exceeds the sum of the rows beneath it. The materialized dict is also never pruned.
 
 **Why the suite didn't catch it.** Every statistics test drives `StreamingStats` with records
 from one interpreter. `tests/stats/test_stats.py` and `tests/stats/test_stats_output.py` use a
-single pid and the default `iid`, so no assertion has ever distinguished a per-process figure
-from a per-ring one — the two are equal on every input the suite supplies. The trace-side
-suites, which do exercise several interpreters, never look at `StreamingStats`.
+single pid and the default `iid`, so no assertion distinguishes a per-process figure from a
+per-ring one; the two are equal on every input the suite supplies. The trace-side suites, which
+do exercise several interpreters, never look at `StreamingStats`.
 
 ## 3. Scope
 
@@ -72,12 +70,12 @@ suites, which do exercise several interpreters, never look at `StreamingStats`.
 mid-run coverage advisory; the statistics rebuilt from JSONL by the pyperf hook, and therefore
 the values behind the released benchmark metric names.
 
-**Not affected:** the trace itself, in any format — it has been per-`(pid, iid)` since ADR-0015
-and this change makes the table agree with it, not the other way round. `gcmon combine`, exit
-codes, the JSONL schema, the `Read Time` row (monitor-side, belonging to no ring), the
-end-of-run summary (run-wide by design, the same scope as `Total`), and the high-water
-`heap_size` figure, which stays per process because ADR-0004 makes it process-wide with no
-generation and no thread affinity.
+**Not affected:** the trace itself, in any format. It has been per-`(pid, iid)` since ADR-0015,
+and this change makes the table agree with it. Also unaffected: `gcmon combine`, exit codes, the
+JSONL schema, the `Read Time` row (monitor-side, belonging to no ring), the end-of-run summary
+(run-wide by design, the same scope as `Total`), and the high-water `heap_size` figure, which
+stays per process because ADR-0004 makes it process-wide with no generation and no thread
+affinity.
 
 ## 4. Proposed change
 
@@ -91,22 +89,20 @@ generation and no thread affinity.
 
 2. **Print two levels: the run and the ring.** The `Total` block stays; the per-process block
    goes. The first column is headed `PID:IID` and every ring row carries both parts, `12345:0`
-   included. `Total` keeps its percentiles, which the coverage footnote already qualifies.
-   Settled against the alternatives in ADR-0016 §Alternatives — a nested block printed only for
-   multi-interpreter processes, a separate `IID` column, and blanking the distribution columns
-   on folded rows all lose there.
+   included. `Total` keeps its percentiles, which the coverage footnote already qualifies. The
+   alternatives are settled in ADR-0016 §Alternatives.
 
 3. **Bound active rings at 256, and make eviction non-destructive.** The bound replaces one of
    64 processes. Before creating a fresh entry, look in the materialized dict and resume it, so
    `Count` and `Sum` survive an eviction round trip exactly and only the percentile buffer
-   restarts. This makes `Stats.materialize` reversible — today `Stats.update` raises
-   `RuntimeError` after it, which is the guard that has to relax.
+   restarts. This makes `Stats.materialize` reversible: today `Stats.update` raises
+   `RuntimeError` after it, and that guard has to relax.
 
 4. **Test coverage per ring in the advisory.** The lookup returns the first ring under the
    floor as `(iid, gen, coverage)` and the warning names the interpreter. The once-per-run latch
    stays in `EventsMonitor`, for the reason its docstring already gives: the remedy is `--rate`,
-   which no ring owns. Expect this to fire on captures that are silent today; that is the
-   defect, not a regression.
+   which no ring owns. Expect this to fire on captures that are silent today. That is the defect
+   being fixed.
 
 5. **Make the lifetime footnote name its fold.** One line per generation whatever the tree size,
    stating what it summed over: *"Since each interpreter started, monitored window included,
@@ -116,8 +112,8 @@ generation and no thread affinity.
 
 6. **Key loss per ring in the replay path.** `pyperf.hook._replay` accumulates into
    `(pid, iid, gen)`. Not optional: `record_loss` takes an `iid` after step 1, so the offline
-   path does not typecheck without it, and the point of the change is that a capture read back
-   from JSONL reports what the live run reported.
+   path does not typecheck without it, and a capture read back from JSONL has to report what the
+   live run reported.
 
 **Left open, and what settles it:** nothing. Where a choice existed it is made above or in
 ADR-0016.
@@ -133,8 +129,8 @@ ADR-0016.
 - **What makes a good test here:** feed one `StreamingStats` records from two interpreters of
   one pid with deliberately different pause distributions and different loss, then assert the
   two ring rows differ from each other and that neither equals what a single blended row would
-  have printed. A fixture using one interpreter passes equally against the old and the new code
-  — that equality is exactly why this shipped.
+  have printed. A fixture using one interpreter passes against the old code and the new, which
+  is why this shipped.
 - **Prior art:** `tests/stats/test_stats_output.py`'s existing row-level assertions for the cell
   layout, and `tests/test_loss_replay.py` for the live-versus-replayed agreement.
 - **Cases:**
@@ -170,7 +166,6 @@ ADR-0016.
 
 ## 7. Further notes
 
-The pull request that prompted this — GC events loss detection, #86 — is what made the
-asymmetry visible rather than what introduced it. It gave the trace a per-`(pid, iid)` loss row
-and gave the table `Cov` and `F`, and the two disagree because the statistics side kept a key
-that predates interpreters mattering.
+#86, GC events loss detection, made the asymmetry visible without introducing it. It gave the
+trace a per-`(pid, iid)` loss row and gave the table `Cov` and `F`, and the two disagree because
+the statistics side kept a key that predates interpreters mattering.
