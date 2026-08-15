@@ -145,25 +145,7 @@ def _factor_cell(factor: float, lost: int) -> str:
 
 
 def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bool = False) -> list[str]:
-    """What the run captured, as the lines a monitoring command logs.
-
-    *trace_path* is ``None`` when the trace went to stdout and there is no file
-    to name. *show_stats* says the caller is about to print the table itself,
-    the one case where pointing at ``--stats`` points at the next paragraph.
-
-    A run that read everything reports its record count and stops there. Where
-    the target collected more than gcmon could read, that count alone leaves an
-    operator calibrating against a figure that can be off by most of an order
-    of magnitude, so it carries what it is a share of. The percentage divides
-    the two counts printed beside it, so the arithmetic checks out on the page.
-    All three cover every generation of every pid, so they sit a fraction off
-    the `--stats` table's `Cov` column, which counts only records carrying a
-    pause.
-
-    Returned rather than printed: `--format stdout` writes the trace itself to
-    stdout. Callers log every line at one level, so no `--log-level` separates
-    the count from what qualifies it.
-    """
+    """Summary lines for monitoring commands."""
     sampled = stats.count()
     lost = sum(totals.lost_count for totals in stats.pause_totals_by_gen().values())
 

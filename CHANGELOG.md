@@ -4,8 +4,7 @@
 
 ### Features
 
-- Suggest a smaller `--rate` in the low-coverage warning, in place of the ring-buffer size
-- Qualify `Total events` with what gcmon reconstructed and the share it observed, and point at `--stats` for the breakdown
+- Minor tweaks to summary and warning messages when events are lost
 
 ## Version 0.5.0 (2026-08-14)
 

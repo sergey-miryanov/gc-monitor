@@ -163,20 +163,7 @@ class EventsMonitor:
         self._warn_low_coverage(pid)
 
     def _warn_low_coverage(self, pid: int) -> None:
-        """Say once per run that gcmon is reading too little of its target.
-
-        Called after a poll folds both its loss and its records: the loop above
-        records every ring's gap before it updates any of them, so an earlier
-        check divides this poll's gap into the sample as it stood before the
-        poll. Two polls of 2 then 100 records with one lost warned "only 67%"
-        of a run that ended at 99%.
-
-        One monitor polls one process tree, so the latch is per run and covers
-        every pid in it: the remedy is the poll rate, which no pid or
-        generation owns. It keeps the figure that first dipped, which a run
-        that recovers ends far above, so the warning says "so far" and leaves
-        the final coverage to the end-of-run summary.
-        """
+        """Say once per run that gcmon is reading too little of its target."""
         if self._coverage_warned:
             return
 
