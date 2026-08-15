@@ -210,6 +210,44 @@ class TestStreamingStatsRingTracking:
                 assert ring_stats[metric_key][gen].count() == total.count(), metric_key
                 assert ring_stats[metric_key][gen].sum() == total.sum(), metric_key
 
+    def test_two_interpreters_of_one_pid_keep_separate_entries(
+        self,
+        streaming_stats: StreamingStats,
+        gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        """The defect at the storage layer: one entry per process put one
+        interpreter's durations in with the other's."""
+        streaming_stats.update(12345, gc_stats_item_factory(iid=0, ts_start=0, ts_stop=1_000))
+        streaming_stats.update(12345, gc_stats_item_factory(iid=1, ts_start=0, ts_stop=5_000))
+
+        first = streaming_stats.get_ring_stats(12345, 0)
+        second = streaming_stats.get_ring_stats(12345, 1)
+        assert first is not None and second is not None
+        assert (first["pause"][0].count(), first["pause"][0].sum()) == (1, 1_000)
+        assert (second["pause"][0].count(), second["pause"][0].sum()) == (1, 5_000)
+
+    def test_every_metric_splits_between_two_interpreters(
+        self,
+        streaming_stats: StreamingStats,
+        incremental_gc_stats_item_factory: Callable[..., GCStatsInfo],
+    ) -> None:
+        """The sub-phase metrics ride the same key as `pause`, and nothing
+        else reads them per ring. Two interpreters, so each ring holds one
+        record and the pair adds up to the run."""
+        streaming_stats.update(12345, incremental_gc_stats_item_factory(iid=0))
+        streaming_stats.update(12345, incremental_gc_stats_item_factory(iid=1))
+
+        first = streaming_stats.get_ring_stats(12345, 0)
+        second = streaming_stats.get_ring_stats(12345, 1)
+        assert first is not None and second is not None
+        for metric_key, gen_stats in streaming_stats.metrics.items():
+            for gen, total in gen_stats.items():
+                one, other = first[metric_key][gen], second[metric_key][gen]
+                assert one.count() + other.count() == total.count(), metric_key
+                assert one.sum() + other.sum() == total.sum(), metric_key
+                if total.count():
+                    assert one.count() == 1, f"{metric_key} folded both interpreters"
+
 
 class TestStreamingStatsRingEviction:
     """Tests for StreamingStats ring eviction."""
