@@ -79,6 +79,16 @@ class TestCoverageWarning:
 
         assert f"only 89% {ADVISORY}" in caplog.text
 
+    def test_a_float_artifact_does_not_cost_a_point(
+        self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """29 read of 100 is 0.29, and 0.29 * 100 is 28.999999999999996.
+        Truncating that alone understates a run by a whole point."""
+        poll(monitor, PID, range(1, 29))
+        poll(monitor, PID, [100])
+
+        assert f"only 29% {ADVISORY}" in caplog.text
+
     def test_it_stays_quiet_above_the_threshold(self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture) -> None:
         poll(monitor, PID, range(1, 100))
         poll(monitor, PID, [101])

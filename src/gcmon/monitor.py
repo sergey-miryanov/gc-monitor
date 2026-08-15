@@ -193,9 +193,10 @@ class EventsMonitor:
             "faster than gcmon can poll.",
             pid,
             gen,
-            # Truncated: 89.6% rounds to "90%", which reads as the floor this
-            # fires below rather than as a figure under it.
-            int(coverage * 100),
+            # Truncated: 89.6% would read as "90%", the floor this fires
+            # below. The inner round absorbs float error, which takes an exact
+            # 29 of 100 to 28.999999999999996 and would print it as 28%.
+            int(round(coverage * 100, 6)),
         )
 
     def stop(self) -> None:
