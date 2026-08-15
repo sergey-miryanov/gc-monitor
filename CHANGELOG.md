@@ -4,8 +4,8 @@
 
 ### Features
 
-- The low-coverage warning suggests a smaller `--rate` in place of the ring-buffer size, which an operator cannot act on
-- `Total events` now carries what gcmon reconstructed and the share it observed, and points at `--stats` for the breakdown. A run that lost nothing prints the plain count it always did
+- Suggest a smaller `--rate` in the low-coverage warning, in place of the ring-buffer size
+- Qualify `Total events` with what gcmon reconstructed and the share it observed, and point at `--stats` for the breakdown
 
 ## Version 0.5.0 (2026-08-14)
 
