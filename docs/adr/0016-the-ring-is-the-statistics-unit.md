@@ -49,17 +49,23 @@ naming two fields over cells holding one.
 A run holds full sampled state for that many rings. At the same footprint per entry as before,
 256 buys the previous 64 processes four interpreters each.
 
-**A ring settles when its process exits, and never before.** gcmon learns which pids are gone on
-the tick that lists the target's children, so it settles their rings there and moves them aside.
-The sample buffers go back, the slots go back, and the four percentiles left behind cover each
-of those rings end to end. A target that spawns and exits keeps a row per process it ran without
-exhausting the bound.
+**A ring settles when its process exits, and never before.** gcmon learns which pids are gone
+when the tick's listing of the target's children drops one, and when a wait policy gives one up,
+so it settles their rings at both and moves them aside. The sample buffers go back, the slots go
+back, and the four percentiles left behind cover each of those rings end to end. A target that
+spawns and exits keeps a row per process it ran without exhausting the bound.
+
+**`gcmon.monitor` decides who is alive, and `gcmon.stats` takes that decision.** Whatever arrives
+on a pid gcmon called dead is a new process, the same one or not. The statistics do not infer
+liveness a second time from the target's counters, so the two sides cannot disagree about which
+process a figure describes.
 
 **Everything a run keeps carries an index naming which process held the pid.** It counts from 1
-and advances on the exit gcmon saw, so a successor claiming a pid starts clean: its own entry,
-its own loss, its own lifetime counters. The index belongs to the pid rather than to the ring,
-so an interpreter a successor creates late counts as the successor's. The table prints the first
-block plain and marks the ones after it, `12345:0#2` for the second process to hold the pid.
+and advances on each of those deaths, so whatever claims the pid next starts clean: its own
+entry, its own loss, its own lifetime counters. The index belongs to the pid rather than to the
+ring, so an interpreter a successor creates late counts as the successor's. The table prints the
+first block plain and marks the ones after it, `12345:0#2` for the second process to hold the
+pid.
 
 **A ring gets its row on its first record and keeps it until its process exits.** Where there is
 no slot to give, the ring gets none and its records reach `Total` alone. gcmon says so twice: in
@@ -122,6 +128,12 @@ scope they were written for and the scope `Total` reports.
 - **The index depends on gcmon seeing the exit.** A pid recycled between two ticks, with the
   listing never showing it gone, still reads as one process throughout. ADR-0015 accepted the
   related hazard on the monitor side, and the cursor there has the same blind spot.
+- **A death called wrongly costs.** Where a pid is given up on and the process behind it is in
+  fact still running, its records after that point are a second process: a second block, and a
+  second cumulative lifetime reading that the fold adds to the first rather than replacing it.
+  That is the price of one side owning liveness. Reading a restart out of the counters would
+  settle this case and reopen the one it replaced, since the two are told apart by a number the
+  target is free to report either way.
 - **A benchmark's metadata keeps its released key names.** They are flat, run-wide scalars,
   which is the scope a benchmark wants and the scope `Total` reports. Per-ring keys would embed
   pids that differ every run.

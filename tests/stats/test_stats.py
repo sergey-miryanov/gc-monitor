@@ -708,6 +708,50 @@ class TestTheBoundOnRunningRings:
         assert stats.rings() == []
 
 
+class TestADeathTheMonitorCalled:
+    """`gcmon.monitor` decides who is alive and this side takes the decision.
+
+    Whatever arrives on a pid called dead is a new process, the same one or
+    not. These tests use the case where the call was wrong, since that is the
+    one a reader is most likely to try to correct: the interpreter goes on
+    running and its cumulative counter carries on past its predecessor's
+    instead of restarting.
+    """
+
+    def _called_dead_but_running(self) -> StreamingStats:
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(1, 0, 0, 2, 2_000)
+        stats.record_lifetime(1, 0, 0, 300, 0.3)
+
+        stats.materialize(1)
+
+        for _ in range(2):
+            stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(1, 0, 0, 1, 1_000)
+        stats.record_lifetime(1, 0, 0, 500, 0.5)
+        return stats
+
+    def test_what_follows_gets_a_block_of_its_own(self) -> None:
+        assert self._called_dead_but_running().rings() == [(1, 0, 1), (1, 0, 2)]
+
+    def test_its_durations_start_fresh(self) -> None:
+        assert self._called_dead_but_running().pause_totals(1, 0, 0, 2).sampled_count == 2
+
+    def test_its_loss_starts_fresh(self) -> None:
+        assert self._called_dead_but_running().pause_totals(1, 0, 0, 2).lost_count == 1
+
+    def test_its_lifetime_starts_fresh(self) -> None:
+        """The fold reads 800 over an interpreter that ran 500, and that is the
+        decision rather than a slip. gcmon could tell the two apart here, since
+        a real successor's counter restarts low, but only by deciding liveness
+        a second way and disagreeing with the monitor whenever the two differ.
+        ADR-0016 has the reasoning.
+        """
+        assert self._called_dead_but_running().lifetime_totals_by_gen()[0].collections == 800
+
+
 class TestAReusedPid:
     """Two processes held the pid, so the run keeps two of everything.
 
