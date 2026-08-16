@@ -174,11 +174,12 @@ processes. A run watching one interpreter reads `1 interpreter in 1 process`.
 3. 2 rings got no row: gcmon was already tracking 256 interpreters at once. Those records are counted in Total.
 ```
 
-gcmon holds detailed statistics for 256 interpreters at once, and a process
-that exits hands its slots back. An interpreter that starts while all 256 are
-busy gets no block of its own, and gcmon logs a warning the first time it
-happens. `Total` still counts every record, so the rows can add up to less than
-the run and this note says by how many rings.
+gcmon holds detailed statistics for a bounded number of interpreters at once,
+the count this note states, and a process that exits hands its slots back. An
+interpreter that starts while every slot is busy gets no block of its own, and
+gcmon logs a warning the first time it happens. `Total` still counts every
+record, so the rows can add up to less than the run and this note says by how
+many rings.
 
 ## Without `[stats]` extra
 
