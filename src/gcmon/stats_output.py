@@ -249,26 +249,26 @@ def _print_footer(stats: StreamingStats) -> None:
     reads ``1.``.
     """
     pauses = stats.pause_totals_by_gen()
-    lifetimes = stats.lifetime_totals_by_gen()
+    cumulative = stats.cumulative_totals_by_gen()
     covered = [(gen, pauses[gen]) for gen in stats.GENS if pauses[gen].lost_count]
-    lifetime = [(gen, lifetimes[gen]) for gen in stats.GENS if gen in lifetimes and lifetimes[gen].collections]
+    counted = [(gen, cumulative[gen]) for gen in stats.GENS if gen in cumulative and cumulative[gen].collections]
 
     notes: list[str] = []
     if covered:
         parts = ", ".join(f"Gen{gen} {_coverage_cell(t.coverage, t.lost_count)}" for gen, t in covered)
         notes.append(f"Coverage: {parts}. Count and Sum read sampled/exact; percentiles are sampled and read high.")
-    if lifetime:
+    if counted:
         parts = ", ".join(
-            f"Gen{gen} {totals.collections} in {dur_to_ms(totals.pause_ns):.3f} ms" for gen, totals in lifetime
+            f"Gen{gen} {totals.collections} in {dur_to_ms(totals.pause_ns):.3f} ms" for gen, totals in counted
         )
-        interpreters, processes = stats.lifetime_scope()
+        interpreters, processes = stats.cumulative_scope()
         # One line per generation whatever the size of the tree. The counts
         # say what it summed over: interpreters start at different moments,
         # and a reused pid folds two processes into one figure.
         #
         # "monitored window included" covers that window rather than
         # excluding it, so the note must not read as a figure to add to
-        # `Count`. `lifetime_count` is the target's own cumulative counter.
+        # `Count`. It reports the target's own cumulative counter.
         notes.append(
             f"Since each interpreter started, monitored window included, summed over "
             f"{_plural(interpreters, 'interpreter')} in {_plural(processes, 'process', 'processes')}: {parts}."

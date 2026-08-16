@@ -71,11 +71,11 @@ def _get_env_pyperf_hook_output(bench_name: str, pid: int) -> Path:
 def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> None:
     """Rebuild a session's statistics from the records it wrote.
 
-    The monitor folds loss and lifetime as it polls, but the hook meets the
-    session only as a file, so both have to come back off it. Loss rides in
-    records of its own. Lifetime rides on every GC record, whose
-    ``collections`` and ``duration`` are the target's cumulative totals, so
-    the newest record of each ring carries what the monitor recorded live.
+    The monitor folds loss and the cumulative counters as it polls, but the
+    hook meets the session only as a file, so both have to come back off it.
+    Loss rides in records of its own. The counters ride on every GC record,
+    whose ``collections`` and ``duration`` are the target's cumulative totals,
+    so the newest record of each ring carries what the monitor observed live.
 
     Loss is summed per ``(pid, iid, gen)`` before it goes in: one record covers
     one interpreter's poll interval and names every generation active in it, so
@@ -102,7 +102,7 @@ def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> Non
                     lost[ring] = (seen_count + entry.lost_count, seen_pause + entry.lost_pause_ns)
 
     for (pid, iid, gen), record in newest.items():
-        stats.record_lifetime(pid, iid, gen, record.collections, record.duration)
+        stats.observe_cumulative(pid, iid, gen, record.collections, record.duration)
 
     for (pid, iid, gen), (count, pause_ns) in lost.items():
         if count or pause_ns:

@@ -104,7 +104,7 @@ class TestMetricsAreExact:
 
         assert "pause_gen_0_lifetime_count" not in to_metrics(stats)
 
-        stats.record_lifetime(1, 0, 0, 5_000, 5.0)
+        stats.observe_cumulative(1, 0, 0, 5_000, 5.0)
 
         assert to_metrics(stats)["pause_gen_0_lifetime_count"] == 5_000
 

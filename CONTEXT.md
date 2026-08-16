@@ -79,7 +79,10 @@ _Avoid_: true, real, total
 **Lifetime totals**:
 Everything one interpreter has collected since it started, monitored window
 included. Always written with the qualifier: bare **lifetime** means the
-`Processes`-track span above.
+`Processes`-track span above. The source names the counters underneath rather
+than the interval — `CumulativeCounters`, `StreamingStats.observe_cumulative`,
+`cumulative_totals_by_gen` — so the bare word is left to the span everywhere
+outside this prose and the `pause_gen_N_lifetime_*` pyperf keys.
 _Avoid_: lifetime (bare), cumulative total (the counters underneath are
 cumulative, the interval is not), since-start count
 

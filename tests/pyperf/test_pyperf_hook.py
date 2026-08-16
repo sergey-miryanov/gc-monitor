@@ -419,13 +419,13 @@ class TestGCMonitorHookTeardown:
         assert not temp_file_1.exists()
 
 
-class TestTeardownReplaysLossAndLifetime:
+class TestTeardownReplaysLossAndCumulativeCounters:
     """What the monitor folded live has to come back off the file.
 
     The hook meets a session only as JSONL, so a loss record it skips is a
     session that publishes full coverage and a sampled sum labelled exact.
-    Lifetime needs no record of its own: ``collections`` and ``duration`` on
-    every GC record are the target's own cumulative totals.
+    The cumulative counters need no record of their own: ``collections`` and
+    ``duration`` on every GC record are the target's own cumulative totals.
     """
 
     LOST = _make_jsonl_loss(lost_count=2, lost_pause_ns=7_000_000)
@@ -470,14 +470,16 @@ class TestTeardownReplaysLossAndLifetime:
         assert metadata["gc_pause_gen_0_count"] == 2
         assert metadata["gc_pause_gen_0_sum"] == pytest.approx(10.0)
 
-    def test_lifetime_comes_from_the_newest_record_of_the_ring(self, tmp_path: Path, mock_env_output: None) -> None:
+    def test_the_counters_come_from_the_newest_record_of_the_ring(self, tmp_path: Path, mock_env_output: None) -> None:
         """The whole history the target reports, not the monitored part."""
         metadata = self.metadata(tmp_path, *self.observed(), self.LOST)
 
         assert metadata["gc_pause_gen_0_lifetime_count"] == 8
         assert metadata["gc_pause_gen_0_lifetime_sum"] == pytest.approx(20.0)
 
-    def test_records_out_of_order_do_not_walk_lifetime_backwards(self, tmp_path: Path, mock_env_output: None) -> None:
+    def test_records_out_of_order_do_not_walk_the_counters_backwards(
+        self, tmp_path: Path, mock_env_output: None
+    ) -> None:
         """Cumulative totals only ever grow, so the highest counter wins
         however the lines happen to be ordered."""
         newest, oldest = self.observed()[1], self.observed()[0]

@@ -51,7 +51,7 @@ def to_metrics(stats: StreamingStats) -> dict[str, int | float]:
     """
     result: dict[str, int | float] = {}
     pauses = stats.pause_totals_by_gen()
-    lifetimes = stats.lifetime_totals_by_gen()
+    cumulative = stats.cumulative_totals_by_gen()
     pause_stats = stats.metrics["pause"]
     exact_total = 0
     for gen in stats.GENS:
@@ -68,10 +68,13 @@ def to_metrics(stats: StreamingStats) -> dict[str, int | float]:
             result[keys.count] = exact_count
             # A sampled count above zero is why this needs no zero guard.
             result[keys.coverage] = sampled_count / exact_count
-        lifetime = lifetimes.get(gen)
-        if lifetime is not None and lifetime.collections > 0:
-            result[keys.lifetime_count] = lifetime.collections
-            result[keys.lifetime_sum] = dur_to_ms(lifetime.pause_ns)
+        # The `lifetime` in the key names is the wire vocabulary pyperf
+        # publishes and reads as "since start"; the counters behind it are
+        # `CumulativeCounters`.
+        counters = cumulative.get(gen)
+        if counters is not None and counters.collections > 0:
+            result[keys.lifetime_count] = counters.collections
+            result[keys.lifetime_sum] = dur_to_ms(counters.pause_ns)
     heap_p99 = stats.heap_size_p99()
     if heap_p99 is not None:
         result["heap_size_p99"] = heap_p99
