@@ -100,12 +100,6 @@ class EventsMonitor:
     def forget(self, pid: int) -> None:
         """Drop everything held for *pid*, so a reused pid inherits no counter
         and no poll instant from the process before it.
-
-        Its statistics stay and settle, describing the process that ran, and
-        whatever holds the pid next starts on figures of its own. This side
-        decides who is alive and `gcmon.stats` takes the decision, so a wait
-        policy giving up ends a process there as surely as the child listing
-        dropping it does (ADR-0016).
         """
         self._pids.pop(pid, None)
         self._stats.materialize(pid)

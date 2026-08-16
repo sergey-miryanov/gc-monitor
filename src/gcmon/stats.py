@@ -570,32 +570,19 @@ class StreamingStats:
         `COVERAGE_ADVISORY`, as its interpreter, its generation and its
         coverage. ``None`` on a healthy run.
 
-        Idempotent: the caller owns the warn-once latch and the wording.
-
-        The caller says it once, so a marginal 87% must not stand for a
-        capture holding an interpreter at 5%. The latch keeps whichever
-        answer came first in time, so a ring that collapses after the warning
-        fires goes unnamed.
-
-        Every poll of every pid asks, so it reads the two counts coverage
-        needs rather than building a `PauseTotals`. Loss leads: a ring that
-        lost nothing cannot be under-covered.
-
         Only the rings running now, which are the pid's, since the caller
         polled it.
         """
         worst: tuple[int, int, float] | None = None
         for (ring_pid, iid), ring in self._running_rings.items():
             if ring_pid != pid or ring.declined:
-                # A declined ring has a sampled count of zero here, which would
-                # read as nothing observed. gcmon read its records and counted
-                # them in the run totals, so the advisory has nothing to say
-                # about it.
+                # A declined ring has a sampled count of zero here, so the
+                # advisory has nothing to say about it.
                 continue
             for gen, lost in ring.loss.items():
                 if not lost.count:
                     continue
-                # Something was lost, so the denominator cannot be zero.
+
                 sampled = ring.sampled(gen).count()
                 coverage = sampled / (sampled + lost.count)
                 if coverage < self.COVERAGE_ADVISORY and (worst is None or coverage < worst[2]):
