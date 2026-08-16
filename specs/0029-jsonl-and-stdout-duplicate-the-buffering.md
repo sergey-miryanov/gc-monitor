@@ -1,10 +1,23 @@
 # 0029 — Share one buffer-and-flush implementation with the JSONL exporters
 
-- **Status:** Not started
+- **Status:** **Superseded** by [0036](0036-one-exporter-method-per-record-kind.md), which
+  removes the duplication by construction rather than by extraction
 - **Kind:** feature — cleanup
 - **Effort:** M
 - **Origin:** post-v0.2.0 code review (old spec 18, REQ-3 and REQ-4)
 - **Respects:** [ADR-0008](../docs/adr/0008-buffered-exporter-and-encoder-protocol.md) (exporter buffers, encoder serializes), [ADR-0009](../docs/adr/0009-nanoseconds-canonical-time-unit.md) (nanoseconds internally)
+
+## 0. Why this is superseded
+
+The three byte-identical buffering blocks exist because `EventsExporter` has three `add_*`
+methods for the JSONL path to implement. 0036 collapses the interface to one `add`, so there is
+one block and nothing left to extract — §4's generic holder is not needed under that design.
+
+Everything else here still holds and 0036 carries it forward verbatim: the JSONL schema does not
+change and JSONL does not move onto `TraceEvent` (§4, and the rejected alternative that goes
+with it), the missing `_closed` guard, the `_open_writer` override, and the golden-file test.
+Read §4 before touching the JSONL exporter — it is the fullest statement of why the file format
+is load-bearing, and 0036 summarizes rather than replaces it.
 
 ## 1. Problem statement
 
