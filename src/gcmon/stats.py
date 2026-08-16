@@ -433,7 +433,7 @@ class StreamingStats:
         for metric in METRICS:
             _record(self.metrics, item, metric)
 
-        index = self._index(pid)
+        index = self._open_pid(pid)
         # Process-wide and one integer per process, so it is kept whether or
         # not the ring behind the record has a row.
         self._heap_size[(pid, index)] = max(self._heap_size.get((pid, index), 0), item.heap_size)
@@ -459,12 +459,14 @@ class StreamingStats:
             self._running_rings[key] = ring
         return ring
 
-    def _index(self, pid: int) -> int:
-        """Which process holding *pid* the records arriving now belong to.
+    def _open_pid(self, pid: int) -> int:
+        """Mark *pid* as running, and answer which process holding it the
+        records arriving now belong to.
 
-        Counts from 1 and advances on the exit gcmon sees, so a successor
-        files everything apart from its predecessor. Reading it is what marks
-        the pid as running, since records only come from a process that is.
+        A record reaches gcmon only from a process that is running, so its
+        arrival is what opens the pid. :meth:`materialize` closes it again.
+        The index counts from 1 and advances on the exit gcmon sees, so a
+        successor files everything apart from its predecessor.
         """
         self._open_pids.add(pid)
         return self._index_per_pid.setdefault(pid, 1)
@@ -562,7 +564,7 @@ class StreamingStats:
         Sampled plus lost is the exact total ADR-0015 defines, so the rings
         themselves stay in the monitor.
         """
-        self._index(pid)
+        self._open_pid(pid)
         ring = self._ring(pid, iid)
         ring.loss.setdefault(gen, LossTotals()).add(lost_count, lost_pause_ns)
 
@@ -610,7 +612,7 @@ class StreamingStats:
         entry of its own, so the fold adds the two rather than losing the
         larger history to the smaller one that follows it.
         """
-        self._index(pid)
+        self._open_pid(pid)
         self._ring(pid, iid).lifetime[gen] = LifetimeTotals(collections, duration_s)
 
     def pause_totals(self, pid: int, iid: int, gen: int, index: int | None = None) -> PauseTotals:
