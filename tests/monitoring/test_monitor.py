@@ -9,7 +9,7 @@ from gcmon.monitor import EventsMonitor, PollReport, create_monitor
 from gcmon.protocol import TGCStatsInfo
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
-from gcmon.wait_policy import NoWaitPolicy, WaitPolicy, WaitPolicyFactory
+from gcmon.wait_policy import WaitPolicy, WaitPolicyFactory, no_wait_policy
 from tests.helpers import MockExporter, create_mock_stats_item
 
 
@@ -148,7 +148,7 @@ def _monitor(
     exporter: MockExporter,
     *,
     pid: int = 12345,
-    wait_policy_factory: WaitPolicyFactory = lambda: NoWaitPolicy(),
+    wait_policy_factory: WaitPolicyFactory = no_wait_policy,
     is_pid_enabled: Callable[[int], bool] | None = None,
 ) -> EventsMonitor:
     """A monitor wired the way the monitoring command wires one."""
@@ -579,13 +579,18 @@ class TestAPidThePolicyGaveUpOn:
 
 
 class TestCreateMonitor:
-    """The name outlives the function by one release, so the calls it used to
-    serve keep working."""
+    """The name outlives the function by one release, as an alias.
+
+    An alias, not a compatibility shim: it is the class, so it takes what the
+    class takes. The three-argument call it used to serve is gone with the
+    optional policy factory -- a monitor with no configured policy is not
+    something to keep constructible for one more release.
+    """
 
     def test_returns_events_monitor(
         self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
     ) -> None:
-        result = create_monitor(process, exporter, stats)
+        result = create_monitor(process, exporter, stats, wait_policy_factory=no_wait_policy)
         assert isinstance(result, EventsMonitor)
         assert result.is_enabled
         assert result.pid == 12345
@@ -594,3 +599,11 @@ class TestCreateMonitor:
         import gcmon
 
         assert gcmon.create_monitor is gcmon.EventsMonitor
+
+    def test_a_monitor_cannot_be_built_without_a_policy(
+        self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
+    ) -> None:
+        """The whole point of the argument being required. Omitting it used to
+        yield a monitor that gave up on the first failed poll."""
+        with pytest.raises(TypeError):
+            create_monitor(process, exporter, stats)  # type: ignore[call-arg]

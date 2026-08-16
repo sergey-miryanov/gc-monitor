@@ -19,6 +19,16 @@ class NoWaitPolicy(WaitPolicy):
         return status == PollStatus.OK
 
 
+def no_wait_policy() -> WaitPolicy:
+    """A :class:`NoWaitPolicy`, as a :class:`WaitPolicyFactory`.
+
+    The class object itself satisfies the protocol structurally but not to a
+    type checker, which reads its ``__call__`` as returning the concrete class.
+    Callers that want "keep a pid only while its polls succeed" name this.
+    """
+    return NoWaitPolicy()
+
+
 class StartupTimeoutPolicy(WaitPolicy):
     """
     Wait for process to become valid during startup.

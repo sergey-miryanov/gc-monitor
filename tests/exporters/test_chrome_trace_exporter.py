@@ -12,6 +12,7 @@ from gcmon.monitor import EventsMonitor
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.trace_event import loss_tid
+from gcmon.wait_policy import no_wait_policy
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory
@@ -377,7 +378,7 @@ def monitor_with_exporter(trace_exporter: ExporterFactory) -> tuple[EventsMonito
     exporter, path = trace_exporter()
     assert isinstance(exporter, TraceExporter)
     process = ExternalProcess(pid=12345)
-    monitor = EventsMonitor(process, exporter, StreamingStats())
+    monitor = EventsMonitor(process, exporter, StreamingStats(), wait_policy_factory=no_wait_policy)
     return monitor, path
 
 

@@ -24,6 +24,7 @@ from gcmon.protocol import TGCStatsInfo, TInstantMsg, TItem, TLossMsg
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.trace_event import LOSS_TID_BASE, BeginEvent, EndEvent
+from gcmon.wait_policy import no_wait_policy
 from tests.helpers import create_mock_stats_item
 
 PID = 12345
@@ -70,7 +71,7 @@ def ingest(*batches: Sequence[GCStatsInfo]) -> list[TItem]:
     monotonic clock would make unrepeatable.
     """
     recorder = Recorder()
-    monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, StreamingStats())
+    monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, StreamingStats(), wait_policy_factory=no_wait_policy)
     reads = iter(batches)
 
     def one_read(pid: int, all_interpreters: bool = True) -> list[GCStatsInfo]:

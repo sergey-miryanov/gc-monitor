@@ -33,6 +33,7 @@ from gcmon.poll_status import PollStatus
 from gcmon.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
+from gcmon.wait_policy import no_wait_policy
 from tests.captures import SSL_CONTEXT_SIZE
 from tests.test_monitor_cursor import POLL_0
 
@@ -226,7 +227,7 @@ def replay(interval_ms: float, sizes: dict[int, int] = RING_SIZES, skew_ms: floa
 
     recorder = Recorder()
     stats = StreamingStats()
-    monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, stats)
+    monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, stats, wait_policy_factory=no_wait_policy)
     reads = iter(batches)
     wakes: list[int] = []
 
@@ -578,7 +579,9 @@ class TestAMidWriteSlot:
         batch[in_flight.collections % RING_SIZES[0]] = half_written
 
         recorder = Recorder()
-        monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, StreamingStats())
+        monitor = EventsMonitor(
+            ExternalProcess(pid=PID), recorder, StreamingStats(), wait_policy_factory=no_wait_policy
+        )
         monitor._ingest(PID, batch, ts_poll=1)
 
         assert half_written.ts_start > half_written.ts_stop
@@ -596,7 +599,7 @@ class TestAMidWriteSlot:
 
         recorder = Recorder()
         stats = StreamingStats()
-        monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, stats)
+        monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, stats, wait_policy_factory=no_wait_policy)
         monitor._ingest(PID, batch, ts_poll=1)
 
         counters = [record.collections for record in recorder.records if record.gen == 0]

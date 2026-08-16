@@ -79,7 +79,7 @@ from gcmon.monitor_loop import MonitorLoop
 from gcmon.run_policy import Runner
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
-from gcmon.wait_policy import NoWaitPolicy
+from gcmon.wait_policy import no_wait_policy
 from tests.test_loss_replay import MS, READ_COST_NS, RING_SIZES, capture_records, ring_at
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "monitored_run_chrome_trace.json"
@@ -274,7 +274,7 @@ def run_monitored(output: Path) -> MonitoredRun:
         ExternalProcess(pid=TARGET_PID),
         exporter,
         StreamingStats(),
-        wait_policy_factory=lambda: NoWaitPolicy(),
+        wait_policy_factory=no_wait_policy,
     )
     # `rate=0` so the between-tick wait returns at once, and no `rss_sampler`,
     # which would read this machine's memory once a second. `NoWaitPolicy` per

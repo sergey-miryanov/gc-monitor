@@ -20,7 +20,7 @@ from .poll_status import PollStatus
 from .protocol import TGCStatsInfo
 from .stats import StreamingStats
 from .target_process import TargetProcess
-from .wait_policy import NoWaitPolicy, WaitPolicy, WaitPolicyFactory
+from .wait_policy import WaitPolicy, WaitPolicyFactory
 
 logger = logging.getLogger("gcmon")
 
@@ -36,16 +36,6 @@ def _is_complete(event: TGCStatsInfo) -> bool:
 def _never_stops() -> bool:
     """The default cancel check, for a tick nothing can interrupt."""
     return False
-
-
-def _no_wait_policy() -> WaitPolicy:
-    """The default wait policy factory.
-
-    A function rather than the class itself: a class object satisfies
-    :class:`WaitPolicyFactory` structurally but not to a type checker, which
-    reads its ``__call__`` as returning the concrete class.
-    """
-    return NoWaitPolicy()
 
 
 class PidState(msgspec.Struct):
@@ -80,23 +70,20 @@ class EventsMonitor:
         exporter: EventsExporter,
         stats: StreamingStats,
         *,
-        wait_policy_factory: WaitPolicyFactory = _no_wait_policy,
+        wait_policy_factory: WaitPolicyFactory,
         is_pid_enabled: Callable[[int], bool] | None = None,
     ) -> None:
         """
         *wait_policy_factory* builds the per-pid policy that decides when a pid
-        is finished. It defaults to :class:`NoWaitPolicy`, which keeps a pid
-        only while its polls succeed -- the honest reading of "no policy was
-        configured", and never what the monitoring commands pass.
-
-        Note what that default costs a caller who drives :meth:`tick` without
-        setting it: against a target still initializing, the first poll answers
-        ``INVALID_PROCESS``, `NoWaitPolicy` gives up on it, and the run ends
-        instead of waiting out a startup window. The default exists so the
-        three-argument construction keeps working for callers that only
-        :meth:`poll`; anything driving whole ticks should say what it wants.
-        Both of these are keyword-only so a fourth positional argument cannot
-        become a policy factory by accident.
+        is finished. Required, and keyword-only, because there is no safe
+        default: :func:`no_wait_policy` gives up on the first failed poll, so a
+        monitor that silently got it would end a run against a target still
+        initializing instead of waiting out a startup window -- and would do it
+        by answering `keep_running=False`, which reads as an orderly finish
+        rather than as a missing argument. A caller that only :meth:`poll`\\ s
+        and never :meth:`tick`\\ s still has to say which it wants, which is
+        the point: it makes "no policy was configured" impossible to reach by
+        omission.
 
         *is_pid_enabled* is the control plane's per-pid verdict: ``False``
         means the control server has suppressed that pid and it must not be

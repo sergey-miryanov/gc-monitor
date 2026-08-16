@@ -13,6 +13,7 @@ from gcmon.monitor import EventsMonitor
 from gcmon.protocol import TGCStatsInfo, TMapping, to_mapping
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
+from gcmon.wait_policy import no_wait_policy
 from tests.data_helpers import create_instant_msg
 from tests.helpers import MockExporter, create_mock_stats_item
 
@@ -121,14 +122,14 @@ def stats() -> StreamingStats:
 
 @pytest.fixture
 def monitor(exporter: MockExporter, process: ExternalProcess, stats: StreamingStats) -> EventsMonitor:
-    return EventsMonitor(process, exporter, stats)
+    return EventsMonitor(process, exporter, stats, wait_policy_factory=no_wait_policy)
 
 
 @pytest.fixture
 def make_monitor(exporter: MockExporter, stats: StreamingStats) -> Callable[..., EventsMonitor]:
     def _make(pid: int = 12345, exp: MockExporter | None = None) -> EventsMonitor:
         proc = ExternalProcess(pid=pid)
-        return EventsMonitor(proc, exp or exporter, stats)
+        return EventsMonitor(proc, exp or exporter, stats, wait_policy_factory=no_wait_policy)
 
     return _make
 
