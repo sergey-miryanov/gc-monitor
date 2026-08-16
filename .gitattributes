@@ -1,0 +1,6 @@
+# tests/fixtures holds output that is asserted byte for byte, so it has to
+# reach every checkout exactly as it was committed. `-text` turns off
+# end-of-line translation for it whatever the local `core.autocrlf` says;
+# without that, a Windows clone with autocrlf on would fail the comparison over
+# line endings the encoder never wrote.
+tests/fixtures/** -text
