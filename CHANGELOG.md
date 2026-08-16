@@ -5,6 +5,8 @@
 ### Breaking changes
 
 - `GC Loss` slice args drop the `missing_` prefix for the `lost_` one
+- `EventsMonitor.exporter` is gone. It existed so the monitoring loop could reach the exporter through the monitor; the monitor emits what it owns now
+- `create_monitor` is an alias for `EventsMonitor` rather than a function, and goes in the next release. Calls are unaffected
 - The `--stats` table reports one block per interpreter, not one per process: `PID:IID` heads every row, `12345:0` included. `Total` is the only blended row
 - The low-coverage advisory measures each interpreter on its own and names the least covered. It fires where a busy interpreter used to lift the whole PID over the 90% floor
 
@@ -21,6 +23,10 @@
 
 - Stop a reused PID inheriting its predecessor's `--stats` row, which put two processes' records under one heading
 - Stop a reused PID's lifetime totals overwriting its predecessor's, which made the note under the table drop mid-run
+
+### Internal
+
+- One tick of monitoring is one call on the monitor, which owns every piece of per-pid state behind it. The ring cursors and the wait policy deciding when a PID is finished used to be dropped by two different modules against two expressions of the same PID set. They agreed, so no trace was ever wrong; had they stopped agreeing, a reused PID would have inherited a `collections` counter from the process before it and drawn a `GC Loss` span for collections that never happened
 
 ## Version 0.5.0 (2026-08-14)
 

@@ -26,7 +26,6 @@ spec here contradicts an ADR, one of the two is wrong and it is usually the spec
 | [0035](0035-derive-every-gc-sub-phase-from-one-table.md) | Feature — cleanup | L | CPython's eight optional GC sub-phases are written out by hand in six places; adding the ninth means six edits and nothing fails if one is missed |
 | [0036](0036-one-exporter-method-per-record-kind.md) | Feature — cleanup | M | `EventsExporter` has grown one method per record kind, three of them no-ops, and the CLI keeps a hand-maintained list of which formats really handle RSS |
 | [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md) | Feature — cleanup | M | Two implementations of "emit this pid's process and thread meta"; 0026 exists because they already drifted once |
-| [0038](0038-let-the-monitor-own-the-pid-lifecycle.md) | Feature — cleanup | M | Per-pid state has two owners and is pruned twice against the same set; if they ever disagree a recycled pid reports a loss window that never happened |
 | [0039](0039-split-the-record-model-and-stats-by-concern.md) | Feature — cleanup | S | The record model and the stats module carry three jobs each; `tests/stats/` is already split along a seam the source does not have |
 | [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature — cleanup | M | Every monitoring option is declared three times, and a rejected configuration is echoed to the log as though it had been accepted |
 | [0041](0041-give-the-package-explicit-layers.md) | Feature — cleanup | L | The package's five layers are invisible and unchecked; the dependency direction is clean today and nothing keeps it that way |
@@ -38,14 +37,14 @@ spec here contradicts an ADR, one of the two is wrong and it is usually the spec
 wrongness) → 0043 (XS, and everything below it makes a release more likely, which is when a
 wrong version gets believed) → 0028 (XS, and it shrinks 0036) → 0027 (needs a trace-processor
 answer before it can be settled either way) → 0031 → 0030 → 0035 → 0037 → 0036 → 0039 → 0040 →
-0038 → 0042 → 0020 → 0041. 0024 is the owner's to file and depends on nothing here. 0044 is
+0042 → 0020 → 0041. 0024 is the owner's to file and depends on nothing here. 0044 is
 not in the run at all: it waits on CPython synchronizing the ring, and §4 states the one
 measurement that would put it back in play sooner.
 
 Four ordering constraints inside that run, and only four: 0026 before 0037, which assumes its
 shared naming helper; 0028 before 0036, which it shrinks; 0035 before 0039, which would
 otherwise move nine classes 0035 deletes; and 0039 before 0041, or the same files move twice.
-0038, 0040 and 0042 are independent of everything and can be taken whenever there is an
+0040 and 0042 are independent of everything and can be taken whenever there is an
 appetite for them. 0041 is last on purpose — see its §7, which argues against doing it between
 two changes that actually move code.
 
