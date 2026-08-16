@@ -579,31 +579,54 @@ class TestAPidThePolicyGaveUpOn:
 
 
 class TestCreateMonitor:
-    """The name outlives the function by one release, as an alias.
+    """The three-argument construction, for callers that only poll.
 
-    An alias, not a compatibility shim: it is the class, so it takes what the
-    class takes. The three-argument call it used to serve is gone with the
-    optional policy factory -- a monitor with no configured policy is not
-    something to keep constructible for one more release.
+    It is a real function rather than an alias for the class, and what it adds
+    is the one thing the constructor refuses to assume: a wait policy.
     """
 
     def test_returns_events_monitor(
         self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
     ) -> None:
-        result = create_monitor(process, exporter, stats, wait_policy_factory=no_wait_policy)
+        result = create_monitor(process, exporter, stats)
         assert isinstance(result, EventsMonitor)
         assert result.is_enabled
         assert result.pid == 12345
 
-    def test_package_root_exports_the_class_under_the_old_name(self) -> None:
-        import gcmon
-
-        assert gcmon.create_monitor is gcmon.EventsMonitor
-
-    def test_a_monitor_cannot_be_built_without_a_policy(
+    def test_the_monitor_it_builds_can_be_ticked(
         self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
     ) -> None:
-        """The whole point of the argument being required. Omitting it used to
-        yield a monitor that gave up on the first failed poll."""
+        """The policy it bakes in is a real one, not a placeholder that would
+        fail the first time anything drove the monitor."""
+        reports = _drive(
+            create_monitor(process, exporter, stats),
+            listings=[[]],
+            rings={12345: [_ring(1)]},
+        )
+
+        assert reports[0].live_pids == frozenset({12345})
+        assert reports[0].keep_running
+
+    def test_the_baked_in_policy_stops_on_a_failed_poll(
+        self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
+    ) -> None:
+        """`no_wait_policy` and not a waiting one, which is why anything
+        monitoring a target that may still be initializing has to construct
+        `EventsMonitor` itself and say so."""
+        reports = _drive(
+            create_monitor(process, exporter, stats),
+            listings=[[]],
+            rings={12345: [RuntimeError("still starting")]},
+        )
+
+        assert not reports[0].keep_running
+
+
+class TestTheConstructorRefusesToPickAPolicy:
+    def test_a_monitor_cannot_be_built_without_one(
+        self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
+    ) -> None:
+        """Omitting it used to yield a monitor that gave up on the first failed
+        poll and reported that as an orderly finish."""
         with pytest.raises(TypeError):
-            create_monitor(process, exporter, stats)  # type: ignore[call-arg]
+            EventsMonitor(process, exporter, stats)  # type: ignore[call-arg]
