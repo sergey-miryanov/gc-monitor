@@ -342,17 +342,14 @@ class RingStats(msgspec.Struct):
     One entry per key, so a ring's three kinds of number settle together on
     the exit that ends them and are read together afterwards.
 
-    `metrics` is ``None`` until the ring is admitted, and stays ``None`` where
-    the bound declined it. Sample buffers are what the bound caps, at a
-    thousand values a generation a metric, while the two counter dicts beside
-    them hold four numbers a generation. Every ring keeps those however many
-    rings are admitted, so the run totals and the coverage figures stay
-    whole.
+    `metrics` is ``None`` until the ring is admitted, and stays ``None`` if
+    the bound declined it. The bound caps sample buffers alone: they hold a
+    thousand values per generation per metric, where `loss` and `lifetime`
+    hold two numbers per generation each. A declined ring goes on counting,
+    so the run totals and the coverage figures stay whole.
 
-    `declined` is what tells the two apart, and it needs no scoping of its
-    own: an exit settles this entry and gives whatever claims the pid next a
-    fresh one, so a decline lasts exactly as long as the process it was made
-    against.
+    The ring became `declined` when no room for it in running_rings,
+    stick unless pid is dead.
     """
 
     metrics: TStatsData | None = None
