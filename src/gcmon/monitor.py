@@ -4,7 +4,7 @@ exporters."""
 import logging
 import time
 from _remote_debugging import get_child_pids, get_gc_stats
-from collections.abc import Sequence, Set
+from collections.abc import Callable, Sequence, Set
 from itertools import groupby
 from typing import Self
 
@@ -20,16 +20,32 @@ from .poll_status import PollStatus
 from .protocol import TGCStatsInfo
 from .stats import StreamingStats
 from .target_process import TargetProcess
+from .wait_policy import NoWaitPolicy, WaitPolicy, WaitPolicyFactory
 
 logger = logging.getLogger("gcmon")
 
-__all__ = ["EventsMonitor", "create_monitor"]
+__all__ = ["EventsMonitor", "PollReport", "create_monitor"]
 
 
 def _is_complete(event: TGCStatsInfo) -> bool:
     """False for a slot holding no finished record: never written, or
     mid-write with ``ts_start`` published and ``ts_stop`` not yet."""
     return event.ts_start < event.ts_stop
+
+
+def _never_stops() -> bool:
+    """The default cancel check, for a tick nothing can interrupt."""
+    return False
+
+
+def _no_wait_policy() -> WaitPolicy:
+    """The default wait policy factory.
+
+    A function rather than the class itself: a class object satisfies
+    :class:`WaitPolicyFactory` structurally but not to a type checker, which
+    reads its ``__call__`` as returning the concrete class.
+    """
+    return NoWaitPolicy()
 
 
 class PidState(msgspec.Struct):
@@ -41,20 +57,104 @@ class PidState(msgspec.Struct):
     ts_last_poll: int | None = None
 
 
+class PollReport(msgspec.Struct):
+    """What one tick of monitoring found.
+
+    ``live_pids`` is the set that answered :attr:`PollStatus.OK`. A successful
+    read is the only evidence gcmon has that a process was still there, and
+    for a process that never collects it is the *only* evidence of any kind,
+    so it is what liveness reporting is built on (ADR-0011).
+
+    ``keep_running`` is false once no wait policy still wants the run to go
+    on, which is the caller's signal to stop.
+    """
+
+    live_pids: frozenset[int]
+    keep_running: bool
+
+
 class EventsMonitor:
     def __init__(
         self,
         process: TargetProcess,
         exporter: EventsExporter,
         stats: StreamingStats,
+        wait_policy_factory: WaitPolicyFactory = _no_wait_policy,
+        is_pid_enabled: Callable[[int], bool] | None = None,
     ) -> None:
+        """
+        *wait_policy_factory* builds the per-pid policy that decides when a pid
+        is finished. It defaults to :class:`NoWaitPolicy`, which keeps a pid
+        only while its polls succeed -- the honest reading of "no policy was
+        configured", and never what the monitoring commands pass.
 
+        *is_pid_enabled* is the control plane's per-pid verdict: ``False``
+        means the control server has suppressed that pid and it must not be
+        polled. ``None`` means no control plane. Not to be confused with
+        ``_enabled`` below, which is one flag for the whole monitor meaning
+        "not stopped"; the two were fields of the same name in two modules
+        until spec 0038 brought them together.
+        """
         self._process = process
         self._exporter = exporter
         self._enabled = True
         self._pids: dict[int, PidState] = {}
+        self._policies: dict[int, WaitPolicy] = {}
+        self._wait_policy_factory = wait_policy_factory
+        self._is_pid_enabled = is_pid_enabled
         self._stats = stats
         self._coverage_warned = False
+
+    def tick(self, stop: Callable[[], bool] = _never_stops) -> PollReport:
+        """Poll the target and every child once, and report what answered.
+
+        One tick is one call because every piece of per-pid state behind that
+        answer has one lifetime: the ring cursors, the poll instant ADR-0015's
+        loss arithmetic runs on, the streaming stats, and the wait policy that
+        decides when the pid is finished. They are pruned together, against
+        one child set, by the code that owns them. Two prunes computed from
+        two expressions of that set is what would let a recycled pid inherit a
+        cursor from the process before it, and turn a fresh ``collections``
+        counter into a loss window for collections that never happened.
+
+        *stop* is asked between pids, so a shutdown does not have to wait out
+        a whole process tree. The event behind it belongs to the caller; the
+        monitor only reads it.
+        """
+        child_pids = self.get_child_pids()
+        children = [self._process.pid, *(child_pids or [])]
+
+        # A process that exits between two ticks is never polled again, so no
+        # policy gives up on it and the branch below never runs. None means
+        # the listing failed, so prune only when it worked.
+        if child_pids is not None:
+            self._retain(set(children))
+
+        live: set[int] = set()
+        keep_running = False
+        for pid in children:
+            if stop():
+                break
+
+            if self._is_pid_enabled is not None and not self._is_pid_enabled(pid):
+                continue
+
+            policy = self._policies.get(pid)
+            if policy is None:
+                policy = self._policies[pid] = self._wait_policy_factory()
+
+            rc = self.poll(pid)
+            keep_waiting = policy.wait(rc)
+            keep_running = keep_running or keep_waiting
+            if rc == PollStatus.OK:
+                live.add(pid)
+            elif not keep_waiting:
+                # The policy decides when a pid is finished. It stays behind:
+                # a fresh one would answer True until its own startup timeout
+                # expired, holding the run open.
+                self._forget(pid)
+
+        return PollReport(live_pids=frozenset(live), keep_running=keep_running)
 
     def get_child_pids(self) -> list[int] | None:
         """Every descendant of the target, or ``None`` when the read failed.
@@ -97,21 +197,28 @@ class EventsMonitor:
             logger.warning("Monitor for PID %s (child PID=%s) encountered error", self._process.pid, pid, exc_info=exc)
             return PollStatus.FAIL
 
-    def forget(self, pid: int) -> None:
-        """Drop everything held for *pid*, so a reused pid inherits no counter
+    def _forget(self, pid: int) -> None:
+        """Drop the cursors held for *pid*, so a reused pid inherits no counter
         and no poll instant from the process before it.
+
+        The policy is deliberately left behind; see :meth:`tick`.
         """
         self._pids.pop(pid, None)
         self._stats.materialize(pid)
 
-    def retain(self, pids: Set[int]) -> None:
+    def _retain(self, pids: Set[int]) -> None:
         """Drop the state of every pid outside *pids*.
 
-        A process that exits between two ticks is never polled again, so no
-        wait policy gives up on it and ``forget`` never runs.
+        Every per-pid thing at once, which is the point: a cursor outliving
+        its policy, or the reverse, is the disagreement spec 0038 exists to
+        make impossible. A process that exits between two ticks is never
+        polled again, so no wait policy gives up on it and this is the only
+        thing that drops it.
         """
         for pid in self._pids.keys() - pids:
             del self._pids[pid]
+        for pid in self._policies.keys() - pids:
+            del self._policies[pid]
         self._stats.retain(pids)
 
     def _ingest(self, pid: int, events: Sequence[TGCStatsInfo], ts_poll: int) -> None:

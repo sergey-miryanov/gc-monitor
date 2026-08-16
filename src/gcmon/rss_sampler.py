@@ -6,7 +6,7 @@ ADR-0013. The loop drives it once per tick, after reporting liveness (ADR-0011).
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Set
 
 from .exporters.exporter import EventsExporter
 
@@ -55,7 +55,7 @@ class RssSampler:
             else:
                 self._provider = _default_rss_sampler
 
-    def tick(self, now: float, live_pids: set[int]) -> None:
+    def tick(self, now: float, live_pids: Set[int]) -> None:
         """Sample RSS for *live_pids* if the sampling interval has elapsed."""
         if not self._enabled or not live_pids:
             return

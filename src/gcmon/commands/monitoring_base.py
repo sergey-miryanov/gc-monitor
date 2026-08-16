@@ -47,7 +47,13 @@ def run_monitoring_loop(
             logger.info("Monitoring PID: %s", process.pid)
 
             stats = StreamingStats()
-            monitor = EventsMonitor(process, exporter, stats)
+            monitor = EventsMonitor(
+                process,
+                exporter,
+                stats,
+                wait_policy_factory=wait_policy_factory,
+                is_pid_enabled=control_server.is_enabled,
+            )
 
             stack.enter_context(monitor)
 
@@ -60,9 +66,7 @@ def run_monitoring_loop(
             loop = MonitorLoop(
                 monitor,
                 run_policy,
-                wait_policy_factory,
                 rate=options.rate,
-                enabled=control_server.is_enabled,
                 rss_sampler=rss_sampler,
             )
 

@@ -270,12 +270,18 @@ def run_monitored(output: Path) -> MonitoredRun:
         return [slot for gen in sorted(records) for slot in ring_at(records[gen], gen, RING_SIZES[gen], ts_read_start)]
 
     exporter = TraceExporter(output_path=output, flush_threshold=FLUSH_THRESHOLD)
-    monitor = EventsMonitor(ExternalProcess(pid=TARGET_PID), exporter, StreamingStats())
+    monitor = EventsMonitor(
+        ExternalProcess(pid=TARGET_PID),
+        exporter,
+        StreamingStats(),
+        wait_policy_factory=lambda: NoWaitPolicy(),
+    )
     # `rate=0` so the between-tick wait returns at once, and no `rss_sampler`,
     # which would read this machine's memory once a second. `NoWaitPolicy` per
     # pid rather than `StartupTimeoutPolicy`, whose verdict on a failed poll is
     # a `time.monotonic` reading in seconds -- a clock this file does not own.
-    loop = MonitorLoop(monitor, FixedRunner(TICKS), lambda: NoWaitPolicy(), rate=0.0)
+    # The policy factory goes to the monitor, which owns per-pid lifetime.
+    loop = MonitorLoop(monitor, FixedRunner(TICKS), rate=0.0)
 
     with (
         patch("gcmon.monitor.get_child_pids", side_effect=one_listing),

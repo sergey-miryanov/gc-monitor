@@ -243,12 +243,15 @@ class TestRunMonitoringLoop:
 
         run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
 
+        # The predicate reaches the monitor now, not the loop: it decides
+        # whether a pid is polled at all, which is a per-pid lifetime question.
+        assert mock_monitoring_base_deps["EventsMonitor"].call_args.kwargs["is_pid_enabled"] == (
+            mock_control_instance.is_enabled
+        )
         mock_monitoring_base_deps["MonitorLoop"].assert_called_once_with(
             ANY,
             ANY,
-            ANY,
             rate=0.1,
-            enabled=mock_control_instance.is_enabled,
             rss_sampler=None,
         )
 
@@ -271,5 +274,12 @@ class TestRunMonitoringLoop:
 
         run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
 
-        monitor_cls.assert_called_once_with(process, exporter, stats)
+        mock_control_instance = mock_monitoring_base_deps["ControlServer"].return_value
+        monitor_cls.assert_called_once_with(
+            process,
+            exporter,
+            stats,
+            wait_policy_factory=mock_wait_policy_factory,
+            is_pid_enabled=mock_control_instance.is_enabled,
+        )
         assert mock_monitoring_base_deps["MonitorLoop"].call_args.args[0] is monitor_cls.return_value

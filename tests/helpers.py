@@ -8,7 +8,7 @@ from typing import override
 
 from gcmon.data import GCStatsInfo, GenLoss, LossMsg
 from gcmon.exporters.exporter import EventsExporter
-from gcmon.protocol import TGCStatsInfo, TInstantMsg
+from gcmon.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 
 _JsonValue = int | float | str
 ChromeTraceValue = _JsonValue | Mapping[str, _JsonValue]
@@ -47,6 +47,13 @@ class MockExporter(EventsExporter):
         super().__init__()
         self.events: list[TGCStatsInfo] = []
         self.instant_events: list[tuple[int, TInstantMsg]] = []
+        # Which pid each record was exported for, and every loss record. The
+        # defect class spec 0038 is about -- per-pid state surviving a process
+        # it does not belong to -- produces no records of its own; it shows up
+        # as the wrong pid's cursor answering, or as a loss window for
+        # collections that never happened. Neither is visible in `events`.
+        self.events_by_pid: dict[int, list[TGCStatsInfo]] = {}
+        self.loss_events: list[tuple[int, TLossMsg]] = []
         self._close_called = False
         self._event_added = threading.Event()
 
@@ -59,7 +66,14 @@ class MockExporter(EventsExporter):
             item: The stats item to add.
         """
         self.events.append(item)
+        self.events_by_pid.setdefault(pid, []).append(item)
         self._event_added.set()  # Signal that event was added
+
+    @override
+    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+        """Record a loss window the monitor's arithmetic produced."""
+        self.loss_events.append((pid, item))
+        self._event_added.set()
 
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:

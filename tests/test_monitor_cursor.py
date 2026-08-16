@@ -208,14 +208,14 @@ class TestCursorScope:
         ingest(monitor, 999, build_batch(POLL_0))
         exporter.events.clear()
 
-        monitor.forget(PID)
+        monitor._forget(PID)
         ingest(monitor, PID, build_batch(POLL_0))
         ingest(monitor, 999, build_batch(POLL_0))
 
         assert len(exporter.events) == 15
 
     def test_forget_is_safe_for_an_unknown_pid(self, monitor: EventsMonitor) -> None:
-        monitor.forget(777)
+        monitor._forget(777)
 
 
 class TestRetain:
@@ -237,7 +237,7 @@ class TestRetain:
         ingest(monitor, 999, build_batch(POLL_0))
         exporter.events.clear()
 
-        monitor.retain({PID})
+        monitor._retain({PID})
 
         ingest(monitor, PID, build_batch(POLL_0))
         assert exporter.events == [], "the retained pid kept its cursors"
@@ -245,7 +245,7 @@ class TestRetain:
         assert len(exporter.events) == 15, "the dropped pid started over"
 
     def test_retain_keeps_a_pid_with_no_cursors_yet(self, monitor: EventsMonitor) -> None:
-        monitor.retain({PID, 999})
+        monitor._retain({PID, 999})
 
 
 class TestSettlingAnExitedPid:
@@ -256,7 +256,7 @@ class TestSettlingAnExitedPid:
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
         ingest(monitor, 999, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
 
-        monitor.retain({PID})
+        monitor._retain({PID})
 
         assert stats._open_pids == {PID}
 
@@ -265,7 +265,7 @@ class TestSettlingAnExitedPid:
         still has to be there at the end."""
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
 
-        monitor.forget(PID)
+        monitor._forget(PID)
 
         assert stats.rings() == [(PID, 0, 1)]
         assert stats.pause_totals(PID, 0, 0).sampled_count == 1
@@ -276,7 +276,7 @@ class TestSettlingAnExitedPid:
         """`forget` drops the cursor so the successor's records read as new,
         and its numbers land beside its predecessor's rather than on them."""
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
-        monitor.forget(PID)
+        monitor._forget(PID)
 
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=9_000)])
 
@@ -291,7 +291,7 @@ class TestSettlingAnExitedPid:
         """`retain` is the tick's own listing, so it decides a pid has gone
         the same way `forget` does."""
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
-        monitor.retain({999})
+        monitor._retain({999})
 
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=9_000)])
 
@@ -303,7 +303,7 @@ class TestSettlingAnExitedPid:
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
 
         for _ in range(5):
-            monitor.retain({999})
+            monitor._retain({999})
 
         assert stats.rings() == [(PID, 0, 1)]
 

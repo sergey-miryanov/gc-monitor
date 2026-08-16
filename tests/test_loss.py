@@ -1037,7 +1037,7 @@ class TestForgettingAPid:
 
         ingested = Ingested()
         ingested.poll([events[0]], ts=1_000)
-        ingested.monitor.forget(PID)
+        ingested.monitor._forget(PID)
         ingested.poll([events[4]], ts=2_000)
 
         assert ingested.recorder.losses == []
@@ -1047,7 +1047,7 @@ class TestForgettingAPid:
 
         ingested = Ingested()
         ingested.poll([events[0]], ts=1_000)
-        ingested.monitor.retain(set())
+        ingested.monitor._retain(set())
         ingested.poll([events[4]], ts=2_000)
 
         assert ingested.recorder.losses == []
