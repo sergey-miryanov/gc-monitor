@@ -340,13 +340,14 @@ class RingStats(msgspec.Struct):
     """Everything one interpreter of one process accumulates.
 
     One entry per key, so a ring's three kinds of number settle together on
-    the exit that ends them and travel together into the report.
+    the exit that ends them and are read together afterwards.
 
     `metrics` is ``None`` until the ring is admitted, and stays ``None`` where
     the bound declined it. Sample buffers are what the bound caps, at a
     thousand values a generation a metric, while the two counter dicts beside
-    them hold four numbers a generation. Every ring keeps those whatever the
-    table can hold, so `Total` and the footer stay whole.
+    them hold four numbers a generation. Every ring keeps those however many
+    rings are admitted, so the run totals and the coverage figures stay
+    whole.
 
     `declined` is what tells the two apart, and it needs no scoping of its
     own: an exit settles this entry and gives whatever claims the pid next a
@@ -391,15 +392,15 @@ def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
 
 
 class StreamingStats:
-    # Counted over the interpreters running with sample buffers, one set per
+    # How many interpreters may hold sample buffers at once, one set per
     # (pid, iid) covering that interpreter's three generations. A set costs
-    # what it did when the bound was 64 processes, so 256 gives each of those
-    # processes four interpreters. A process that exits settles its buffers
-    # and hands the slots back.
+    # what it did when the bound counted processes, so the footprint of the
+    # processes bounded then buys several interpreters each now. A process
+    # that exits settles its buffers and hands the slots back.
     MAX_ACTIVE_RINGS = 256
     GENS = (0, 1, 2)
     # Under this, the sampled percentiles cover too little of the run to leave
-    # a reader working it out from `Cov`, so gcmon says so once.
+    # a reader working it out from the coverage figure, so gcmon says so once.
     COVERAGE_ADVISORY = 0.9
 
     def __init__(self) -> None:
@@ -409,9 +410,9 @@ class StreamingStats:
         # The rings of the processes running now. An entry leaves on the exit
         # that settles it.
         self._running_rings: dict[RingKey, RingStats] = {}
-        # The rings of the processes that have exited, settled and kept for
-        # the report. Nothing reopens one, so no successor of a reused pid can
-        # add to what its predecessor earned.
+        # The rings of the processes that have exited, settled and kept to
+        # the end of the run. Nothing reopens one, so no successor of a reused
+        # pid can add to what its predecessor earned.
         self._settled_rings: dict[IndexedRing, RingStats] = {}
         # Running rings holding sample buffers, which is what the bound counts.
         # A ring with only its counters costs too little to bound.
@@ -435,7 +436,7 @@ class StreamingStats:
 
         index = self._open_pid(pid)
         # Process-wide and one integer per process, so it is kept whether or
-        # not the ring behind the record has a row.
+        # not the ring behind the record was admitted.
         self._heap_size[(pid, index)] = max(self._heap_size.get((pid, index), 0), item.heap_size)
 
         ring = self._ring(pid, item.iid)
@@ -481,19 +482,20 @@ class StreamingStats:
         """Give *ring* its sample buffers, or ``None`` where none are free.
 
         A ring gets them on its first record and keeps them until its process
-        exits. ``None`` means the record counts towards `Total` and the ring's
-        own counters, and reaches no row, which happens when all 256 slots
-        were taken by running interpreters at the moment this ring appeared.
+        exits. ``None`` means this record and every later one is measured into
+        the run totals and the ring's own counters alone, which happens when
+        `MAX_ACTIVE_RINGS` interpreters were already running with buffers of
+        their own at the moment this ring appeared.
 
-        Either way every printed row describes one process's ring over one
-        unbroken stretch, so a row's `Count` and its percentiles always cover
-        the same records.
+        Either way what a ring samples covers one process's interpreter over
+        one unbroken stretch, so its sampled count and its percentiles always
+        describe the same records.
         """
         if ring.declined:
             # Declined once, declined for as long as this entry stands. A slot
-            # freed by another process's exit would otherwise open a row
-            # covering the tail of a ring's life, with nothing on it marking
-            # where it starts.
+            # freed by another process's exit would otherwise start sampling
+            # this ring midway through its life, and nothing in what it kept
+            # would say where the sampling began.
             return None
 
         if self._admitted_rings >= self.MAX_ACTIVE_RINGS:
@@ -505,7 +507,8 @@ class StreamingStats:
         return ring.metrics
 
     def _decline(self, ring: RingStats, key: RingKey) -> None:
-        """Note that this ring gets no row, saying why the first time."""
+        """Note that this ring keeps no sampled metrics, saying why the first
+        time."""
         ring.declined = True
         if self._bound_warned:
             return
@@ -514,7 +517,7 @@ class StreamingStats:
         logger.warning(
             "PID %s interpreter %s: gcmon already holds detailed statistics for %s running "
             "interpreters, the most it keeps at once. Records read from any further interpreter are "
-            "counted in the run totals, and gcmon prints no row of its own for it.",
+            "counted in the run totals, and gcmon keeps no detailed statistics of its own for it.",
             *key,
             self.MAX_ACTIVE_RINGS,
         )
@@ -525,11 +528,11 @@ class StreamingStats:
         Final, and that is what makes it right: a process that exited sends no
         more records, so each percentile settled here covers its ring end to
         end. The sample buffers go back to the run, and so do the slots, so a
-        target that spawns and exits keeps its rows without exhausting the
-        bound.
+        target that spawns and exits keeps every ring's statistics without
+        exhausting the bound.
 
         Whatever claims the pid next reads the advanced index and starts
-        clean, with a row and a set of totals of its own.
+        clean, with sample buffers and totals of its own.
         """
         if pid not in self._open_pids:
             return
@@ -592,7 +595,8 @@ class StreamingStats:
             if ring_pid != pid or ring.declined:
                 # A declined ring has a sampled count of zero here, which would
                 # read as nothing observed. gcmon read its records and counted
-                # them in `Total`, so the advisory has nothing to say about it.
+                # them in the run totals, so the advisory has nothing to say
+                # about it.
                 continue
             for gen, lost in ring.loss.items():
                 if not lost.count:
@@ -656,8 +660,9 @@ class StreamingStats:
         """How many interpreters, in how many processes, the lifetime fold
         covers.
 
-        The footnote states both, so a reader can tell one interpreter's
-        history from a sum over five that started at different moments.
+        A caller states both alongside the fold, so a reader can tell one
+        interpreter's history from a sum over five that started at different
+        moments.
 
         Two processes that shared a pid count as two, since the index tells
         them apart. A pid gcmon never saw exit still counts as one.
@@ -693,7 +698,7 @@ class StreamingStats:
         return self._settled_rings.get((pid, iid, index))
 
     def _keyed_entries(self) -> Iterator[tuple[IndexedRing, RingStats]]:
-        """Every ring of the run under the key the report names it by."""
+        """Every ring of the run under the key a caller names it by."""
         for (pid, iid), ring in self._running_rings.items():
             yield (pid, iid, self._index_per_pid.get(pid, 1)), ring
         yield from self._settled_rings.items()
@@ -708,10 +713,10 @@ class StreamingStats:
         return ring.metrics if ring is not None else None
 
     def rings(self) -> list[IndexedRing]:
-        """Every ring with a row, in the order the table prints them.
+        """Every ring holding sampled metrics, in key order.
 
-        One entry per process that held the pid, so a reused pid brings a row
-        for each. A ring the bound declined has no sampled metrics and no row;
+        One entry per process that held the pid, so a reused pid brings one
+        for each. A ring the bound declined holds none and is absent;
         :meth:`untracked_rings` counts those.
         """
         return sorted(key for key, ring in self._keyed_entries() if ring.metrics is not None)
@@ -719,9 +724,9 @@ class StreamingStats:
     def untracked_rings(self) -> int:
         """How many rings reached `update` with no slot to take.
 
-        Their records are in `Total` and in the coverage figures, so the
-        footer states the count rather than leaving a reader to add the rows
-        up and find them short.
+        Their records are in the run totals and in the coverage figures, so a
+        caller can state the count rather than leave a reader adding the rings
+        up and finding them short.
         """
         return sum(1 for ring in self._entries() if ring.declined)
 
