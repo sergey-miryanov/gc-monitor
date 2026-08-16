@@ -439,7 +439,7 @@ class StreamingStats:
         # not the ring behind the record was admitted.
         self._heap_size[(pid, index)] = max(self._heap_size.get((pid, index), 0), item.heap_size)
 
-        ring = self._ring(pid, item.iid)
+        ring = self._open_ring(pid, item.iid)
         metrics = ring.metrics or self._admit(ring, (pid, item.iid))
         if metrics is None:
             return
@@ -447,8 +447,8 @@ class StreamingStats:
         for metric in METRICS:
             _record(metrics, item, metric)
 
-    def _ring(self, pid: int, iid: int) -> RingStats:
-        """The entry the records arriving now belong to, opened if new.
+    def _open_ring(self, pid: int, iid: int) -> RingStats:
+        """The ring the records arriving now belong to, opened if new.
 
         Every ring gets one, since loss and lifetime totals are due from a
         ring the bound turned away as much as from one it admitted.
@@ -525,12 +525,6 @@ class StreamingStats:
     def materialize(self, pid: int) -> None:
         """Settle every ring of *pid*, which has exited, and advance its index.
 
-        Final, and that is what makes it right: a process that exited sends no
-        more records, so each percentile settled here covers its ring end to
-        end. The sample buffers go back to the run, and so do the slots, so a
-        target that spawns and exits keeps every ring's statistics without
-        exhausting the bound.
-
         Whatever claims the pid next reads the advanced index and starts
         clean, with sample buffers and totals of its own.
         """
@@ -568,7 +562,7 @@ class StreamingStats:
         themselves stay in the monitor.
         """
         self._open_pid(pid)
-        ring = self._ring(pid, iid)
+        ring = self._open_ring(pid, iid)
         ring.loss.setdefault(gen, LossTotals()).add(lost_count, lost_pause_ns)
 
     def low_coverage(self, pid: int) -> tuple[int, int, float] | None:
@@ -617,7 +611,7 @@ class StreamingStats:
         larger history to the smaller one that follows it.
         """
         self._open_pid(pid)
-        self._ring(pid, iid).lifetime[gen] = LifetimeTotals(collections, duration_s)
+        self._open_ring(pid, iid).lifetime[gen] = LifetimeTotals(collections, duration_s)
 
     def pause_totals(self, pid: int, iid: int, gen: int, index: int | None = None) -> PauseTotals:
         """One ring, read once.
@@ -626,12 +620,12 @@ class StreamingStats:
         running now or the last one that ran. Every ring at once is
         :meth:`pause_totals_by_gen`, which costs a pass instead.
         """
-        ring = self._entry(pid, iid, index)
+        ring = self._find_ring(pid, iid, index)
         if ring is None:
             return PauseTotals()
         return ring.pause_totals(gen)
 
-    def _entries(self) -> Iterator[RingStats]:
+    def _all_rings(self) -> Iterator[RingStats]:
         """Every ring of the run, running and settled alike."""
         return chain(self._running_rings.values(), self._settled_rings.values())
 
@@ -639,7 +633,7 @@ class StreamingStats:
         """Every generation's pause totals over every ring."""
         # Folded here rather than behind a helper, which had this one caller.
         lost: dict[int, LossTotals] = {}
-        for ring in self._entries():
+        for ring in self._all_rings():
             for gen, loss in ring.loss.items():
                 lost.setdefault(gen, LossTotals()).add(loss.count, loss.pause_ns)
 
@@ -668,14 +662,14 @@ class StreamingStats:
         them apart. A pid gcmon never saw exit still counts as one.
         """
         interpreters = {
-            key for key, ring in self._keyed_entries() if any(totals.collections for totals in ring.lifetime.values())
+            key for key, ring in self._keyed_rings() if any(totals.collections for totals in ring.lifetime.values())
         }
         return len(interpreters), len({(pid, index) for pid, _iid, index in interpreters})
 
     def lifetime_totals_by_gen(self) -> dict[int, LifetimeTotals]:
         """Fold every ring's lifetime totals into a per-gen one, single pass."""
         by_gen: dict[int, LifetimeTotals] = {}
-        for ring in self._entries():
+        for ring in self._all_rings():
             for gen, totals in ring.lifetime.items():
                 by_gen.setdefault(gen, LifetimeTotals()).add(totals.collections, totals.duration_s)
         return by_gen
@@ -685,8 +679,8 @@ class StreamingStats:
         """Read durations in nanoseconds, over every polled pid."""
         return self._read_time
 
-    def _entry(self, pid: int, iid: int, index: int | None = None) -> RingStats | None:
-        """One ring, running or settled.
+    def _find_ring(self, pid: int, iid: int, index: int | None = None) -> RingStats | None:
+        """One ring, running or settled, or ``None`` where the run has none.
 
         *index* names which process held the pid, counting from 1. Left out,
         it reads the one running now or the last one that ran.
@@ -697,7 +691,7 @@ class StreamingStats:
             return self._running_rings.get((pid, iid))
         return self._settled_rings.get((pid, iid, index))
 
-    def _keyed_entries(self) -> Iterator[tuple[IndexedRing, RingStats]]:
+    def _keyed_rings(self) -> Iterator[tuple[IndexedRing, RingStats]]:
         """Every ring of the run under the key a caller names it by."""
         for (pid, iid), ring in self._running_rings.items():
             yield (pid, iid, self._index_per_pid.get(pid, 1)), ring
@@ -709,7 +703,7 @@ class StreamingStats:
         ``None`` where the ring has none, which is a key gcmon never read or a
         ring the bound declined.
         """
-        ring = self._entry(pid, iid, index)
+        ring = self._find_ring(pid, iid, index)
         return ring.metrics if ring is not None else None
 
     def rings(self) -> list[IndexedRing]:
@@ -719,7 +713,7 @@ class StreamingStats:
         for each. A ring the bound declined holds none and is absent;
         :meth:`untracked_rings` counts those.
         """
-        return sorted(key for key, ring in self._keyed_entries() if ring.metrics is not None)
+        return sorted(key for key, ring in self._keyed_rings() if ring.metrics is not None)
 
     def untracked_rings(self) -> int:
         """How many rings reached `update` with no slot to take.
@@ -728,7 +722,7 @@ class StreamingStats:
         caller can state the count rather than leave a reader adding the rings
         up and finding them short.
         """
-        return sum(1 for ring in self._entries() if ring.declined)
+        return sum(1 for ring in self._all_rings() if ring.declined)
 
     def count(self) -> int:
         return self._count
