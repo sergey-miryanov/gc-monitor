@@ -41,5 +41,9 @@ examples/
 # Anchored: `.github/scripts` is tracked.
 /scripts/
 
+# Local trace and capture artifacts. Anchored so a future `output/` inside the
+# package is not swept up with them.
+/output/
+
 # Local issue tracker (see docs/agents/issue-tracker.md)
 .scratch/
