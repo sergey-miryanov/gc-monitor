@@ -5,7 +5,8 @@
   simplified to unnested BEGIN/END pairs 2026-08-01; sort moved into the sweep and the
   once-per-trace guard made explicit 2026-08-02; monitor-reported liveness landed and the
   counter carve-out was removed 2026-08-02; pointer to ADR-0015 added 2026-08-05; the
-  reporting site moved from `MonitorLoop` to `EventsMonitor` 2026-08-17)
+  reporting site moved from `MonitorLoop` to `EventsMonitor` 2026-08-17, see
+  [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md))
 
 ## Context
 

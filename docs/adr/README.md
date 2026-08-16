@@ -61,12 +61,14 @@ new one when the decision itself changes. A rename inside a module is neither.
 | [0014](0014-perfetto-integration-test-strategy.md) | Validate traces against the real trace processor; deselect slow suites by marker |
 | [0015](0015-gc-loss-spans-on-their-own-track.md) | Draw reconstructed GC loss on a per-interpreter track, one span per poll interval |
 | [0016](0016-the-ring-is-the-statistics-unit.md) | Report statistics per ring, and drop the per-process row from the `--stats` table |
+| [0017](0017-monitor-owns-the-pid-lifecycle.md) | Give the monitor every piece of per-pid state, and leave the loop the clock |
 
 ## Reading order
 
 ADRs 0001–0005 are about the Perfetto wire format and track layout, and build on each other in
 that order. 0006–0009 cover the internal event model shared by all backends. 0010–0013, 0015 and
-0016 are individual features. 0014 explains how any of it is verified.
+0016 are individual features. 0014 explains how any of it is verified. 0017 is the only one about
+a boundary inside the package rather than about what reaches a trace.
 
 ---
 

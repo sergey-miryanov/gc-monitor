@@ -105,6 +105,8 @@ class EventsMonitor:
     def tick(self, now_ns: int, stop: Callable[[], bool] = _never_stops) -> PollReport:
         """Poll the target and every child once, and report what answered.
 
+        Why the monitor owns this rather than the loop: ADR-0017.
+
         One tick is one call because every piece of per-pid state behind that
         answer has one lifetime: the ring cursors, the poll instant ADR-0015's
         loss arithmetic runs on, the streaming stats, and the wait policy that
