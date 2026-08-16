@@ -40,22 +40,48 @@ is nothing left to link to; git holds the text. See [Lifecycle](#lifecycle).
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug — correctness | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
 | [0045](0045-print-the-statistics-table-at-two-widths.md) | Feature — ergonomics | S | `--stats` prints one table with no way to ask for less; on a single-interpreter run half of it is a copy of the other half |
 
-**Suggested order:** 0025 (the only outage, and it is one word) → 0026 (smallest user-visible
-wrongness) → 0043 (XS, and everything below it makes a release more likely, which is when a
-wrong version gets believed) → 0028 (XS, and it shrinks 0036) → 0027 (needs a trace-processor
-answer before it can be settled either way) → 0031 → 0030 → 0035 → 0037 → 0036 → 0039 → 0040 →
-0038 → 0042 → 0045 → 0020 → 0041. 0045 sits there because it breaks `--stats` and wants to land
-in the same release as ADR-0016's reshaping of that table, while 0040 rewrites the option
-declarations it edits. 0024 is the owner's to file and depends on nothing here. 0044 is
-not in the run at all: it waits on CPython synchronizing the ring, and §4 states the one
-measurement that would put it back in play sooner.
+### Suggested order
 
-Four ordering constraints inside that run, and only four: 0026 before 0037, which assumes its
-shared naming helper; 0028 before 0036, which it shrinks; 0035 before 0039, which would
-otherwise move nine classes 0035 deletes; and 0039 before 0041, or the same files move twice.
-0040 and 0042 are independent of everything and can be taken whenever there is an
-appetite for them. 0041 is last on purpose — see its §7, which argues against doing it between
-two changes that actually move code.
+| # | Spec | Why here |
+|---|------|----------|
+| 1 | 0025 | The only outage, and the fix is one word |
+| 2 | 0026 | Smallest user-visible wrongness |
+| 3 | 0043 | XS, and everything below it makes a release more likely, which is when a wrong version gets believed |
+| 4 | 0028 | XS, and it shrinks 0036 |
+| 5 | 0027 | Needs a trace-processor answer before it can be settled either way |
+| 6 | 0031 | |
+| 7 | 0030 | |
+| 8 | 0035 | Constrained: before 0039 |
+| 9 | 0037 | Constrained: after 0026 |
+| 10 | 0036 | Constrained: after 0028 |
+| 11 | 0039 | Constrained: after 0035, before 0041 |
+| 12 | 0040 | Rewrites the option declarations 0045 edits |
+| 13 | 0042 | |
+| 14 | 0045 | Breaks `--stats`, so it wants the same release as ADR-0016's reshaping of that table |
+| 15 | 0020 | |
+| 16 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
+
+"Constrained" means the position is forced; the reason is in the list below. Blank cells carry no
+reason at all, so those four can move.
+
+**Not in the run**, which is every other row in the index:
+
+- **0024** is the owner's to file, and depends on nothing here.
+- **0033** wants a real capture in front of you before it can be judged worth a fourth row.
+- **0044** waits on CPython synchronizing the ring. Its §4 states the one measurement that would
+  put it back in play sooner.
+- **0029** and **0034** are superseded, and **0038** has landed. Retired rows are never in the
+  run; the index keeps them so their numbers still resolve.
+
+**Four ordering constraints, and only four:**
+
+- 0026 before 0037, which assumes its shared naming helper.
+- 0028 before 0036, which it shrinks.
+- 0035 before 0039, which would otherwise move nine classes 0035 deletes.
+- 0039 before 0041, or the same files move twice.
+
+0040 and 0042 are independent of everything and can be taken whenever there is an appetite for
+them.
 
 0033 and 0035 came out of the work that landed as ADR-0015, and neither blocks the other.
 0035 is the cheapest and stands alone. 0033 wants a real capture in front of you before it can
