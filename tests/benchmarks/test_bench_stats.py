@@ -37,7 +37,7 @@ def test_streaming_stats_update_many_pids(benchmark: BenchmarkFixture) -> None:
     # Spread events across more pids than MAX_ACTIVE_RINGS, so the run fills
     # the bound and then declines. The name stays so CodSpeed keeps one series
     # across the bound's move from processes to rings.
-    events = [(1000 + (i % 300), make_gc_event(i, pid=1000 + (i % 300))) for i in range(EVENT_COUNT)]
+    events = [(1000 + (i % 200), make_gc_event(i, pid=1000 + (i % 200))) for i in range(EVENT_COUNT)]
 
     def run() -> StreamingStats:
         stats = StreamingStats()
