@@ -712,10 +712,10 @@ class TestADeathTheMonitorCalled:
     """`gcmon.monitor` decides who is alive and this side takes the decision.
 
     Whatever arrives on a pid called dead is a new process, the same one or
-    not. These tests use the case where the call was wrong, since that is the
-    one a reader is most likely to try to correct: the interpreter goes on
-    running and its cumulative counter carries on past its predecessor's
-    instead of restarting.
+    not, which `TestAReusedPid` covers figure by figure. What is left here is
+    the case where the call was wrong, the one a reader is most likely to try
+    to correct: the interpreter goes on running and its cumulative counter
+    carries on past its predecessor's instead of restarting.
     """
 
     def _called_dead_but_running(self) -> StreamingStats:
@@ -732,15 +732,6 @@ class TestADeathTheMonitorCalled:
         stats.record_loss(1, 0, 0, 1, 1_000)
         stats.record_lifetime(1, 0, 0, 500, 0.5)
         return stats
-
-    def test_what_follows_gets_a_block_of_its_own(self) -> None:
-        assert self._called_dead_but_running().rings() == [(1, 0, 1), (1, 0, 2)]
-
-    def test_its_durations_start_fresh(self) -> None:
-        assert self._called_dead_but_running().pause_totals(1, 0, 0, 2).sampled_count == 2
-
-    def test_its_loss_starts_fresh(self) -> None:
-        assert self._called_dead_but_running().pause_totals(1, 0, 0, 2).lost_count == 1
 
     def test_its_lifetime_starts_fresh(self) -> None:
         """The fold reads 800 over an interpreter that ran 500, and that is the

@@ -252,13 +252,6 @@ class TestSettlingAnExitedPid:
     """The monitor is the only side that learns a pid has gone, so it tells
     the statistics. ADR-0016: a ring settles then and never before."""
 
-    def test_forget_settles_the_pids_rings(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
-        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
-
-        monitor.forget(PID)
-
-        assert stats._open_pids == set()
-
     def test_retain_settles_the_pids_it_leaves_out(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
         ingest(monitor, 999, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])

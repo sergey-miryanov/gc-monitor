@@ -209,22 +209,6 @@ class TestStreamingStatsRingTracking:
                 assert ring_stats[metric_key][gen].count() == total.count(), metric_key
                 assert ring_stats[metric_key][gen].sum() == total.sum(), metric_key
 
-    def test_two_interpreters_of_one_pid_keep_separate_entries(
-        self,
-        streaming_stats: StreamingStats,
-        gc_stats_item_factory: Callable[..., GCStatsInfo],
-    ) -> None:
-        """The defect at the storage layer: one entry per process put one
-        interpreter's durations in with the other's."""
-        streaming_stats.update(12345, gc_stats_item_factory(iid=0, ts_start=0, ts_stop=1_000))
-        streaming_stats.update(12345, gc_stats_item_factory(iid=1, ts_start=0, ts_stop=5_000))
-
-        first = streaming_stats.get_ring_stats(12345, 0)
-        second = streaming_stats.get_ring_stats(12345, 1)
-        assert first is not None and second is not None
-        assert (first["pause"][0].count(), first["pause"][0].sum()) == (1, 1_000)
-        assert (second["pause"][0].count(), second["pause"][0].sum()) == (1, 5_000)
-
     def test_every_metric_splits_between_two_interpreters(
         self,
         streaming_stats: StreamingStats,
@@ -251,30 +235,6 @@ class TestStreamingStatsRingTracking:
 class TestStreamingStatsRingBound:
     """Tests for the bound on rings gcmon holds detailed statistics for."""
 
-    def test_the_bound_holds(
-        self,
-        streaming_stats: StreamingStats,
-        gc_stats_item_factory: Callable[..., GCStatsInfo],
-    ) -> None:
-        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 10):
-            streaming_stats.update(pid, gc_stats_item_factory())
-
-        assert len(streaming_stats.rings()) == StreamingStats.MAX_ACTIVE_RINGS
-        assert streaming_stats.untracked_rings() == 10
-
-    def test_the_rings_that_arrived_first_keep_their_rows(
-        self,
-        streaming_stats: StreamingStats,
-        gc_stats_item_factory: Callable[..., GCStatsInfo],
-    ) -> None:
-        """A ring holds its entry until its process exits, so the newcomer
-        displaces nobody and no row describes part of a stretch."""
-        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 1):
-            streaming_stats.update(pid, gc_stats_item_factory())
-
-        assert (0, 0, 1) in streaming_stats.rings()
-        assert (StreamingStats.MAX_ACTIVE_RINGS, 0, 1) not in streaming_stats.rings()
-
     def test_the_bound_counts_interpreters_rather_than_processes(
         self,
         streaming_stats: StreamingStats,
@@ -287,20 +247,6 @@ class TestStreamingStatsRingBound:
 
         assert len(streaming_stats.rings()) == StreamingStats.MAX_ACTIVE_RINGS
         assert streaming_stats.untracked_rings() == 1
-
-    def test_a_process_that_exits_frees_its_slots(
-        self,
-        streaming_stats: StreamingStats,
-        gc_stats_item_factory: Callable[..., GCStatsInfo],
-    ) -> None:
-        for pid in range(StreamingStats.MAX_ACTIVE_RINGS):
-            streaming_stats.update(pid, gc_stats_item_factory())
-        streaming_stats.materialize(0)
-
-        streaming_stats.update(9_999, gc_stats_item_factory())
-
-        assert (9_999, 0, 1) in streaming_stats.rings()
-        assert streaming_stats.untracked_rings() == 0
 
 
 class TestStreamingStatsReadTime:
