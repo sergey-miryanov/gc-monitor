@@ -1,4 +1,3 @@
-import logging
 import threading
 import time
 from typing import Self
@@ -7,8 +6,6 @@ from .monitor import EventsMonitor
 from .rss_sampler import RssSampler
 from .run_policy import Runner
 from .utils import set_on_exit
-
-logger = logging.getLogger("gcmon")
 
 __all__ = ["MonitorLoop"]
 

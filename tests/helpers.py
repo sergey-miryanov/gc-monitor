@@ -74,9 +74,13 @@ class MockExporter(EventsExporter):
 
     @override
     def add_loss_event(self, pid: int, item: TLossMsg) -> None:
-        """Record a loss window the monitor's arithmetic produced."""
+        """Record a loss window the monitor's arithmetic produced.
+
+        Deliberately does not set ``_event_added``: a caller blocking on
+        ``wait_for_event`` is waiting for a GC record, and releasing it on a
+        loss record would let it wake and assert against an empty ``events``.
+        """
         self.loss_events.append((pid, item))
-        self._event_added.set()
 
     @override
     def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:

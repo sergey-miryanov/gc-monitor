@@ -8,7 +8,12 @@ Complements the backward-looking half: [`docs/adr/`](../docs/adr/README.md), whi
 decisions already taken and is the authority on why the design looks the way it does. If a
 spec here contradicts an ADR, one of the two is wrong and it is usually the spec.
 
-## Open specs
+## Specs
+
+Mostly open work. A spec that has been **retired** — landed, declined or superseded — keeps its
+row and loses its file, so the number stays legible to anyone who meets it in a commit message
+or an older document. Retired rows say so in the **Kind** column and carry no link, since there
+is nothing left to link to; git holds the text. See [Lifecycle](#lifecycle).
 
 | Spec | Kind | Effort | Summary |
 |------|------|--------|---------|
@@ -26,6 +31,7 @@ spec here contradicts an ADR, one of the two is wrong and it is usually the spec
 | [0035](0035-derive-every-gc-sub-phase-from-one-table.md) | Feature — cleanup | L | CPython's eight optional GC sub-phases are written out by hand in six places; adding the ninth means six edits and nothing fails if one is missed |
 | [0036](0036-one-exporter-method-per-record-kind.md) | Feature — cleanup | M | `EventsExporter` has grown one method per record kind, three of them no-ops, and the CLI keeps a hand-maintained list of which formats really handle RSS |
 | [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md) | Feature — cleanup | M | Two implementations of "emit this pid's process and thread meta"; 0026 exists because they already drifted once |
+| 0038 | **Landed** 2026-08-17 — cleanup | M | Per-pid state had two owners and was pruned twice against the same set; had they ever disagreed, a recycled pid would have reported a loss window that never happened. One tick is one call on `EventsMonitor` now, which owns every piece of state behind it. The reporting site it moved is recorded in [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) |
 | [0039](0039-split-the-record-model-and-stats-by-concern.md) | Feature — cleanup | S | The record model and the stats module carry three jobs each; `tests/stats/` is already split along a seam the source does not have |
 | [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature — cleanup | M | Every monitoring option is declared three times, and a rejected configuration is echoed to the log as though it had been accepted |
 | [0041](0041-give-the-package-explicit-layers.md) | Feature — cleanup | L | The package's five layers are invisible and unchecked; the dependency direction is clean today and nothing keeps it that way |
@@ -131,16 +137,23 @@ incorrect field number. "We wrote something and it parsed" proves nothing about 
 
 ### Lifecycle
 
-Delete a spec when it lands — this folder is the open set, not a history. Git keeps the record.
-If implementing it settled a durable design question, that question graduates to an
-[ADR](../docs/adr/README.md); if it merely fixed something, it graduates to nothing and the file
-just goes.
+**Delete the file when a spec retires; keep the row.** This folder is the open set and not a
+history, so the prose goes — git keeps it — but the number outlives it. A spec is cited from
+commit messages, ADRs, other specs and issue trackers, and a number that resolves to nothing
+reads as a mistake rather than as work that finished. The row is the cheapest possible answer to
+"what was 0038?": one line saying it landed, when, and where the durable part of it went.
+
+A retired row names its outcome in the **Kind** column — **Landed**, **Declined** or
+**Superseded** — with the date for the first two and the superseding spec for the third, and
+carries no link. Keep the summary, rewritten in the past tense if it read as a complaint, and
+point at whatever survived: an ADR if implementing it settled a durable design question, the
+spec that replaced it, or nothing at all if it merely fixed something.
 
 Numbers are assigned in order and **never reused or renumbered**, the same rule the ADRs follow,
-so a reference to spec 0026 keeps meaning one thing. Gaps are normal and mean a spec landed.
-Take the next number from the highest ever assigned, which git history holds, not from the
-highest file present — the whole point of the rule is that landed specs leave their numbers
-behind.
+so a reference to spec 0026 keeps meaning one thing. Take the next number from the highest in
+the table, which now holds every number ever assigned rather than only the open ones. Gaps in
+the *folder* are normal and mean a spec retired; gaps in the *table* mean a row was lost and
+should be recovered from git.
 
 **Two numbers were used twice before that was written down**, both reclaimed by the batch in
 `4731e50` from specs that had landed days earlier. A reference from before 2026-08-15 resolves
@@ -167,16 +180,18 @@ same problem for the same author. Before 2026-08-05 this folder held six files i
 different header formats, was excluded by `.gitignore`, and had a template inherited from an
 unrelated web project (JWT and bcrypt examples, a "Definition of Done" checklist, and an
 "AI Implementation Plan" section instructing an agent to execute step 1 and await confirmation).
-It is now tracked, so the delete-when-it-lands rule above has somewhere to delete to.
+It is now tracked, so the retire-the-file rule above has somewhere to delete to.
 
 Each of the six was re-verified against the code on 2026-08-05 rather than carried over. Three
-were retired:
+were retired. They predate the keep-the-row rule and their outcomes are too long for a table
+cell, so they stay here rather than being folded into the index above; 18, 19 and 21 are
+therefore the only assigned numbers the index does not carry:
 
 | Old spec | Outcome |
 |---|---|
 | 18 — post-v0.2.0 review fixes (15 REQs) | Split. REQ-1's per-pid `last_ts` is **obsolete**: `EventsMonitor` no longer has `_last_ts` at all, having been rebuilt around per-pid `_cursors` keyed on the `collections` counter ([ADR-0015](../docs/adr/0015-gc-loss-spans-on-their-own-track.md)), which subsumes the fix. REQ-2 landed as `TestMetaDedupRaceClosed`. REQ-13 was rejected on the record — graceful degradation without `psutil` is now a documented, tested property. The remaining twelve became 0025–0030. |
 | 19 — README update for v0.2.0 | Landed but for one item. The `combine`, `ControlClient`, Perfetto-SQL and de-duplicated "How It Works" sections are all in the README; the `## Optional Dependencies` heading it also wanted is moot, since `## Installation` now covers both extras in prose with links and the graceful-degradation note. What was left became 0031. |
-| 21 — monitor-reported process liveness | **Landed** 2026-08-02. `MonitorLoop` calls `add_process_liveness` once per tick, `PerfettoExporter` overrides it, and the provisional counter carve-out was removed. Recorded in [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md), which was updated the same day. |
+| 21 — monitor-reported process liveness | **Landed** 2026-08-02. `EventsMonitor` calls `add_process_liveness` once per tick, `PerfettoExporter` overrides it, and the provisional counter carve-out was removed. Recorded in [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md), which was updated the same day; 0038 later moved the call from `MonitorLoop` into the monitor. |
 
 20 and 24 survived and keep their numbers; both were rewritten into the templates. 20 also had a
 decision made that it had left open — see its §4 on why the monitoring process's own

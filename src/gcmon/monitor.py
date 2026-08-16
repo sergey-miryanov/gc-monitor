@@ -79,6 +79,7 @@ class EventsMonitor:
         process: TargetProcess,
         exporter: EventsExporter,
         stats: StreamingStats,
+        *,
         wait_policy_factory: WaitPolicyFactory = _no_wait_policy,
         is_pid_enabled: Callable[[int], bool] | None = None,
     ) -> None:
@@ -87,6 +88,15 @@ class EventsMonitor:
         is finished. It defaults to :class:`NoWaitPolicy`, which keeps a pid
         only while its polls succeed -- the honest reading of "no policy was
         configured", and never what the monitoring commands pass.
+
+        Note what that default costs a caller who drives :meth:`tick` without
+        setting it: against a target still initializing, the first poll answers
+        ``INVALID_PROCESS``, `NoWaitPolicy` gives up on it, and the run ends
+        instead of waiting out a startup window. The default exists so the
+        three-argument construction keeps working for callers that only
+        :meth:`poll`; anything driving whole ticks should say what it wants.
+        Both of these are keyword-only so a fourth positional argument cannot
+        become a policy factory by accident.
 
         *is_pid_enabled* is the control plane's per-pid verdict: ``False``
         means the control server has suppressed that pid and it must not be

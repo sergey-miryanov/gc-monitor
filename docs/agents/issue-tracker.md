@@ -10,10 +10,13 @@ This repo had a spec convention before this file existed, and that convention
 stays authoritative:
 
 - One file per unit of forward-looking work at `specs/NNNN-kebab-title.md`.
-  Numbers are assigned in order and never reused or renumbered; gaps mean a spec
-  landed.
+  Numbers are assigned in order and never reused or renumbered; a gap in the
+  folder means a spec retired.
 - `specs/README.md` holds the index table (spec, kind, effort, summary) and the
-  suggested order. A new spec adds a row; a landed spec removes it.
+  suggested order. A new spec adds a row. A retired spec — landed, declined or
+  superseded — **keeps its row** and loses its file: the row records the outcome
+  in the Kind column and drops the link, so the number still resolves to an
+  answer for anyone who meets it in a commit message.
 - Start from `specs/TEMPLATE-bugfix.md` or `specs/TEMPLATE-feature.md` — pick by
   whether the change fixes something or adds something, not by size.
 - A spec states the problem, the evidence for it, the proposed change, and the

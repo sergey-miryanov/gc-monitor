@@ -511,23 +511,71 @@ class TestTheExporterIsNotReachableThroughTheMonitor:
         assert not hasattr(_monitor(exporter), "exporter")
 
 
-class TestAPolicyOutlivesThePidItGaveUpOn:
+class TestAPidThePolicyGaveUpOn:
+    """Two halves of one rule, and they pull in opposite directions: the
+    cursors go, the policy stays. A test that only counts policies would pass
+    with the cursors kept, and one that only watched the cursors would pass
+    with the policy replaced.
+    """
+
     def test_no_fresh_policy_replaces_it(self, exporter: MockExporter) -> None:
         """A replacement would not have seen the pid alive, so it would answer
-        "still starting" to every further invalid poll and hold the loop open
-        for a whole startup timeout. Only the cursors go."""
-        factory = Mock(side_effect=[_policy(True, True), _policy(True, False)])
-        reports = _drive(
+        "still starting" to every further invalid poll and hold the run open
+        for a whole startup timeout.
+
+        Three ticks, not two: the policy gives up on the second, so the third
+        is the only one that can observe whether a replacement was built. With
+        two, the factory could not have been called again either way and the
+        count held for the wrong reason.
+        """
+        factory = Mock(side_effect=[_policy(True, True, True), _policy(True, False, False)])
+        _drive(
             _monitor(exporter, wait_policy_factory=factory),
-            listings=[[999], [999]],
+            listings=[[999], [999], [999]],
             rings={
-                12345: [_ring(1), _ring(1)],
-                999: [_ring(1), RuntimeError("gone")],
+                12345: [_ring(1), _ring(1), _ring(1)],
+                999: [_ring(1), RuntimeError("gone"), RuntimeError("still gone")],
             },
         )
 
+        # One each for 12345 and 999, and none built to replace 999.
         assert factory.call_count == 2
-        assert reports[1].live_pids == frozenset({12345})
+
+    def test_its_cursors_go(self, exporter: MockExporter) -> None:
+        """The other half. A pid still listed as a child whose policy has quit
+        is finished as far as gcmon is concerned, so what comes back under that
+        number is a new process and must not be measured against the old one's
+        counter. Kept cursors would answer a fresh low `collections` with a
+        loss window for collections that never happened.
+        """
+        factory = Mock(side_effect=[_policy(True, True, True), _policy(True, False, True)])
+        _drive(
+            _monitor(exporter, wait_policy_factory=factory),
+            listings=[[999], [999], [999]],
+            rings={
+                12345: [_ring(1), _ring(1), _ring(1)],
+                # Reaches 300, dies, and the number comes back on a process
+                # counting from 1 again.
+                999: [_ring(299, 300), RuntimeError("gone"), _ring(1, 2)],
+            },
+        )
+
+        assert exporter.loss_events == []
+        assert [event.collections for event in exporter.events_by_pid[999]] == [299, 300, 1, 2]
+
+    def test_the_run_can_end_on_it(self, exporter: MockExporter) -> None:
+        """Every policy giving up in one tick is how a run ends: nothing
+        answered, so nothing is live and nothing holds the run open."""
+        factory = Mock(side_effect=[_policy(False), _policy(False)])
+        reports = _drive(
+            _monitor(exporter, wait_policy_factory=factory),
+            listings=[[999]],
+            rings={12345: [RuntimeError("gone")], 999: [RuntimeError("gone too")]},
+        )
+
+        assert reports[0].live_pids == frozenset()
+        assert not reports[0].keep_running
+        assert exporter.liveness == [], "an observation of nothing widens no span"
 
 
 class TestCreateMonitor:

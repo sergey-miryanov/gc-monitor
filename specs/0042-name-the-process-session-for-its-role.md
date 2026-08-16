@@ -95,8 +95,11 @@ other, and no name fixes that.
 
 **Open, to settle when picked up:** whether the session's `wait` keeps its `timeout` parameter.
 Its one caller passes 2.0 seconds with a comment explaining why, and the attach adapter ignores
-it entirely. Settled by whether the monitoring entry point still needs a bounded wait after
-[0038](0038-let-the-monitor-own-the-pid-lifecycle.md) reorganizes shutdown.
+it entirely. This was to be settled by whether the monitoring entry point still needs a bounded
+wait after 0038 reorganized shutdown. 0038 has since landed and left that wait alone — the loop
+keeps only the clock and the stop event, and the 2.0-second wait after it still guards reading a
+return code from a process mid-finalization — so the question is now answerable from the code
+rather than blocked on anything.
 
 ## 5. Seams and testing decisions
 
@@ -124,9 +127,9 @@ it entirely. Settled by whether the monitoring entry point still needs a bounded
 - How a target is discovered or spawned. The subprocess construction, the environment injection
   and the termination escalation are untouched.
 - The termination utilities, which are already a separate module with one job.
-- [0038](0038-let-the-monitor-own-the-pid-lifecycle.md)'s reorganization of the monitor and the
-  loop. This spec touches what is handed *to* the monitoring entry point; that one touches what
-  happens inside the loop. Independent, either order.
+- 0038's reorganization of the monitor and the loop, which has landed. This spec touches what is
+  handed *to* the monitoring entry point; that one touched what happens inside the loop. They
+  were independent in either order, and nothing here depends on the result.
 - Adding a third way to name a target, such as attaching by process name.
 - The control address itself, which stays the one argument the session factory takes.
 
