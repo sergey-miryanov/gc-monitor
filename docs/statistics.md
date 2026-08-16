@@ -183,8 +183,9 @@ many rings.
 
 ## Without `[stats]` extra
 
-gcmon keeps up to 1024 samples in memory and sorts them for exact percentiles.
-Past that it drops the oldest, so a long session loses its early shape.
+gcmon keeps a fixed number of samples in memory and sorts them for exact
+percentiles. Once the buffer is full it drops the oldest, so a long session
+loses its early shape.
 
 ## With `[stats]` extra
 
