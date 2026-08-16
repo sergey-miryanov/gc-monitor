@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from gcmon.data import GCStatsInfo
-from gcmon.monitor import EventsMonitor, PollReport, create_monitor
+from gcmon.monitor import EventsMonitor, PollReport
 from gcmon.protocol import TGCStatsInfo
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
@@ -578,43 +578,21 @@ class TestAPidThePolicyGaveUpOn:
         assert exporter.liveness == [], "an observation of nothing widens no span"
 
 
-class TestCreateMonitor:
-    """The three-argument construction, for callers that only poll.
+class TestNoWaitPolicyThroughAWholeTick:
+    """`no_wait_policy` is what the nine poll-only monitors in this suite
+    configure, so what it does to a tick is worth stating once."""
 
-    It is a real function rather than an alias for the class, and what it adds
-    is the one thing the constructor refuses to assume: a wait policy.
-    """
-
-    def test_returns_events_monitor(
-        self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
-    ) -> None:
-        result = create_monitor(process, exporter, stats)
-        assert isinstance(result, EventsMonitor)
-        assert result.is_enabled
-        assert result.pid == 12345
-
-    def test_the_monitor_it_builds_can_be_ticked(
-        self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
-    ) -> None:
-        """The policy it bakes in is a real one, not a placeholder that would
-        fail the first time anything drove the monitor."""
-        reports = _drive(
-            create_monitor(process, exporter, stats),
-            listings=[[]],
-            rings={12345: [_ring(1)]},
-        )
+    def test_a_successful_poll_keeps_the_run_open(self, exporter: MockExporter) -> None:
+        reports = _drive(_monitor(exporter), listings=[[]], rings={12345: [_ring(1)]})
 
         assert reports[0].live_pids == frozenset({12345})
         assert reports[0].keep_running
 
-    def test_the_baked_in_policy_stops_on_a_failed_poll(
-        self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
-    ) -> None:
-        """`no_wait_policy` and not a waiting one, which is why anything
-        monitoring a target that may still be initializing has to construct
-        `EventsMonitor` itself and say so."""
+    def test_a_failed_poll_ends_it(self, exporter: MockExporter) -> None:
+        """Which is why anything monitoring a target that may still be
+        initializing configures `StartupTimeoutPolicy` instead."""
         reports = _drive(
-            create_monitor(process, exporter, stats),
+            _monitor(exporter),
             listings=[[]],
             rings={12345: [RuntimeError("still starting")]},
         )

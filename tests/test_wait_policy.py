@@ -5,6 +5,7 @@ import pytest
 
 from gcmon.poll_status import PollStatus
 from gcmon.wait_policy import NoWaitPolicy, StartupTimeoutPolicy
+from gcmon.wait_policy import no_wait_policy as make_no_wait_policy
 
 
 @pytest.fixture
@@ -33,6 +34,18 @@ class TestNoWaitPolicy:
     @pytest.mark.parametrize("status", [PollStatus.FAIL, PollStatus.INVALID_PROCESS])
     def test_others_return_false(self, no_wait_policy: NoWaitPolicy, status: PollStatus) -> None:
         assert no_wait_policy.wait(status) is False
+
+
+class TestTheNoWaitPolicyFactory:
+    """`EventsMonitor` takes a factory rather than a policy, since it builds
+    one per pid. The class object would satisfy `WaitPolicyFactory` at runtime
+    but not to a type checker, so callers name this function instead."""
+
+    def test_it_builds_a_fresh_policy_each_call(self) -> None:
+        first, second = make_no_wait_policy(), make_no_wait_policy()
+
+        assert isinstance(first, NoWaitPolicy)
+        assert first is not second
 
 
 class TestStartupTimeoutPolicy:

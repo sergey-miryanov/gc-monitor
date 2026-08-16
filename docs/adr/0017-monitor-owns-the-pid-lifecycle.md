@@ -38,8 +38,8 @@ read of that event so a shutdown need not wait out a process tree.
 `no_wait_policy` gives up on the first failed poll, so a monitor that got it by omission would
 end a run against a target still initializing, and would end it by answering
 `keep_running=False`, which the loop reads as an orderly finish. The failure leaves no error to
-trace. `create_monitor` is the three-argument construction for callers that only poll, with
-`no_wait_policy` supplied on purpose rather than assumed.
+trace. Every construction site names a policy, including the nine test monitors that only poll
+and do not care which.
 
 **A pid the policy gives up on keeps its policy and loses its cursors.** A replacement policy
 would not have seen the pid alive, so it would answer "still starting" to every later invalid
@@ -77,9 +77,10 @@ is empty. Reading it as empty would drop every live child's cursor and re-export
   signal handler sets. Two modules is the right count; the old line between them was wrong.
 - **Default `wait_policy_factory` to `no_wait_policy`.** Rejected for the silent early exit
   above. A required argument costs eight test call sites once.
-- **Keep `create_monitor` as an alias for the class.** It forwarded three arguments and added
-  nothing while the constructor had a default. Once the policy became required, supplying it is
-  the function's job.
+- **Keep `create_monitor`,** either as an alias for the class or as a function supplying
+  `no_wait_policy`. Deleted instead: counting call sites found none. The command path constructs
+  `EventsMonitor`, the nine poll-only test monitors construct it too, and no example or doc page
+  imports the name. It was a convenience for a caller nobody could point to.
 - **Have `PollReport` carry a `set`.** `frozenset`, since nothing downstream mutates the live
   set and both the exporter and the prune already took `collections.abc.Set`.
 

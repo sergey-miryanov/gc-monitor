@@ -20,11 +20,11 @@ from .poll_status import PollStatus
 from .protocol import TGCStatsInfo
 from .stats import StreamingStats
 from .target_process import TargetProcess
-from .wait_policy import WaitPolicy, WaitPolicyFactory, no_wait_policy
+from .wait_policy import WaitPolicy, WaitPolicyFactory
 
 logger = logging.getLogger("gcmon")
 
-__all__ = ["EventsMonitor", "PollReport", "create_monitor"]
+__all__ = ["EventsMonitor", "PollReport"]
 
 
 def _is_complete(event: TGCStatsInfo) -> bool:
@@ -336,25 +336,3 @@ class EventsMonitor:
 
     def __exit__(self, *args: object) -> None:
         self.stop()
-
-
-def create_monitor(
-    process: TargetProcess,
-    exporter: EventsExporter,
-    stats: StreamingStats,
-) -> EventsMonitor:
-    """An :class:`EventsMonitor` for *process*, ready to be polled.
-
-    Bakes in :func:`no_wait_policy`, which is the honest policy for a monitor
-    nobody is going to :meth:`~EventsMonitor.tick`: keep a pid while its polls
-    succeed, and stop when they do not. The constructor refuses to assume that
-    for itself, because a caller driving whole ticks needs to have chosen; this
-    function is where the choice is stated once for callers that are not.
-
-    Anything running a monitoring loop should construct :class:`EventsMonitor`
-    directly and pass the policy the run actually wants -- typically
-    :class:`~gcmon.wait_policy.StartupTimeoutPolicy`, which waits out a target
-    that has not finished initializing. `no_wait_policy` would end such a run
-    on its first poll.
-    """
-    return EventsMonitor(process, exporter, stats, wait_policy_factory=no_wait_policy)
