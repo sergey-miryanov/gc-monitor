@@ -68,9 +68,9 @@ consumer, not about gcmon's data.
 
 **4.2 — `stats` becomes a package with three modules**, matching `tests/stats/`: the
 accumulator (`Stats`, `get_quantile_value`, the DDSketch fallback), the metric table, and the
-streaming aggregation (`StreamingStats`, `LossTotals`, `PauseTotals`, `LifetimeTotals` and the
-two key aliases). `stats_output` stays where it is — it is presentation and it already has one
-job.
+streaming aggregation (`StreamingStats`, `LossTotals`, `PauseTotals`, `CumulativeCounters` and
+the two key aliases). `stats_output` stays where it is — it is presentation and it already has
+one job.
 
 **4.3 — The metric table is whatever [0035](0035-derive-every-gc-sub-phase-from-one-table.md)
 leaves.** If 0035 has landed, this module is the derivation from the phase table and is a few

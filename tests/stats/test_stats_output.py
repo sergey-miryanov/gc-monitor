@@ -505,10 +505,12 @@ class TestLossColumns:
         assert "Coverage: Gen0 30.0%" in out
         assert "percentiles are sampled and read high" in out
 
-    def test_the_footer_separates_lifetime_from_the_session(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_the_footer_separates_the_cumulative_counters_from_the_session(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """It is not loss and must not read as part of `Cov`."""
         stats = self._lossy()
-        stats.record_lifetime(1, 0, 0, 5_000, 5.0)
+        stats.observe_cumulative(1, 0, 0, 5_000, 5.0)
 
         print_stats(stats)
         out = capsys.readouterr().out
@@ -579,7 +581,7 @@ class TestTheFooterNotesAreNumbered:
         for _ in range(3):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
         stats.record_loss(1, 0, 0, 7, 7_000_000)
-        stats.record_lifetime(1, 0, 0, 18, 0.02)
+        stats.observe_cumulative(1, 0, 0, 18, 0.02)
 
         print_stats(stats)
         notes = self._notes(capsys.readouterr().out)
@@ -612,7 +614,7 @@ class TestTheFooterNotesAreNumbered:
         assert self._notes(capsys.readouterr().out) == []
 
 
-class TestTheLifetimeNoteNamesItsFold:
+class TestTheCumulativeNoteNamesItsFold:
     """One line per generation whatever the size of the tree, stating what it
     summed over: interpreters start at different moments, and a reused pid
     folds two processes into one figure.
@@ -630,7 +632,7 @@ class TestTheLifetimeNoteNamesItsFold:
         stats = StreamingStats()
         for pid, iid in rings:
             stats.update(pid, create_mock_stats_item(iid=iid, gen=0, ts_start=0, ts_stop=1_000_000))
-            stats.record_lifetime(pid, iid, 0, 500, 0.5)
+            stats.observe_cumulative(pid, iid, 0, 500, 0.5)
         return stats
 
     def test_the_counts_are_the_ones_it_summed(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -638,7 +640,7 @@ class TestTheLifetimeNoteNamesItsFold:
 
         print_stats(stats)
 
-        assert self._scope(capsys.readouterr().out) == stats.lifetime_scope() == (3, 2)
+        assert self._scope(capsys.readouterr().out) == stats.cumulative_scope() == (3, 2)
 
     def test_an_ordinary_run_reads_in_the_singular(self, capsys: pytest.CaptureFixture[str]) -> None:
         print_stats(self._stats([(1, 0)]))

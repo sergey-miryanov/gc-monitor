@@ -38,12 +38,15 @@ is nothing left to link to; git holds the text. See [Lifecycle](#lifecycle).
 | [0042](0042-name-the-process-session-for-its-role.md) | Feature — cleanup | S | The monitored-process seam is named for a role it does not fill, and its two adapters do not have the same shape |
 | [0043](0043-report-one-version-from-one-source.md) | Bug — reporting | XS | `gcmon.__version__` says `0.1.0` against a `0.5.0` distribution; nothing reads it, nothing checks it, and there is no `--version` to ask |
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug — correctness | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
+| [0045](0045-print-the-statistics-table-at-two-widths.md) | Feature — ergonomics | S | `--stats` prints one table with no way to ask for less; on a single-interpreter run half of it is a copy of the other half |
 
 **Suggested order:** 0025 (the only outage, and it is one word) → 0026 (smallest user-visible
 wrongness) → 0043 (XS, and everything below it makes a release more likely, which is when a
 wrong version gets believed) → 0028 (XS, and it shrinks 0036) → 0027 (needs a trace-processor
 answer before it can be settled either way) → 0031 → 0030 → 0035 → 0037 → 0036 → 0039 → 0040 →
-0042 → 0020 → 0041. 0024 is the owner's to file and depends on nothing here. 0044 is
+0038 → 0042 → 0045 → 0020 → 0041. 0045 sits there because it breaks `--stats` and wants to land
+in the same release as ADR-0016's reshaping of that table, while 0040 rewrites the option
+declarations it edits. 0024 is the owner's to file and depends on nothing here. 0044 is
 not in the run at all: it waits on CPython synchronizing the ring, and §4 states the one
 measurement that would put it back in play sooner.
 

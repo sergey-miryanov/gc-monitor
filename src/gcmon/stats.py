@@ -314,8 +314,9 @@ class PauseTotals(msgspec.Struct, frozen=True, gc=False):
         return (sampled + self.lost_pause_ns) / sampled
 
 
-class LifetimeTotals(msgspec.Struct):
-    """One ring's own cumulative counters, as the target keeps them.
+class CumulativeCounters(msgspec.Struct):
+    """One ring's counters, counted as the target counts them: from the moment
+    its interpreter started, not from the moment gcmon attached.
 
     A poll overwrites the slot, and a fold sums slots into a fresh one. Both
     reads return that fresh one, never a slot, so this side needs no
@@ -346,7 +347,7 @@ class RingStats(msgspec.Struct):
 
     `metrics` is ``None`` until the ring is admitted, and stays ``None`` if
     the bound declined it. The bound caps sample buffers alone: they hold a
-    thousand values per generation per metric, where `loss` and `lifetime`
+    thousand values per generation per metric, where `loss` and `cumulative`
     hold two numbers per generation each. A declined ring goes on counting,
     so the run totals and the coverage figures stay whole.
 
@@ -357,7 +358,7 @@ class RingStats(msgspec.Struct):
     metrics: TStatsData | None = None
     declined: bool = False
     loss: dict[int, LossTotals] = msgspec.field(default_factory=dict)
-    lifetime: dict[int, LifetimeTotals] = msgspec.field(default_factory=dict)
+    cumulative: dict[int, CumulativeCounters] = msgspec.field(default_factory=dict)
 
     def settle(self) -> None:
         """Fix the percentiles and give the sample buffers back."""
@@ -449,7 +450,7 @@ class StreamingStats:
     def _open_ring(self, pid: int, iid: int) -> RingStats:
         """The ring the records arriving now belong to, opened if new.
 
-        Every ring gets one, since loss and lifetime totals are due from a
+        Every ring gets one, since loss and cumulative totals are due from a
         ring the bound turned away as much as from one it admitted.
         """
         key = (pid, iid)
@@ -588,16 +589,18 @@ class StreamingStats:
                     worst = (iid, gen, coverage)
         return worst
 
-    def record_lifetime(self, pid: int, iid: int, gen: int, collections: int, duration_s: float) -> None:
-        """Record one ring's totals since its interpreter started.
+    def observe_cumulative(self, pid: int, iid: int, gen: int, collections: int, duration_s: float) -> None:
+        """Take one ring's totals since its interpreter started.
 
         The target counts both of them cumulatively, so the newest values
-        replace the previous ones. A successor on a reused pid writes into an
-        entry of its own, so the fold adds the two rather than losing the
-        larger history to the smaller one that follows it.
+        replace the previous ones — this observes a counter rather than
+        appending to one, which is what separates it from `record_loss`. A
+        successor on a reused pid writes into an entry of its own, so the fold
+        adds the two rather than losing the larger history to the smaller one
+        that follows it.
         """
         self._open_pid(pid)
-        self._open_ring(pid, iid).lifetime[gen] = LifetimeTotals(collections, duration_s)
+        self._open_ring(pid, iid).cumulative[gen] = CumulativeCounters(collections, duration_s)
 
     def pause_totals(self, pid: int, iid: int, gen: int, pid_epoch: int | None = None) -> PauseTotals:
         """One ring, read once.
@@ -636,8 +639,8 @@ class StreamingStats:
             )
         return by_gen
 
-    def lifetime_scope(self) -> tuple[int, int]:
-        """How many interpreters, in how many processes, the lifetime fold
+    def cumulative_scope(self) -> tuple[int, int]:
+        """How many interpreters, in how many processes, the cumulative fold
         covers.
 
         A caller states both alongside the fold, so a reader can tell one
@@ -648,16 +651,17 @@ class StreamingStats:
         them apart. A pid gcmon never saw exit still counts as one.
         """
         interpreters = {
-            key for key, ring in self._keyed_rings() if any(totals.collections for totals in ring.lifetime.values())
+            key for key, ring in self._keyed_rings() if any(totals.collections for totals in ring.cumulative.values())
         }
         return len(interpreters), len({(pid, pid_epoch) for pid, _iid, pid_epoch in interpreters})
 
-    def lifetime_totals_by_gen(self) -> dict[int, LifetimeTotals]:
-        """Fold every ring's lifetime totals into a per-gen one, single pass."""
-        by_gen: dict[int, LifetimeTotals] = {}
+    def cumulative_totals_by_gen(self) -> dict[int, CumulativeCounters]:
+        """Fold every ring's cumulative counters into a per-gen total, single
+        pass."""
+        by_gen: dict[int, CumulativeCounters] = {}
         for ring in self._all_rings():
-            for gen, totals in ring.lifetime.items():
-                by_gen.setdefault(gen, LifetimeTotals()).add(totals.collections, totals.duration_s)
+            for gen, totals in ring.cumulative.items():
+                by_gen.setdefault(gen, CumulativeCounters()).add(totals.collections, totals.duration_s)
         return by_gen
 
     @property

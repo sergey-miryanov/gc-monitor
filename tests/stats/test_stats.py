@@ -344,18 +344,18 @@ class TestTotalsLeaveTheAccumulatorBehind:
         assert stats.pause_totals(1, 0, 0).lost_count == 7
         assert stats.pause_totals(1, 0, 0).lost_pause_ns == 7_000
 
-    def test_lifetime_reads_hand_back_scratch(self) -> None:
-        """`LifetimeTotals` is the accumulator a fold adds into, so this side
+    def test_cumulative_reads_hand_back_scratch(self) -> None:
+        """`CumulativeCounters` is the accumulator a fold adds into, so this side
         cannot be frozen the way the pause side is. The fold still sums into
         a fresh one, which is what the write below lands on."""
         stats = StreamingStats()
-        stats.record_lifetime(1, 0, 0, 40, 4.0)
-        stats.record_lifetime(1, 1, 0, 2, 0.5)
+        stats.observe_cumulative(1, 0, 0, 40, 4.0)
+        stats.observe_cumulative(1, 1, 0, 2, 0.5)
 
-        stats.lifetime_totals_by_gen()[0].add(99, 9.0)
+        stats.cumulative_totals_by_gen()[0].add(99, 9.0)
 
-        assert stats.lifetime_totals_by_gen()[0].collections == 42
-        assert stats.lifetime_totals_by_gen()[0].pause_ns == 4_500_000_000
+        assert stats.cumulative_totals_by_gen()[0].collections == 42
+        assert stats.cumulative_totals_by_gen()[0].pause_ns == 4_500_000_000
 
 
 class TestLowCoverage:
@@ -469,32 +469,32 @@ class TestLowCoverage:
         assert stats.low_coverage(1) == first
 
 
-class TestLifetimeTotals:
+class TestCumulativeCounters:
     def test_summed_across_interpreters(self) -> None:
         stats = StreamingStats()
-        stats.record_lifetime(1, 0, 0, 500, 0.5)
-        stats.record_lifetime(1, 1, 0, 300, 0.3)
+        stats.observe_cumulative(1, 0, 0, 500, 0.5)
+        stats.observe_cumulative(1, 1, 0, 300, 0.3)
 
-        assert stats.lifetime_totals_by_gen()[0].collections == 800
-        assert stats.lifetime_totals_by_gen()[0].pause_ns == 800_000_000
+        assert stats.cumulative_totals_by_gen()[0].collections == 800
+        assert stats.cumulative_totals_by_gen()[0].pause_ns == 800_000_000
 
     def test_the_newest_value_replaces_the_last(self) -> None:
         """Cumulative in the target, so polls report a running total, not a
         delta -- adding them would count every collection many times."""
         stats = StreamingStats()
-        stats.record_lifetime(1, 0, 0, 500, 0.5)
-        stats.record_lifetime(1, 0, 0, 900, 0.9)
+        stats.observe_cumulative(1, 0, 0, 500, 0.5)
+        stats.observe_cumulative(1, 0, 0, 900, 0.9)
 
-        assert stats.lifetime_totals_by_gen()[0].collections == 900
+        assert stats.cumulative_totals_by_gen()[0].collections == 900
 
     def test_it_can_exceed_the_observed_span(self) -> None:
         """The point of reporting it: what ran before gcmon attached is not
         loss, and must not touch `Cov`."""
         stats = StreamingStats()
         stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
-        stats.record_lifetime(1, 0, 0, 5_000, 5.0)
+        stats.observe_cumulative(1, 0, 0, 5_000, 5.0)
 
-        assert stats.lifetime_totals_by_gen()[0].collections == 5_000
+        assert stats.cumulative_totals_by_gen()[0].collections == 5_000
         assert stats.pause_totals(1, 0, 0).exact_count == 1
         assert stats.pause_totals(1, 0, 0).coverage == 1.0
 
@@ -678,11 +678,11 @@ class TestTheBoundOnRunningRings:
 
         assert stats.pause_totals_by_gen()[0].lost_count == 99
 
-    def test_its_lifetime_still_reaches_the_note(self) -> None:
+    def test_its_cumulative_counters_still_reach_the_note(self) -> None:
         stats = self._full()
-        stats.record_lifetime(9_999, 0, 0, 400, 0.4)
+        stats.observe_cumulative(9_999, 0, 0, 400, 0.4)
 
-        assert stats.lifetime_totals_by_gen()[0].collections == 400
+        assert stats.cumulative_totals_by_gen()[0].collections == 400
 
     def test_a_successor_on_a_declined_pid_can_get_a_row(self) -> None:
         """The decline was made against the process that held the pid, and it
@@ -723,24 +723,24 @@ class TestADeathTheMonitorCalled:
         for _ in range(3):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
         stats.record_loss(1, 0, 0, 2, 2_000)
-        stats.record_lifetime(1, 0, 0, 300, 0.3)
+        stats.observe_cumulative(1, 0, 0, 300, 0.3)
 
         stats.materialize(1)
 
         for _ in range(2):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
         stats.record_loss(1, 0, 0, 1, 1_000)
-        stats.record_lifetime(1, 0, 0, 500, 0.5)
+        stats.observe_cumulative(1, 0, 0, 500, 0.5)
         return stats
 
-    def test_its_lifetime_starts_fresh(self) -> None:
+    def test_its_cumulative_counters_start_fresh(self) -> None:
         """The fold reads 800 over an interpreter that ran 500, and that is the
         decision rather than a slip. gcmon could tell the two apart here, since
         a real successor's counter restarts low, but only by deciding liveness
         a second way and disagreeing with the monitor whenever the two differ.
         ADR-0016 has the reasoning.
         """
-        assert self._called_dead_but_running().lifetime_totals_by_gen()[0].collections == 800
+        assert self._called_dead_but_running().cumulative_totals_by_gen()[0].collections == 800
 
 
 class TestAReusedPid:
@@ -760,14 +760,14 @@ class TestAReusedPid:
         for _ in range(8):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
         stats.record_loss(1, 0, 0, 2, 2_000)
-        stats.record_lifetime(1, 0, 0, 400, 0.4)
+        stats.observe_cumulative(1, 0, 0, 400, 0.4)
 
         stats.materialize(1)
 
         for _ in range(8):
             stats.update(1, create_mock_stats_item(gen=0, ts_start=0, ts_stop=9_000))
         stats.record_loss(1, 0, 0, 2, 18_000)
-        stats.record_lifetime(1, 0, 0, 10, 0.01)
+        stats.observe_cumulative(1, 0, 0, 10, 0.01)
         return stats
 
     def test_each_process_gets_a_block(self) -> None:
@@ -797,13 +797,13 @@ class TestAReusedPid:
         assert stats.pause_totals(1, 0, 0, 1).lost_pause_ns == 2_000
         assert stats.pause_totals(1, 0, 0, 2).lost_pause_ns == 18_000
 
-    def test_the_lifetime_fold_adds_them(self) -> None:
+    def test_the_cumulative_fold_adds_them(self) -> None:
         """The successor's counters are smaller and used to overwrite the
         predecessor's, so the folded total could fall mid-run."""
-        assert self._reused().lifetime_totals_by_gen()[0].collections == 410
+        assert self._reused().cumulative_totals_by_gen()[0].collections == 410
 
     def test_the_footnote_counts_two_processes(self) -> None:
-        assert self._reused().lifetime_scope() == (2, 2)
+        assert self._reused().cumulative_scope() == (2, 2)
 
     def test_neither_is_counted_as_untracked(self) -> None:
         assert self._reused().untracked_rings() == 0
