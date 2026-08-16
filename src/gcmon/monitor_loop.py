@@ -46,13 +46,10 @@ class MonitorLoop:
                 now_ns = time.monotonic_ns()
                 now = now_ns / 1e9
 
-                report = self._monitor.tick(self._stop_event.is_set)
-
-                # Liveness: report who answered, in one batched call. The only
-                # place that knows a process was still there, so a pid that
-                # never collects reaches the trace through here or not at all.
-                if report.live_pids:
-                    self._monitor.exporter.add_process_liveness(report.live_pids, now_ns)
+                # The tick stamps its own liveness with this instant and
+                # reports it after the polls (ADR-0011); the sampler paces off
+                # the same one in seconds.
+                report = self._monitor.tick(now_ns, self._stop_event.is_set)
 
                 # RSS: sample live PIDs if the interval elapsed.
                 if self._rss_sampler:

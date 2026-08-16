@@ -105,7 +105,7 @@ class EventsMonitor:
         self._stats = stats
         self._coverage_warned = False
 
-    def tick(self, stop: Callable[[], bool] = _never_stops) -> PollReport:
+    def tick(self, now_ns: int, stop: Callable[[], bool] = _never_stops) -> PollReport:
         """Poll the target and every child once, and report what answered.
 
         One tick is one call because every piece of per-pid state behind that
@@ -116,6 +116,11 @@ class EventsMonitor:
         two expressions of that set is what would let a recycled pid inherit a
         cursor from the process before it, and turn a fresh ``collections``
         counter into a loss window for collections that never happened.
+
+        *now_ns* is the instant the whole tick is stamped with. The caller
+        reads the clock once and hands the same instant to the RSS sampler in
+        seconds, so a sample and a liveness observation from one tick agree
+        (ADR-0011, ADR-0013).
 
         *stop* is asked between pids, so a shutdown does not have to wait out
         a whole process tree. The event behind it belongs to the caller; the
@@ -154,7 +159,21 @@ class EventsMonitor:
                 # expired, holding the run open.
                 self._forget(pid)
 
-        return PollReport(live_pids=frozenset(live), keep_running=keep_running)
+        live_pids = frozenset(live)
+
+        # Liveness, after the poll phase and never during it (ADR-0011). One
+        # batched call carries the whole set, so the cost is one per tick and
+        # one lock acquisition, not one per pid. Skipped on an empty set: an
+        # observation of nothing would widen no span.
+        #
+        # After, not during, is what leaves a batch that crosses
+        # ``flush_threshold`` mid-poll still able to emit a rank-less process
+        # descriptor -- the records are enqueued by the polls above while this
+        # lands behind them. ADR-0011 records that and it stays true here.
+        if live_pids:
+            self._exporter.add_process_liveness(live_pids, now_ns)
+
+        return PollReport(live_pids=live_pids, keep_running=keep_running)
 
     def get_child_pids(self) -> list[int] | None:
         """Every descendant of the target, or ``None`` when the read failed.
@@ -312,10 +331,6 @@ class EventsMonitor:
     @property
     def pid(self) -> int:
         return self._process.pid
-
-    @property
-    def exporter(self) -> EventsExporter:
-        return self._exporter
 
     def __enter__(self) -> Self:
         return self

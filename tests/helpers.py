@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, Set
 from pathlib import Path
 from typing import override
 
@@ -54,6 +54,9 @@ class MockExporter(EventsExporter):
         # collections that never happened. Neither is visible in `events`.
         self.events_by_pid: dict[int, list[TGCStatsInfo]] = {}
         self.loss_events: list[tuple[int, TLossMsg]] = []
+        # One entry per tick that observed anything, which is the only
+        # evidence a process gcmon never saw collect existed at all (ADR-0011).
+        self.liveness: list[tuple[Set[int], int]] = []
         self._close_called = False
         self._event_added = threading.Event()
 
@@ -74,6 +77,11 @@ class MockExporter(EventsExporter):
         """Record a loss window the monitor's arithmetic produced."""
         self.loss_events.append((pid, item))
         self._event_added.set()
+
+    @override
+    def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
+        """Record one tick's liveness observation."""
+        self.liveness.append((pids, ts_ns))
 
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:

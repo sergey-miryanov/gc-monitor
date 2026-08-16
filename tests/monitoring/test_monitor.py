@@ -1,10 +1,12 @@
-from collections.abc import Callable, Generator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence, Set
+from typing import override
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
 from gcmon.data import GCStatsInfo
 from gcmon.monitor import EventsMonitor, PollReport, create_monitor
+from gcmon.protocol import TGCStatsInfo
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import NoWaitPolicy, WaitPolicy, WaitPolicyFactory
@@ -40,9 +42,6 @@ class TestEventsMonitorExtra:
 
         mock_get.assert_called_once_with(12345, recursive=True)
         assert children is None
-
-    def test_exporter_property(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
-        assert monitor.exporter is exporter
 
     def test_context_manager_enter_exit(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
         assert monitor.is_enabled
@@ -165,6 +164,11 @@ def _monitor(
 Batch = Sequence[GCStatsInfo] | Exception
 
 
+# What the caller's clock reads on each tick. Spelled out so a test can name
+# the instant a liveness observation was stamped with.
+TICK_NS = 1_000_000_000
+
+
 def _drive(
     monitor: EventsMonitor,
     listings: Sequence[list[int] | Exception],
@@ -195,8 +199,9 @@ def _drive(
         patch("gcmon.monitor.get_child_pids", side_effect=list(listings)),
         patch("gcmon.monitor.get_gc_stats", side_effect=read),
     ):
-        for _ in listings:
-            reports.append(monitor.tick() if stop is None else monitor.tick(stop))
+        for tick, _ in enumerate(listings, start=1):
+            now_ns = tick * TICK_NS
+            reports.append(monitor.tick(now_ns) if stop is None else monitor.tick(now_ns, stop))
 
     return reports
 
@@ -397,6 +402,115 @@ class TestOnePruneOverOneSet:
         assert [event.collections for event in exporter.events_by_pid[999]] == [1, 2]
 
 
+class TestProcessLiveness:
+    """A successful read is the only evidence gcmon has that a process was
+    still there, and for a process that never collects it is the only evidence
+    of any kind. The tick that produced it is what reports it. See ADR-0011.
+    """
+
+    def test_reported_once_per_tick_with_the_whole_live_set(self, exporter: MockExporter) -> None:
+        """One call and one lock acquisition per tick, not per pid."""
+        _drive(
+            _monitor(exporter),
+            listings=[[999, 888]],
+            rings={12345: [_ring(1)], 999: [_ring(1)], 888: [_ring(1)]},
+        )
+
+        assert exporter.liveness == [(frozenset({12345, 999, 888}), TICK_NS)]
+
+    def test_reported_every_tick(self, exporter: MockExporter) -> None:
+        _drive(
+            _monitor(exporter),
+            listings=[[999], [888]],
+            rings={12345: [_ring(1), _ring(1)], 999: [_ring(1)], 888: [_ring(1)]},
+        )
+
+        assert [pids for pids, _ts in exporter.liveness] == [
+            frozenset({12345, 999}),
+            frozenset({12345, 888}),
+        ]
+
+    def test_stamped_with_the_instant_the_tick_was_given(self, exporter: MockExporter) -> None:
+        _drive(
+            _monitor(exporter),
+            listings=[[], []],
+            rings={12345: [_ring(1), _ring(1)]},
+        )
+
+        assert [ts for _pids, ts in exporter.liveness] == [TICK_NS, 2 * TICK_NS]
+
+    def test_a_pid_that_could_not_be_read_is_not_reported(self, exporter: MockExporter) -> None:
+        _drive(
+            _monitor(exporter),
+            listings=[[999]],
+            rings={12345: [_ring(1)], 999: [RuntimeError("gone")]},
+        )
+
+        assert exporter.liveness == [(frozenset({12345}), TICK_NS)]
+
+    def test_a_suppressed_pid_is_not_reported(self, exporter: MockExporter) -> None:
+        """Never polled, so never observed. Its span keeps whatever it had."""
+        _drive(
+            _monitor(exporter, is_pid_enabled=lambda pid: pid != 999),
+            listings=[[999]],
+            rings={12345: [_ring(1)]},
+        )
+
+        assert exporter.liveness == [(frozenset({12345}), TICK_NS)]
+
+    def test_not_reported_when_nothing_answered(self, exporter: MockExporter) -> None:
+        """An empty set would widen no span, so the call is skipped rather
+        than made with nothing in it."""
+        _drive(
+            _monitor(exporter),
+            listings=[[]],
+            rings={12345: [RuntimeError("gone")]},
+        )
+
+        assert exporter.liveness == []
+
+    def test_reported_after_the_records_the_same_tick_produced(self) -> None:
+        """ADR-0011: after the poll phase, never during it. That ordering is
+        what leaves a batch crossing `flush_threshold` mid-poll still able to
+        emit a rank-less process descriptor -- which the ADR records, and which
+        stays true for the same reason now that both happen in one call."""
+        exporter = _OrderedExporter()
+
+        _drive(
+            _monitor(exporter),
+            listings=[[999]],
+            rings={12345: [_ring(1)], 999: [_ring(1)]},
+        )
+
+        assert exporter.order == ["record", "record", "liveness"]
+
+
+class _OrderedExporter(MockExporter):
+    """Records what reached the exporter, in the order it arrived."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.order: list[str] = []
+
+    @override
+    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+        self.order.append("record")
+        super().add_event(pid, item)
+
+    @override
+    def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
+        self.order.append("liveness")
+        super().add_process_liveness(pids, ts_ns)
+
+
+class TestTheExporterIsNotReachableThroughTheMonitor:
+    def test_there_is_no_exporter_property(self, exporter: MockExporter) -> None:
+        """It existed for one caller, the loop's liveness call, which is now
+        inside. The only code emitting to the exporter is the code that owns
+        what it emits."""
+        assert not hasattr(_monitor(exporter), "exporter")
+
+
 class TestAPolicyOutlivesThePidItGaveUpOn:
     def test_no_fresh_policy_replaces_it(self, exporter: MockExporter) -> None:
         """A replacement would not have seen the pid alive, so it would answer
@@ -427,7 +541,6 @@ class TestCreateMonitor:
         assert isinstance(result, EventsMonitor)
         assert result.is_enabled
         assert result.pid == 12345
-        assert result.exporter is exporter
 
     def test_package_root_exports_the_class_under_the_old_name(self) -> None:
         import gcmon

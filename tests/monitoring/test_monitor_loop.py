@@ -103,7 +103,7 @@ class TestMonitorLoopRun:
         it -- nothing more."""
         loop.run()
 
-        (stop,) = mock_monitor.tick.call_args[0]
+        _now_ns, stop = mock_monitor.tick.call_args[0]
         assert stop == loop._stop_event.is_set
 
     def test_close_during_run(self, mock_monitor: MagicMock) -> None:
@@ -182,79 +182,53 @@ class TestRssSamplerInLoop:
         assert live_pids == frozenset()
 
 
-class TestProcessLiveness:
-    """Every tick reports the pids that answered to the exporter, which is the
-    only evidence a process gcmon never saw collect existed at all. See
-    ADR-0011."""
+class TestTheTickInstant:
+    """One clock read per tick, shared by everything that needs it.
 
-    def test_reported_once_per_tick_with_the_whole_live_set(self, mock_monitor: MagicMock) -> None:
-        """One call and one lock acquisition per tick, not per pid."""
-        mock_monitor.tick.return_value = _report(12345, 999, 888)
-        liveness = mock_monitor.exporter.add_process_liveness
+    The tick stamps its own liveness with the instant it is given (ADR-0011)
+    and the sampler paces off the same one in seconds (ADR-0013), so a sample
+    and a liveness observation from one tick agree.
+    """
 
-        MonitorLoop(mock_monitor, _runner(1), rate=0.01).run()
-
-        liveness.assert_called_once()
-        pids, _ts_ns = liveness.call_args[0]
-        assert pids == frozenset({12345, 999, 888})
-
-    def test_reported_every_tick(self, mock_monitor: MagicMock) -> None:
-        mock_monitor.tick.side_effect = [_report(12345, 999), _report(12345, 888)]
-
-        MonitorLoop(mock_monitor, _runner(2), rate=0.01).run()
-
-        assert [c[0][0] for c in mock_monitor.exporter.add_process_liveness.call_args_list] == [
-            frozenset({12345, 999}),
-            frozenset({12345, 888}),
-        ]
-
-    def test_not_reported_when_nothing_answered(self, mock_monitor: MagicMock) -> None:
-        """An empty set would widen no span, so the call is skipped rather
-        than made with nothing in it."""
-        mock_monitor.tick.return_value = _report()
-
-        MonitorLoop(mock_monitor, _runner(1), rate=0.01).run()
-
-        mock_monitor.exporter.add_process_liveness.assert_not_called()
-
-    def test_reported_with_the_tick_timestamp_in_nanoseconds(self, mock_monitor: MagicMock) -> None:
+    def test_the_tick_is_given_the_instant(self, mock_monitor: MagicMock) -> None:
         with patch("time.monotonic_ns", return_value=42_000_000_000):
             MonitorLoop(mock_monitor, _runner(1), rate=0.01).run()
 
-        mock_monitor.exporter.add_process_liveness.assert_called_once_with(frozenset({12345}), 42_000_000_000)
-
-    def test_reported_after_the_poll_phase(self, mock_monitor: MagicMock) -> None:
-        """ADR-0011: never during it. A pid's records are enqueued by the
-        tick, and its liveness lands behind them."""
-        order: list[str] = []
-
-        def tick(_stop: object) -> PollReport:
-            order.append("tick")
-            return _report(12345)
-
-        def liveness(*_args: object) -> None:
-            order.append("liveness")
-
-        mock_monitor.tick.side_effect = tick
-        mock_monitor.exporter.add_process_liveness.side_effect = liveness
-
-        MonitorLoop(mock_monitor, _runner(1), rate=0.01).run()
-
-        assert order == ["tick", "liveness"]
+        now_ns, _stop = mock_monitor.tick.call_args[0]
+        assert now_ns == 42_000_000_000
 
     def test_one_clock_read_per_tick_shared_with_the_sampler(self, mock_monitor: MagicMock) -> None:
-        """The loop reads the clock once and hands the same instant to both
-        phases: nanoseconds to liveness, seconds to the sampler."""
         rss_sampler = Mock(spec=RssSampler)
 
         with patch("time.monotonic_ns", side_effect=[1_500_000_000, 2_500_000_000]) as monotonic_ns:
             MonitorLoop(mock_monitor, _runner(2), rate=0.01, rss_sampler=rss_sampler).run()
 
         assert monotonic_ns.call_count == 2, "one clock read per tick"
-        liveness_ts = [c[0][1] for c in mock_monitor.exporter.add_process_liveness.call_args_list]
+        tick_ns = [c[0][0] for c in mock_monitor.tick.call_args_list]
         sampler_now = [c[0][0] for c in rss_sampler.tick.call_args_list]
-        assert liveness_ts == [1_500_000_000, 2_500_000_000]
+        assert tick_ns == [1_500_000_000, 2_500_000_000]
         assert sampler_now == [1.5, 2.5]
+
+    def test_the_sampler_gets_the_same_instant_in_seconds(self, mock_monitor: MagicMock) -> None:
+        rss_sampler = Mock(spec=RssSampler)
+
+        with patch("time.monotonic_ns", return_value=1_500_000_000):
+            MonitorLoop(mock_monitor, _runner(1), rate=0.01, rss_sampler=rss_sampler).run()
+
+        now_ns, _stop = mock_monitor.tick.call_args[0]
+        sampler_now, _pids = rss_sampler.tick.call_args[0]
+        assert sampler_now == now_ns / 1e9
+
+
+class TestTheLoopDoesNotTouchTheExporter:
+    def test_it_never_reaches_through_the_monitor(self, mock_monitor: MagicMock) -> None:
+        """`EventsMonitor.exporter` existed for the loop's liveness call and
+        nothing else. The call is inside the tick now, and the property is
+        gone -- so the only code emitting to the exporter is the code that
+        owns what it emits."""
+        MonitorLoop(mock_monitor, _runner(2), rate=0.01).run()
+
+        assert "exporter" not in mock_monitor._mock_children
 
 
 class TestTheLoopHoldsNoPerPidState:
