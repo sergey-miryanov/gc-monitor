@@ -104,6 +104,9 @@ class TestEventsMonitorExtra:
 
 
 class TestCreateMonitor:
+    """The name outlives the function by one release, so the calls it used to
+    serve keep working."""
+
     def test_returns_events_monitor(
         self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
     ) -> None:
@@ -112,3 +115,8 @@ class TestCreateMonitor:
         assert result.is_enabled
         assert result.pid == 12345
         assert result.exporter is exporter
+
+    def test_package_root_exports_the_class_under_the_old_name(self) -> None:
+        import gcmon
+
+        assert gcmon.create_monitor is gcmon.EventsMonitor

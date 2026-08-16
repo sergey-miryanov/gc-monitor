@@ -217,10 +217,9 @@ class EventsMonitor:
         self.stop()
 
 
-def create_monitor(
-    process: TargetProcess,
-    exporter: EventsExporter,
-    stats: StreamingStats,
-) -> EventsMonitor:
-    """An :class:`EventsMonitor` for *process*, ready to be polled."""
-    return EventsMonitor(process, exporter, stats)
+# The factory forwarded its three arguments to the constructor and added
+# nothing, so callers construct the class. The name is re-exported from the
+# package root, so it stays for one release as an alias: importing it, and
+# calling it with the same three arguments, still yields a monitor ready to be
+# polled. The ``__all__`` entry goes when the alias does.
+create_monitor = EventsMonitor

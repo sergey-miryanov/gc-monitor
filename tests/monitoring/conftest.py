@@ -55,7 +55,7 @@ def monitor_args() -> MonitorArgsFactory:
 
 @pytest.fixture
 def mock_monitor() -> MagicMock:
-    """Pre-configured MagicMock for create_monitor return value."""
+    """Pre-configured MagicMock standing in for a constructed EventsMonitor."""
     return MagicMock()
 
 
@@ -157,7 +157,9 @@ def mock_monitoring_base_deps() -> Generator[dict[str, MagicMock]]:
         "RunnerFactory",
         "EventsExporterFactory",
         "StreamingStats",
-        "create_monitor",
+        # The command path constructs the monitor itself now, so intercepting
+        # construction means patching the class where it is looked up.
+        "EventsMonitor",
         "MonitorLoop",
         "replace_signals",
         "print_stats",

@@ -7,7 +7,7 @@ from contextlib import ExitStack
 from gcmon.commands.monitoring_options import MonitoringOptions
 from gcmon.control.control_server import ControlServer
 from gcmon.exporters import EventsExporterFactory
-from gcmon.monitor import create_monitor
+from gcmon.monitor import EventsMonitor
 from gcmon.monitor_loop import MonitorLoop
 from gcmon.rss_sampler import RssSampler
 from gcmon.run_policy import RunnerFactory
@@ -47,7 +47,7 @@ def run_monitoring_loop(
             logger.info("Monitoring PID: %s", process.pid)
 
             stats = StreamingStats()
-            monitor = create_monitor(process, exporter, stats)
+            monitor = EventsMonitor(process, exporter, stats)
 
             stack.enter_context(monitor)
 
