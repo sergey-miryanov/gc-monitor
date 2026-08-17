@@ -17,23 +17,20 @@ because of what a divergence produces: a pid the OS reuses inherits the dead pro
 `GC Loss` span for hundreds of collections that never ran. That span looks like data, so an
 operator has no reason to distrust it.
 
-`EventsMonitor` also exposed its exporter as a public property, for one caller: the loop, reaching
-back through the monitor to report liveness.
-
 ## Decision
 
-**One tick of monitoring is one call.** `EventsMonitor.tick` performs a whole tick and returns a
-`PollReport` carrying the pids that answered `PollStatus.OK` and whether any policy still wants the
-run open. It absorbs child discovery, one prune, the control-plane enable check, the poll, the
-policy verdict and the liveness report.
+**One tick of monitoring is one call.** `EventsMonitor.tick` performs a whole tick and reports
+which pids answered and whether any policy still wants the run open. Child discovery, the prune,
+the control-plane enable check, the poll, the policy verdict and the liveness report are all
+inside it, so `EventsMonitor.exporter` is gone: the loop used it to reach the exporter for that
+liveness call and nothing else did.
 
 **Per-pid state has one owner and one prune.** Cursors, poll instant, streaming stats and wait
 policy share a lifetime, so one pass over one child set drops them together.
 
-**The loop keeps the clock and the stop signal.** `MonitorLoop` reads `time.monotonic_ns()` once
-per tick, hands that instant unconverted to `tick` and then to `RssSampler`, breaks on
-`keep_running`, and owns the `threading.Event` a signal handler sets. It lends the monitor a read
-of that event, so a shutdown need not wait out a process tree.
+**The loop keeps the clock and the stop signal.** It reads the tick instant, lends the monitor a
+read of the `threading.Event` a signal handler sets, and stops when the report says to. Everything
+per-pid is the monitor's.
 
 **A pid the policy gives up on keeps its policy and loses its cursors.** A replacement policy never
 saw the pid alive, so it answers "still starting" to every later invalid poll and holds the run
@@ -44,22 +41,15 @@ empty. Reading it as empty drops every live child's cursor and re-exports its wh
 
 ## Consequences
 
-- Two prunes cannot disagree, because there is one.
 - A test drives one method and asserts on its report, instead of reproducing the loop's
   orchestration against a mock.
-- Every construction site names a wait policy, including the eight test monitors that only poll
-  and do not care which.
 - Liveness reporting moved off `MonitorLoop`, so
-  [ADR-0011](0011-process-lifetime-and-ordering.md) was amended rather than contradicted. Its
-  constraints hold: one clock read per tick, reporting after the poll phase, the call skipped on an
-  empty live set, and the same instant reaching the RSS sampler
-  ([ADR-0013](0013-rss-sampling.md)).
+  [ADR-0011](0011-process-lifetime-and-ordering.md) was amended rather than contradicted, and its
+  constraints hold unchanged.
 - A pid that leaves the tree and returns re-exports whatever its ring still holds, since the prune
-  took its cursor. Duplicate slices are the price; the alternative is the fabricated loss window
-  above.
-- `MonitorLoop` is now short enough that folding it into the monitor looks tempting. The rejected
-  alternative below says why it stays.
-- Nothing thread-safe was added. One loop drives the monitor, as before.
+  took its cursor. Duplicate slices are the price of not fabricating a loss window.
+- The monitor holds more state than it did and is still driven from one loop. Nothing here makes
+  it safe to share.
 
 ## Alternatives considered
 
@@ -77,8 +67,6 @@ empty. Reading it as empty drops every live child's cursor and re-exports its wh
   `no_wait_policy`. Deleted instead, because counting call sites found none: the command path
   constructs `EventsMonitor`, the eight poll-only test monitors construct it too, and no example or
   doc page imports the name.
-- **Have `PollReport` carry a `set`.** `frozenset`, since nothing downstream mutates the live set
-  and both the exporter and the prune already took `collections.abc.Set`.
 
 ## Implementation
 
@@ -88,10 +76,10 @@ empty. Reading it as empty drops every live child's cursor and re-exports its wh
   satisfies `WaitPolicyFactory` structurally but not to a type checker.
 - `tests/monitoring/test_monitor.py` drives ticks against a scripted child listing and asserts at
   the exporter. A pid that leaves and returns holding an unrelated counter emits records and no
-  loss window; the same ring without the departure emits a window of 297, which is what gives the
-  first assertion teeth. Asserting the state dicts are empty would prove the prune ran, not that it
-  was right. `TestAPidThePolicyGaveUpOn` covers both halves of policy-stays-cursors-go, since a
-  test watching one half passes with the other inverted.
+  loss window; the same ring without the departure does open one, which is what gives the first
+  assertion teeth. Asserting the state dicts are empty would prove the prune ran, not that it was
+  right. Both halves of policy-stays-cursors-go are covered, since a test watching one half passes
+  with the other inverted.
 - `tests/monitoring/test_monitored_run_trace.py` runs the whole loop over the capture in
   `tests/captures.py` on a scripted clock and pins the Chrome output against
   `tests/fixtures/monitored_run_chrome_trace.json`. Written before this change and passed through
