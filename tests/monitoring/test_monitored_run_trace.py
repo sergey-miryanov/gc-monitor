@@ -25,7 +25,7 @@ Determinism comes down to four things.
 *One clock, two consumers.* `monitor_loop` and `monitor` both do `import time`,
 so one patch of `time.monotonic_ns` feeds both. Per tick the loop reads once for
 the tick instant, then each polled pid costs the monitor two reads either side
-of `get_gc_stats`. `_script` lays that sequence out in advance and
+of its poll of the reader. `_script` lays that sequence out in advance and
 `_ScriptedClock` hands it out in order, raising rather than inventing a value.
 `test_the_clock_was_spent_exactly` checks none was left over: reading fewer
 instants would shift every timestamp downstream and still pass.
@@ -68,6 +68,7 @@ from gcmon.run_policy import Runner
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import no_wait_policy
+from tests.helpers import FakeEventsReader
 from tests.test_loss_replay import MS, READ_COST_NS, RING_SIZES, capture_records, ring_at
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "monitored_run_chrome_trace.json"
@@ -131,9 +132,9 @@ def _script() -> tuple[list[int], list[tuple[int, int]]]:
     """The clock to hand out, and the reads to answer, for the whole run.
 
     Returns the `time.monotonic_ns` values in the order they will be asked for,
-    and one `(pid, ts_read_start)` per `get_gc_stats` call. One tick is: the
-    loop's single read for the tick instant, then two reads per polled pid, one
-    either side of its `get_gc_stats`.
+    and one `(pid, ts_read_start)` per read of the reader. One tick is: the
+    loop's single clock read for the tick instant, then two clock reads per
+    polled pid, one either side of its read.
     """
     clock: list[int] = []
     reads: list[tuple[int, int]] = []
@@ -244,7 +245,7 @@ def run_monitored(output: Path) -> MonitoredRun:
         assert pid == TARGET_PID, f"the tree was listed for {pid}, not the target"
         return next(listings)
 
-    def one_read(pid: int, all_interpreters: bool = True) -> list[GCStatsInfo]:
+    def one_read(pid: int) -> list[GCStatsInfo]:
         """The ring *pid* would have held when this read began.
 
         Asserting the pid rather than looking it up: the order the loop polls
@@ -261,6 +262,7 @@ def run_monitored(output: Path) -> MonitoredRun:
         ExternalProcess(pid=TARGET_PID),
         exporter,
         StreamingStats(),
+        reader=FakeEventsReader(one_read),
         wait_policy_factory=no_wait_policy,
     )
     # `rate=0` so the between-tick wait returns at once, and no `rss_sampler`,
@@ -272,7 +274,6 @@ def run_monitored(output: Path) -> MonitoredRun:
 
     with (
         patch("gcmon.monitor.get_child_pids", side_effect=one_listing),
-        patch("gcmon.monitor.get_gc_stats", side_effect=one_read),
         # On the `time` module itself, not on either importer's namespace:
         # `monitor_loop` and `monitor` both reach it through `import time`, so
         # this one patch is what makes the tick instant and the read instants

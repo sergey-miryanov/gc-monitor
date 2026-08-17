@@ -37,7 +37,7 @@ This file holds the open set and the order to take it in. The other two:
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug — correctness | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
 | [0045](0045-print-the-statistics-table-at-two-widths.md) | Feature — ergonomics | S | `--stats` prints one table with no way to ask for less; on a single-interpreter run half of it is a copy of the other half |
 | [0046](0046-settle-a-departed-fan-out-in-one-pass.md) | Bug — performance | S | Settling a departed pid rescans every running ring, so a fan-out that exits together costs a tick tens of milliseconds and may draw loss on its surviving siblings |
-| [0048](0048-attach-once-per-pid.md) | Feature — efficiency | M | gcmon re-derives where a process keeps its GC state on every poll and throws it away again; 470 µs of each 473 µs read is that, per process, per tick |
+| [0049](0049-a-recycled-pid-can-be-read-through-a-stale-attachment.md) | Bug — correctness | M | A pid recycled between two polls with no failed read in between is still read through the attachment gcmon holds, so an unrelated process's memory reaches the trace as records that pass every filter |
 
 Every row here has a file. A missing number either retired or never became one;
 [RETIRED.md](RETIRED.md) says which.
@@ -49,20 +49,20 @@ Every row here has a file. A missing number either retired or never became one;
 | 1 | 0025 | The only outage, and the fix is one word |
 | 2 | 0026 | Smallest user-visible wrongness |
 | 3 | 0043 | XS, and a release is when someone believes the wrong version |
-| 4 | 0028 | XS, and it shrinks 0036 |
-| 5 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
-| 6 | 0031 | |
-| 7 | 0030 | |
-| 8 | 0035 | Constrained: before 0039 |
-| 9 | 0037 | Constrained: after 0026 |
-| 10 | 0036 | Constrained: after 0028 |
-| 11 | 0046 | Constrained: before 0039 |
-| 12 | 0039 | Constrained: after 0035 and 0046, before 0041 |
-| 13 | 0040 | Rewrites the option declarations 0045 edits |
-| 14 | 0042 | |
-| 15 | 0045 | Breaks `--stats`, so it wants the same release as ADR-0016's reshaping of that table |
-| 16 | 0020 | |
-| 17 | 0048 | Constrained: before 0041, which would otherwise have to place the module it adds |
+| 4 | 0049 | The only one whose output is indistinguishable from a measurement, so nobody will report it |
+| 5 | 0028 | XS, and it shrinks 0036 |
+| 6 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
+| 7 | 0031 | |
+| 8 | 0030 | |
+| 9 | 0035 | Constrained: before 0039 |
+| 10 | 0037 | Constrained: after 0026 |
+| 11 | 0036 | Constrained: after 0028 |
+| 12 | 0046 | Constrained: before 0039 |
+| 13 | 0039 | Constrained: after 0035 and 0046, before 0041 |
+| 14 | 0040 | Rewrites the option declarations 0045 edits |
+| 15 | 0042 | |
+| 16 | 0045 | Breaks `--stats`, so it wants the same release as ADR-0016's reshaping of that table |
+| 17 | 0020 | |
 | 18 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
 
 "Constrained" means the list below forces the position. A blank cell means no recorded reason, so
@@ -80,14 +80,14 @@ that row can move.
 - 0026 before 0037, which assumes its shared naming helper.
 - 0028 before 0036, which it shrinks.
 - 0035 before 0039, which would otherwise move nine classes 0035 deletes.
-- 0048 before 0041, which assigns modules to layers and would otherwise have to place the one
-  0048 adds.
 - 0046 before 0039, which moves the structure 0046 changes. Reversed, 0039 would have to settle
   0046's open question about re-keying `_running_rings`, which is more than either spec asks.
 - 0039 before 0041, or the same files move twice.
 
-0040 and 0042 depend on nothing else here; take either at any time. 0033 and 0035 both came out
-of ADR-0015's work and neither blocks the other, 0035 being the cheapest and standing alone.
+0040, 0042 and 0049 depend on nothing else here; take any of them at any time. 0049 is placed
+fourth rather than left to float because it is silent and its output looks like data, not because
+anything forces the position. 0033 and 0035 both came out of ADR-0015's work and neither blocks
+the other, 0035 being the cheapest and standing alone.
 
 ## Where these came from
 
@@ -99,3 +99,8 @@ first thing in five releases to put the distribution's version next to the packa
 0044 came out of the same session as ADR-0015 and stayed a working note until the answer settled:
 gcmon waits for CPython to fix the target rather than guessing from the reader's side. It sits
 here because the wait is open-ended and the analysis has to survive it.
+
+0049 came out of building 0048, which is retired. Holding one attachment per pid instead of
+rebuilding it every poll did not create that window — ADR-0017 was written about it — but it
+changed what falls through, from a wrong number to fabricated records. It was filed once
+[ADR-0019](../docs/adr/0019-attach-to-a-process-once.md) existed for it to cite.

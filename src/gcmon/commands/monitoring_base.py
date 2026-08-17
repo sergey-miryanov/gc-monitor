@@ -6,6 +6,7 @@ from contextlib import ExitStack
 
 from gcmon.commands.monitoring_options import MonitoringOptions
 from gcmon.control.control_server import ControlServer
+from gcmon.events_reader import RemoteEventsReader
 from gcmon.exporters import EventsExporterFactory
 from gcmon.monitor import EventsMonitor
 from gcmon.monitor_loop import MonitorLoop
@@ -51,6 +52,7 @@ def run_monitoring_loop(
                 process,
                 exporter,
                 stats,
+                reader=RemoteEventsReader(),
                 wait_policy_factory=wait_policy_factory,
                 is_pid_enabled=control_server.is_enabled,
             )

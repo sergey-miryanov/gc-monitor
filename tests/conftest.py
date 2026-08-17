@@ -15,7 +15,7 @@ from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import no_wait_policy
 from tests.data_helpers import create_instant_msg
-from tests.helpers import MockExporter, create_mock_stats_item
+from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 
 DEFAULT_PID: int = 12345
 
@@ -121,15 +121,29 @@ def stats() -> StreamingStats:
 
 
 @pytest.fixture
-def monitor(exporter: MockExporter, process: ExternalProcess, stats: StreamingStats) -> EventsMonitor:
-    return EventsMonitor(process, exporter, stats, wait_policy_factory=no_wait_policy)
+def reader() -> FakeEventsReader:
+    """The injected reader every monitor in the suite is built with.
+
+    Never a real one: a monitor built without a reader would attach to whatever
+    process happens to hold the small integers these tests use as pids.
+    """
+    return FakeEventsReader()
 
 
 @pytest.fixture
-def make_monitor(exporter: MockExporter, stats: StreamingStats) -> Callable[..., EventsMonitor]:
+def monitor(
+    exporter: MockExporter, process: ExternalProcess, stats: StreamingStats, reader: FakeEventsReader
+) -> EventsMonitor:
+    return EventsMonitor(process, exporter, stats, reader=reader, wait_policy_factory=no_wait_policy)
+
+
+@pytest.fixture
+def make_monitor(
+    exporter: MockExporter, stats: StreamingStats, reader: FakeEventsReader
+) -> Callable[..., EventsMonitor]:
     def _make(pid: int = 12345, exp: MockExporter | None = None) -> EventsMonitor:
         proc = ExternalProcess(pid=pid)
-        return EventsMonitor(proc, exp or exporter, stats, wait_policy_factory=no_wait_policy)
+        return EventsMonitor(proc, exp or exporter, stats, reader=reader, wait_policy_factory=no_wait_policy)
 
     return _make
 

@@ -5,19 +5,26 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from gcmon.data import GCStatsInfo
+from gcmon.events_reader import TargetUnavailable
 from gcmon.monitor import EventsMonitor, PollReport
 from gcmon.protocol import TGCStatsInfo
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import WaitPolicy, WaitPolicyFactory, no_wait_policy
-from tests.helpers import MockExporter, create_mock_stats_item
+from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
+
+
+def _reads(records: Sequence[TGCStatsInfo]) -> Callable[[int], Sequence[TGCStatsInfo]]:
+    """A reader that answers the same ring for every pid."""
+    return lambda pid: records
 
 
 @pytest.fixture
-def mock_gc_stats() -> Generator[GCStatsInfo]:
+def one_record(reader: FakeEventsReader) -> GCStatsInfo:
+    """One finished record, answered to every poll of every pid."""
     item = create_mock_stats_item(ts_start=1_000_000_000, ts_stop=1_005_000_000)
-    with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
-        yield item
+    reader.reads = _reads([item])
+    return item
 
 
 @pytest.fixture
@@ -51,29 +58,33 @@ class TestEventsMonitorExtra:
         assert not monitor.is_enabled
 
     def test_poll_updates_stats(
-        self, monitor: EventsMonitor, mock_gc_stats: GCStatsInfo, mock_stats_update: MagicMock
+        self, monitor: EventsMonitor, one_record: GCStatsInfo, mock_stats_update: MagicMock
     ) -> None:
         monitor.poll(12345)
 
-        mock_stats_update.assert_called_once_with(12345, mock_gc_stats)
+        mock_stats_update.assert_called_once_with(12345, one_record)
 
-    def test_poll_skips_invalid_timestamp_event(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
-        item = create_mock_stats_item(ts_start=2_000, ts_stop=1_000)
+    def test_poll_skips_invalid_timestamp_event(
+        self, monitor: EventsMonitor, exporter: MockExporter, reader: FakeEventsReader
+    ) -> None:
+        reader.reads = _reads([create_mock_stats_item(ts_start=2_000, ts_stop=1_000)])
 
-        with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
-            monitor.poll(12345)
-
-        assert exporter.events == []
-
-    def test_poll_skips_equal_timestamp_event(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
-        item = create_mock_stats_item(ts_start=1_000, ts_stop=1_000)
-
-        with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
-            monitor.poll(12345)
+        monitor.poll(12345)
 
         assert exporter.events == []
 
-    def test_poll_tracks_last_timestamp_per_pid(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
+    def test_poll_skips_equal_timestamp_event(
+        self, monitor: EventsMonitor, exporter: MockExporter, reader: FakeEventsReader
+    ) -> None:
+        reader.reads = _reads([create_mock_stats_item(ts_start=1_000, ts_stop=1_000)])
+
+        monitor.poll(12345)
+
+        assert exporter.events == []
+
+    def test_poll_tracks_last_timestamp_per_pid(
+        self, monitor: EventsMonitor, exporter: MockExporter, reader: FakeEventsReader
+    ) -> None:
         """A child PID's events are not suppressed by a later timestamp seen on
         another PID. One monitor polls the target and every child, and their
         event streams interleave in time."""
@@ -84,21 +95,20 @@ class TestEventsMonitorExtra:
                 create_mock_stats_item(collections=8, ts_start=6_000, ts_stop=6_100),
             ],
         }
+        reader.reads = lambda pid: per_pid[pid]
 
-        with patch("gcmon.monitor.get_gc_stats", side_effect=lambda pid, **_: per_pid[pid]):
-            monitor.poll(12345)
-            monitor.poll(999)
+        monitor.poll(12345)
+        monitor.poll(999)
 
         assert [e.ts_start for e in exporter.events] == [5_000, 4_000, 6_000]
 
     def test_poll_still_skips_already_seen_timestamps_for_same_pid(
-        self, monitor: EventsMonitor, exporter: MockExporter
+        self, monitor: EventsMonitor, exporter: MockExporter, reader: FakeEventsReader
     ) -> None:
-        item = create_mock_stats_item(ts_start=5_000, ts_stop=5_100)
+        reader.reads = _reads([create_mock_stats_item(ts_start=5_000, ts_stop=5_100)])
 
-        with patch("gcmon.monitor.get_gc_stats", return_value=[item]):
-            monitor.poll(12345)
-            monitor.poll(12345)
+        monitor.poll(12345)
+        monitor.poll(12345)
 
         assert [e.ts_start for e in exporter.events] == [5_000]
 
@@ -121,7 +131,7 @@ def _ring(*collections: int, gen: int = 0, iid: int = 0) -> list[GCStatsInfo]:
     """A whole ring buffer holding one finished record per counter given.
 
     A poll returns the ring, not the new records in it, so this is what
-    `get_gc_stats` answers -- deciding which of them is unseen is the
+    a read answers -- deciding which of them is unseen is the
     monitor's job and the thing under test.
     """
     return [
@@ -149,11 +159,17 @@ def _monitor(
     wait_policy_factory: WaitPolicyFactory = no_wait_policy,
     is_pid_enabled: Callable[[int], bool] | None = None,
 ) -> EventsMonitor:
-    """A monitor wired the way the monitoring command wires one."""
+    """A monitor wired the way the monitoring command wires one.
+
+    The reader is a fake, always. A real one would attach to whatever process
+    happens to hold 12345 or 999 on the machine running the suite. `_drive`
+    scripts what it answers.
+    """
     return EventsMonitor(
         ExternalProcess(pid=pid),
         exporter,
         StreamingStats(),
+        reader=FakeEventsReader(),
         wait_policy_factory=wait_policy_factory,
         is_pid_enabled=is_pid_enabled,
     )
@@ -177,6 +193,17 @@ def _never_stops() -> bool:
     return False
 
 
+def _reader_of(monitor: EventsMonitor) -> FakeEventsReader:
+    """The fake `_monitor` injected, so `_drive` can script what it answers.
+
+    Reaching for the private is deliberate and confined to this helper: the
+    monitor exposes no reader, because nothing in production asks it for one.
+    """
+    reader = monitor._reader
+    assert isinstance(reader, FakeEventsReader), "these tests never build a real reader"
+    return reader
+
+
 def _drive(
     monitor: EventsMonitor,
     listings: Sequence[list[int] | Exception],
@@ -191,21 +218,22 @@ def _drive(
 
     *rings* gives the whole ring buffer each successive poll of a pid returns,
     so a pid polled three times needs three entries. A pid that should never be
-    polled needs none: an unexpected poll raises `KeyError` here.
+    polled needs none: an unexpected poll raises `KeyError` here. An exception
+    entry stands for a poll that failed -- `TargetUnavailable` for a target
+    gcmon cannot read, anything else for a failure it does not recognise.
     """
     pending = {pid: iter(batches) for pid, batches in rings.items()}
 
-    def read(pid: int, all_interpreters: bool = True) -> list[GCStatsInfo]:
+    def read(pid: int) -> list[GCStatsInfo]:
         batch = next(pending[pid])
         if isinstance(batch, Exception):
             raise batch
         return list(batch)
 
+    _reader_of(monitor).reads = read
+
     reports: list[PollReport] = []
-    with (
-        patch("gcmon.monitor.get_child_pids", side_effect=list(listings)),
-        patch("gcmon.monitor.get_gc_stats", side_effect=read),
-    ):
+    with patch("gcmon.monitor.get_child_pids", side_effect=list(listings)):
         for tick, _ in enumerate(listings, start=1):
             now_ns = tick * TICK_NS
             reports.append(monitor.tick(now_ns, stop))
@@ -231,7 +259,7 @@ class TestTheReport:
         reports = _drive(
             _monitor(exporter),
             listings=[[999]],
-            rings={12345: [_ring(1)], 999: [RuntimeError("no such process")]},
+            rings={12345: [_ring(1)], 999: [TargetUnavailable("no such process")]},
         )
 
         assert reports[0].live_pids == frozenset({12345})
@@ -392,6 +420,88 @@ class TestOnePruneOverOneSet:
         # 12345 once, then 999 twice: once on first sight, once on return.
         assert factory.call_count == 3
 
+    def test_a_pid_that_leaves_the_tree_loses_its_attachment(self, exporter: MockExporter) -> None:
+        """ADR-0019 puts the reader's attachment under ADR-0017's rule, so it
+        goes in the same pass as the cursors.
+
+        This is the half no other assertion can reach. A kept attachment holds
+        the runtime address and debug offsets of the process that left, and
+        applied to whatever takes that pid next it reads a stranger's memory --
+        producing records that are structurally valid, pass every filter, and
+        reach the trace.
+        """
+        monitor = _monitor(exporter)
+        _drive(
+            monitor,
+            listings=[[999], [], []],
+            rings={
+                12345: [_ring(1), _ring(1), _ring(1)],
+                999: [_ring(1, 2)],
+            },
+        )
+
+        reader = _reader_of(monitor)
+        assert reader.retained == [
+            frozenset({12345, 999}),
+            frozenset({12345}),
+            frozenset({12345}),
+        ]
+        assert reader.attached == {12345}
+
+    def test_a_pid_the_policy_gave_up_on_loses_its_attachment(self, exporter: MockExporter) -> None:
+        """The other route out. Here the pid is still listed as a child, so the
+        retain pass keeps it and the per-pid forget is what has to drop it."""
+        factory = Mock(side_effect=[_policy(True), _policy(False)])
+        monitor = _monitor(exporter, wait_policy_factory=factory)
+        _drive(
+            monitor,
+            listings=[[999]],
+            rings={
+                12345: [_ring(1)],
+                999: [TargetUnavailable("gone")],
+            },
+        )
+
+        reader = _reader_of(monitor)
+        assert reader.forgotten == [999]
+        assert reader.attached == {12345}
+
+    def test_the_attachment_and_the_cursors_go_in_the_same_pass(self, exporter: MockExporter) -> None:
+        """One set, one pass. The retain call the reader saw is the same set the
+        cursors were pruned against, which is what "one prune" means."""
+        monitor = _monitor(exporter)
+        _drive(
+            monitor,
+            listings=[[999, 888], [999]],
+            rings={
+                12345: [_ring(1), _ring(1)],
+                999: [_ring(1), _ring(1)],
+                888: [_ring(1)],
+            },
+        )
+
+        reader = _reader_of(monitor)
+        assert reader.retained == [frozenset({12345, 999, 888}), frozenset({12345, 999})]
+        assert reader.attached == {12345, 999}
+
+    def test_a_failed_listing_prunes_no_attachment_either(self, exporter: MockExporter) -> None:
+        """``None`` from the listing means "no answer". Dropping attachments on
+        it would make every live child pay to attach again on the next tick,
+        which is the cost this seam exists to remove."""
+        monitor = _monitor(exporter)
+        _drive(
+            monitor,
+            listings=[[999], Exception("cannot enumerate"), [999]],
+            rings={
+                12345: [_ring(1), _ring(1), _ring(1)],
+                999: [_ring(1, 2), _ring(1, 2)],
+            },
+        )
+
+        reader = _reader_of(monitor)
+        assert reader.retained == [frozenset({12345, 999}), frozenset({12345, 999})]
+        assert reader.forgotten == []
+
     def test_a_failed_listing_prunes_nothing(self, exporter: MockExporter) -> None:
         """``None`` from the listing means "no answer", not "no children".
         Reading it as an empty tree would drop the cursors of every live child
@@ -450,7 +560,7 @@ class TestProcessLiveness:
         _drive(
             _monitor(exporter),
             listings=[[999]],
-            rings={12345: [_ring(1)], 999: [RuntimeError("gone")]},
+            rings={12345: [_ring(1)], 999: [TargetUnavailable("gone")]},
         )
 
         assert exporter.liveness == [(frozenset({12345}), TICK_NS)]
@@ -471,7 +581,7 @@ class TestProcessLiveness:
         _drive(
             _monitor(exporter),
             listings=[[]],
-            rings={12345: [RuntimeError("gone")]},
+            rings={12345: [TargetUnavailable("gone")]},
         )
 
         assert exporter.liveness == []
@@ -541,7 +651,7 @@ class TestAPidThePolicyGaveUpOn:
             listings=[[999], [999], [999]],
             rings={
                 12345: [_ring(1), _ring(1), _ring(1)],
-                999: [_ring(1), RuntimeError("gone"), RuntimeError("still gone")],
+                999: [_ring(1), TargetUnavailable("gone"), TargetUnavailable("still gone")],
             },
         )
 
@@ -563,7 +673,7 @@ class TestAPidThePolicyGaveUpOn:
                 12345: [_ring(1), _ring(1), _ring(1)],
                 # Reaches 300, dies, and the number comes back on a process
                 # counting from 1 again.
-                999: [_ring(299, 300), RuntimeError("gone"), _ring(1, 2)],
+                999: [_ring(299, 300), TargetUnavailable("gone"), _ring(1, 2)],
             },
         )
 
@@ -577,7 +687,7 @@ class TestAPidThePolicyGaveUpOn:
         reports = _drive(
             _monitor(exporter, wait_policy_factory=factory),
             listings=[[999]],
-            rings={12345: [RuntimeError("gone")], 999: [RuntimeError("gone too")]},
+            rings={12345: [TargetUnavailable("gone")], 999: [TargetUnavailable("gone too")]},
         )
 
         assert reports[0].live_pids == frozenset()
@@ -601,7 +711,7 @@ class TestNoWaitPolicyThroughAWholeTick:
         reports = _drive(
             _monitor(exporter),
             listings=[[]],
-            rings={12345: [RuntimeError("still starting")]},
+            rings={12345: [TargetUnavailable("still starting")]},
         )
 
         assert not reports[0].keep_running
@@ -613,5 +723,22 @@ class TestTheConstructorRefusesToPickAPolicy:
     ) -> None:
         """Omitting it used to yield a monitor that gave up on the first failed
         poll and reported that as an orderly finish."""
+        with pytest.raises(TypeError):
+            EventsMonitor(process, exporter, stats, reader=FakeEventsReader())  # type: ignore[call-arg]
+
+
+class TestTheConstructorRefusesToPickAReader:
+    def test_a_monitor_cannot_be_built_without_one(
+        self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
+    ) -> None:
+        """A default would build a real reader, and a test that forgot to inject
+        one would attach to whatever process holds the integer it used as a pid.
+        Every pid in this file is such an integer."""
+        with pytest.raises(TypeError):
+            EventsMonitor(process, exporter, stats, wait_policy_factory=no_wait_policy)  # type: ignore[call-arg]
+
+    def test_neither_argument_is_optional(
+        self, exporter: MockExporter, process: ExternalProcess, stats: StreamingStats
+    ) -> None:
         with pytest.raises(TypeError):
             EventsMonitor(process, exporter, stats)  # type: ignore[call-arg]

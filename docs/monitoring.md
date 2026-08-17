@@ -27,8 +27,10 @@ keeps it for the session.
 ## Polling
 
 `--rate` is the wait *between* rounds, in seconds. One round reads every
-monitored process once, so the real interval is `--rate` plus those reads. Watch
-several child processes and you sample slower than the number you asked for.
+monitored process once, so the real interval is `--rate` plus those reads.
+A read costs microseconds, so at the default rate the difference is not worth
+thinking about; the first read of each process is the exception, because gcmon has
+to work out where that process keeps its GC state before it can read it.
 
 ## Records gcmon misses
 
@@ -36,8 +38,11 @@ A target whose collector runs faster than gcmon polls drops records before any
 poll reads them. At the default 0.1 s rate, a GC-heavy workload might lose
 records on most ticks.
 
-A shorter `--rate` narrows the gap without closing it. Every round still reads
-each monitored process, and that read time puts a floor under the interval.
+A shorter `--rate` narrows the gap without closing it. What bounds how much gcmon
+can see is the ring buffer: CPython keeps a fixed number of slots per generation,
+and a poll can only report what is still in them. Beyond the rate where gcmon
+reads the ring faster than the target overwrites it, polling harder costs CPU and
+observes nothing new.
 
 A lost record takes its timestamps with it. The two polls around it still bound
 the run: a record goes missing between two consecutive reads, and nothing

@@ -28,7 +28,7 @@ from gcmon.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import no_wait_policy
-from tests.helpers import create_mock_stats_item
+from tests.helpers import FakeEventsReader, create_mock_stats_item
 from tests.test_monitor_cursor import POLL_0, POLL_1, build_batch
 
 PID = 12345
@@ -192,7 +192,11 @@ class Ingested:
         self.recorder = LossRecorder()
         self.stats = StreamingStats()
         self.monitor = EventsMonitor(
-            ExternalProcess(pid=pid), self.recorder, self.stats, wait_policy_factory=no_wait_policy
+            ExternalProcess(pid=pid),
+            self.recorder,
+            self.stats,
+            reader=FakeEventsReader(),
+            wait_policy_factory=no_wait_policy,
         )
         self.polled_at: list[int] = []
 

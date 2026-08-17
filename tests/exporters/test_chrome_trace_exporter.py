@@ -1,12 +1,12 @@
 """Tests for Chrome trace exporter."""
 
-from collections.abc import Callable, Generator
+from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from gcmon.data import GCStatsInfo, ts_to_us
+from gcmon.events_reader import TargetUnavailable
 from gcmon.exporters import TraceExporter
 from gcmon.monitor import EventsMonitor
 from gcmon.stats import StreamingStats
@@ -18,6 +18,7 @@ from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory
 from tests.helpers import (
     ChromeTraceValue,
+    FakeEventsReader,
     assert_is_begin,
     assert_is_counter,
     assert_is_instant_event,
@@ -373,19 +374,23 @@ def mock_lossy_read_events() -> Callable[[int, bool], list[GCStatsInfo]]:
 
 
 @pytest.fixture
-def monitor_with_exporter(trace_exporter: ExporterFactory) -> tuple[EventsMonitor, Path]:
+def monitor_with_exporter(trace_exporter: ExporterFactory, reader: FakeEventsReader) -> tuple[EventsMonitor, Path]:
     """Create an EventsMonitor wired to a TraceExporter."""
     exporter, path = trace_exporter()
     assert isinstance(exporter, TraceExporter)
     process = ExternalProcess(pid=12345)
-    monitor = EventsMonitor(process, exporter, StreamingStats(), wait_policy_factory=no_wait_policy)
+    monitor = EventsMonitor(process, exporter, StreamingStats(), reader=reader, wait_policy_factory=no_wait_policy)
     return monitor, path
 
 
 @pytest.fixture
-def mock_gc_stats(mock_read_events: Callable[..., list[GCStatsInfo]]) -> Generator[None]:
-    with patch("gcmon.monitor.get_gc_stats", side_effect=mock_read_events):
-        yield
+def mock_gc_stats(reader: FakeEventsReader, mock_read_events: Callable[..., list[GCStatsInfo]]) -> None:
+    reader.reads = mock_read_events
+
+
+@pytest.fixture
+def mock_lossy_gc_stats(reader: FakeEventsReader, mock_lossy_read_events: Callable[..., list[GCStatsInfo]]) -> None:
+    reader.reads = mock_lossy_read_events
 
 
 def _ts(event: dict[str, ChromeTraceValue]) -> int:
@@ -418,22 +423,20 @@ class TestGCMonitorStreamsLoss:
 
     def test_a_missed_run_draws_a_slice(
         self,
-        mock_lossy_read_events: Callable[..., list[GCStatsInfo]],
+        mock_lossy_gc_stats: None,
         monitor_with_exporter: tuple[EventsMonitor, Path],
     ) -> None:
-        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_lossy_read_events):
-            data = self.trace(monitor_with_exporter)
+        data = self.trace(monitor_with_exporter)
 
         # The first poll seeds the cursor; the two after it each find a gap.
         assert len(self.losses(data)) == 2
 
     def test_the_slice_reports_what_the_counters_say(
         self,
-        mock_lossy_read_events: Callable[..., list[GCStatsInfo]],
+        mock_lossy_gc_stats: None,
         monitor_with_exporter: tuple[EventsMonitor, Path],
     ) -> None:
-        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_lossy_read_events):
-            data = self.trace(monitor_with_exporter)
+        data = self.trace(monitor_with_exporter)
 
         args = self.losses(data)[0]["args"]
         assert isinstance(args, dict)
@@ -449,23 +452,21 @@ class TestGCMonitorStreamsLoss:
 
     def test_it_lands_on_the_loss_track(
         self,
-        mock_lossy_read_events: Callable[..., list[GCStatsInfo]],
+        mock_lossy_gc_stats: None,
         monitor_with_exporter: tuple[EventsMonitor, Path],
     ) -> None:
-        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_lossy_read_events):
-            data = self.trace(monitor_with_exporter)
+        data = self.trace(monitor_with_exporter)
 
         assert {e["tid"] for e in self.losses(data)} == {loss_tid(0)}
 
     def test_it_spans_the_interval_between_two_polls(
         self,
-        mock_lossy_read_events: Callable[..., list[GCStatsInfo]],
+        mock_lossy_gc_stats: None,
         monitor_with_exporter: tuple[EventsMonitor, Path],
     ) -> None:
         """The edges come off the monitor's clock, not off the records, so the
         one thing a test can name here is that consecutive spans meet."""
-        with patch("gcmon.monitor.get_gc_stats", side_effect=mock_lossy_read_events):
-            data = self.trace(monitor_with_exporter)
+        data = self.trace(monitor_with_exporter)
 
         begins = [_ts(e) for e in self.losses(data)]
         ends = [_ts(e) for e in data if e["name"] == "GC Loss(0)" and e["ph"] == "E"]
@@ -529,7 +530,9 @@ class TestGCMonitorStreaming:
         assert len([e for e in data if e["ph"] == "B"]) >= 3
         assert len([e for e in data if e["ph"] == "C"]) >= 3
 
-    def test_handles_read_error_gracefully(self, monitor_with_exporter: tuple[EventsMonitor, Path]) -> None:
+    def test_handles_read_error_gracefully(
+        self, monitor_with_exporter: tuple[EventsMonitor, Path], reader: FakeEventsReader
+    ) -> None:
         monitor, path = monitor_with_exporter
         item = create_mock_stats_item(
             gen=0,
@@ -544,18 +547,19 @@ class TestGCMonitorStreaming:
         )
         call_count = [0]
 
-        def side_effect(pid: int, all_interpreters: bool = False) -> list[GCStatsInfo]:
+        def side_effect(pid: int) -> list[GCStatsInfo]:
             call_count[0] += 1
             if call_count[0] == 1:
                 return [item]
-            raise RuntimeError("Connection broken")
+            raise TargetUnavailable("Connection broken")
 
-        with patch("gcmon.monitor.get_gc_stats", side_effect=side_effect):
-            from gcmon.poll_status import PollStatus
+        reader.reads = side_effect
 
-            assert monitor.poll(12345) == PollStatus.OK
-            result = monitor.poll(12345)
-            assert result in (PollStatus.INVALID_PROCESS, PollStatus.FAIL)
+        from gcmon.poll_status import PollStatus
+
+        assert monitor.poll(12345) == PollStatus.OK
+        result = monitor.poll(12345)
+        assert result in (PollStatus.INVALID_PROCESS, PollStatus.FAIL)
 
         monitor.stop()
         assert path.exists()

@@ -3,7 +3,7 @@ exporters."""
 
 import logging
 import time
-from _remote_debugging import get_child_pids, get_gc_stats
+from _remote_debugging import get_child_pids
 from collections.abc import Callable, Sequence, Set
 from itertools import groupby
 from typing import Self
@@ -11,6 +11,7 @@ from typing import Self
 import msgspec
 
 from .data import GenLoss, LossMsg
+from .events_reader import EventsReader, TargetUnavailable
 from .exporters import EventsExporter
 from .loss import (
     RingAccumulator,
@@ -27,10 +28,10 @@ logger = logging.getLogger("gcmon")
 __all__ = ["EventsMonitor", "PollReport"]
 
 
-def _is_complete(event: TGCStatsInfo) -> bool:
+def _is_complete(record: TGCStatsInfo) -> bool:
     """False for a slot holding no finished record: never written, or
     mid-write with ``ts_start`` published and ``ts_stop`` not yet."""
-    return event.ts_start < event.ts_stop
+    return record.ts_start < record.ts_stop
 
 
 class PidState(msgspec.Struct):
@@ -63,10 +64,16 @@ class EventsMonitor:
         exporter: EventsExporter,
         stats: StreamingStats,
         *,
+        reader: EventsReader,
         wait_policy_factory: WaitPolicyFactory,
         is_pid_enabled: Callable[[int], bool] | None = None,
     ) -> None:
         """
+        *reader* reads a process's records and holds whatever that takes. It has
+        no default on purpose: a default would build a real reader, and a caller
+        that forgot to pass one would attach to whatever process happens to hold
+        the integer it used as a pid.
+
         *wait_policy_factory* builds the per-pid policy that decides when a pid
         is finished.
 
@@ -79,6 +86,7 @@ class EventsMonitor:
         self._enabled = True
         self._pids: dict[int, PidState] = {}
         self._policies: dict[int, WaitPolicy] = {}
+        self._reader = reader
         self._wait_policy_factory = wait_policy_factory
         self._is_pid_enabled = is_pid_enabled
         self._stats = stats
@@ -162,16 +170,16 @@ class EventsMonitor:
 
         try:
             ts_read_start = time.monotonic_ns()
-            events = get_gc_stats(pid, all_interpreters=True)
+            records = self._reader.read(pid)
             ts_read_stop = time.monotonic_ns()
             self._stats.record_read_time(ts_read_stop - ts_read_start)
-            self._ingest(pid, events, ts_read_start)
+            self._ingest(pid, records, ts_read_start)
 
             return PollStatus.OK
-        except RuntimeError as exc:
-            logger.debug("Error while polling PID %s (child PID=%s): %s", self._process.pid, pid, exc)
-            return PollStatus.INVALID_PROCESS
-        except PermissionError as exc:
+        except TargetUnavailable as exc:
+            # The ordinary end of a run reaches here, so it stays at debug
+            # level: a warning would put a traceback on stderr every time a
+            # target exits. ADR-0019.
             logger.debug("Error while polling PID %s (child PID=%s): %s", self._process.pid, pid, exc)
             return PollStatus.INVALID_PROCESS
         except Exception as exc:
@@ -179,28 +187,31 @@ class EventsMonitor:
             return PollStatus.FAIL
 
     def _forget(self, pid: int) -> None:
-        """Drop the cursors held for *pid*, so a reused pid inherits no counter
-        and no poll instant from the process before it. The policy stays; see
-        :meth:`tick`.
+        """Drop the cursors and the attachment held for *pid*, so a reused pid
+        inherits no counter, no poll instant and no debug offsets from the
+        process before it. The policy stays; see :meth:`tick`.
         """
         self._pids.pop(pid, None)
+        self._reader.forget(pid)
         self._stats.materialize(pid)
 
     def _retain(self, pids: Set[int]) -> None:
         """Drop the state of every pid outside *pids*, all of it at once.
 
         A cursor outliving its policy, or the reverse, is the disagreement
-        ADR-0017 rules out. A process that exits between two ticks is never
-        polled again, so no policy gives up on it and this drops it instead.
+        ADR-0017 rules out, and ADR-0019 puts the reader's attachment under the
+        same rule. A process that exits between two ticks is never polled again,
+        so no policy gives up on it and this drops it instead.
         """
         for pid in self._pids.keys() - pids:
             del self._pids[pid]
         for pid in self._policies.keys() - pids:
             del self._policies[pid]
+        self._reader.retain(pids)
         self._stats.retain(pids)
 
-    def _ingest(self, pid: int, events: Sequence[TGCStatsInfo], ts_poll: int) -> None:
-        """Emit the records in *events* not seen yet.
+    def _ingest(self, pid: int, records: Sequence[TGCStatsInfo], ts_poll: int) -> None:
+        """Emit the records in *records* not seen yet.
 
         Every poll returns the whole ring buffer, so ``collections`` is what
         identifies a record.
@@ -215,13 +226,13 @@ class EventsMonitor:
         # Ring buffer records arrive wrapped, with the generations
         # concatenated, so restore each ring's counter order.
         ordered = sorted(
-            (event for event in events if _is_complete(event)),
-            key=lambda event: (event.iid, event.gen, event.collections),
+            (record for record in records if _is_complete(record)),
+            key=lambda record: (record.iid, record.gen, record.collections),
         )
 
         fresh: list[TGCStatsInfo] = []
         gens_by_iid: dict[int, list[GenLoss]] = {}
-        for (iid, gen), group in groupby(ordered, key=lambda event: (event.iid, event.gen)):
+        for (iid, gen), group in groupby(ordered, key=lambda record: (record.iid, record.gen)):
             accumulator = state.rings.setdefault((iid, gen), RingAccumulator())
             unseen = accumulator.unseen(group)
             if not unseen:
@@ -244,9 +255,9 @@ class EventsMonitor:
             self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=ts_prev_poll, ts_stop=ts_poll, gens=gens))
 
         # We want to keep exported events in the time order
-        for event in sorted(fresh, key=lambda event: (event.iid, event.ts_start)):
-            self._exporter.add_event(pid, event)
-            self._stats.update(pid, event)
+        for record in sorted(fresh, key=lambda record: (record.iid, record.ts_start)):
+            self._exporter.add_event(pid, record)
+            self._stats.update(pid, record)
 
         self._warn_low_coverage(pid)
 
@@ -276,11 +287,19 @@ class EventsMonitor:
         )
 
     def stop(self) -> None:
-        """Close the exporter and stop accepting polls.
+        """Close the exporter, let go of every attachment, and stop accepting
+        polls.
+
+        The reader is pruned here and not left to garbage collection because an
+        attachment is a handle on somebody else's process: on Windows it holds
+        the pid reserved for as long as gcmon keeps it (ADR-0019), and a monitor
+        that has stopped monitoring should not be doing that. ``retain`` with an
+        empty set is the existing verb for "keep none of them".
 
         Safe to call more than once.
         """
         self._exporter.close()
+        self._reader.retain(frozenset())
         self._enabled = False
 
     @property

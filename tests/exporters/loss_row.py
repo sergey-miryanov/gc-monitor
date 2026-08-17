@@ -25,7 +25,7 @@ from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.trace_event import LOSS_TID_BASE, BeginEvent, EndEvent
 from gcmon.wait_policy import no_wait_policy
-from tests.helpers import create_mock_stats_item
+from tests.helpers import FakeEventsReader, create_mock_stats_item
 
 PID = 12345
 IID = 0
@@ -71,11 +71,18 @@ def ingest(*batches: Sequence[GCStatsInfo]) -> list[TItem]:
     monotonic clock would make unrepeatable.
     """
     recorder = Recorder()
-    monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, StreamingStats(), wait_policy_factory=no_wait_policy)
     reads = iter(batches)
 
-    def one_read(pid: int, all_interpreters: bool = True) -> list[GCStatsInfo]:
+    def one_read(pid: int) -> list[GCStatsInfo]:
         return list(next(reads))
+
+    monitor = EventsMonitor(
+        ExternalProcess(pid=PID),
+        recorder,
+        StreamingStats(),
+        reader=FakeEventsReader(one_read),
+        wait_policy_factory=no_wait_policy,
+    )
 
     def clock() -> Iterator[int]:
         # Two calls per poll: `poll` brackets the read to time it.
@@ -85,10 +92,7 @@ def ingest(*batches: Sequence[GCStatsInfo]) -> list[TItem]:
 
     ticks = clock()
 
-    with (
-        patch("gcmon.monitor.get_gc_stats", side_effect=one_read),
-        patch("gcmon.monitor.time.monotonic_ns", side_effect=lambda: next(ticks)),
-    ):
+    with patch("gcmon.monitor.time.monotonic_ns", side_effect=lambda: next(ticks)):
         for _ in batches:
             assert monitor.poll(PID) is PollStatus.OK
 

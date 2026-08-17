@@ -108,9 +108,9 @@ counters. eBPF sensors such as Groundcover's watch kernel events, not CPython's
 GC phases.
 
 > Exact GC pause time has only two sources: `gc.callbacks` inside the process,
-> whether your own or an agent's, and `_remote_debugging.get_gc_stats()` reading
-> CPython's ring buffer from outside it. Everything else samples or counts.
-> gcmon builds on the latter.
+> whether your own or an agent's, and `_remote_debugging` reading CPython's ring
+> buffer from outside it. Everything else samples or counts. gcmon builds on the
+> latter.
 
 ### Decision Guide
 

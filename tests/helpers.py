@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Mapping, Set
+from collections.abc import Callable, Mapping, Sequence, Set
 from pathlib import Path
 from typing import override
 
 from gcmon.data import GCStatsInfo, GenLoss, LossMsg
+from gcmon.events_reader import EventsReader
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 
@@ -15,11 +16,17 @@ ChromeTraceValue = _JsonValue | Mapping[str, _JsonValue]
 JsonlRecord = dict[str, _JsonValue]
 DefaultsValue = Path | float | None | int | str | bool
 
+# What one poll of one pid answers. Takes the pid, because a test driving a
+# process tree answers differently per child.
+ReadFn = Callable[..., Sequence[TGCStatsInfo]]
+
 __all__ = [
     "ChromeTraceValue",
     "DefaultsValue",
+    "FakeEventsReader",
     "JsonlRecord",
     "MockExporter",
+    "ReadFn",
     "assert_is_begin",
     "assert_is_counter",
     "assert_is_end",
@@ -33,6 +40,54 @@ __all__ = [
     "create_mock_loss_item",
     "create_mock_stats_item",
 ]
+
+
+def no_records(pid: int) -> Sequence[TGCStatsInfo]:
+    """What a target that has collected nothing answers."""
+    return ()
+
+
+class FakeEventsReader(EventsReader):
+    """An :class:`EventsReader` driven by a callable, recording its prunes.
+
+    *reads* answers one poll of one pid. Raise :class:`TargetUnavailable` from
+    it to play a target that has not started or has exited; raise anything else
+    to play a failure gcmon does not translate.
+
+    ``attached`` is the set of pids this would be holding an attachment for, so
+    a test can assert ADR-0017's rule -- that an attachment and its cursors are
+    dropped in the same pass -- without reaching into the monitor. It follows
+    the real reader's lifetime: a pid enters on a read that returns, and leaves
+    on a read that raises, on ``forget``, or on a ``retain`` that excludes it.
+    """
+
+    def __init__(self, reads: ReadFn | None = None) -> None:
+        self.reads: ReadFn = reads if reads is not None else no_records
+        self.attached: set[int] = set()
+        self.read_pids: list[int] = []
+        self.forgotten: list[int] = []
+        self.retained: list[frozenset[int]] = []
+
+    @override
+    def read(self, pid: int) -> Sequence[TGCStatsInfo]:
+        self.read_pids.append(pid)
+        try:
+            records = self.reads(pid)
+        except BaseException:
+            self.attached.discard(pid)
+            raise
+        self.attached.add(pid)
+        return records
+
+    @override
+    def retain(self, pids: Set[int]) -> None:
+        self.retained.append(frozenset(pids))
+        self.attached &= set(pids)
+
+    @override
+    def forget(self, pid: int) -> None:
+        self.forgotten.append(pid)
+        self.attached.discard(pid)
 
 
 class MockExporter(EventsExporter):

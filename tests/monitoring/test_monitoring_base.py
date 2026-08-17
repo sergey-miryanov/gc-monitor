@@ -4,6 +4,7 @@ from unittest.mock import ANY, MagicMock
 
 import pytest
 
+from gcmon.events_reader import RemoteEventsReader
 from gcmon.stats import PauseTotals
 
 
@@ -279,7 +280,12 @@ class TestRunMonitoringLoop:
             process,
             exporter,
             stats,
+            reader=ANY,
             wait_policy_factory=mock_wait_policy_factory,
             is_pid_enabled=mock_control_instance.is_enabled,
         )
+        # The one place in the package that builds a real reader. Named rather
+        # than matched loosely: a monitor built with a fake here would read
+        # nothing in production and no other test would notice.
+        assert isinstance(monitor_cls.call_args.kwargs["reader"], RemoteEventsReader)
         assert mock_monitoring_base_deps["MonitorLoop"].call_args.args[0] is monitor_cls.return_value

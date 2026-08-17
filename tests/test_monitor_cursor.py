@@ -1,6 +1,6 @@
 """Tests for which records a poll treats as new.
 
-``get_gc_stats`` returns the whole ring buffer every time, in slot order.
+A read returns the whole ring buffer every time, in slot order.
 The two-poll fixture below is a verbatim capture from a CPython 3.15 target
 allocating in a loop, polled twice 100 ms apart. Hand-written batches tend
 to come out sorted, which hides the rotation that breaks naive dedup.
@@ -8,7 +8,6 @@ to come out sorted, which hides the rotation that breaks naive dedup.
 
 from collections.abc import Sequence
 from itertools import count
-from unittest.mock import patch
 
 import pytest
 
@@ -16,7 +15,7 @@ from gcmon.data import GCStatsInfo
 from gcmon.monitor import EventsMonitor
 from gcmon.poll_status import PollStatus
 from gcmon.stats import StreamingStats
-from tests.helpers import MockExporter, create_mock_stats_item
+from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 
 PID = 12345
 
@@ -310,14 +309,21 @@ class TestSettlingAnExitedPid:
 
 class TestPollIntegration:
     def test_poll_uses_the_cursor(
-        self, monitor: EventsMonitor, exporter: MockExporter, poll_0: list[GCStatsInfo], poll_1: list[GCStatsInfo]
+        self,
+        monitor: EventsMonitor,
+        exporter: MockExporter,
+        reader: FakeEventsReader,
+        poll_0: list[GCStatsInfo],
+        poll_1: list[GCStatsInfo],
     ) -> None:
         """Two polls of the same target, through ``poll`` rather than
         ``_ingest``, so the read path is covered too."""
-        with patch("gcmon.monitor.get_gc_stats", side_effect=[poll_0, poll_1]):
-            assert monitor.poll(PID) == PollStatus.OK
-            assert len(exporter.events) == 15
+        polls = iter([poll_0, poll_1])
+        reader.reads = lambda pid: next(polls)
 
-            assert monitor.poll(PID) == PollStatus.OK
+        assert monitor.poll(PID) == PollStatus.OK
+        assert len(exporter.events) == 15
+
+        assert monitor.poll(PID) == PollStatus.OK
 
         assert len(exporter.events) == 29

@@ -35,6 +35,7 @@ from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import no_wait_policy
 from tests.captures import SSL_CONTEXT_SIZE
+from tests.helpers import FakeEventsReader
 from tests.test_monitor_cursor import POLL_0
 
 PID = 33328
@@ -47,7 +48,7 @@ FREE_THREADED_SIZES = {0: 1, 1: 1, 2: 1}
 
 MS = 1_000_000
 
-# What one `get_gc_stats` costs the replayed monitor. Only the read-time
+# What one read costs the replayed monitor. Only the read-time
 # statistic reads it; a span's edges are two wakes, and a wake is where the
 # read began.
 READ_COST_NS = 600_000
@@ -227,14 +228,21 @@ def replay(interval_ms: float, sizes: dict[int, int] = RING_SIZES, skew_ms: floa
 
     recorder = Recorder()
     stats = StreamingStats()
-    monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, stats, wait_policy_factory=no_wait_policy)
     reads = iter(batches)
     wakes: list[int] = []
 
-    def one_read(pid: int, all_interpreters: bool = True) -> list[GCStatsInfo]:
+    def one_read(pid: int) -> list[GCStatsInfo]:
         wake, batch = next(reads)
         wakes.append(wake)
         return list(batch)
+
+    monitor = EventsMonitor(
+        ExternalProcess(pid=PID),
+        recorder,
+        stats,
+        reader=FakeEventsReader(one_read),
+        wait_policy_factory=no_wait_policy,
+    )
 
     def clock() -> Iterator[int]:
         # `poll` reads the clock before the batch is fetched and again after,
@@ -247,10 +255,7 @@ def replay(interval_ms: float, sizes: dict[int, int] = RING_SIZES, skew_ms: floa
 
     ticks = clock()
 
-    with (
-        patch("gcmon.monitor.get_gc_stats", side_effect=one_read),
-        patch("gcmon.monitor.time.monotonic_ns", side_effect=lambda: next(ticks)),
-    ):
+    with patch("gcmon.monitor.time.monotonic_ns", side_effect=lambda: next(ticks)):
         for _ in batches:
             assert monitor.poll(PID) is PollStatus.OK
 
@@ -580,7 +585,11 @@ class TestAMidWriteSlot:
 
         recorder = Recorder()
         monitor = EventsMonitor(
-            ExternalProcess(pid=PID), recorder, StreamingStats(), wait_policy_factory=no_wait_policy
+            ExternalProcess(pid=PID),
+            recorder,
+            StreamingStats(),
+            reader=FakeEventsReader(),
+            wait_policy_factory=no_wait_policy,
         )
         monitor._ingest(PID, batch, ts_poll=1)
 
@@ -599,7 +608,13 @@ class TestAMidWriteSlot:
 
         recorder = Recorder()
         stats = StreamingStats()
-        monitor = EventsMonitor(ExternalProcess(pid=PID), recorder, stats, wait_policy_factory=no_wait_policy)
+        monitor = EventsMonitor(
+            ExternalProcess(pid=PID),
+            recorder,
+            stats,
+            reader=FakeEventsReader(),
+            wait_policy_factory=no_wait_policy,
+        )
         monitor._ingest(PID, batch, ts_poll=1)
 
         counters = [record.collections for record in recorder.records if record.gen == 0]

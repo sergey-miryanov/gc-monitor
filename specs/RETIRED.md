@@ -16,6 +16,7 @@ purpose.
 | [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md) | **Superseded** by 0036 | M | Three byte-identical copies of the buffer-and-flush logic in `JsonlExporter`. 0036 removes them by collapsing the interface that produced them; §4's JSONL-schema argument still stands |
 | [0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) | **Superseded** by ADR-0015 | S | Loss spans reached back across a collection gcmon watched start. ADR-0015's rewrite moved the edge to the poll instant, which is later still |
 | 0038 | **Landed** 2026-08-17 — cleanup | M | Per-pid state had two owners, each pruning it against the same set; had they disagreed, gcmon would have reported a loss window that never happened. One tick is one call on `EventsMonitor` now. [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md), and [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) for the liveness site it moved |
+| 0048 | **Landed** 2026-08-17 — efficiency | M | gcmon re-derived where a process keeps its GC state on every poll and threw it away again, which was nine tenths of what a poll cost, per process, per tick. It attaches once and reads many times now: measured `Read Time` P50 fell 520 µs → 15 µs. [ADR-0019](../docs/adr/0019-attach-to-a-process-once.md) owns the attachment's lifetime, and [0049](0049-a-recycled-pid-can-be-read-through-a-stale-attachment.md) is the window it left open |
 
 The two §4s still worth reading:
 

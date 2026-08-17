@@ -14,9 +14,17 @@ The last row, `Read Time`, is monitor-side cost rather than target-process cost:
 it measures how long each read of a target's GC stats took, recorded once per
 successful poll of every monitored PID and aggregated into a single row — with
 child processes its `Count` is polls × PIDs, and there is no per-PID breakdown.
-Use it to sanity-check `--rate`: a mean `Read Time` close to `--rate` means you
-are sampling at roughly half the rate you asked for, for the reason given in
-[How gcmon reads a process](monitoring.md#polling).
+Expect tens of microseconds, with one much larger reading per monitored process:
+the first read of a process has to locate its GC state before it can read it, and
+that costs a few hundred microseconds.
+
+That first read is why **`Avg` sits above `P50`** here — 19 µs against 16 µs. It
+does not show up in the percentiles at all: one outlier in 300 reads sits above the
+99th, so `P99` describes the ordinary reads and only `Sum` and `Avg` carry the
+attach. The gap between them closes the longer a run goes, and widens with the
+number of processes monitored. A mean approaching `--rate` would mean gcmon is
+spending its whole budget reading — worth looking into, and not something the
+default rate produces.
 
 ## Example Output
 
@@ -41,7 +49,7 @@ $ gcmon 12345 --stats --table-format md
 |         | GC Deduce Unreachable(1) |  18/~25 | 77.611/~102.811 |  4.312 |  4.684 |  5.645 |  5.927 |  6.437 |  72.0% |  1.325 |
 |         | GC Deduce Unreachable(2) |       5 |         111.806 | 22.361 | 25.958 | 28.430 | 28.846 | 29.180 | 100.0% |  1.000 |
 |         |                          |         |                 |        |        |        |        |        |        |        |
-|         | Read Time                |     300 |         750.000 |  2.500 |  2.400 |  3.100 |  3.600 |  5.200 |        |        |
+|         | Read Time                |     300 |           5.700 |  0.019 |  0.016 |  0.021 |  0.024 |  0.031 |        |        |
 
 1. Coverage: Gen0 20.0%, Gen1 72.0%. Count and Sum read sampled/exact; percentiles are sampled and read high.
 ```

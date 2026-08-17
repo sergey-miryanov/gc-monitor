@@ -23,8 +23,8 @@ a first serious consumer found while building on it.
 ## 2. Environment
 
 - CPython 3.15.0b3 (`tags/v3.15.0b3-dirty:cf16a33fad1`), Windows 11, x86-64, default build.
-- Consumer: gcmon, an out-of-process GC monitor polling `get_gc_stats(pid, all_interpreters=True)`
-  on a timer.
+- Consumer: gcmon, an out-of-process GC monitor holding one `GCMonitor` per pid and calling
+  `get_gc_stats(all_interpreters=True)` on a timer.
 - Sources referenced below are from the 3.15 branch at that tag. Line numbers are given because
   they are the report's evidence and the reader is expected to check them against a pinned tree,
   not against a moving branch:
@@ -53,10 +53,15 @@ Measured over a single 100 ms poll interval against an allocating target:
 | 0   |                          87 |         11 |         11 |   76 |
 | 1   |                           8 |          3 |          3 |    5 |
 
-Polling faster does not close the gap. `get_gc_stats` costs ~583 µs median, ~1 ms p95 and 8.8 ms
-max per process on this machine, against ~1.15 ms between gen-0 collections in the same workload.
-The read cost alone bounds the achievable rate below the collection rate, so the loss is
-structural rather than a tuning problem.
+Polling faster does not close the gap, because the gap is the ring. Eleven slots is eleven
+records, whatever the reader does: at 10 Hz on this workload gen 0 turns its whole ring over about
+eight times between polls, and a reader would have to poll at roughly 900 Hz to see every young
+collection. That is not a rate anybody wants to run a monitor at, and it is a demand the ring size
+creates rather than one the workload does.
+
+Read cost is not the binding constraint. Holding a `GCMonitor` and reading through it costs single-
+digit microseconds per process, against ~1.15 ms between gen-0 collections in the same workload —
+three orders of magnitude of headroom. The loss is structural in the buffer, not in the reader.
 
 Sizing the ring to survive one interval at 10 Hz for this workload needs ~87 young slots.
 `struct gc_generation_stats` is 64 bytes (eight 8-byte fields), so the whole `struct gc_stats` is
