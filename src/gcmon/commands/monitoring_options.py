@@ -93,21 +93,20 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         default=get_env_flush_threshold(),
         help=f"Number of events to buffer before flushing to file for JSONL format (default: 100 or {ENV_FLUSH_THRESHOLD} env var)",
     )
-    # A required value, not `nargs="?"` with a `const`: `monitor` takes the pid
-    # as a required positional, and argparse decides whether an optional with
-    # `nargs="?"` eats the next token by whether it starts with `-`, which a
-    # pid does not. An alias would break `gcmon monitor --stats 12345` while
-    # appearing to keep every spelling working.
+    # A required value rather than `nargs="?"` with a `const`. `monitor` takes
+    # the pid as a required positional, and argparse decides whether an
+    # optional with `nargs="?"` eats the next token by whether it starts with
+    # `-`, which a pid does not. An alias would break `gcmon monitor --stats
+    # 12345` while looking like it kept every spelling working.
     parser.add_argument(
         "--stats",
         choices=StatsView.words(),
         default=get_env_stats(),
         help=(
             f"Show a statistics table at the end of monitoring: 'total' for the run-wide block, "
-            f"'full' for that plus one block per interpreter. 'no', 'off', 'false' or '0' asks "
-            f"for none, which is what an unset flag asks for and is the way to overrule "
-            f"{ENV_STATS} for one run. {ENV_STATS} takes the same words. High-accuracy "
-            f"percentiles need the stats extra: pip install gcmon[stats]"
+            f"'full' for that plus one block per interpreter, 'no'/'off'/'false'/'0' for no "
+            f"table. {ENV_STATS} takes the same words. High-accuracy percentiles need the stats "
+            f"extra: pip install gcmon[stats]"
         ),
     )
     parser.add_argument(
@@ -160,8 +159,8 @@ class MonitoringOptions:
         self.output_format = output_format
         self.flush_threshold = flush_threshold
         self.duration_label = duration_label
-        # `None` is no table at all: the run an operator who typed nothing
-        # asked for, and the run one of `STATS_OFF_WORDS` asks for out loud.
+        # `None` is no table: what an operator who typed nothing asked for, and
+        # what one of `STATS_OFF_WORDS` asks for out loud.
         self.stats_view = stats_view
         self.table_format = table_format
         self.rss_enabled = rss_enabled

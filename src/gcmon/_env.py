@@ -197,16 +197,15 @@ def get_env_server_port() -> int:
 def get_env_stats() -> str | None:
     """Get the statistics view, or a word asking for no table, from the environment.
 
-    The value is handed on as it was written rather than checked here: every
-    ``get_env_*`` is evaluated as an argparse ``default=`` while the parser is
-    being built, which is before logging is configured, so a complaint from
-    here is a bare traceback or a line without gcmon's prefix.
+    The value is handed on as written rather than checked here. Every
+    ``get_env_*`` runs as an argparse ``default=`` while the parser is being
+    built, before logging is configured, so a complaint from here reaches the
+    operator as a bare traceback or a line without gcmon's prefix.
     ``get_monitoring_options`` refuses an unknown value where a bad rate or
     duration is already refused.
 
-    A blank value is the exception, and reads as unset: a variable left empty
-    in an env file names no view and asks for no table, which is the one thing
-    about it that is not ambiguous.
+    A blank value reads as unset. A variable left empty in an env file names no
+    view, and asking for no table is the only reading it has.
 
     Returns:
         The raw GCMON_STATS value, or None if it is unset or blank.

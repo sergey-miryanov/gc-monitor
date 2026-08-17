@@ -762,8 +762,8 @@ class TestTheVocabularyOfTheFlag:
 
     @pytest.mark.parametrize("word", ["", "  ", "all", "brief", "1", "true", "yes", "on", "totals"])
     def test_a_word_it_does_not_know_is_refused(self, word: str) -> None:
-        """Including the truthy opposites of the off words: `1` says a table
-        was wanted, not which, and that is the question the views ask."""
+        """The truthy opposites of the off words included. `1` says a table was
+        wanted without saying which, and that is what the views ask."""
         with pytest.raises(ValueError):
             StatsView.parse(word)
 
@@ -771,9 +771,8 @@ class TestTheVocabularyOfTheFlag:
         assert StatsView.words() == ["total", "full", *STATS_OFF_WORDS]
 
     def test_every_word_offered_is_a_word_accepted(self) -> None:
-        """`words()` feeds argparse `choices`, so a word it prints in the
-        usage line that `parse` then refused would be a flag advertising a
-        value it rejects."""
+        """`words()` feeds argparse `choices`. A word it prints in the usage
+        line that `parse` refuses is a flag advertising a value it rejects."""
         for word in StatsView.words():
             StatsView.parse(word)  # does not raise
 
@@ -832,13 +831,13 @@ class TestTheTwoViews:
         assert rows[-1][1] == "Read Time"
 
     def test_total_is_the_head_of_full(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """The regression guard, and the one that catches a view branching on
-        anything but which blocks it emits: every line the narrower view
-        prints before `Read Time` is the wider view's line, to the byte.
+        """The regression guard. Every line the narrower view prints before
+        `Read Time` is the wider view's line, to the byte, which catches a view
+        that branches on anything beyond which blocks it emits.
 
-        It reads that way because `12345:0` fits under the `PID:IID` header,
-        so dropping the ring rows takes nothing out of the width the first
-        column is computed from. A wider label is the test below.
+        It reads that way because `12345:0` fits under the `PID:IID` header, so
+        dropping the ring rows takes nothing out of the width the first column
+        is computed from. The test below covers a wider label.
         """
         stats = self._two_interpreters()
         total = self._out(capsys, stats, StatsView.TOTAL).splitlines()
@@ -849,9 +848,8 @@ class TestTheTwoViews:
 
     def test_a_wider_ring_label_pads_the_first_column_of_full_alone(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Widths follow the rows that print, as they always have, so a
-        six-digit pid — or the `12345:0#2` of a reused one — leaves `full` one
-        character wider in the first column. The cells are still the same
-        cells: what moved is padding, not a number.
+        six-digit pid (or the `12345:0#2` of a reused one) leaves `full` one
+        character wider in the first column. Padding moved, no number did.
         """
         stats = StreamingStats()
         for _ in range(3):

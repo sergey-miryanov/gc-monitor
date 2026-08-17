@@ -2,14 +2,13 @@
 
 Use `--stats` to display a statistics table at the end of monitoring. The table
 reports GC pause durations (p50, p90, p95, p99) and counts per generation, in a
-`Total` block for the whole run and — if you ask for them — one block per
-interpreter under it.
+`Total` block for the whole run, with one block per interpreter under it if you
+ask for them.
 
-`--stats` takes the view you want, and takes it as a required value.
-`--stats=total` prints the run-wide `Total` block, `Read Time` and the footer;
-`--stats=full` adds one block per interpreter under it.
-[CLI usage](cli.md#--stats) lists every word the flag and `GCMON_STATS` accept,
-the ones asking for no table included.
+The flag takes the view as a required value. `--stats=total` prints the run-wide
+`Total` block, `Read Time` and the footer, and `--stats=full` adds one block per
+interpreter. [CLI usage](cli.md#--stats) lists every word the flag and
+`GCMON_STATS` accept, including the ones asking for no table.
 
 **On a single-interpreter run `--stats=total` costs you nothing.** The block it
 drops is `12345:0`, and folding one interpreter into a run-wide roll-up changes
@@ -194,9 +193,9 @@ gcmon logs a warning the first time it happens. `Total` still counts every
 record, so the rows can add up to less than the run and this note says by how
 many rings.
 
-`--stats=total` prints no ring rows, so there is no gap for it to explain and
-the note is left out. The warning naming the pid and the interpreter is logged
-either way, so nothing is lost by asking for the narrower view. Notes 1 and 2
+`--stats=total` prints no ring rows, so there is no gap for the note to explain
+and gcmon leaves it out. You lose nothing by asking for the narrower view: the
+warning naming the pid and the interpreter is logged either way. Notes 1 and 2
 are run-wide and print under both.
 
 ## Without `[stats]` extra

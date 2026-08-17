@@ -16,14 +16,13 @@ class TableFormat(Enum):
     MARKDOWN = "markdown"
 
 
-# Words that ask for no table, and so map to no view at all. They are the falsy
+# Words that ask for no table, and so for no view. They are the falsy
 # complements of the truthy set `GCMON_STATS` took while it was a switch, so a
-# variable already set to `0` keeps meaning what it meant. The truthy set does
-# not come back: "no table" is one outcome, while "a table" is two, and which
-# one `1` asks for is the question the view names exist to make explicit. They
-# live beside `StatsView` rather than with the flag so that one module says
-# what the flag accepts. A member would be worse: `print_stats` cannot render
-# "no table", and four words would need four of them.
+# variable already set to `0` keeps meaning what it meant. The truthy words stay
+# out: "no table" is one outcome and "a table" is two, which is what the view
+# names make the operator choose between. They sit beside `StatsView` so that
+# one module says what the flag accepts, but not inside it: `print_stats` could
+# not render such a member, and four words would need four of them.
 STATS_OFF_WORDS = ("no", "off", "false", "0")
 
 
@@ -32,12 +31,10 @@ class StatsView(Enum):
 
     The member's value is the word the operator types after `--stats`, as
     `TableFormat`'s is. `TOTAL` is `FULL` minus the per-ring blocks: on a
-    single-interpreter run that block is a copy of the roll-up above it, and
-    on a wider target it is the detail behind a summary that stands on its
-    own.
+    single-interpreter run that block copies the roll-up above it, and on a
+    wider target it is the detail behind a summary that stands on its own.
 
-    Asking for no table at all is `None` rather than a member, and
-    `STATS_OFF_WORDS` names the words that ask for it.
+    No table at all is `None`, and `STATS_OFF_WORDS` names the words for it.
     """
 
     TOTAL = "total"
@@ -47,8 +44,8 @@ class StatsView(Enum):
     def words(cls) -> list[str]:
         """Every word `--stats` and `GCMON_STATS` take, views first.
 
-        Feeds argparse `choices`, so what the usage line offers and what
-        `parse` accepts come from one place.
+        Feeds argparse `choices`, so the usage line offers what `parse`
+        accepts.
         """
         return [view.value for view in cls] + list(STATS_OFF_WORDS)
 
@@ -57,13 +54,13 @@ class StatsView(Enum):
         """Map a typed word to its view, or to None for no table.
 
         Case and surrounding space are forgiven, as `GCMON_TABLE_FORMAT` and
-        `GCMON_FORMAT` forgive them: an env file keeps a trailing space and a
-        compose block is as likely to say `Total`. The word itself is not.
+        `GCMON_FORMAT` forgive them: an env file keeps the trailing space it
+        was written with, and a compose block is as likely to say `Total`.
 
         Raises:
             ValueError: the word is neither a view nor one of
-                `STATS_OFF_WORDS`. A blank word raises with the rest; a
-                variable that is only spaces never reaches here, since
+                `STATS_OFF_WORDS`. A blank word raises with the rest, though a
+                variable holding only spaces never reaches here, since
                 `get_env_stats` reads it as unset.
         """
         normalized = word.strip().lower()
@@ -217,8 +214,8 @@ def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bo
         observed = _coverage_cell(sampled / (sampled + lost), lost)
         lines.append(f"Total events: {sampled} (+{lost} reconstructed, {observed} observed)")
         if not show_stats:
-            # The cheaper of the two views, and the one that already holds the
-            # per-generation breakdown this sentence offers.
+            # The cheaper view, and it already holds the per-generation
+            # breakdown this sentence offers.
             lines.append("Run with --stats=total for the per-generation breakdown.")
     else:
         lines.append(f"Total events: {sampled}")
@@ -246,15 +243,15 @@ def print_stats(stats: StreamingStats, view: StatsView, table_format: TableForma
     in order. `Read Time` is monitor-side and belongs to no ring, so its first
     cell stays empty, and it prints under either view.
 
-    *view* chooses which blocks are emitted and nothing else: the header, the
-    separators and every cell are what they were. The first column keeps its
-    `PID:IID` heading under `TOTAL`, where the only value it holds is `Total`,
-    so the two views stay diffable side by side.
+    *view* chooses which blocks print and nothing else. The header, the
+    separators and every cell hold what they held before, and the first column
+    keeps its `PID:IID` heading under `TOTAL`, where `Total` is the only value
+    in it, so you can diff the two views side by side.
 
-    Widths still follow the rows that print, as they always have, so a target
-    whose ring labels outrun the `PID:IID` header — a six-digit pid, or the
-    `12345:0#2` of a reused one — pads its first column one wider under
-    `FULL`. The cells are the same; the padding around them is not.
+    Widths follow the rows that print, as they always have. A target whose ring
+    labels outrun the `PID:IID` header (a six-digit pid, or the `12345:0#2` of
+    a reused one) pads its first column one wider under `FULL`. Same cells,
+    different padding around them.
     """
     all_rows: list[list[str] | Any] = []
 
@@ -271,8 +268,8 @@ def print_stats(stats: StreamingStats, view: StatsView, table_format: TableForma
                 first = False
             has_rows = True
 
-    # The one place the view is read: `TOTAL` has no rings to walk, so the
-    # block below and everything after it stay as they are.
+    # The one place the view is read. `TOTAL` walks no rings, so the loop below
+    # and everything after it stay as they were.
     rings = stats.rings() if view is StatsView.FULL else []
     for pid, iid, pid_epoch in rings:
         all_rows.append(_SEP_GROUP)
@@ -348,10 +345,10 @@ def _print_footer(stats: StreamingStats, view: StatsView) -> None:
             f"{_plural(interpreters, 'interpreter')} in {_plural(processes, 'process', 'processes')}: {parts}."
         )
 
-    # Under `TOTAL` the discrepancy this note explains cannot be found, and
-    # its closing reassurance describes the only block on screen. Nothing is
-    # lost by dropping it: `StreamingStats` logs a warning naming the pid and
-    # the iid the first time it declines a ring, whatever view is asked for.
+    # A reader of `TOTAL` cannot find the discrepancy this note explains, and
+    # its closing line describes the only block on screen. Dropping it loses
+    # nothing: `StreamingStats` logs a warning naming the pid and the iid the
+    # first time it declines a ring, under either view.
     untracked = stats.untracked_rings() if view is StatsView.FULL else 0
     if untracked:
         # The rows are short of the run and a reader adding them up would find
