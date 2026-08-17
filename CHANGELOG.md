@@ -5,12 +5,13 @@
 ### Breaking changes
 
 - `GC Loss` slice args drop the `missing_` prefix for the `lost_` one
-- `--stats` requires a value: `total` for the run-wide block, `full` for that plus one block per interpreter, `no`/`off`/`false`/`0` for no table. Bare `--stats` is a parse error, and `GCMON_STATS` takes the same words, so `GCMON_STATS=1` stops the run
+- Bare `--stats` is a parse error: the flag requires a value now, and `GCMON_STATS` takes the same words, so `GCMON_STATS=1` stops the run
 - The `--stats` table reports one block per interpreter, not one per process: `PID:IID` heads every row, `12345:0` included. `Total` is the only blended row
 - The low-coverage advisory measures each interpreter on its own and names the least covered. It fires where a busy interpreter used to lift the whole PID over the 90% floor
 
 ### Features
 
+- `--stats` takes the view to print: `total` for the run-wide block, `full` for that plus one block per interpreter, `no`/`off`/`false`/`0` for no table
 - The low-coverage warning drops the ring-buffer explanation and suggests a smaller `--rate`
 - The end-of-run summary counts the events gcmon reconstructed and the share it observed: `Total events: 1234 (+8566 reconstructed, 12.6% observed)`
 - The lifetime note under the `--stats` table names the fold: `summed over 3 interpreters in 2 processes`
