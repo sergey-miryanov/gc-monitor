@@ -9,6 +9,7 @@ monitor, and `test_monitor.py` tests them there.
 
 import threading
 import time
+from itertools import count
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -182,11 +183,15 @@ class TestRssSamplerInLoop:
 
 
 class TestTheTickInstant:
-    """One clock read per tick, and one instant downstream of it.
+    """One stamping instant per tick, and everything downstream of it.
 
     The monitor stamps liveness with it (ADR-0011) and the sampler both paces
     and stamps with it (ADR-0013), so everything one tick emits agrees on when
     the tick was.
+
+    What is guarded here is that one instant, not how many times the loop reads
+    the clock. The loop also reads it to pace itself, and that read stamps
+    nothing and reaches nothing outside `run`.
     """
 
     def test_the_tick_is_given_the_instant(self, mock_monitor: MagicMock) -> None:
@@ -196,17 +201,19 @@ class TestTheTickInstant:
         now_ns, _stop = mock_monitor.tick.call_args[0]
         assert now_ns == 42_000_000_000
 
-    def test_one_clock_read_per_tick_shared_with_the_sampler(self, mock_monitor: MagicMock) -> None:
+    def test_one_stamping_instant_per_tick_shared_with_the_sampler(self, mock_monitor: MagicMock) -> None:
+        """Whatever else the loop reads the clock for, the monitor and the
+        sampler are handed one instant per tick, and the same one."""
         rss_sampler = Mock(spec=RssSampler)
 
-        with patch("time.monotonic_ns", side_effect=[1_500_000_000, 2_500_000_000]) as monotonic_ns:
+        with patch("time.monotonic_ns", side_effect=count(1_500_000_000, 1_000_000)):
             MonitorLoop(mock_monitor, _runner(2), rate=0.01, rss_sampler=rss_sampler).run()
 
-        assert monotonic_ns.call_count == 2, "one clock read per tick"
         tick_ns = [c[0][0] for c in mock_monitor.tick.call_args_list]
         sampler_ns = [c[0][0] for c in rss_sampler.tick.call_args_list]
-        assert tick_ns == [1_500_000_000, 2_500_000_000]
+        assert len(tick_ns) == 2, "one stamping instant per tick"
         assert sampler_ns == tick_ns, "no conversion between the two"
+        assert tick_ns[0] < tick_ns[1], "a tick is stamped with its own instant, not the run's"
 
     def test_nothing_downstream_converts_the_instant(self, mock_monitor: MagicMock) -> None:
         """The loop used to hand the sampler `now_ns / 1e9`, which was the only

@@ -1,6 +1,7 @@
 # 0049 — Poll on the requested schedule, and report when the loop overruns
 
-- **Status:** **Pinned** (`tests/monitoring/test_monitor_loop.py::TestTheTickInstant::test_one_clock_read_per_tick_shared_with_the_sampler`)
+- **Status:** In progress (un-pinned: `TestTheTickInstant` now asserts the stamping contract rather
+  than a clock-read count, so the pacing read no longer contradicts a test)
 - **Kind:** bug — correctness
 - **Effort:** S
 - **Origin:** a design session on 2026-08-17, from the observation that the loop runs at a rate
@@ -178,11 +179,12 @@ no benchmark covers.
      on the original grid.
   3. The floor: a tick ending a hair before its next position waits 1 ms, not the sub-microsecond
      remainder. Assert the constant, not a range.
-  4. The regression guard, and the pinned test amended: exactly one *stamping* read per tick, still
-     shared unconverted between monitor and sampler. Its current form asserts
-     `monotonic_ns.call_count == 2` for a two-tick run, which the pacing read breaks; narrow it to
-     the instant that reaches `monitor.tick` and `rss_sampler.tick` rather than deleting it. Both
-     must still receive the same `int`, and the sampler must still be paced by it.
+  4. The regression guard, already in place: exactly one *stamping* instant per tick, still shared
+     unconverted between monitor and sampler, and distinct from one tick to the next. This was the
+     pinned test, which asserted `monotonic_ns.call_count == 2` for a two-tick run — an incidental
+     count that the pacing read breaks. It was narrowed to the instant reaching `monitor.tick` and
+     `rss_sampler.tick`, ahead of the change rather than alongside it, so the pacing work lands
+     without editing a test that asserts the defect.
   5. The report: `ticks_run + skipped == ticks_scheduled`, a run where nothing overran reports zero
      skipped and `overran` false, and a run that breaks early on `keep_running` reports the ticks
      it actually ran.
