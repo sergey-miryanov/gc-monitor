@@ -3,8 +3,7 @@
 - **Status:** Not started
 - **Kind:** bug — performance
 - **Effort:** S
-- **Origin:** a design question while landing 0038, 2026-08-17: should a tick batch the pids it
-  forgets? Batching the call site buys nothing. The quadratic is one level down.
+- **Origin:** a design question while landing 0038, 2026-08-17, recorded in §6
 - **Respects:** [ADR-0016](../docs/adr/0016-the-ring-is-the-statistics-unit.md) (the ring settles,
   and settles once), [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md) (the monitor
   prunes per-pid state once per tick, before the polls)
@@ -14,9 +13,8 @@
 Monitor a process tree that fans out wide, and one poll interval stretches when the fan-out exits.
 On 1000 workers with three interpreters each, the tick that notices they have gone spends tens of
 milliseconds settling their statistics before polling anything, against a default `--rate` of
-0.1 s. The survivors pay: their ring buffers fill while gcmon is busy, and a ring that wraps
-unread becomes a `GC Loss` span. A mass child exit can draw loss on its siblings, and the trace
-gives no hint that gcmon caused it rather than the target.
+0.1 s. The survivors pay: their ring buffers fill while gcmon is busy, a ring that wraps unread
+becomes a `GC Loss` span, and nothing in the trace says gcmon caused it rather than the target.
 
 The stretch is measured. The loss is not. See §7.
 
@@ -43,9 +41,8 @@ once, *D* and *R* are both the width of the tree.
 
 One machine, so read the ratios and ignore the absolute figures. A `retain` dropping every pid
 takes 0.81 ms at 100 rings, 19.7 ms at 1000, and 55.5 ms at 3000 (1000 pids × 3 interpreters). A
-single-pass prototype took 0.75 ms, 2.3 ms and 3.5 ms, and left identical state: the same open
-pids, epochs, running and settled ring keys, admitted count, and per-ring `declined` flag,
-metrics presence, `loss` and `cumulative`.
+single-pass prototype took 0.75 ms, 2.3 ms and 3.5 ms, and left state identical on everything §5
+case 2 compares.
 
 ## 3. Scope
 
@@ -70,9 +67,8 @@ which use two or three pids.
    once, group the keys whose pid is departing, settle each group. Grouping costs *R* and settling
    costs *D*, so the operation is *R + D*.
 2. Keep `materialize(pid)` as the single-pid entry point, since `EventsMonitor._forget` wants
-   exactly that. Express it through the same internal helper the batch path uses, so one body does
-   the epoch advance, the `_admitted_rings` decrement and the move into `_settled_rings`. Two
-   copies of that sequence is how a settled ring ends up under the wrong epoch.
+   exactly that. Express both paths through one internal helper, so a single body does the epoch
+   advance, the `_admitted_rings` decrement and the move into `_settled_rings`.
 3. Point `retain` at the batch path.
 
 **Settled:** the per-pid API stays. A set-only method would push a one-element set onto `_forget`,
@@ -82,7 +78,7 @@ the hotter caller and the one that runs while polls are pending.
 rather than a scan, as `dict[int, dict[int, RingStats]]` or a per-pid index beside it. That removes
 the traversal instead of amortising it, and helps the other walks that filter by pid, but five
 other methods read that structure. Settled by whether 0039 moves it anyway, which is why the
-one-pass fix comes first: contained, and it prejudges nothing.
+one-pass fix comes first.
 
 ## 5. Seams and testing decisions
 
@@ -93,9 +89,8 @@ one-pass fix comes first: contained, and it prejudges nothing.
   and CodSpeed carries it as its own series.
 - **What makes a good test here:** compare state, not timing. The hazard in a batch rewrite is a
   ring settled under the wrong `pid_epoch`, which no wall-clock assertion sees and which surfaces
-  later as one process's percentiles under its predecessor's heading. Assert the settled keys and
-  each ring's totals, over a shape with several interpreters per pid and a partial retain: a
-  whole-tree drop exercises neither the grouping nor the survivors.
+  later as one process's percentiles under its predecessor's heading. Two copies of the settling
+  sequence is how that happens, which is why §4 routes both paths through one helper.
 - **Prior art:** `tests/benchmarks/test_bench_stats.py::test_streaming_stats_update_many_pids` for
   the fan-out setup and the CodSpeed marker; `tests/stats/test_stats.py` for what settling leaves
   behind; ADR-0016 for what a settled ring means.
@@ -103,7 +98,9 @@ one-pass fix comes first: contained, and it prejudges nothing.
   1. A wide fan-out departing in one `retain` call, as a benchmark, so the quadratic has a number
      and a regression has somewhere to show up.
   2. A partial retain over pids with several interpreters each leaves what the per-pid path
-     leaves: same open pids, epochs, settled keys, totals.
+     leaves: the same open pids, epochs, running and settled ring keys, admitted count, and
+     per-ring `declined` flag, metrics presence, `loss` and `cumulative`. A whole-tree drop
+     exercises neither the grouping nor the survivors, so the shape matters here.
   3. Settling a pid twice stays a no-op, and a pid absent from `_open_pids` still costs nothing.
      `materialize`'s early return is what keeps `retain` cheap on a quiet tick.
   4. A pid whose rings the `MAX_ACTIVE_RINGS` bound declined settles with `_admitted_rings`
@@ -116,24 +113,21 @@ one-pass fix comes first: contained, and it prejudges nothing.
 - The `MAX_ACTIVE_RINGS` bound and what happens when a tree exceeds it. This changes how fast
   rings settle, not which ones are admitted.
 - `EventsMonitor.tick` batching the pids it forgets, the question this spec came from. The call
-  site is already one call per departed pid, so a list leaves the same *D × R* and separates the
-  wait policy's verdict from its consequence. ADR-0017 records the tick's shape.
+  site is already one call per departed pid, so a list leaves the same *D × R*.
 - What a settled ring contains, or when a run reads one. ADR-0016 owns that.
 - The other scans over `_running_rings` that filter by pid. The keying question in §4 fixes them
   together; alone, none of them sits in a poll interval.
 
 ## 7. Further notes
 
-**The operator consequence is a mechanism, not an observation.** The stall is measured. Getting
-from stall to fabricated `GC Loss` span is arithmetic: a poll interval stretched past the time a
-ring takes to wrap loses records, and ADR-0015's arithmetic reports that. Nobody has run the case.
+The stall is measured; the loss it could cause is not. Getting from one to the other is
+arithmetic, since a poll interval stretched past the time a ring takes to wrap loses records and
+ADR-0015's arithmetic reports that, but nobody has run the case.
 
-The measurement that would settle it: a fan-out wide enough to cost tens of milliseconds, exiting
-in one tick, with a surviving sibling collecting fast enough to wrap its gen-0 ring inside the
-stall, then a check for a `GC Loss` span on that survivor across the exit. If no span appears,
-this is a latency cleanup and its Kind becomes `feature — cleanup`. The fix is worth the same S
-either way; §1 would be overclaiming.
+What would settle it: a fan-out wide enough to cost tens of milliseconds, exiting in one tick,
+with a surviving sibling collecting fast enough to wrap its gen-0 ring inside the stall, then a
+check for a `GC Loss` span on that survivor across the exit. If no span appears, the Kind becomes
+`feature — cleanup` and §1 needs rewriting. The fix stays S either way.
 
-**Why not measure first.** That experiment is harder to build than the fix and needs a tuned
-collector racing a tuned ring. The one-pass change is contained and its state equivalence is
-checkable, so it does not depend on the experiment landing first.
+That experiment is harder to build than the fix and needs a tuned collector racing a tuned ring,
+so the one-pass change does not wait on it.
