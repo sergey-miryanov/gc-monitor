@@ -10,6 +10,7 @@ monitor, and `test_monitor.py` tests them there.
 import threading
 import time
 from itertools import count
+from typing import override
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -243,6 +244,7 @@ class _RecordingEvent(threading.Event):
         super().__init__()
         self.waits: list[float | None] = []
 
+    @override
     def wait(self, timeout: float | None = None) -> bool:
         self.waits.append(timeout)
         return self.is_set()
