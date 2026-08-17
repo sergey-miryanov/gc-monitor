@@ -77,6 +77,17 @@ class LossMsg(msgspec.Struct):
     gens: list[GenLoss]
 
 
+OVERRUN_SHARE = 0.1
+"""How much of a run has to go missing before gcmon calls itself saturated.
+
+Not any skipped position at all. The loop waits on an event whose timeout the
+platform rounds up to its scheduler tick, so an occasional overshoot past a
+position is what a healthy run looks like, and a long one is near certain to
+contain a few. Reading those as saturation would tell an operator their rate is
+unreachable on the strength of one late wake-up in thousands.
+"""
+
+
 class RunReport(msgspec.Struct):
     """What one run of the monitoring loop did with its schedule.
 
@@ -94,8 +105,12 @@ class RunReport(msgspec.Struct):
 
     @property
     def overran(self) -> bool:
-        """True when gcmon polled less often than it was asked to."""
-        return self.ticks_scheduled > self.ticks_run
+        """True when enough of the run went missing that a smaller rate cannot
+        help: the loop was not reaching the positions it already had."""
+        if self.ticks_scheduled <= 0:
+            return False
+        missed = self.ticks_scheduled - self.ticks_run
+        return missed / self.ticks_scheduled > OVERRUN_SHARE
 
 
 def from_mapping(data: TMapping) -> GCStatsInfo | InstantMsg | LossMsg:

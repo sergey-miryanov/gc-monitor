@@ -364,6 +364,30 @@ class TestTheRunReport:
         assert report.ticks_run == 2
         assert report.ticks_scheduled == 2
 
+    def test_the_spin_guard_does_not_read_as_the_target_outrunning_gcmon(self, mock_monitor: MagicMock) -> None:
+        """At a rate near the guard, waiting it out starts every tick past its
+        position. Left as a debt against the grid that surfaces as a skipped
+        position, and the summary tells the operator to stop lowering a rate
+        that was never the problem -- gcmon's own floor was.
+
+        Four ticks costing 0.2 ms against a 1 ms rate: the guard stretches each
+        interval to 1.2 ms, and none of that is the target's doing.
+        """
+        instants = [0, 200_000, 1_200_000, 1_400_000, 2_400_000, 2_600_000, 3_600_000, 3_800_000]
+
+        report = _report_of(mock_monitor, instants, ticks=4, rate=0.001)
+
+        assert report.ticks_scheduled == 4, "no position was missed because the target was slow"
+        assert not report.overran
+
+    def test_a_tick_that_really_outlasts_its_position_still_counts(self, mock_monitor: MagicMock) -> None:
+        """The guard forgiving its own overshoot must not forgive a genuine
+        overrun beside it."""
+        report = _report_of(mock_monitor, [0, 150_000_000], rate=0.1)
+
+        assert report.ticks_scheduled == 2
+        assert report.overran
+
     def test_the_counters_are_not_public_on_the_loop(self, loop: MonitorLoop) -> None:
         """They leave in the report or not at all, so nothing downstream grows
         a second way to ask."""

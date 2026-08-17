@@ -46,12 +46,20 @@ positions are dropped and never made up. The phase survives, so the effective in
 whole multiples of the rate rather than drifting to an arbitrary value, and two captures stay
 comparable even when one of them fell behind.
 
-**The wait is floored at `MIN_IDLE_NS`, one millisecond.** The grid already keeps two starts a whole
-rate apart, so the only case left to guard is a tick finishing a hair before its next position:
-without a floor the loop re-enters immediately and pins gcmon at a full duty cycle against a target
-that is already struggling. Under a grid that keeps its phase that window is narrow, so this is a
-spin-guard rather than a policy, and it is a constant rather than a fraction of the rate — a
+**The wait is floored at `MIN_IDLE_NS`, one millisecond.** Without a floor, a tick finishing a hair
+before its next position sends the loop straight back in and pins gcmon at a full duty cycle against
+a target that is already struggling. It is a constant rather than a fraction of the rate — a
 fraction would weaken the protection exactly when an operator lowers the rate to chase coverage.
+
+**The floor bounds the rate gcmon can hold, and the schedule follows the floor rather than fighting
+it.** A rate at or below a millisecond cannot be met: the guard is longer than the interval asked
+for. Where the two conflict the guard wins, so tick starts land further apart than requested. The
+bound is academic — one pid's read costs several hundred microseconds, so a tick alone outlasts a
+millisecond — but it is real, and it must not be *misreported*. When the guard stretches a wait past
+the next position, the schedule moves to where the tick will really begin instead of carrying the
+difference as a debt against the grid. Left as a debt it surfaces later as a skipped position, and
+the summary blames the target for a wait gcmon chose. Choosing to wait and failing to keep up are
+different things and the report distinguishes them.
 
 **Missed positions are counted, not stepped to.** How many a tick missed is one division, so a tick
 that stalled for minutes against a millisecond rate costs the same as one that missed a single
@@ -63,6 +71,13 @@ for no schedule and gets none, leaving `MIN_IDLE_NS` as the only thing between t
 were scheduled, and the end-of-run summary states both. Without it a saturated run is
 indistinguishable from a healthy one: both show low coverage, and only this says whether gcmon ever
 got to look as often as it was asked to.
+
+**Saturation is a share of the run, `OVERRUN_SHARE`, not a single missed position.** The wait
+primitive rounds its timeout up to the platform scheduler tick, so an occasional overshoot past a
+position is what a healthy run looks like and a long one is near certain to contain a few. A
+ten-minute run at the default rate is thousands of ticks; reading one late wake-up as saturation
+would tell an operator their rate is unreachable, and suppress the advice that would have helped, on
+the strength of noise this record already accepts. A tenth of the run has to go missing first.
 
 **The low-coverage advisory no longer prescribes a remedy.** It fires the first time coverage dips,
 which can be early in a run, before the loop has run enough ticks to know whether it is holding its
@@ -86,6 +101,9 @@ the monitor, which keeps [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s bo
   stamping instant and its own interval logic is unchanged.
 - gcmon can now poll less often than asked without that being a defect, so the report is not
   optional: a run that overruns is a supported outcome that has to be legible.
+- Rates at or below a millisecond are not honoured, and the report will not say so — it counts
+  positions the target cost gcmon, and a rate below the floor costs none. The bound belongs to the
+  constant and is documented there; if `--rate` ever grows a lower bound, this is the number.
 - A future reader will find two clock reads in one tick and records saying one instant covers a
   tick. The second read is deliberate and collapsing it back reintroduces the defect. This is the
   record that says so.
@@ -100,7 +118,11 @@ the monitor, which keeps [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s bo
   not refilled.
 - **A floor proportional to the rate.** Rejected: it lowers the protection exactly when the operator
   lowers the rate, which is when a tick is most likely to outlast its position. An absolute constant
-  is correct across the range the rate spans.
+  is correct across the range the rate spans, at the cost of bounding that range at the bottom.
+- **Capping the floor at the rate**, so the guard never exceeds the interval asked for. Rejected: it
+  does not remove the conflict where the two are equal, and it weakens the spin-guard precisely
+  where ticks are shortest and the loop is most able to spin. Bounding the rate and saying so is
+  more honest than a guard that quietly stops guarding.
 - **Changing the wait primitive** to beat the scheduler quantum — a chunked sleep, or raising the
   platform timer resolution. Rejected: it costs shutdown latency, and the grid already stops the
   error accumulating, which is the part that made captures incomparable.

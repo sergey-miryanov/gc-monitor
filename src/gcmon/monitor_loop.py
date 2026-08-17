@@ -13,11 +13,16 @@ __all__ = ["MonitorLoop"]
 MIN_IDLE_NS = 1_000_000
 """The least idle gcmon leaves the target between one tick and the next.
 
-The grid already keeps two tick starts a whole rate apart, so the only case
-left to guard is a tick finishing a hair before its next position: without a
-floor the loop re-enters immediately and pins gcmon at a full duty cycle
-against a target that is already struggling. That window is narrow under a
-grid that keeps its phase, so this is a spin-guard rather than a policy.
+Without it a tick finishing a hair before its next position sends the loop
+straight back in, pinning gcmon at a full duty cycle against a target that is
+already struggling.
+
+**It bounds the rate gcmon can hold.** A rate at or below this cannot be met:
+the guard is longer than the interval, so tick starts land further apart than
+asked and the schedule follows where they really fall rather than pretending
+otherwise. The bound is academic in practice -- one pid's read costs several
+hundred microseconds, so a tick alone outlasts a millisecond -- but it is a
+bound, and a rate near it gets an interval near this constant instead.
 """
 
 
@@ -103,7 +108,17 @@ class MonitorLoop:
                         ticks_skipped += missed
                     idle_ns = next_ns - pacing_ns
 
-                self._stop_event.wait(timeout=max(idle_ns, MIN_IDLE_NS) / 1e9)
+                if idle_ns < MIN_IDLE_NS:
+                    # Waiting the guard out starts the next tick past its
+                    # position. That is gcmon choosing to wait, not the target
+                    # outrunning it, so move the schedule to where the tick
+                    # will really begin. Left as a debt against the grid it
+                    # would surface later as a skipped position, and the
+                    # summary would blame the target for gcmon's own floor.
+                    idle_ns = MIN_IDLE_NS
+                    next_ns = pacing_ns + MIN_IDLE_NS
+
+                self._stop_event.wait(timeout=idle_ns / 1e9)
 
         return RunReport(ticks_run=ticks_run, ticks_scheduled=ticks_run + ticks_skipped)
 
