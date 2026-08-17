@@ -5,37 +5,17 @@ reports GC pause durations (p50, p90, p95, p99) and counts per generation, in a
 `Total` block for the whole run and — if you ask for them — one block per
 interpreter under it.
 
-`--stats` takes the view you want, and takes it as a required value:
-
-| Value | Prints |
-|-------|--------|
-| `--stats=total` | the run-wide `Total` block, `Read Time` and the footer |
-| `--stats=full` | that, plus one block per interpreter |
-| `--stats=no`, `off`, `false`, `0` | no table, as an unset flag prints none |
-
-There is no bare `--stats`: it is a parse error naming the values, and so is any
-value that is not one of them. See
-[ADR-0018](adr/0018-stats-requires-a-view-and-keeps-no-bare-alias.md) for why no
-alias is kept.
-
-The four off words earn their place where the flag is not the only thing
-talking: `GCMON_STATS` set in a shell profile or a compose file asks every run
-for a table, and `--stats=no` is how one run declines. Their truthy opposites
-are not accepted — `--stats=1` is a parse error — because "no table" is one
-outcome while "a table" is two, and choosing between them is what the view
-names are for.
+`--stats` takes the view you want, and takes it as a required value.
+`--stats=total` prints the run-wide `Total` block, `Read Time` and the footer;
+`--stats=full` adds one block per interpreter under it.
+[CLI usage](cli.md#--stats) lists every word the flag and `GCMON_STATS` accept,
+the ones asking for no table included.
 
 **On a single-interpreter run `--stats=total` costs you nothing.** The block it
 drops is `12345:0`, and folding one interpreter into a run-wide roll-up changes
 no cell, so that block repeats the `Total` block above it line for line. Reach
 for `--stats=full` on a target running sub-interpreters or a tree of processes,
 where the per-interpreter blocks say which interpreter carried the pause time.
-
-`GCMON_STATS` takes the same words, off words included, so a variable already
-set to `0` still asks for no table. Unlike every other gcmon environment
-variable it does not fall back on a value it cannot read: `GCMON_STATS=1` stops
-the run at startup, rather than letting a long capture finish and print no
-table.
 
 Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this
 long), **Sum divided by the monitoring wall time gives the share of the

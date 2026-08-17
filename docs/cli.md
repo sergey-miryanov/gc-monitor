@@ -71,10 +71,32 @@ Exactly one of `-s`/`--script` or `-m`/`--module`.
 | `-v, --verbose` | both | Enable verbose output (`-v` for INFO, `-vv` for DEBUG) | `0` |
 | `--format` | both | Output format: `chrome`, `perfetto`, `jsonl` or `stdout` (see [Output formats](formats.md)) | `chrome` |
 | `--flush-threshold` | both | Number of events to buffer before flushing | `100` |
-| `--stats <view>` | both | Show a statistics table at end of monitoring: `total` for the run-wide block, `full` for that plus one block per interpreter, `no`/`off`/`false`/`0` for none. The value is required (see [Statistics](statistics.md)) | No table |
+| `--stats <view>` | both | Show a statistics table at end of monitoring. The value is required: `total`, `full`, or one of `no`/`off`/`false`/`0` (see [`--stats`](#--stats)) | No table |
 | `--table-format` | both | Table format: `plain` or `markdown`/`md` | `plain` |
 | `--rss` | both | Track the target's Resident Set Size. `chrome` and `perfetto` only, and needs the `[cmdline]` extra (see [RSS Tracking](rss.md)) | `False` |
 | `--rss-interval` | both | RSS sampling interval in seconds | `1.0` |
+
+### `--stats`
+
+The value is required, and it is one of these words:
+
+| Value | Prints |
+|-------|--------|
+| `total` | the run-wide `Total` block, `Read Time` and the footer |
+| `full` | that, plus one block per interpreter |
+| `no`, `off`, `false`, `0` | no table, as an unset flag prints none |
+
+Bare `--stats` is a parse error naming the words, and so is any word that is not
+one of them — `all` and `1` included. The off words' truthy opposites are absent
+on purpose: "no table" is one outcome while "a table" is two, and choosing
+between the two is what `total` and `full` are for.
+[Statistics](statistics.md) reads the two views; [ADR-0018](adr/0018-stats-requires-a-view-and-keeps-no-bare-alias.md)
+records why no alias is kept for either.
+
+`GCMON_STATS` takes the same words, so a variable already set to `0` still asks
+for no table, and `--stats=no` declines a variable a shell profile or a compose
+file sets for every run. Blank reads as unset. Anything else stops the run at
+startup, rather than letting a long capture finish and print no table.
 
 ## Environment Variables
 
@@ -91,7 +113,7 @@ was meant.
 | `GCMON_VERBOSE` | `-v, --verbose` | Verbose level (integer or truthy value) | `0` |
 | `GCMON_FORMAT` | `--format` | Output format: `chrome`, `perfetto`, `jsonl`, or `stdout` | `chrome` |
 | `GCMON_FLUSH_THRESHOLD` | `--flush-threshold` | Number of events to buffer before flushing | `100` |
-| `GCMON_STATS` | `--stats` | Statistics table view: `total` or `full`, or `no`/`off`/`false`/`0` for no table. Blank reads as unset; any other value stops the run | No table |
+| `GCMON_STATS` | `--stats` | Statistics table view, in the words [`--stats`](#--stats) takes. Blank reads as unset; any other value stops the run | No table |
 | `GCMON_TABLE_FORMAT` | `--table-format` | Table format: `plain`, `md`, or `markdown` | `plain` |
 | `GCMON_RSS` | `--rss` | Enable RSS tracking (`1`, `true`, `yes`, `on`) | `False` |
 | `GCMON_RSS_INTERVAL` | `--rss-interval` | RSS sampling interval in seconds | `1.0` |
