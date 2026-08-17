@@ -33,11 +33,6 @@ def _is_complete(event: TGCStatsInfo) -> bool:
     return event.ts_start < event.ts_stop
 
 
-def _never_stops() -> bool:
-    """The default cancel check, for a tick nothing can interrupt."""
-    return False
-
-
 class PidState(msgspec.Struct):
     """What gcmon carries from one poll of a process to the next."""
 
@@ -102,7 +97,7 @@ class EventsMonitor:
         self._stats = stats
         self._coverage_warned = False
 
-    def tick(self, now_ns: int, stop: Callable[[], bool] = _never_stops) -> PollReport:
+    def tick(self, now_ns: int, stop: Callable[[], bool]) -> PollReport:
         """Poll the target and every child once, and report what answered.
 
         Why the monitor owns this rather than the loop: ADR-0017.
@@ -123,7 +118,9 @@ class EventsMonitor:
 
         *stop* is asked between pids, so a shutdown does not have to wait out
         a whole process tree. The event behind it belongs to the caller; the
-        monitor only reads it.
+        monitor only reads it. Required, since a caller driving ticks has a
+        shutdown path whether or not it has thought about one, and a caller
+        that truly cannot be interrupted can say so in a lambda.
         """
         child_pids = self.get_child_pids()
         children = [self._process.pid, *(child_pids or [])]

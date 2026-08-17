@@ -169,11 +169,21 @@ Batch = Sequence[GCStatsInfo] | Exception
 TICK_NS = 1_000_000_000
 
 
+def _never_stops() -> bool:
+    """A tick nothing interrupts, which is what most of these tests want.
+
+    `tick` requires a cancel check rather than defaulting to this, since its
+    one production caller always has a stop event to hand. It lives here
+    because the tests are the only thing that ever wanted the default.
+    """
+    return False
+
+
 def _drive(
     monitor: EventsMonitor,
     listings: Sequence[list[int] | Exception],
     rings: Mapping[int, Sequence[Batch]],
-    stop: Callable[[], bool] | None = None,
+    stop: Callable[[], bool] = _never_stops,
 ) -> list[PollReport]:
     """One tick per entry in *listings*; one report back per tick.
 
@@ -201,7 +211,7 @@ def _drive(
     ):
         for tick, _ in enumerate(listings, start=1):
             now_ns = tick * TICK_NS
-            reports.append(monitor.tick(now_ns) if stop is None else monitor.tick(now_ns, stop))
+            reports.append(monitor.tick(now_ns, stop))
 
     return reports
 
