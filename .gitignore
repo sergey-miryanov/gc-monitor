@@ -36,6 +36,8 @@ htmlcov
 .mypy_cache
 
 *.json
+*.pftrace
+
 # ...except the traces under tests/fixtures, which are checked-in expectations
 # rather than somebody's leftover run. See tests/monitoring/test_monitored_run_trace.py.
 !tests/fixtures/*.json
