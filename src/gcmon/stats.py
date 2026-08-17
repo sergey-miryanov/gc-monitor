@@ -531,13 +531,28 @@ class StreamingStats:
         if pid not in self._open_pids:
             return
 
+        self._settle(pid, [key for key in self._running_rings if key[0] == pid])
+
+    def _settle(self, pid: int, keys: list[RingKey]) -> None:
+        """Close *pid*, which is open, and settle *keys*, which are its rings
+        and no other pid's.
+
+        The single body that ends a process's statistics, whichever caller
+        found the keys. Written twice, the epoch advance and the move into
+        `_settled_rings` drift apart and a ring settles under the wrong epoch,
+        which nothing catches until one process's percentiles turn up under
+        its predecessor's heading. *keys* is a list because settling pops from
+        `_running_rings`, so a live view over it would not survive the loop.
+        """
         pid_epoch = self._epoch_per_pid.get(pid, 1)
         self._open_pids.discard(pid)
         self._epoch_per_pid[pid] = pid_epoch + 1
 
-        for key in [ring for ring in self._running_rings if ring[0] == pid]:
+        for key in keys:
             settled = self._running_rings.pop(key)
             if settled.metrics is not None:
+                # Conditional on the buffers, not on the ring: a ring the
+                # bound declined never took a slot and gives none back.
                 self._admitted_rings -= 1
             settled.settle()
             self._settled_rings[(*key, pid_epoch)] = settled
