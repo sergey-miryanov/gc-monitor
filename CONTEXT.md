@@ -7,6 +7,16 @@ in circulation. `docs/adr/` records decisions and `specs/` records open work.
 
 ## Language
 
+### How gcmon reaches a process
+
+**Attach**:
+What gcmon does once per pid before it can read that process at all: work out where the
+target's runtime lives and how its structures are laid out. Held for as long as gcmon keeps
+reading that pid, given up when gcmon sees the pid go, and done again from scratch if a
+process comes back on it. Costs far more than a read does, which is why it is worth naming
+separately from the reads it makes possible.
+_Avoid_: connect, open, handle (that is one platform's mechanism for it), session
+
 ### What the target writes, what gcmon writes
 
 **Record**:

@@ -37,6 +37,7 @@ This file holds the open set and the order to take it in. The other two:
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug — correctness | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
 | [0046](0046-settle-a-departed-fan-out-in-one-pass.md) | Bug — performance | S | Settling a departed pid rescans every running ring, so a fan-out that exits together costs a tick tens of milliseconds and may draw loss on its surviving siblings |
 | [0047](0047-the-no-subcommand-form-has-never-worked.md) | Bug — reporting | XS | `gcmon 12345`, the form the README opens with, exits 2; the branch in `main` that would dispatch it is unreachable |
+| [0048](0048-attach-once-per-pid.md) | Feature — efficiency | M | gcmon re-derives where a process keeps its GC state on every poll and throws it away again; 470 µs of each 473 µs read is that, per process, per tick |
 
 Every row here has a file. A missing number either retired or never became one;
 [RETIRED.md](RETIRED.md) says which.
@@ -61,7 +62,8 @@ Every row here has a file. A missing number either retired or never became one;
 | 14 | 0040 | Rewrites the option declarations 0045 edited |
 | 15 | 0042 | |
 | 16 | 0020 | |
-| 17 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
+| 17 | 0048 | Constrained: before 0041, which would otherwise have to place the module it adds |
+| 18 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
 
 "Constrained" means the list below forces the position. A blank cell means no recorded reason, so
 that row can move.
@@ -78,6 +80,8 @@ that row can move.
 - 0026 before 0037, which assumes its shared naming helper.
 - 0028 before 0036, which it shrinks.
 - 0035 before 0039, which would otherwise move nine classes 0035 deletes.
+- 0048 before 0041, which assigns modules to layers and would otherwise have to place the one
+  0048 adds.
 - 0046 before 0039, which moves the structure 0046 changes. Reversed, 0039 would have to settle
   0046's open question about re-keying `_running_rings`, which is more than either spec asks.
 - 0039 before 0041, or the same files move twice.
