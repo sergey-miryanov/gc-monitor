@@ -806,6 +806,9 @@ class TestTheTwoViews:
         for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 1):
             stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
         stats.record_loss(0, 0, 0, 7, 7_000_000)
+        # Two generations, so a note that dropped one under a view would show
+        # up as a shorter line rather than an identical one.
+        stats.record_loss(0, 0, 1, 3, 3_000_000)
         stats.observe_cumulative(0, 0, 0, 18, 0.02)
         return stats
 
@@ -881,14 +884,24 @@ class TestTheTwoViews:
 
     def test_the_run_wide_notes_print_under_both(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Coverage and the lifetime totals are run-wide already, and the
-        numbering closes over whatever is left."""
+        numbering closes over whatever is left.
+
+        Word for word under both views. These two notes count every record the
+        run saw, and the rows on screen do not narrow what they cover.
+        `test_total_is_the_head_of_full` pins the cells above them, so the two
+        together hold the view to choosing blocks and nothing else.
+        """
         stats = self._crowded()
+        bodies = {}
         for view in (StatsView.TOTAL, StatsView.FULL):
             notes = self._notes(self._out(capsys, stats, view))
 
             assert "Coverage:" in notes[0]
             assert "Since each interpreter started" in notes[1]
             assert [note.split(".", 1)[0] for note in notes[:2]] == ["1", "2"]
+            bodies[view] = [note.split(". ", 1)[1] for note in notes[:2]]
+
+        assert bodies[StatsView.TOTAL] == bodies[StatsView.FULL]
 
     def test_a_run_that_collected_nothing_says_so_in_either_view(self, capsys: pytest.CaptureFixture[str]) -> None:
         for view in (StatsView.TOTAL, StatsView.FULL):
