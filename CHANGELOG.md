@@ -16,9 +16,11 @@
 - An interpreter's statistics settle when its process exits: its percentiles cover its whole life, and its sample buffers go to the next interpreter
 - Each process that held a reused PID gets its own `--stats` block, the second headed `12345:0#2`
 - Warn when an interpreter gets no row because 256 were already running, and count the ones left out in a footer note. Their records still reach `Total`
+- `gcmon --version` prints the installed version
 
 ### Bugfixes
 
+- `gcmon.__version__` reports the installed version instead of `0.1.0`, which it had said since `0.2.0`
 - Stop a reused PID inheriting its predecessor's `--stats` row, which put two processes' records under one heading
 - Stop a reused PID's lifetime totals overwriting its predecessor's, which made the note under the table drop mid-run
 

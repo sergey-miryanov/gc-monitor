@@ -9,7 +9,8 @@ changelog body attached.
 
 ## Pre-release checklist
 
-- [ ] Bump `version` in `pyproject.toml`.
+- [ ] Bump `version` in `pyproject.toml`. `gcmon.__version__` and `gcmon --version` follow
+  from it — there is nothing else to bump.
 - [ ] Add a `## Version X.Y.Z` section to `CHANGELOG.md` (below the `## WIP`
   block).
 - [ ] Open a PR; CI runs the release workflow on the PR and fails if the
@@ -70,3 +71,12 @@ in-flight publish.
 [SemVer](https://semver.org/). Pre-release tags (`v0.2.0a1`, `v1.0.0rc2`) are
 matched against the same version string in `CHANGELOG.md`. The `pyproject.toml`
 version and the tag must match exactly — no `+local` or `.dev` suffixes.
+
+`pyproject.toml` is the single source for the version. `gcmon.__version__` reads
+it back from the installed distribution's metadata, and `gcmon --version` prints
+that — do not add a second literal anywhere. The cost of deriving it: bump
+`pyproject.toml` in a dev tree without reinstalling and both report the older
+number the metadata still carries, which is the same answer `pip show gcmon`
+gives. Importing gcmon from a checkout that was never installed reports
+`0.0.0+unknown`; that string is for something that is not a release and cannot
+be one, so the no-suffix rule above does not reach it.

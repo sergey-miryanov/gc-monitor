@@ -1,7 +1,7 @@
 # CLI Usage
 
 `gcmon` takes three subcommands: `monitor`, `run` and `combine`. Without one it
-monitors.
+monitors. `gcmon --version` prints the installed version and exits.
 
 ## What you'll see
 

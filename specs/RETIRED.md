@@ -15,6 +15,7 @@ purpose.
 |------|------|--------|---------|
 | [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md) | **Superseded** by 0036 | M | Three byte-identical copies of the buffer-and-flush logic in `JsonlExporter`. 0036 removes them by collapsing the interface that produced them; §4's JSONL-schema argument still stands |
 | [0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) | **Superseded** by ADR-0015 | S | Loss spans reached back across a collection gcmon watched start. ADR-0015's rewrite moved the edge to the poll instant, which is later still |
+| 0043 | **Landed** 2026-08-18 — reporting | XS | `gcmon.__version__` had said `0.1.0` since `0.2.0`, against a distribution five releases ahead of it. The literal is gone: the attribute reads the installed distribution's metadata, so `pyproject.toml` is the single source, and `gcmon --version` is the flag whose absence let the drift run. Found by installing the package into a clean 3.15 environment on 2026-08-16, the first thing in five releases to put the two numbers side by side. [RELEASE.md](../docs/RELEASE.md)'s versioning policy carries the rule |
 | 0038 | **Landed** 2026-08-17 — cleanup | M | Per-pid state had two owners, each pruning it against the same set; had they disagreed, gcmon would have reported a loss window that never happened. One tick is one call on `EventsMonitor` now. [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md), and [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) for the liveness site it moved |
 
 The two §4s still worth reading:

@@ -33,7 +33,6 @@ This file holds the open set and the order to take it in. The other two:
 | [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature — cleanup | M | gcmon declares every monitoring option three times, and echoes a rejected configuration to the log as though it had accepted it |
 | [0041](0041-give-the-package-explicit-layers.md) | Feature — cleanup | L | The package's five layers are invisible and unchecked; the dependency direction is clean today and nothing keeps it that way |
 | [0042](0042-name-the-process-session-for-its-role.md) | Feature — cleanup | S | The monitored-process seam carries the name of a role it does not fill, and its two adapters do not have the same shape |
-| [0043](0043-report-one-version-from-one-source.md) | Bug — reporting | XS | `gcmon.__version__` says `0.1.0` against a `0.5.0` distribution; nothing reads it, nothing checks it, and there is no `--version` to ask |
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug — correctness | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
 | [0045](0045-print-the-statistics-table-at-two-widths.md) | Feature — ergonomics | S | `--stats` prints one table with no way to ask for less; on a single-interpreter run half of it is a copy of the other half |
 | [0046](0046-settle-a-departed-fan-out-in-one-pass.md) | Bug — performance | S | Settling a departed pid rescans every running ring, so a fan-out that exits together costs a tick tens of milliseconds and may draw loss on its surviving siblings |
@@ -50,24 +49,23 @@ Every row here has a file. A missing number either retired or never became one;
 |---|------|----------|
 | 1 | 0025 | The only outage, and the fix is one word |
 | 2 | 0026 | Smallest user-visible wrongness |
-| 3 | 0043 | XS, and a release is when someone believes the wrong version |
-| 4 | 0049 | The only wrongness every run is subject to, and the advisory currently misdirects the operator who notices |
-| 5 | 0050 | Constrained: after 0049, and immediately after, so the help text and the advisory are edited once |
-| 6 | 0028 | XS, and it shrinks 0036 |
-| 7 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
-| 8 | 0031 | |
-| 9 | 0030 | |
-| 10 | 0035 | Constrained: before 0039 |
-| 11 | 0037 | Constrained: after 0026 |
-| 12 | 0036 | Constrained: after 0028 |
-| 13 | 0046 | Constrained: before 0039 |
-| 14 | 0039 | Constrained: after 0035 and 0046, before 0041 |
-| 15 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edits |
-| 16 | 0042 | |
-| 17 | 0045 | Breaks `--stats`, so it wants the same release as ADR-0016's reshaping of that table |
-| 18 | 0020 | |
-| 19 | 0048 | Constrained: before 0041, which would otherwise have to place the module it adds |
-| 20 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
+| 3 | 0049 | The only wrongness every run is subject to, and the advisory currently misdirects the operator who notices |
+| 4 | 0050 | Constrained: after 0049, and immediately after, so the help text and the advisory are edited once |
+| 5 | 0028 | XS, and it shrinks 0036 |
+| 6 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
+| 7 | 0031 | |
+| 8 | 0030 | |
+| 9 | 0035 | Constrained: before 0039 |
+| 10 | 0037 | Constrained: after 0026 |
+| 11 | 0036 | Constrained: after 0028 |
+| 12 | 0046 | Constrained: before 0039 |
+| 13 | 0039 | Constrained: after 0035 and 0046, before 0041 |
+| 14 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edits |
+| 15 | 0042 | |
+| 16 | 0045 | Breaks `--stats`, so it wants the same release as ADR-0016's reshaping of that table |
+| 17 | 0020 | |
+| 18 | 0048 | Constrained: before 0041, which would otherwise have to place the module it adds |
+| 19 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
 
 "Constrained" means the list below forces the position. A blank cell means no recorded reason, so
 that row can move.
@@ -102,8 +100,7 @@ of ADR-0015's work and neither blocks the other, 0035 being the cheapest and sta
 
 0035–0042 came out of a code-structure review of `src/gcmon` on 2026-08-15. Three of its findings
 are missing from the table because specs already covered them: 0028, 0029 (since retired) and
-0030 §4.5. 0043 came from installing the package into a clean 3.15 environment the next day, the
-first thing in five releases to put the distribution's version next to the package's own.
+0030 §4.5.
 
 0049 and 0050 came out of a design session on 2026-08-17 that started from "the loop runs at a rate
 nobody asked for". They are one finding split in two: the scheduling is a correctness bug and the

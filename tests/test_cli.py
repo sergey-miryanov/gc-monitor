@@ -1,3 +1,4 @@
+import importlib.metadata
 import subprocess
 import sys
 import types
@@ -120,6 +121,32 @@ class TestCliHelp:
     def test_top_level_no_output_flag(self, gcmon_cli: list[str]) -> None:
         result = subprocess.run([*gcmon_cli, "--help"], capture_output=True, text=True, check=True)
         assert "--output" not in result.stdout
+
+
+class TestCliVersion:
+    def test_version_flag(self, gcmon_cli: list[str]) -> None:
+        result = subprocess.run([*gcmon_cli, "--version"], capture_output=True, text=True)
+        assert result.returncode == 0
+        assert result.stdout.strip() == importlib.metadata.version("gcmon")
+
+    def test_package_attribute_matches_cli(self, gcmon_cli: list[str]) -> None:
+        import gcmon
+
+        result = subprocess.run([*gcmon_cli, "--version"], capture_output=True, text=True, check=True)
+        assert gcmon.__version__ == result.stdout.strip()
+
+    def test_importing_gcmon_does_not_resolve_the_version(self) -> None:
+        # Reading the distribution's metadata stats every sys.path entry (~35 ms here), and only
+        # `--version` ever asks for it. A fresh interpreter, so the check does not depend on
+        # whether another test already touched the attribute.
+        code = "import gcmon; print('__version__' in vars(gcmon))"
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == "False"
+
+    def test_no_fallback_under_a_normal_install(self) -> None:
+        import gcmon
+
+        assert gcmon.__version__ != "0.0.0+unknown"
 
 
 class TestCliMonitor:

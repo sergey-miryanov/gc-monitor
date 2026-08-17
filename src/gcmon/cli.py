@@ -3,6 +3,8 @@
 import argparse
 import logging
 import sys
+from collections.abc import Sequence
+from typing import Any
 
 from .commands import (
     add_combine_parser,
@@ -13,11 +15,40 @@ from .commands import (
 logger = logging.getLogger("gcmon")
 
 
+class _VersionAction(argparse.Action):
+    """Print gcmon's version and exit.
+
+    ``argparse``'s own ``version`` action wants the string when the flag is declared, which would
+    read the distribution's metadata on every run. This one asks for it when the flag is used.
+    """
+
+    def __init__(self, option_strings: Sequence[str], dest: str, help: str | None = None) -> None:
+        super().__init__(option_strings=list(option_strings), dest=dest, nargs=0, help=help)
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: str | None = None,
+    ) -> None:
+        from . import __version__
+
+        sys.stdout.write(f"{__version__}\n")
+        parser.exit()
+
+
 def _create_parser() -> argparse.ArgumentParser:
     """Create the argument parser with subcommands."""
     parser = argparse.ArgumentParser(
         prog="gcmon",
         description="Monitor Python's garbage collector and export statistics.",
+    )
+    parser.add_argument(
+        "--version",
+        action=_VersionAction,
+        dest=argparse.SUPPRESS,
+        help="Print the installed gcmon version and exit",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
