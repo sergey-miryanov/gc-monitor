@@ -152,15 +152,15 @@ class TestRssSamplerInLoop:
 
         # No error -- tick is simply not called.
 
-    def test_tick_receives_monotonic_now(self, mock_monitor: MagicMock) -> None:
-        """``tick`` still takes seconds, per ADR-0013, but the loop derives
-        them from the one nanosecond read it takes per tick."""
+    def test_tick_receives_the_nanosecond_instant(self, mock_monitor: MagicMock) -> None:
+        """Nanoseconds, unconverted: the sampler paces in the same unit it
+        stamps in, and gcmon's canonical unit is ns (ADR-0009)."""
         rss_sampler = Mock(spec=RssSampler)
 
         with patch("time.monotonic_ns", return_value=42_000_000_000):
             MonitorLoop(mock_monitor, _runner(1), rate=0.01, rss_sampler=rss_sampler).run()
 
-        rss_sampler.tick.assert_called_once_with(42.0, frozenset({12345}))
+        rss_sampler.tick.assert_called_once_with(42_000_000_000, frozenset({12345}))
 
     def test_tick_called_each_iteration(self, mock_monitor: MagicMock) -> None:
         rss_sampler = Mock(spec=RssSampler)
@@ -183,11 +183,11 @@ class TestRssSamplerInLoop:
 
 
 class TestTheTickInstant:
-    """One clock read per tick, shared by everything that needs it.
+    """One clock read per tick, and one instant downstream of it.
 
-    The tick stamps its own liveness with the instant it is given (ADR-0011)
-    and the sampler paces off the same one in seconds (ADR-0013), so a sample
-    and a liveness observation from one tick agree.
+    The monitor stamps liveness with it (ADR-0011) and the sampler both paces
+    and stamps with it (ADR-0013), so everything one tick emits agrees on when
+    the tick was.
     """
 
     def test_the_tick_is_given_the_instant(self, mock_monitor: MagicMock) -> None:
@@ -205,19 +205,22 @@ class TestTheTickInstant:
 
         assert monotonic_ns.call_count == 2, "one clock read per tick"
         tick_ns = [c[0][0] for c in mock_monitor.tick.call_args_list]
-        sampler_now = [c[0][0] for c in rss_sampler.tick.call_args_list]
+        sampler_ns = [c[0][0] for c in rss_sampler.tick.call_args_list]
         assert tick_ns == [1_500_000_000, 2_500_000_000]
-        assert sampler_now == [1.5, 2.5]
+        assert sampler_ns == tick_ns, "no conversion between the two"
 
-    def test_the_sampler_gets_the_same_instant_in_seconds(self, mock_monitor: MagicMock) -> None:
+    def test_nothing_downstream_converts_the_instant(self, mock_monitor: MagicMock) -> None:
+        """The loop used to hand the sampler `now_ns / 1e9`, which was the only
+        place gcmon converted out of nanoseconds before the encoder."""
         rss_sampler = Mock(spec=RssSampler)
 
         with patch("time.monotonic_ns", return_value=1_500_000_000):
             MonitorLoop(mock_monitor, _runner(1), rate=0.01, rss_sampler=rss_sampler).run()
 
         now_ns, _stop = mock_monitor.tick.call_args[0]
-        sampler_now, _pids = rss_sampler.tick.call_args[0]
-        assert sampler_now == now_ns / 1e9
+        sampler_ns, _pids = rss_sampler.tick.call_args[0]
+        assert sampler_ns == now_ns
+        assert isinstance(sampler_ns, int)
 
 
 class TestTheLoopDoesNotTouchTheExporter:

@@ -17,9 +17,6 @@ class MonitorLoop:
     whether any wait policy still wants the run to go on. What is left here is
     the clock, the stop event a signal handler sets, the rate, the RSS sampler
     and the break.
-
-    Why this module still exists once the monitor owns the rest, and why the
-    clock did not move with it: ADR-0017.
     """
 
     def __init__(
@@ -41,19 +38,14 @@ class MonitorLoop:
     def run(self) -> None:
         with set_on_exit(self._stop_event):
             for _ in self._runner.run(self._stop_event.is_set):
-                # One clock read per tick: liveness stamps the trace in
-                # nanoseconds, the RSS sampler paces itself in seconds.
+                # One clock read per tick, in nanoseconds, and everything
+                # downstream stamps and paces off this one instant.
                 now_ns = time.monotonic_ns()
-                now = now_ns / 1e9
 
-                # The tick stamps its own liveness with this instant and
-                # reports it after the polls (ADR-0011); the sampler paces off
-                # the same one in seconds.
                 report = self._monitor.tick(now_ns, self._stop_event.is_set)
 
-                # RSS: sample live PIDs if the interval elapsed.
                 if self._rss_sampler:
-                    self._rss_sampler.tick(now, report.live_pids)
+                    self._rss_sampler.tick(now_ns, report.live_pids)
 
                 if not report.keep_running:
                     break

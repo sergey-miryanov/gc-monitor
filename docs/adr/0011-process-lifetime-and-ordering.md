@@ -6,7 +6,8 @@
   once-per-trace guard made explicit 2026-08-02; monitor-reported liveness landed and the
   counter carve-out was removed 2026-08-02; pointer to ADR-0015 added 2026-08-05; the
   reporting site moved from `MonitorLoop` to `EventsMonitor` 2026-08-17, see
-  [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md))
+  [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md); the RSS round stopped adding start jitter
+  the same day, see [ADR-0013](0013-rss-sampling.md))
 
 ## Context
 
@@ -182,14 +183,16 @@ out of the span iteration.
   depends on how close together the starts are, not on how much the spans overlap: the clip
   is to `later.start - 1`. Siblings fanning out from a fork loop start microseconds apart, so
   the losses are severe in ordinary use: 1000 children with nanosecond start jitter and
-  varying lifetimes retain **0.37%** of their total observed duration. `--rss` makes it
-  likelier still, since the sampler reads every live pid in one loop and counters move a
-  span's start. Liveness cuts the other way for part of a fan-out: children whose
-  earliest evidence is the tick that first polled them share that timestamp exactly and nest
-  rather than clip, while those whose first GC event predates the poll keep their jitter.
-- **Which sibling gets sacrificed is not meaningful.** Within an RSS round the sample order is
-  `set` iteration order, so hash order decides which pid gets the earliest start and is
-  therefore clipped, rather than anything about the processes.
+  varying lifetimes retain **0.37%** of their total observed duration. Liveness cuts the other
+  way for part of a fan-out: children whose earliest evidence is the tick that first polled them
+  share that timestamp exactly and nest rather than clip, while those whose first GC event
+  predates the poll keep their jitter.
+- **`--rss` no longer adds jitter of its own.** It used to: the sampler stamped each sample with
+  its own clock read, so one round spread across however long `psutil` took per pid, every
+  sample moved its span's start, and `set` iteration order decided which sibling got the
+  earliest one and was therefore clipped — hash order, not anything about the processes. The
+  sampler now stamps a whole round with the tick instant it was given
+  ([ADR-0013](0013-rss-sampling.md)), so those spans share a start exactly and nest.
 - **The drawn duration is a lower bound, never an upper one**, so deaths are misreported as
   early rather than late. `real_end_ts - real_start_ts` recovers what was observed;
   `docs/perfetto-sql.md` carries the query.

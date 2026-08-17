@@ -5,7 +5,6 @@ ADR-0013. The loop drives it once per tick, after reporting liveness (ADR-0011).
 """
 
 import logging
-import time
 from collections.abc import Callable, Set
 
 from .exporters.exporter import EventsExporter
@@ -39,8 +38,11 @@ class RssSampler:
         rss_provider: Callable[[int], int] | None = None,
     ) -> None:
         self._exporter = exporter
-        self._interval = interval
-        self._last_sample: float = 0.0
+        # Nanoseconds from here down, so the tick instant arrives in gcmon's
+        # canonical unit (ADR-0009) and the pacing comparison needs no
+        # conversion. `--rss-interval` is seconds because an operator types it.
+        self._interval_ns = round(interval * 1e9)
+        self._last_sample_ns = 0
         self._enabled = True
 
         if rss_provider is not None:
@@ -55,25 +57,32 @@ class RssSampler:
             else:
                 self._provider = _default_rss_sampler
 
-    def tick(self, now: float, live_pids: Set[int]) -> None:
-        """Sample RSS for *live_pids* if the sampling interval has elapsed."""
+    def tick(self, now_ns: int, live_pids: Set[int]) -> None:
+        """Sample RSS for *live_pids* if the sampling interval has elapsed.
+
+        *now_ns* both paces the round and stamps every sample in it, so one
+        round lands on one instant. Reading the clock per sample instead spread
+        a round across however long `psutil` took, and on the Perfetto side
+        that spread decided which sibling's lifetime span got clipped: hash
+        order, since the round walks a set. Sharing the instant makes those
+        spans nest instead (ADR-0011).
+        """
         if not self._enabled or not live_pids:
             return
-        if now - self._last_sample < self._interval:
+        if now_ns - self._last_sample_ns < self._interval_ns:
             return
-        self._last_sample = now
+        self._last_sample_ns = now_ns
         for pid in live_pids:
-            self._sample(pid)
+            self._sample(pid, now_ns)
 
-    def _sample(self, pid: int) -> None:
+    def _sample(self, pid: int, ts_ns: int) -> None:
         try:
             rss = self._provider(pid)
         except Exception as exc:
             logger.debug("Could not sample RSS for PID %s: %s", pid, exc)
             return
         if rss:
-            ts = time.monotonic_ns()
-            self._exporter.add_rss_sample(pid, rss, ts)
+            self._exporter.add_rss_sample(pid, rss, ts_ns)
 
 
 def _noop_rss_sampler(pid: int) -> int:
