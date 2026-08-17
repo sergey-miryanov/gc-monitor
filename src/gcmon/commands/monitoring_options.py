@@ -101,7 +101,7 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--stats",
         choices=[view.value for view in StatsView],
-        default=StatsView.FULL.value if get_env_stats() else None,
+        default=get_env_stats(),
         help=(
             f"Show a statistics table at the end of monitoring: 'total' for the run-wide block, "
             f"'full' for that plus one block per interpreter (requires stats extra: "
@@ -179,7 +179,6 @@ def get_monitoring_options(
     duration = args.duration
     output_format = args.format
     flush_threshold = args.flush_threshold
-    stats_view = StatsView(args.stats) if args.stats else None
     table_format = args.table_format
     rss_enabled = args.rss
     rss_interval = args.rss_interval
@@ -206,6 +205,16 @@ def get_monitoring_options(
                 rss_interval,
                 rate,
             )
+
+    # `--stats` is checked against the same two words at parse time, so the
+    # only value that reaches this is one the environment carried in.
+    stats_view: StatsView | None = None
+    if args.stats is not None:
+        try:
+            stats_view = StatsView(args.stats)
+        except ValueError:
+            logger.error("%s must be 'total' or 'full', got '%s'", ENV_STATS, args.stats)
+            return None
 
     if rate <= 0:
         logger.error("Rate must be positive, got %s", rate)

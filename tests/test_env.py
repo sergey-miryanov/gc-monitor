@@ -143,24 +143,36 @@ class TestEnvOutputSpecialCases:
 
 
 class TestEnvStats:
-    """Tests for GCMON_STATS parsing."""
+    """GCMON_STATS names a view, and this layer only reads it.
+
+    Every `get_env_*` is evaluated while the parser is being built, before
+    logging is configured, so a value is refused in `get_monitoring_options`
+    instead — where a bad rate is already refused.
+    """
 
     def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
         monkeypatch.delenv(env_module.ENV_STATS, raising=False)
-        assert env_module.get_env_stats() is False
+        assert env_module.get_env_stats() is None
 
-    @pytest.mark.parametrize("value", ["1", "true", "yes", "on"])
-    def test_truthy_values(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str) -> None:
+    @pytest.mark.parametrize("value", ["total", "full"])
+    def test_each_view_reads_back_as_typed(
+        self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str
+    ) -> None:
         monkeypatch.setenv(env_module.ENV_STATS, value)
-        assert env_module.get_env_stats() is True
+        assert env_module.get_env_stats() == value
 
-    def test_false_value(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
-        monkeypatch.setenv(env_module.ENV_STATS, "0")
-        assert env_module.get_env_stats() is False
+    @pytest.mark.parametrize("value", ["1", "true", "nope"])
+    def test_a_value_it_cannot_use_is_still_handed_on(
+        self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str
+    ) -> None:
+        """Swallowing it here would leave the run to discover at the end of a
+        long capture that no table is coming."""
+        monkeypatch.setenv(env_module.ENV_STATS, value)
+        assert env_module.get_env_stats() == value
 
-    def test_random_string(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
-        monkeypatch.setenv(env_module.ENV_STATS, "nope")
-        assert env_module.get_env_stats() is False
+    def test_an_empty_value_reads_as_unset(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
+        monkeypatch.setenv(env_module.ENV_STATS, "")
+        assert env_module.get_env_stats() is None
 
 
 class TestEnvTableFormat:
@@ -195,7 +207,7 @@ class TestEnvVarEmpty:
             ("ENV_SERVER_PORT", "server_port", 9999),
             ("ENV_VERBOSE", "verbose", 0),
             ("ENV_FORMAT", "format", "chrome"),
-            ("ENV_STATS", "stats", False),
+            ("ENV_STATS", "stats", None),
             ("ENV_TABLE_FORMAT", "table_format", None),
             ("ENV_CONTROL_NAME", "control_name", None),
             ("ENV_RSS", "rss", False),

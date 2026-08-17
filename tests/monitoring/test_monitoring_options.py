@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.commands.monitoring_options import RSS_CAPABLE_FORMATS, get_monitoring_options
+from gcmon.commands.monitoring_options import RSS_CAPABLE_FORMATS, MonitoringOptions, get_monitoring_options
 from gcmon.stats_output import StatsView, TableFormat
 
 
@@ -220,3 +220,68 @@ class TestTheStatsFlagCarriesTheView:
 
         assert result is not None
         assert result.stats_view is StatsView.TOTAL
+
+
+class TestTheStatsEnvironmentVariable:
+    """`GCMON_STATS` takes the same two words, and an unreadable value fails
+    the run rather than falling back: a variable choosing between two named
+    views has no default that is safely one of them.
+    """
+
+    def _options(self, argv: list[str]) -> MonitoringOptions | None:
+        from gcmon.cli import _create_parser
+
+        # The parser reads the variable while it is being built, so it has to
+        # be built after the test sets it.
+        return get_monitoring_options(_create_parser().parse_args(argv))
+
+    @pytest.mark.parametrize("word, view", [("total", StatsView.TOTAL), ("full", StatsView.FULL)])
+    def test_each_word_selects_its_view(self, monkeypatch: pytest.MonkeyPatch, word: str, view: StatsView) -> None:
+        monkeypatch.setenv("GCMON_STATS", word)
+
+        result = self._options(["monitor", "12345"])
+
+        assert result is not None
+        assert result.stats_view is view
+
+    def test_the_flag_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GCMON_STATS", "full")
+
+        result = self._options(["monitor", "12345", "--stats=total"])
+
+        assert result is not None
+        assert result.stats_view is StatsView.TOTAL
+
+    def test_unset_asks_for_no_table(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GCMON_STATS", raising=False)
+
+        result = self._options(["monitor", "12345"])
+
+        assert result is not None
+        assert result.stats_view is None
+
+    @pytest.mark.parametrize("value", ["1", "true", "all", "brief"])
+    def test_a_value_it_does_not_know_fails_the_run(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, value: str
+    ) -> None:
+        """`GCMON_STATS=1` from an older release stops the run at startup
+        rather than at the end of a long capture."""
+        caplog.set_level(logging.ERROR)
+        monkeypatch.setenv("GCMON_STATS", value)
+
+        assert self._options(["monitor", "12345"]) is None
+        assert "total" in caplog.text
+        assert "full" in caplog.text
+        assert value in caplog.text
+
+    def test_the_message_names_the_variable(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Nothing else can reach this: the flag's own values are checked at
+        parse time, so the operator is told which of the two to edit."""
+        caplog.set_level(logging.ERROR)
+        monkeypatch.setenv("GCMON_STATS", "1")
+
+        self._options(["monitor", "12345"])
+
+        assert "GCMON_STATS" in caplog.text

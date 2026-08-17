@@ -194,16 +194,20 @@ def get_env_server_port() -> int:
     return 9999
 
 
-def get_env_stats() -> bool:
-    """Get stats flag from environment variable.
+def get_env_stats() -> str | None:
+    """Get the statistics view from environment variable.
+
+    The value is handed on as it was written rather than checked here: every
+    ``get_env_*`` is evaluated as an argparse ``default=`` while the parser is
+    being built, which is before logging is configured, so a complaint from
+    here is a bare traceback or a line without gcmon's prefix.
+    ``get_monitoring_options`` refuses an unknown value where a bad rate or
+    duration is already refused.
 
     Returns:
-        True if GCMON_STATS is set to a truthy value ("1", "true", "yes", "on").
+        The raw GCMON_STATS value, or None if it is unset or empty.
     """
-    stats_str = os.environ.get(ENV_STATS, "").lower()
-    if not stats_str:
-        return False
-    return stats_str in ("1", "true", "yes", "on")
+    return os.environ.get(ENV_STATS) or None
 
 
 def get_env_rss() -> bool:
