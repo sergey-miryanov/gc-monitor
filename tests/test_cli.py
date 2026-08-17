@@ -148,6 +148,17 @@ class TestCliVersion:
 
         assert gcmon.__version__ != "0.0.0+unknown"
 
+    def test_fallback_when_gcmon_is_not_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import importlib.metadata
+
+        import gcmon
+
+        def not_installed(distribution_name: str) -> str:
+            raise importlib.metadata.PackageNotFoundError(distribution_name)
+
+        monkeypatch.setattr(importlib.metadata, "version", not_installed)
+        assert gcmon.__version__ == "0.0.0+unknown"
+
 
 class TestCliMonitor:
     def test_missing_pid(self, gcmon_cli: list[str]) -> None:
