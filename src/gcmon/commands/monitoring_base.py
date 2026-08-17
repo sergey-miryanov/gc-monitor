@@ -75,7 +75,7 @@ def run_monitoring_loop(
 
             stack.enter_context(replace_signals(_signal_handler))
 
-            loop.run()
+            pacing = loop.run()
 
             # Wait for the subprocess to fully exit before reading return code.
             # The monitoring loop may break before the process has fully terminated
@@ -85,7 +85,7 @@ def run_monitoring_loop(
             returncode = runner.returncode or 0
 
         trace_path = None if options.output_format == "stdout" else options.output_path
-        for line in summary_lines(stats, trace_path, show_stats=options.show_stats):
+        for line in summary_lines(stats, trace_path, show_stats=options.show_stats, pacing=pacing):
             logger.info("%s", line)
 
         if options.show_stats:

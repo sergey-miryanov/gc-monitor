@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from gcmon.data import RunReport
 from gcmon.monitor import PollReport
 from gcmon.monitor_loop import MonitorLoop
 from gcmon.rss_sampler import RssSampler
@@ -227,6 +228,132 @@ class TestTheTickInstant:
         sampler_ns, _pids = rss_sampler.tick.call_args[0]
         assert sampler_ns == now_ns
         assert isinstance(sampler_ns, int)
+
+
+class _RecordingEvent(threading.Event):
+    """A stop event that records what it was asked to wait for, and never sleeps.
+
+    The loop's intended interval is what the tests assert. The achieved one
+    carries a scheduler quantum of noise -- up to ~16 ms on Windows, where
+    `Event.wait` rounds up to the scheduler tick -- so a test that measured
+    elapsed time would be asserting the operating system.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.waits: list[float | None] = []
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.waits.append(timeout)
+        return self.is_set()
+
+
+def _waits(monitor: MagicMock, instants: list[int], ticks: int = 1, rate: float = 0.1) -> list[float | None]:
+    """Run the loop over a scripted clock and answer what it waited for.
+
+    *instants* is read in order: one stamping instant then one pacing instant
+    per tick, so a tick's cost is the difference between its pair.
+    """
+    loop = MonitorLoop(monitor, _runner(ticks), rate=rate)
+    event = _RecordingEvent()
+    loop._stop_event = event
+    with patch("time.monotonic_ns", side_effect=instants):
+        loop.run()
+    return event.waits
+
+
+class TestThePace:
+    """The interval between tick starts is the rate, whatever a tick costs.
+
+    Tick starts land on `t0 + k * rate` for whole `k`. A tick that outlasts its
+    position does not shift the grid: the loop goes to the next position on it
+    and never makes up the ones it missed.
+    """
+
+    def test_the_wait_subtracts_what_the_tick_cost(self, mock_monitor: MagicMock) -> None:
+        """The defect: the loop used to wait the whole rate on top of the tick,
+        so the target's size decided how often gcmon looked."""
+        waits = _waits(mock_monitor, [0, 30_000_000])
+
+        assert waits == [pytest.approx(0.07)]
+
+    def test_an_overrun_goes_to_the_next_position_on_the_grid(self, mock_monitor: MagicMock) -> None:
+        """A tick 50 ms past its position skips that position rather than
+        starting late: the next one is 200 ms, not 250 ms."""
+        waits = _waits(mock_monitor, [0, 150_000_000])
+
+        assert waits == [pytest.approx(0.05)]
+
+    def test_the_grid_keeps_its_phase_across_ticks(self, mock_monitor: MagicMock) -> None:
+        """The positions are absolute, so a tick that starts late and runs long
+        leaves its successor on the original grid rather than re-basing it."""
+        waits = _waits(mock_monitor, [0, 30_000_000, 40_000_000, 160_000_000], ticks=2)
+
+        assert waits == [pytest.approx(0.07), pytest.approx(0.04)]
+
+    def test_a_tick_ending_a_hair_early_still_yields(self, mock_monitor: MagicMock) -> None:
+        """Otherwise the loop re-enters immediately and pins gcmon at a full
+        duty cycle against a target that is already struggling."""
+        waits = _waits(mock_monitor, [0, 99_999_500])
+
+        assert waits == [pytest.approx(0.001)]
+
+    def test_the_stamping_instant_is_not_the_pacing_one(self, mock_monitor: MagicMock) -> None:
+        """The pacing read stamps nothing. What reaches the monitor is the
+        instant taken before the tick, never the one taken after it."""
+        _waits(mock_monitor, [0, 30_000_000])
+
+        now_ns, _stop = mock_monitor.tick.call_args[0]
+        assert now_ns == 0
+
+
+def _report_of(monitor: MagicMock, instants: list[int], ticks: int = 1, rate: float = 0.1) -> RunReport:
+    """Run the loop over a scripted clock and answer what `run` returned."""
+    loop = MonitorLoop(monitor, _runner(ticks), rate=rate)
+    loop._stop_event = _RecordingEvent()
+    with patch("time.monotonic_ns", side_effect=instants):
+        return loop.run()
+
+
+class TestTheRunReport:
+    """What the run did with its schedule, answered once at the end.
+
+    A run that overran is indistinguishable from a healthy one otherwise: both
+    show low coverage, and only this says whether gcmon ever got to look as
+    often as it was asked to.
+    """
+
+    def test_a_run_that_kept_up_scheduled_what_it_ran(self, mock_monitor: MagicMock) -> None:
+        report = _report_of(mock_monitor, [0, 30_000_000])
+
+        assert report.ticks_run == 1
+        assert report.ticks_scheduled == 1
+        assert not report.overran
+
+    def test_a_skipped_position_still_counts_as_scheduled(self, mock_monitor: MagicMock) -> None:
+        """Two ticks ran where the grid offered three positions, because the
+        first tick outlasted its own."""
+        report = _report_of(mock_monitor, [0, 150_000_000, 200_000_000, 210_000_000], ticks=2)
+
+        assert report.ticks_run == 2
+        assert report.ticks_scheduled == 3
+        assert report.overran
+
+    def test_a_run_cut_short_reports_the_ticks_it_ran(self, mock_monitor: MagicMock) -> None:
+        """The runner offered five; the monitor gave up after two."""
+        mock_monitor.tick.side_effect = [_report(12345), _report(keep_running=False)]
+
+        report = _report_of(mock_monitor, [0, 30_000_000, 100_000_000], ticks=5)
+
+        assert report.ticks_run == 2
+        assert report.ticks_scheduled == 2
+
+    def test_the_counters_are_not_public_on_the_loop(self, loop: MonitorLoop) -> None:
+        """They leave in the report or not at all, so nothing downstream grows
+        a second way to ask."""
+        loop.run()
+
+        assert not [name for name in vars(loop) if "tick" in name or "skip" in name]
 
 
 class TestTheLoopDoesNotTouchTheExporter:

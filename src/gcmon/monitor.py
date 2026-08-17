@@ -251,7 +251,14 @@ class EventsMonitor:
         self._warn_low_coverage(pid)
 
     def _warn_low_coverage(self, pid: int) -> None:
-        """Say once per run that gcmon is reading too little of its target."""
+        """Say once per run that gcmon is reading too little of its target.
+
+        What to do about it is not said here. This fires the first time
+        coverage dips, which can be seconds into a run, before the loop has
+        run enough ticks to know whether it is holding its schedule -- and
+        whether polling more often can help at all depends on that. The
+        end-of-run summary carries the remedy, where both figures are final.
+        """
         if self._coverage_warned:
             return
 
@@ -264,8 +271,7 @@ class EventsMonitor:
         logger.warning(
             "PID %s interpreter %s generation %s: only %s%% of collections observed so far. Counts "
             "and sums are reconstructed and exact; percentiles cover only what was sampled and read "
-            "high. Polling more often (a smaller --rate) may observe more, unless the target "
-            "collects faster than gcmon can poll.",
+            "high.",
             pid,
             iid,
             gen,

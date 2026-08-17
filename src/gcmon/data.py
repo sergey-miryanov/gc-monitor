@@ -77,6 +77,27 @@ class LossMsg(msgspec.Struct):
     gens: list[GenLoss]
 
 
+class RunReport(msgspec.Struct):
+    """What one run of the monitoring loop did with its schedule.
+
+    ``ticks_run`` is how many ticks happened. ``ticks_scheduled`` is how many
+    positions the schedule offered over the same span, which is larger whenever
+    a tick outlasted its own position and the loop skipped to the next one
+    rather than making the missed ones up.
+
+    It lives here rather than beside the loop because it crosses from the loop
+    to the summary, and the output modules must not import the loop to read it.
+    """
+
+    ticks_run: int
+    ticks_scheduled: int
+
+    @property
+    def overran(self) -> bool:
+        """True when gcmon polled less often than it was asked to."""
+        return self.ticks_scheduled > self.ticks_run
+
+
 def from_mapping(data: TMapping) -> GCStatsInfo | InstantMsg | LossMsg:
     # A capture is GC records by orders of magnitude and the three shapes are
     # mutually exclusive, so `collections` answers first and the rest of the

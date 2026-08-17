@@ -60,7 +60,7 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         "--rate",
         type=float,
         default=get_env_rate(),
-        help=f"Polling rate in seconds (default: 0.1 or {ENV_RATE} env var)",
+        help=f"Seconds between poll starts (default: 0.1 or {ENV_RATE} env var)",
     )
     parser.add_argument(
         "-d",

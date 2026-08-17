@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.data import GCStatsInfo
+from gcmon.data import GCStatsInfo, RunReport
 from gcmon.stats import Stats, StreamingStats
 from gcmon.stats_output import TableFormat, _build_rows, _print_table, print_stats, summary_lines
 from tests.helpers import create_mock_stats_item
@@ -788,6 +788,43 @@ class TestSummaryLines:
             POINTER,
             "Trace saved to: trace.pftrace",
         ]
+
+    def test_a_run_that_kept_up_says_so(self) -> None:
+        """Coverage alone cannot separate "the target collects fast" from
+        "gcmon never got to look", so the summary states the denominator."""
+        lines = summary_lines(self._run(3), None, pacing=RunReport(ticks_run=600, ticks_scheduled=600))
+
+        assert "Ticks: 600 of 600 scheduled" in lines
+
+    def test_a_run_that_overran_says_how_far_short_it_fell(self) -> None:
+        lines = summary_lines(self._run(3), None, pacing=RunReport(ticks_run=188, ticks_scheduled=600))
+
+        assert "Ticks: 188 of 600 scheduled" in lines
+
+    def test_a_lossy_run_that_kept_up_is_told_polling_more_may_help(self) -> None:
+        lines = summary_lines(self._run(3, lost=7), None, pacing=RunReport(ticks_run=600, ticks_scheduled=600))
+
+        assert any("may observe more" in line for line in lines)
+        assert not any("will not help" in line for line in lines)
+
+    def test_a_lossy_run_that_overran_is_told_the_rate_is_not_the_problem(self) -> None:
+        """The advice the monitor used to give unconditionally. Lowering the
+        rate cannot add ticks the loop already could not reach."""
+        lines = summary_lines(self._run(3, lost=7), None, pacing=RunReport(ticks_run=188, ticks_scheduled=600))
+
+        assert any("will not help" in line for line in lines)
+        assert not any("may observe more" in line for line in lines)
+
+    def test_a_run_that_lost_nothing_is_given_no_remedy(self) -> None:
+        """Nothing to remedy, whether or not the loop kept up."""
+        lines = summary_lines(self._run(3), None, pacing=RunReport(ticks_run=188, ticks_scheduled=600))
+
+        assert not any("--rate" in line for line in lines)
+
+    def test_a_caller_with_nothing_to_say_about_pacing_says_nothing(self) -> None:
+        """The summary is built in tests and by callers that never ran a loop;
+        no report means no line, rather than a line full of zeroes."""
+        assert not [line for line in summary_lines(self._run(3), None) if line.startswith("Ticks:")]
 
     def test_the_printed_numbers_come_from_the_stats(self) -> None:
         stats = self._run(1234, lost=8566)
