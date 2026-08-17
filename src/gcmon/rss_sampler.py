@@ -1,8 +1,4 @@
-"""RSS (Resident Set Size) sampling for monitored processes.
-
-Why sampling lives in a class of its own, on a sentinel track, behind a flag:
-ADR-0013. The loop drives it once per tick, after reporting liveness (ADR-0011).
-"""
+"""RSS (Resident Set Size) sampling for monitored processes."""
 
 import logging
 from collections.abc import Callable, Set
@@ -25,10 +21,9 @@ class RssSampler:
         Minimum time (seconds) between RSS sampling rounds.
     rss_provider
         Optional callable returning RSS in bytes for a PID (0 if
-        unreachable). Follows the same injectable-callback pattern as
-        ``cmdline_provider`` in the encoder. When ``None``, defaults to
-        ``_default_rss_sampler`` (psutil-based) if psutil is available,
-        otherwise RSS tracking is silently disabled.
+        unreachable). When ``None``, defaults to ``_default_rss_sampler``
+        (psutil-based) if psutil is available, otherwise RSS tracking
+        is silently disabled.
     """
 
     def __init__(
@@ -38,9 +33,6 @@ class RssSampler:
         rss_provider: Callable[[int], int] | None = None,
     ) -> None:
         self._exporter = exporter
-        # Nanoseconds from here down, so the tick instant arrives in gcmon's
-        # canonical unit (ADR-0009) and the pacing comparison needs no
-        # conversion. `--rss-interval` is seconds because an operator types it.
         self._interval_ns = round(interval * 1e9)
         self._last_sample_ns = 0
         self._enabled = True
@@ -61,11 +53,7 @@ class RssSampler:
         """Sample RSS for *live_pids* if the sampling interval has elapsed.
 
         *now_ns* both paces the round and stamps every sample in it, so one
-        round lands on one instant. Reading the clock per sample instead spread
-        a round across however long `psutil` took, and on the Perfetto side
-        that spread decided which sibling's lifetime span got clipped: hash
-        order, since the round walks a set. Sharing the instant makes those
-        spans nest instead (ADR-0011).
+        round lands on one instant.
         """
         if not self._enabled or not live_pids:
             return
