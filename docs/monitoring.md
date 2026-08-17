@@ -26,9 +26,17 @@ keeps it for the session.
 
 ## Polling
 
-`--rate` is the wait *between* rounds, in seconds. One round reads every
-monitored process once, so the real interval is `--rate` plus those reads. Watch
-several child processes and you sample slower than the number you asked for.
+`--rate` is the interval between the *starts* of two rounds, in seconds. One
+round reads every monitored process once, and gcmon holds the interval whatever
+those reads cost: the reads come out of the wait, not on top of it. Watch a wide
+process tree and you still sample at the number you asked for.
+
+A round that outlasts its own position on the schedule is the exception. gcmon
+does not start the next one late and it does not run the missed ones
+back-to-back — it skips to the next position and carries on, so the interval
+degrades in whole multiples of `--rate` rather than drifting with the size of
+the tree. The end-of-run summary reports how many rounds ran against how many
+were scheduled, which is how you tell a run that kept up from one that did not.
 
 ## Records gcmon misses
 
@@ -36,8 +44,10 @@ A target whose collector runs faster than gcmon polls drops records before any
 poll reads them. At the default 0.1 s rate, a GC-heavy workload might lose
 records on most ticks.
 
-A shorter `--rate` narrows the gap without closing it. Every round still reads
-each monitored process, and that read time puts a floor under the interval.
+A shorter `--rate` narrows the gap without closing it, and only up to a point:
+once a round costs more than the interval it was given, asking for a shorter one
+adds no rounds. The summary says when a run reached that point, and gcmon stops
+suggesting a smaller `--rate` when it has.
 
 A lost record takes its timestamps with it. The two polls around it still bound
 the run: a record goes missing between two consecutive reads, and nothing

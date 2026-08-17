@@ -10,7 +10,8 @@
 
 ### Features
 
-- The low-coverage warning drops the ring-buffer explanation and suggests a smaller `--rate`
+- The low-coverage warning drops the ring-buffer explanation and says what survives the loss. What to do about it moved to the end-of-run summary, which knows whether polling more often can help
+- The end-of-run summary reports how many ticks ran against how many were scheduled: `Ticks: 188 of 600 scheduled`. A lossy run is told either that polling more often may observe more, or that the poll loop overran and a smaller `--rate` will not help
 - The end-of-run summary counts the events gcmon reconstructed and the share it observed: `Total events: 1234 (+8566 reconstructed, 12.6% observed)`
 - The lifetime note under the `--stats` table names the fold: `summed over 3 interpreters in 2 processes`
 - An interpreter's statistics settle when its process exits: its percentiles cover its whole life, and its sample buffers go to the next interpreter
@@ -19,6 +20,7 @@
 
 ### Bugfixes
 
+- `--rate` is the interval between poll starts, not the wait after each poll. gcmon holds it whatever a poll costs, where a tree costing 30 ms a round used to poll at 7.1 Hz under `--rate 0.1`. A round that outlasts its position skips to the next one rather than shifting every round after it
 - Stop a reused PID inheriting its predecessor's `--stats` row, which put two processes' records under one heading
 - Stop a reused PID's lifetime totals overwriting its predecessor's, which made the note under the table drop mid-run
 
