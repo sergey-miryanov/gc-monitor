@@ -38,7 +38,6 @@ This file holds the open set and the order to take it in. The other two:
 | [0045](0045-print-the-statistics-table-at-two-widths.md) | Feature — ergonomics | S | `--stats` prints one table with no way to ask for less; on a single-interpreter run half of it is a copy of the other half |
 | [0046](0046-settle-a-departed-fan-out-in-one-pass.md) | Bug — performance | S | Settling a departed pid rescans every running ring, so a fan-out that exits together costs a tick tens of milliseconds and may draw loss on its surviving siblings |
 | [0048](0048-attach-once-per-pid.md) | Feature — efficiency | M | gcmon re-derives where a process keeps its GC state on every poll and throws it away again; 470 µs of each 473 µs read is that, per process, per tick |
-| [0049](0049-poll-on-the-requested-schedule.md) | Bug — correctness | S | `--rate 0.1` polls every 0.1 s *plus* however long a tick took, so the target sets the interval; a tree costing 30 ms a tick polls at 7.1 Hz and nothing says so |
 | [0050](0050-name-the-poll-interval-for-what-it-is.md) | Feature — ergonomics | S | `--rate` is a duration in seconds under a name that means a frequency, and gcmon echoes `Rate: 0.1s` back |
 
 Every row here has a file. A missing number either retired or never became one;
@@ -51,23 +50,22 @@ Every row here has a file. A missing number either retired or never became one;
 | 1 | 0025 | The only outage, and the fix is one word |
 | 2 | 0026 | Smallest user-visible wrongness |
 | 3 | 0043 | XS, and a release is when someone believes the wrong version |
-| 4 | 0049 | The only wrongness every run is subject to, and the advisory currently misdirects the operator who notices |
-| 5 | 0050 | Constrained: after 0049, and immediately after, so the help text and the advisory are edited once |
-| 6 | 0028 | XS, and it shrinks 0036 |
-| 7 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
-| 8 | 0031 | |
-| 9 | 0030 | |
-| 10 | 0035 | Constrained: before 0039 |
-| 11 | 0037 | Constrained: after 0026 |
-| 12 | 0036 | Constrained: after 0028 |
-| 13 | 0046 | Constrained: before 0039 |
-| 14 | 0039 | Constrained: after 0035 and 0046, before 0041 |
-| 15 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edits |
-| 16 | 0042 | |
-| 17 | 0045 | Breaks `--stats`, so it wants the same release as ADR-0016's reshaping of that table |
-| 18 | 0020 | |
-| 19 | 0048 | Constrained: before 0041, which would otherwise have to place the module it adds |
-| 20 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
+| 4 | 0050 | Now unblocked: 0049 landed, and taking this next means the help text and the advisory are edited once |
+| 5 | 0028 | XS, and it shrinks 0036 |
+| 6 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
+| 7 | 0031 | |
+| 8 | 0030 | |
+| 9 | 0035 | Constrained: before 0039 |
+| 10 | 0037 | Constrained: after 0026 |
+| 11 | 0036 | Constrained: after 0028 |
+| 12 | 0046 | Constrained: before 0039 |
+| 13 | 0039 | Constrained: after 0035 and 0046, before 0041 |
+| 14 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edits |
+| 15 | 0042 | |
+| 16 | 0045 | Breaks `--stats`, so it wants the same release as ADR-0016's reshaping of that table |
+| 17 | 0020 | |
+| 18 | 0048 | Constrained: before 0041, which would otherwise have to place the module it adds |
+| 19 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
 
 "Constrained" means the list below forces the position. A blank cell means no recorded reason, so
 that row can move.
@@ -89,9 +87,6 @@ that row can move.
 - 0046 before 0039, which moves the structure 0046 changes. Reversed, 0039 would have to settle
   0046's open question about re-keying `_running_rings`, which is more than either spec asks.
 - 0039 before 0041, or the same files move twice.
-- 0049 before 0050. 0049 corrects the `--rate` help text and moves a sentence out of the coverage
-  advisory; 0050 renames the option both of those name. Reversed, 0049 writes prose under a name
-  0050 immediately moves.
 - 0050 before 0040, which derives the option declarations from one table and would otherwise have
   to carry the alias 0050 introduces through a rewrite of the structure holding it.
 
@@ -105,9 +100,10 @@ are missing from the table because specs already covered them: 0028, 0029 (since
 0030 §4.5. 0043 came from installing the package into a clean 3.15 environment the next day, the
 first thing in five releases to put the distribution's version next to the package's own.
 
-0049 and 0050 came out of a design session on 2026-08-17 that started from "the loop runs at a rate
-nobody asked for". They are one finding split in two: the scheduling is a correctness bug and the
-name is an ergonomic one, and bundling them would have held a fix behind a compatibility argument.
+0050 came out of a design session on 2026-08-17 that started from "the loop runs at a rate nobody
+asked for", alongside 0049. They were one finding split in two: the scheduling was a correctness bug
+and the name is an ergonomic one, and bundling them would have held a fix behind a compatibility
+argument. 0049 landed the same day; 0050 is what is left.
 
 0044 came out of the same session as ADR-0015 and stayed a working note until the answer settled:
 gcmon waits for CPython to fix the target rather than guessing from the reader's side. It sits

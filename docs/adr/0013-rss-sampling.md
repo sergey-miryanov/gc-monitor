@@ -2,7 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-13 (caller note added 2026-08-02; `tick` moved to nanoseconds and the
-  per-sample clock read removed 2026-08-17)
+  per-sample clock read removed 2026-08-17; "one clock read per tick" narrowed to one *stamping*
+  instant per tick 2026-08-17, when [ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md) added a
+  second read for pacing)
 
 ## Context
 
@@ -35,12 +37,15 @@ constructor argument and one line in the loop body. It knows nothing about `psut
 timers, or how a sample turns into an event.
 
 `tick` takes the caller's instant in **nanoseconds**, which both paces the round and stamps every
-sample in it. The loop takes one `time.monotonic_ns()` per tick and passes it unconverted, here and
-to the monitor
+sample in it. The loop takes one **stamping** `time.monotonic_ns()` per tick and passes it
+unconverted, here and to the monitor
 ([ADR-0011](0011-process-lifetime-and-ordering.md), [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)),
 so nanoseconds reach the encoder without a detour through seconds
-([ADR-0009](0009-nanoseconds-canonical-time-unit.md)). `--rss-interval` stays seconds, because an
-operator types it; the sampler converts it once at construction.
+([ADR-0009](0009-nanoseconds-canonical-time-unit.md)). The loop reads the clock a second time to
+pace itself ([ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md)); that read stamps nothing and
+reaches neither the monitor nor the sampler, so one instant still covers everything a tick emits.
+`--rss-interval` stays seconds, because an operator types it; the sampler converts it once at
+construction.
 
 **The sampler reads no clock.** It used to stamp each sample with its own
 `time.monotonic_ns()`, spreading a round across however long `psutil` took. That spread carried no
@@ -115,7 +120,7 @@ the 0.1 s GC poll rate.
 - `src/gcmon/exporters/_buffered_exporter.py` holds the `-1` sentinel, the `iid >= 0` guard
   that suppresses thread meta for it, and `add_rss_sample`.
 - `src/gcmon/exporters/perfetto_format.py` carries `"rss"` in the top-level metric set.
-- `src/gcmon/monitor_loop.py` reads the clock once per tick and hands the instant to the monitor
+- `src/gcmon/monitor_loop.py` takes one stamping read per tick and hands the instant to the monitor
   and then to the sampler; the monitor collects the live pids and reports liveness
   ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)).
   `src/gcmon/commands/monitoring_base.py` constructs the sampler.

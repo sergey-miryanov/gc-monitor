@@ -80,7 +80,7 @@ class MonitorLoop:
                 # A second read, for pacing only. It stamps nothing and reaches
                 # nothing outside this method -- but the wait cannot be worked
                 # out from the instant above without adding the tick's cost to
-                # the interval, which is the defect spec 0049 fixed. The RSS
+                # the interval, which is the defect ADR-0019 records. The RSS
                 # round is inside the measured cost because it is inside the
                 # tick.
                 pacing_ns = time.monotonic_ns()

@@ -3,10 +3,12 @@
 - **Status:** Not started
 - **Kind:** feature — ergonomics
 - **Effort:** S
-- **Origin:** split out of [0049](0049-poll-on-the-requested-schedule.md), 2026-08-17, so a
-  compatibility decision would not hold up a correctness fix
+- **Origin:** split out of spec 0049, 2026-08-17, so a compatibility decision would not hold up a
+  correctness fix. 0049 landed the same day
 - **Respects:** [ADR-0013](../docs/adr/0013-rss-sampling.md) (`--rss-interval` is decoupled from
-  the poll interval and stays a separate option)
+  the poll interval and stays a separate option),
+  [ADR-0019](../docs/adr/0019-schedule-tick-starts-on-a-fixed-grid.md) (the interval is between
+  tick starts; this renames the number, not what the loop does with it)
 
 ## 1. Problem statement
 
@@ -96,9 +98,10 @@ current sees one name.
 
 ## 6. Out of scope
 
-- **How the interval is honoured.** 0049 owns the scheduling; this spec renames the number it
-  schedules against and changes no behaviour. Land 0049 first — reversed, 0049's help text and
-  advisory edits would land under a name this spec immediately moves.
+- **How the interval is honoured.** [ADR-0019](../docs/adr/0019-schedule-tick-starts-on-a-fixed-grid.md)
+  owns the scheduling; this spec renames the number it schedules against and changes no behaviour.
+  The help text and the advisory it touches have already been rewritten to describe the contract,
+  so this moves a name over settled prose.
 - **`--rss-interval`.** Already correctly named. It keeps its own name and its independence from
   the poll interval (ADR-0013).
 - **Accepting a frequency.** A `--rate 10` meaning 10 Hz, or a unit suffix like `100ms`. Both are
@@ -111,8 +114,8 @@ current sees one name.
 
 ## 7. Further notes
 
-The rename is plausibly upstream of the defect 0049 fixes. `sleep(rate)` after the work is a
+The rename is plausibly upstream of the defect spec 0049 fixed. `sleep(rate)` after the work is a
 natural thing to write if you are thinking "rate", and an obviously wrong thing to write if you are
-thinking "the interval between poll starts". That is an argument for doing this soon rather than
-for doing it first: 0049 makes the timing contract precise, and this makes the name match the
+thinking "the interval between poll starts". That was an argument for doing this soon rather than
+for doing it first: 0049 made the timing contract precise, and this makes the name match the
 contract.

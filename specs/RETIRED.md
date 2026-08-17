@@ -16,6 +16,7 @@ purpose.
 | [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md) | **Superseded** by 0036 | M | Three byte-identical copies of the buffer-and-flush logic in `JsonlExporter`. 0036 removes them by collapsing the interface that produced them; §4's JSONL-schema argument still stands |
 | [0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) | **Superseded** by ADR-0015 | S | Loss spans reached back across a collection gcmon watched start. ADR-0015's rewrite moved the edge to the poll instant, which is later still |
 | 0038 | **Landed** 2026-08-17 — cleanup | M | Per-pid state had two owners, each pruning it against the same set; had they disagreed, gcmon would have reported a loss window that never happened. One tick is one call on `EventsMonitor` now. [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md), and [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) for the liveness site it moved |
+| 0049 | **Landed** 2026-08-17 — correctness | S | `--rate` was the wait after each tick rather than the interval between two, so the target set the pace: a tree costing 30 ms a tick polled at 7.1 Hz under `--rate 0.1`, and nothing said so. Tick starts sit on a fixed grid now, a tick that overruns skips a position rather than shifting every one after it, and the summary reports ticks run against ticks scheduled. [ADR-0019](../docs/adr/0019-schedule-tick-starts-on-a-fixed-grid.md); the naming half is still open as 0050 |
 
 The two §4s still worth reading:
 

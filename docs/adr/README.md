@@ -63,13 +63,15 @@ new one when the decision itself changes. A rename inside a module is neither.
 | [0016](0016-the-ring-is-the-statistics-unit.md) | Report statistics per ring, and drop the per-process row from the `--stats` table |
 | [0017](0017-monitor-owns-the-pid-lifecycle.md) | Give the monitor every piece of per-pid state, and leave the loop the clock |
 | [0018](0018-stats-requires-a-view-and-keeps-no-bare-alias.md) | Require a value on `--stats`, and keep no bare alias |
+| [0019](0019-schedule-tick-starts-on-a-fixed-grid.md) | Schedule tick starts on a fixed grid, and skip the positions a slow tick misses |
 
 ## Reading order
 
 ADRs 0001–0005 are about the Perfetto wire format and track layout, and build on each other in
 that order. 0006–0009 cover the internal event model shared by all backends. 0010–0013, 0015 and
 0016 and 0018 are individual features. 0014 explains how any of it is verified.
-0017 is the only one about a boundary inside the package rather than about what reaches a trace.
+0017 and 0019 are about the monitoring loop rather than about what reaches a trace: 0017 divides
+per-pid state from the clock, and 0019 says what the loop does with that clock.
 
 ---
 
