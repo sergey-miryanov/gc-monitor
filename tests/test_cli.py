@@ -1,3 +1,4 @@
+import importlib.metadata
 import subprocess
 import sys
 import types
@@ -120,6 +121,43 @@ class TestCliHelp:
     def test_top_level_no_output_flag(self, gcmon_cli: list[str]) -> None:
         result = subprocess.run([*gcmon_cli, "--help"], capture_output=True, text=True, check=True)
         assert "--output" not in result.stdout
+
+
+class TestCliVersion:
+    def test_version_flag(self, gcmon_cli: list[str]) -> None:
+        result = subprocess.run([*gcmon_cli, "--version"], capture_output=True, text=True)
+        assert result.returncode == 0
+        assert result.stdout.strip() == importlib.metadata.version("gcmon")
+
+    def test_package_attribute_matches_cli(self, gcmon_cli: list[str]) -> None:
+        import gcmon
+
+        result = subprocess.run([*gcmon_cli, "--version"], capture_output=True, text=True, check=True)
+        assert gcmon.__version__ == result.stdout.strip()
+
+    def test_importing_gcmon_does_not_resolve_the_version(self) -> None:
+        # Reading the metadata stats every sys.path entry (~35 ms here) and only `--version`
+        # needs it. A fresh interpreter, so an earlier test cannot mask a regression by having
+        # touched the attribute first.
+        code = "import gcmon; print('__version__' in vars(gcmon))"
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == "False"
+
+    def test_no_fallback_under_a_normal_install(self) -> None:
+        import gcmon
+
+        assert gcmon.__version__ != "0.0.0+unknown"
+
+    def test_fallback_when_gcmon_is_not_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import importlib.metadata
+
+        import gcmon
+
+        def not_installed(distribution_name: str) -> str:
+            raise importlib.metadata.PackageNotFoundError(distribution_name)
+
+        monkeypatch.setattr(importlib.metadata, "version", not_installed)
+        assert gcmon.__version__ == "0.0.0+unknown"
 
 
 class TestCliMonitor:

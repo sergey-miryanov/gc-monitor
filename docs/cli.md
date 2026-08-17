@@ -131,3 +131,17 @@ gcmon combine trace1.jsonl --input-format jsonl --output-format perfetto -o comb
 | `--input-format` | Input format: `chrome` or `jsonl` | `chrome` |
 | `--output-format` | Output format: `chrome`, `jsonl`, or `perfetto` | `chrome` |
 | `-n, --normalize` | Normalize timestamps per PID so each process timeline starts at 0 | `False` |
+
+## --version
+
+```bash
+$ gcmon --version
+0.5.0
+```
+
+The version of the gcmon you are running, read from the installed
+distribution's metadata. `gcmon.__version__` gives a Python process the same
+string. Quote it in a bug report.
+
+An editable install whose metadata predates the last `pyproject.toml` bump
+reports the older number, as `pip show gcmon` does. Reinstall to move it.

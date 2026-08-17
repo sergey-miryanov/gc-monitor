@@ -33,11 +33,12 @@ This file holds the open set and the order to take it in. The other two:
 | [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature — cleanup | M | gcmon declares every monitoring option three times, and echoes a rejected configuration to the log as though it had accepted it |
 | [0041](0041-give-the-package-explicit-layers.md) | Feature — cleanup | L | The package's five layers are invisible and unchecked; the dependency direction is clean today and nothing keeps it that way |
 | [0042](0042-name-the-process-session-for-its-role.md) | Feature — cleanup | S | The monitored-process seam carries the name of a role it does not fill, and its two adapters do not have the same shape |
-| [0043](0043-report-one-version-from-one-source.md) | Bug — reporting | XS | `gcmon.__version__` says `0.1.0` against a `0.5.0` distribution; nothing reads it, nothing checks it, and there is no `--version` to ask |
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug — correctness | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
 | [0046](0046-settle-a-departed-fan-out-in-one-pass.md) | Bug — performance | S | Settling a departed pid rescans every running ring, so a fan-out that exits together costs a tick tens of milliseconds and may draw loss on its surviving siblings |
 | [0047](0047-the-no-subcommand-form-has-never-worked.md) | Bug — reporting | XS | `gcmon 12345`, the form the README opens with, exits 2; the branch in `main` that would dispatch it is unreachable |
 | [0048](0048-attach-once-per-pid.md) | Feature — efficiency | M | gcmon re-derives where a process keeps its GC state on every poll and throws it away again; 470 µs of each 473 µs read is that, per process, per tick |
+| [0049](0049-poll-on-the-requested-schedule.md) | Bug — correctness | S | `--rate 0.1` polls every 0.1 s *plus* however long a tick took, so the target sets the interval; a tree costing 30 ms a tick polls at 7.1 Hz and nothing says so |
+| [0050](0050-name-the-poll-interval-for-what-it-is.md) | Feature — ergonomics | S | `--rate` is a duration in seconds under a name that means a frequency, and gcmon echoes `Rate: 0.1s` back |
 
 Every row here has a file. A missing number either retired or never became one;
 [RETIRED.md](RETIRED.md) says which.
@@ -53,13 +54,15 @@ Every row here has a file. A missing number either retired or never became one;
 | 5 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
 | 6 | 0031 | |
 | 7 | 0047 | XS, and the command that fails is the one the README opens with |
+| 3 | 0049 | The only wrongness every run is subject to, and the advisory currently misdirects the operator who notices |
+| 4 | 0050 | Constrained: after 0049, and immediately after, so the help text and the advisory are edited once |
 | 8 | 0030 | |
 | 9 | 0035 | Constrained: before 0039 |
 | 10 | 0037 | Constrained: after 0026 |
 | 11 | 0036 | Constrained: after 0028 |
 | 12 | 0046 | Constrained: before 0039 |
 | 13 | 0039 | Constrained: after 0035 and 0046, before 0041 |
-| 14 | 0040 | Rewrites the option declarations 0045 edited |
+| 14 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edits |
 | 15 | 0042 | |
 | 16 | 0020 | |
 | 17 | 0048 | Constrained: before 0041, which would otherwise have to place the module it adds |
@@ -85,16 +88,24 @@ that row can move.
 - 0046 before 0039, which moves the structure 0046 changes. Reversed, 0039 would have to settle
   0046's open question about re-keying `_running_rings`, which is more than either spec asks.
 - 0039 before 0041, or the same files move twice.
+- 0049 before 0050. 0049 corrects the `--rate` help text and moves a sentence out of the coverage
+  advisory; 0050 renames the option both of those name. Reversed, 0049 writes prose under a name
+  0050 immediately moves.
+- 0050 before 0040, which derives the option declarations from one table and would otherwise have
+  to carry the alias 0050 introduces through a rewrite of the structure holding it.
 
-0040 and 0042 depend on nothing else here; take either at any time. 0033 and 0035 both came out
+0042 depends on nothing else here; take it at any time. 0033 and 0035 both came out
 of ADR-0015's work and neither blocks the other, 0035 being the cheapest and standing alone.
 
 ## Where these came from
 
 0035–0042 came out of a code-structure review of `src/gcmon` on 2026-08-15. Three of its findings
 are missing from the table because specs already covered them: 0028, 0029 (since retired) and
-0030 §4.5. 0043 came from installing the package into a clean 3.15 environment the next day, the
-first thing in five releases to put the distribution's version next to the package's own.
+0030 §4.5.
+
+0049 and 0050 came out of a design session on 2026-08-17 that started from "the loop runs at a rate
+nobody asked for". They are one finding split in two: the scheduling is a correctness bug and the
+name is an ergonomic one, and bundling them would have held a fix behind a compatibility argument.
 
 0044 came out of the same session as ADR-0015 and stayed a working note until the answer settled:
 gcmon waits for CPython to fix the target rather than guessing from the reader's side. It sits
