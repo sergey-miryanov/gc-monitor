@@ -30,7 +30,7 @@ the policy verdict, and the liveness report.
 policy share a lifetime, so one pass over one child set drops them together.
 
 **The loop keeps the clock and the stop signal.** `MonitorLoop` reads `time.monotonic_ns()` once
-per tick, hands that instant to `tick` and the same one in seconds to `RssSampler`, breaks on
+per tick, hands that instant unconverted to `tick` and then to `RssSampler`, breaks on
 `keep_running`, and owns the `threading.Event` a signal handler sets. It lends the monitor a
 read of that event so a shutdown need not wait out a process tree.
 
@@ -38,8 +38,8 @@ read of that event so a shutdown need not wait out a process tree.
 `no_wait_policy` gives up on the first failed poll, so a monitor that got it by omission would
 end a run against a target still initializing, and would end it by answering
 `keep_running=False`, which the loop reads as an orderly finish. The failure leaves no error to
-trace. Every construction site names a policy, including the nine test monitors that only poll
-and do not care which.
+trace. Every construction site names a policy, including the eight test monitors that only
+poll and do not care which.
 
 **A pid the policy gives up on keeps its policy and loses its cursors.** A replacement policy
 would not have seen the pid alive, so it would answer "still starting" to every later invalid
@@ -79,7 +79,7 @@ is empty. Reading it as empty would drop every live child's cursor and re-export
   above. A required argument costs eight test call sites once.
 - **Keep `create_monitor`,** either as an alias for the class or as a function supplying
   `no_wait_policy`. Deleted instead: counting call sites found none. The command path constructs
-  `EventsMonitor`, the nine poll-only test monitors construct it too, and no example or doc page
+  `EventsMonitor`, the eight poll-only test monitors construct it too, and no example or doc page
   imports the name. It was a convenience for a caller nobody could point to.
 - **Have `PollReport` carry a `set`.** `frozenset`, since nothing downstream mutates the live
   set and both the exporter and the prune already took `collections.abc.Set`.

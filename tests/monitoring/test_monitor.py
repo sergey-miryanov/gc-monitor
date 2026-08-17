@@ -589,7 +589,7 @@ class TestAPidThePolicyGaveUpOn:
 
 
 class TestNoWaitPolicyThroughAWholeTick:
-    """`no_wait_policy` is what the nine poll-only monitors in this suite
+    """`no_wait_policy` is what the eight poll-only monitors in this suite
     configure, so what it does to a tick is worth stating once."""
 
     def test_a_successful_poll_keeps_the_run_open(self, exporter: MockExporter) -> None:

@@ -184,10 +184,15 @@ point at whatever survived: an ADR if implementing it settled a durable design q
 spec that replaced it, or nothing at all if it merely fixed something.
 
 Numbers are assigned in order and **never reused or renumbered**, the same rule the ADRs follow,
-so a reference to spec 0026 keeps meaning one thing. Take the next number from the highest in
-the table, which now holds every number ever assigned rather than only the open ones. Gaps in
-the *folder* are normal and mean a spec retired; gaps in the *table* mean a row was lost and
-should be recovered from git.
+so a reference to spec 0026 keeps meaning one thing. Take the next number from the highest in the
+table, which carries a row for every number that ever became a file here rather than only the
+open ones. Gaps in the *folder* are normal and mean a spec retired.
+
+Gaps in the *table* need a moment's care, because not all of them mean the same thing. From 0033
+on, every number became a file, so a gap there means a row was lost and git has the text to
+restore it. Below that, **0022**, **0023** and **0032** never became files at all: nothing in git
+records what they were, and no reference to them exists. Do not go looking. 0018, 0019 and 0021
+are in [Provenance](#provenance) below rather than the table.
 
 **Two numbers were used twice before that was written down**, both reclaimed by the batch in
 `4731e50` from specs that had landed days earlier. A reference from before 2026-08-15 resolves
@@ -218,8 +223,7 @@ It is now tracked, so the retire-the-file rule above has somewhere to delete to.
 
 Each of the six was re-verified against the code on 2026-08-05 rather than carried over. Three
 were retired. They predate the keep-the-row rule and their outcomes are too long for a table
-cell, so they stay here rather than being folded into the index above; 18, 19 and 21 are
-therefore the only assigned numbers the index does not carry:
+cell, so they stay here rather than being folded into the index above:
 
 | Old spec | Outcome |
 |---|---|

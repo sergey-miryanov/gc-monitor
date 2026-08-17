@@ -310,8 +310,8 @@ out of the span iteration.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded so it goes
   out once.
 - The liveness path, monitor to accumulator: `src/gcmon/monitor_loop.py` takes one
-  `time.monotonic_ns()` per tick and hands it to the monitor, then the same instant in seconds
-  to the RSS sampler. `src/gcmon/monitor.py` reports the live set to the exporter at the end of
+  `time.monotonic_ns()` per tick and hands it to the monitor, then the same instant unconverted
+  to the RSS sampler ([ADR-0013](0013-rss-sampling.md)). `src/gcmon/monitor.py` reports the live set to the exporter at the end of
   a tick, after the poll phase and skipped on an empty set. The split is deliberate: the clock
   and the stop signal belong to the loop, and everything per-pid — including who was observed —
   belongs to the monitor, so the state behind a liveness observation is pruned once by its

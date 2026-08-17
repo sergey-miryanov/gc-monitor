@@ -73,6 +73,14 @@ the 0.1 s GC poll rate.
 
 - The default 1 Hz sampling costs an order of magnitude less than sampling at the GC poll
   rate, and RSS does not move fast enough for the resolution to matter.
+- **A sample is backdated to the start of its tick**, which is the price of one instant per
+  round. The instant is read before the poll phase and `psutil` runs after it, so a value is
+  attributed to a moment up to a whole poll phase before it was actually read, and earlier than
+  every GC record the same tick produced. The skew is bounded by how long the polls take, which
+  on a wide tree can exceed the 0.1 s poll rate. Accepted rather than overlooked: RSS moves
+  slowly enough that tens of milliseconds do not change what a reader concludes, whereas the
+  per-sample clock read it replaced distorted the `Processes` track by hash order
+  ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 - You can unit-test `RssSampler` without `psutil` and without a monitor loop.
 - Missing `psutil`, a dead process, or a permission error each produce no sample and no
   error. `--rss` on a machine without `psutil` is ignored, with one info log.

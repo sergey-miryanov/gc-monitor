@@ -93,7 +93,7 @@ class EventsMonitor:
         a reused pid inherits nothing from the process before it.
 
         *now_ns* stamps the whole tick, liveness included. The caller reads the
-        clock once and hands the same instant to the RSS sampler in seconds.
+        clock once and hands the same instant to the RSS sampler.
 
         *stop* is asked between pids, so a shutdown does not have to wait out a
         whole process tree.
