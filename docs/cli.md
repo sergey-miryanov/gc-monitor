@@ -48,12 +48,12 @@ target verbatim, so gcmon's own options go first.
 gcmon run -s my_script.py
 
 # A module, as `python -m` takes it
-gcmon run --stats --table-format md -m test test_gc -v
+gcmon run --stats=full --table-format md -m test test_gc -v
 
 # `--iterations 1000 --verbose` belong to benchmark.py, not to gcmon
 gcmon run -s benchmark.py --iterations 1000 --verbose
 
-gcmon run --format jsonl -o trace.jsonl --stats -m http.server 8000
+gcmon run --format jsonl -o trace.jsonl --stats=total -m http.server 8000
 ```
 
 Exactly one of `-s`/`--script` or `-m`/`--module`.
@@ -71,7 +71,7 @@ Exactly one of `-s`/`--script` or `-m`/`--module`.
 | `-v, --verbose` | both | Enable verbose output (`-v` for INFO, `-vv` for DEBUG) | `0` |
 | `--format` | both | Output format: `chrome`, `perfetto`, `jsonl` or `stdout` (see [Output formats](formats.md)) | `chrome` |
 | `--flush-threshold` | both | Number of events to buffer before flushing | `100` |
-| `--stats` | both | Show statistics table at end of monitoring (see [Statistics](statistics.md)) | `False` |
+| `--stats <view>` | both | Show a statistics table at end of monitoring: `total` for the run-wide block, `full` for that plus one block per interpreter. The value is required (see [Statistics](statistics.md)) | No table |
 | `--table-format` | both | Table format: `plain` or `markdown`/`md` | `plain` |
 | `--rss` | both | Track the target's Resident Set Size. `chrome` and `perfetto` only, and needs the `[cmdline]` extra (see [RSS Tracking](rss.md)) | `False` |
 | `--rss-interval` | both | RSS sampling interval in seconds | `1.0` |
@@ -79,7 +79,9 @@ Exactly one of `-s`/`--script` or `-m`/`--module`.
 ## Environment Variables
 
 Each variable below sets a default for its flag. A flag on the command line
-beats it.
+beats it. A value a variable cannot read falls back to the default — except
+`GCMON_STATS`, which stops the run, since neither view is a safe guess at what
+was meant.
 
 | Variable | Equivalent flag | Description | Default |
 |----------|----------------|-------------|---------|
@@ -89,7 +91,7 @@ beats it.
 | `GCMON_VERBOSE` | `-v, --verbose` | Verbose level (integer or truthy value) | `0` |
 | `GCMON_FORMAT` | `--format` | Output format: `chrome`, `perfetto`, `jsonl`, or `stdout` | `chrome` |
 | `GCMON_FLUSH_THRESHOLD` | `--flush-threshold` | Number of events to buffer before flushing | `100` |
-| `GCMON_STATS` | `--stats` | Enable statistics table (`1`, `true`, `yes`, `on`) | `False` |
+| `GCMON_STATS` | `--stats` | Statistics table view: `total` or `full`. Any other value stops the run | No table |
 | `GCMON_TABLE_FORMAT` | `--table-format` | Table format: `plain`, `md`, or `markdown` | `plain` |
 | `GCMON_RSS` | `--rss` | Enable RSS tracking (`1`, `true`, `yes`, `on`) | `False` |
 | `GCMON_RSS_INTERVAL` | `--rss-interval` | RSS sampling interval in seconds | `1.0` |

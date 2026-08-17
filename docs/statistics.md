@@ -4,6 +4,29 @@ Use `--stats` to display a statistics table at the end of monitoring. The table
 reports GC pause durations (p50, p90, p95, p99) and counts per generation, with
 one block per interpreter plus an overall Total block for the run.
 
+`--stats` takes the view you want, and takes it as a required value:
+
+| Value | Prints |
+|-------|--------|
+| `--stats=total` | the run-wide `Total` block, `Read Time` and the footer |
+| `--stats=full` | that, plus one block per interpreter |
+
+There is no bare `--stats`: it is a parse error naming the two values, and so is
+any other value. See
+[ADR-0018](adr/0018-stats-requires-a-view-and-keeps-no-bare-alias.md) for why no
+alias is kept.
+
+**On a single-interpreter run `--stats=total` costs you nothing.** The block it
+drops is `12345:0`, and folding one interpreter into a run-wide roll-up changes
+no cell, so that block repeats the `Total` block above it line for line. Reach
+for `--stats=full` on a target running sub-interpreters or a tree of processes,
+where the per-interpreter blocks say which interpreter carried the pause time.
+
+`GCMON_STATS` takes the same two words. Unlike every other gcmon environment
+variable it does not fall back on a value it cannot read: `GCMON_STATS=1` stops
+the run at startup, rather than letting a long capture finish and print no
+table.
+
 Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this
 long), **Sum divided by the monitoring wall time gives the share of the
 monitored window spent in GC**, and **Count and Avg show how many pauses there
@@ -21,7 +44,7 @@ are sampling at roughly half the rate you asked for, for the reason given in
 ## Example Output
 
 ```bash
-$ gcmon 12345 --stats --table-format md
+$ gcmon monitor 12345 --stats=full --table-format md
 
 | PID:IID | Metric                   |   Count |             Sum |    Avg |    P50 |    P90 |    P95 |    P99 |    Cov |      F |
 |---------|--------------------------|---------|-----------------|--------|--------|--------|--------|--------|--------|--------|

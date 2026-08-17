@@ -235,7 +235,7 @@ gcmon 12345
 gcmon run -s my_script.py
 
 # Monitor with custom output and statistics output
-gcmon 12345 -o trace.json --stats
+gcmon monitor 12345 -o trace.json --stats=total
 
 # Perfetto binary output with RSS tracking
 gcmon 12345 --format perfetto -o trace.pftrace --rss

@@ -5,8 +5,9 @@
 
 ## Context
 
-`--stats` printed one table. [Spec 0045](../../specs/0045-print-the-statistics-table-at-two-widths.md)
-gives it two widths, so the flag has to carry which one. The question this record settles is
+`--stats` printed one table. Spec 0045, retired on landing and summarized in
+[specs/RETIRED.md](../../specs/RETIRED.md), gave it two widths, so the flag has to carry which
+one. The question this record settles is
 what happens to the spelling everyone already types.
 
 The obvious answer is to keep bare `--stats` working as an alias for the wider view. argparse
@@ -119,5 +120,6 @@ logging exists.
 
 The view itself is `StatsView` in `gcmon.stats_output`, beside the `TableFormat` behind
 `--table-format`; each member's value is the word the operator types.
-[Spec 0045](../../specs/0045-print-the-statistics-table-at-two-widths.md) covers what the two
-views print and the tests that lock it in.
+[Statistics](../statistics.md) documents what the two views print, and
+`tests/stats/test_stats_output.py` locks in that the narrower one is the wider one's opening
+lines to the byte.

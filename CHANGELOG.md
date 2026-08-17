@@ -5,6 +5,7 @@
 ### Breaking changes
 
 - `GC Loss` slice args drop the `missing_` prefix for the `lost_` one
+- `--stats` requires a value naming which blocks to print: `--stats=total` for the run-wide block, `--stats=full` for the table as it printed before. Bare `--stats` is a parse error, and `GCMON_STATS` takes the same two words — `GCMON_STATS=1` stops the run
 - The `--stats` table reports one block per interpreter, not one per process: `PID:IID` heads every row, `12345:0` included. `Total` is the only blended row
 - The low-coverage advisory measures each interpreter on its own and names the least covered. It fires where a busy interpreter used to lift the whole PID over the 90% floor
 
