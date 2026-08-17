@@ -7,14 +7,13 @@
 
 `--stats` printed one table. Spec 0045, retired on landing and summarized in
 [specs/RETIRED.md](../../specs/RETIRED.md), gave it two widths, so the flag has to carry which
-one. This record settles what happens to the spelling everyone already types.
+one. That leaves bare `--stats`, the spelling everyone already types.
 
-Keeping bare `--stats` as an alias for the wider view looks obvious, and argparse offers the
-shape: `nargs="?"` with a `const`. It is how the change was first asked for. gcmon's parser
-breaks it.
-
-`monitor` takes the pid as a **required positional**. argparse decides whether an optional with
-`nargs="?"` eats the next token by whether that token starts with `-`. A pid does not:
+An alias would keep it working: bare `--stats` means the wider view, which argparse spells
+`nargs="?"` with a `const`. The change was first asked for that way, and gcmon's parser cannot
+deliver it. `monitor` takes the pid as a **required positional**, and argparse decides whether an
+optional with `nargs="?"` eats the next token by whether that token starts with `-`. A pid does
+not:
 
 ```
 $ gcmon monitor --stats 12345          # works today
@@ -22,16 +21,16 @@ usage: monitor [-h] [--stats [{total,full}]] [-d DURATION] pid
 monitor: error: argument --stats: invalid choice: '12345' (choose from 'total', 'full')
 ```
 
-The alias buys compatibility for three of the four orderings and breaks the fourth. It keeps
-`--stats` before an option (`-d`, `-r`, `-o`), `--stats` last, and `--stats=full`. It breaks
-`--stats` immediately before the pid. `run` splits its argv at the first `-m` or `-s`, both of
-which start with `-`, so it works either way.
+So the alias buys compatibility for three of the four orderings: it keeps `--stats` before an
+option (`-d`, `-r`, `-o`), `--stats` last and `--stats=full`, and breaks `--stats` immediately
+before the pid. `run` splits its argv at the first `-m` or `-s`, both of which start with `-`,
+so it works either way.
 
 That left three options: a partial alias, an `argparse.Action` that recognises an all-digit
 value and hands it back to the positional, or no alias.
 
-The wider view also needed a name. `total` and `all` are synonyms, so a reader asked which of
-`--stats=total` and `--stats=all` prints more has nothing to go on, and "the grand total of
+The wider view also needed a name. `total` and `all` are synonyms: ask which of `--stats=total`
+and `--stats=all` prints more and the words give no answer, while "the grand total of
 everything" points the wrong way. `totals` reads as a noun and escapes that, but it collides
 with two things a reader could expect it to print: `docs/statistics.md` defines **lifetime
 totals** as one of the three intervals a cell reports, and the statistics module names its
@@ -46,7 +45,7 @@ error, and so is any word outside the set this section names.
 synonym for it.
 
 **`GCMON_STATS` takes the same words**, and an unreadable value fails the run rather than
-falling back. The flag and the variable share one vocabulary.
+falling back.
 
 **Four words ask for no table: `no`, `off`, `false` and `0`.** On the flag and in the variable,
 they select what an unset flag selects. They are the falsy complements of the truthy set (`1`,
@@ -64,24 +63,24 @@ there is no deprecation window. The release carrying this already reshapes the t
 per interpreter, where it printed one per process), so an operator upgrading re-reads the output
 anyway and re-types the flag in the same pass.
 
-Nobody has to remember which view a bare `--stats` picked. That matters more here than for most
-flags, since the two views differ by how much they print rather than by what the numbers mean,
-so a wrong guess stays quiet.
+Nobody has to remember which view a bare `--stats` picked. A wrong guess would have gone
+unnoticed, since the two views differ by how much they print rather than by what the numbers
+mean.
 
 The off words halve the break in the variable. `GCMON_STATS=0` in a shell profile meant no table
 before this change and means no table after it, so only the settings that asked *for* the table
 stop the run, and their author has a view to choose. They also give the flag something it could
 not say: the variable sets a default for every run in the shell, and `--stats=no` declines it
 for one. `GCMON_RSS` has the same shape and no such escape, since `--rss` is a `store_true` with
-no off spelling. That is a gap in `--rss` rather than an argument against this.
+no off spelling.
 
 `GCMON_STATS` becomes the only gcmon environment variable that can fail a run. Every other
 `get_env_*` falls back on an unreadable value: `GCMON_FORMAT=bogus` yields `chrome`,
-`GCMON_TABLE_FORMAT=bogus` yields plain. The other eleven are not wrong. A variable selecting
-between two named views has no default that is safely one of them.
+`GCMON_TABLE_FORMAT=bogus` yields plain. A variable selecting between two named views has no
+default that is one of them.
 
-Reversing this is not an undo. Re-admitting bare `--stats` means choosing which view it prints,
-a decision nobody has had to make yet and one the two names do not imply.
+Reversing this costs more than deleting a check. Re-admitting bare `--stats` means choosing
+which view it prints, a decision nobody has had to make yet.
 
 The names constrain what comes next. A flag choosing which *metrics* print cuts across both
 blocks rather than choosing between them, so it has to be a second flag: `total` and `full` name
@@ -104,7 +103,7 @@ vocabulary.
 
 **`totals` as the narrower view.** Rejected: it collides with *lifetime totals*, a different
 interval that prints in the footer, and with the per-`(ring, gen)` totals the statistics module
-is built on. `Total`, singular, has one referent here and it is the one meant.
+is built on. `Total`, singular, has one referent here.
 
 **Keeping `--stats` as a boolean and adding a second flag for the view.** Rejected: two flags
 for one idea, and the invalid combination (the view flag without the enabling flag) left to be
@@ -122,9 +121,10 @@ because the failure mode is a long capture that prints no table at the end.
 ## Implementation
 
 `gcmon.commands.monitoring_options` declares `--stats` and refuses a bad `GCMON_STATS`;
-`gcmon._env` reads the raw value. Refusal does not live with the reading, because every
-`get_env_*` runs while the parser is being built, before logging is configured. A value is
-refused where `rate`, `duration` and `flush_threshold` are already refused, once logging exists.
+`gcmon._env` reads the raw value. The refusal does not sit with the reading, because every
+`get_env_*` runs while the parser is being built, before logging is configured.
+`get_monitoring_options` turns it down instead, alongside `rate`, `duration` and
+`flush_threshold`, once logging exists.
 
 `StatsView` in `gcmon.stats_output` holds the view, beside the `TableFormat` behind
 `--table-format`, and each member's value is the word the operator types. The enum owns the
