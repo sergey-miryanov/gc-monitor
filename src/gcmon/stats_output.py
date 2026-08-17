@@ -16,6 +16,20 @@ class TableFormat(Enum):
     MARKDOWN = "markdown"
 
 
+class StatsView(Enum):
+    """Which blocks the table prints.
+
+    The member's value is the word the operator types after `--stats`, as
+    `TableFormat`'s is. `TOTAL` is `FULL` minus the per-ring blocks: on a
+    single-interpreter run that block is a copy of the roll-up above it, and
+    on a wider target it is the detail behind a summary that stands on its
+    own.
+    """
+
+    TOTAL = "total"
+    FULL = "full"
+
+
 def _print_table(rows: list[list[str] | Any], table_format: TableFormat = TableFormat.PLAIN) -> None:
     if not rows:
         return
@@ -181,12 +195,17 @@ def _ring_label(pid: int, iid: int, pid_epoch: int) -> str:
     return f"{pid}:{iid}" if pid_epoch == 1 else f"{pid}:{iid}#{pid_epoch}"
 
 
-def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.PLAIN) -> None:
-    """Two levels: the run, then one block per ring.
+def print_stats(stats: StreamingStats, view: StatsView, table_format: TableFormat = TableFormat.PLAIN) -> None:
+    """Two levels: the run, then one block per ring under `FULL`.
 
     Rings sort by `(pid, iid)`, so a process's interpreters stay adjacent and
     in order. `Read Time` is monitor-side and belongs to no ring, so its first
-    cell stays empty.
+    cell stays empty, and it prints under either view.
+
+    *view* chooses which blocks are emitted and nothing else: the header, the
+    column widths, the separators and every cell are what they were. The first
+    column keeps its `PID:IID` heading under `TOTAL`, where the only value it
+    holds is `Total`, so the two views stay diffable side by side.
     """
     all_rows: list[list[str] | Any] = []
 
@@ -203,7 +222,10 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
                 first = False
             has_rows = True
 
-    for pid, iid, pid_epoch in stats.rings():
+    # The one place the view is read: `TOTAL` has no rings to walk, so the
+    # block below and everything after it stay as they are.
+    rings = stats.rings() if view is StatsView.FULL else []
+    for pid, iid, pid_epoch in rings:
         all_rows.append(_SEP_GROUP)
         ring_data = stats.get_ring_stats(pid, iid, pid_epoch)
         if ring_data is None:
@@ -235,10 +257,10 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
         return
 
     _print_table(all_rows, table_format=table_format)
-    _print_footer(stats)
+    _print_footer(stats, view)
 
 
-def _print_footer(stats: StreamingStats) -> None:
+def _print_footer(stats: StreamingStats, view: StatsView) -> None:
     """What the table's two number kinds mean.
 
     Only printed when something was lost or the target collected before gcmon
@@ -247,6 +269,9 @@ def _print_footer(stats: StreamingStats) -> None:
     Which notes appear depends on the run, so the number, not the order, is
     what separates two that wrap on a narrow terminal. A lone note still
     reads ``1.``.
+
+    The first two notes are run-wide and read the same either way; the third
+    reconciles ring rows against the run, which `TOTAL` prints none of.
     """
     pauses = stats.pause_totals_by_gen()
     cumulative = stats.cumulative_totals_by_gen()
@@ -274,7 +299,11 @@ def _print_footer(stats: StreamingStats) -> None:
             f"{_plural(interpreters, 'interpreter')} in {_plural(processes, 'process', 'processes')}: {parts}."
         )
 
-    untracked = stats.untracked_rings()
+    # Under `TOTAL` the discrepancy this note explains cannot be found, and
+    # its closing reassurance describes the only block on screen. Nothing is
+    # lost by dropping it: `StreamingStats` logs a warning naming the pid and
+    # the iid the first time it declines a ring, whatever view is asked for.
+    untracked = stats.untracked_rings() if view is StatsView.FULL else 0
     if untracked:
         # The rows are short of the run and a reader adding them up would find
         # it, so say the count here rather than leave the gap unexplained.

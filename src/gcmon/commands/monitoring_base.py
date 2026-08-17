@@ -12,7 +12,7 @@ from gcmon.monitor_loop import MonitorLoop
 from gcmon.rss_sampler import RssSampler
 from gcmon.run_policy import RunnerFactory
 from gcmon.stats import StreamingStats
-from gcmon.stats_output import print_stats, summary_lines
+from gcmon.stats_output import StatsView, print_stats, summary_lines
 from gcmon.target_process import ProcessRunnerFactory
 from gcmon.utils import replace_signals
 from gcmon.wait_policy import WaitPolicyFactory
@@ -89,7 +89,7 @@ def run_monitoring_loop(
             logger.info("%s", line)
 
         if options.show_stats:
-            print_stats(stats, table_format=options.table_format)
+            print_stats(stats, StatsView.FULL, table_format=options.table_format)
 
         return returncode
 
