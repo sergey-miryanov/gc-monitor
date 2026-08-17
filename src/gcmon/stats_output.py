@@ -16,6 +16,17 @@ class TableFormat(Enum):
     MARKDOWN = "markdown"
 
 
+# Words that ask for no table, and so map to no view at all. They are the falsy
+# complements of the truthy set `GCMON_STATS` took while it was a switch, so a
+# variable already set to `0` keeps meaning what it meant. The truthy set does
+# not come back: "no table" is one outcome, while "a table" is two, and which
+# one `1` asks for is the question the view names exist to make explicit. They
+# live beside `StatsView` rather than with the flag so that one module says
+# what the flag accepts. A member would be worse: `print_stats` cannot render
+# "no table", and four words would need four of them.
+STATS_OFF_WORDS = ("no", "off", "false", "0")
+
+
 class StatsView(Enum):
     """Which blocks the table prints.
 
@@ -24,10 +35,41 @@ class StatsView(Enum):
     single-interpreter run that block is a copy of the roll-up above it, and
     on a wider target it is the detail behind a summary that stands on its
     own.
+
+    Asking for no table at all is `None` rather than a member, and
+    `STATS_OFF_WORDS` names the words that ask for it.
     """
 
     TOTAL = "total"
     FULL = "full"
+
+    @classmethod
+    def words(cls) -> list[str]:
+        """Every word `--stats` and `GCMON_STATS` take, views first.
+
+        Feeds argparse `choices`, so what the usage line offers and what
+        `parse` accepts come from one place.
+        """
+        return [view.value for view in cls] + list(STATS_OFF_WORDS)
+
+    @classmethod
+    def parse(cls, word: str) -> StatsView | None:
+        """Map a typed word to its view, or to None for no table.
+
+        Case and surrounding space are forgiven, as `GCMON_TABLE_FORMAT` and
+        `GCMON_FORMAT` forgive them: an env file keeps a trailing space and a
+        compose block is as likely to say `Total`. The word itself is not.
+
+        Raises:
+            ValueError: the word is neither a view nor one of
+                `STATS_OFF_WORDS`. A blank word raises with the rest; a
+                variable that is only spaces never reaches here, since
+                `get_env_stats` reads it as unset.
+        """
+        normalized = word.strip().lower()
+        if normalized in STATS_OFF_WORDS:
+            return None
+        return cls(normalized)
 
 
 def _print_table(rows: list[list[str] | Any], table_format: TableFormat = TableFormat.PLAIN) -> None:

@@ -28,20 +28,13 @@ from gcmon._env import (
     get_env_table_format,
     get_env_verbose,
 )
-from gcmon.stats_output import StatsView, TableFormat
+from gcmon.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
 
 logger = logging.getLogger("gcmon")
 
 # Formats whose exporters implement EventsExporter.add_rss_sample. The others
 # inherit the no-op base implementation and silently discard RSS samples.
 RSS_CAPABLE_FORMATS = ("chrome", "trace", "perfetto", "chrome+perfetto")
-
-# Values of `--stats` and GCMON_STATS that ask for no table. They are the falsy
-# complements of the truthy set the variable took while it was a switch, so a
-# variable already set to `0` keeps meaning what it meant. The truthy set does
-# not come back: "no table" is one outcome, while "a table" is two, and which
-# one `1` asks for is the question the two view names exist to make explicit.
-STATS_OFF_WORDS = ("no", "off", "false", "0")
 
 
 def _normalize_table_format(val: str) -> TableFormat:
@@ -107,7 +100,7 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
     # appearing to keep every spelling working.
     parser.add_argument(
         "--stats",
-        choices=[view.value for view in StatsView] + list(STATS_OFF_WORDS),
+        choices=StatsView.words(),
         default=get_env_stats(),
         help=(
             f"Show a statistics table at the end of monitoring: 'total' for the run-wide block, "
@@ -215,25 +208,20 @@ def get_monitoring_options(
                 rate,
             )
 
-    # `--stats` is checked against the same words at parse time, so the only
-    # value that can be unknown here is one the environment carried in. Case
-    # and surrounding space are forgiven, as `GCMON_TABLE_FORMAT` and
-    # `GCMON_FORMAT` forgive them: an env file keeps a trailing space and a
-    # compose block is as likely to say `Total`. The word itself is not.
+    # `--stats` is checked against `StatsView.words()` at parse time, so the
+    # only value that can be unknown here is one the environment carried in.
     stats_view: StatsView | None = None
     if args.stats is not None:
-        word = args.stats.strip().lower()
-        if word not in STATS_OFF_WORDS:
-            try:
-                stats_view = StatsView(word)
-            except ValueError:
-                logger.error(
-                    "%s must be 'total', 'full', or one of %s to ask for no table, got '%s'",
-                    ENV_STATS,
-                    ", ".join(f"'{off}'" for off in STATS_OFF_WORDS),
-                    args.stats,
-                )
-                return None
+        try:
+            stats_view = StatsView.parse(args.stats)
+        except ValueError:
+            logger.error(
+                "%s must be 'total', 'full', or one of %s to ask for no table, got '%s'",
+                ENV_STATS,
+                ", ".join(f"'{off}'" for off in STATS_OFF_WORDS),
+                args.stats,
+            )
+            return None
 
     if rate <= 0:
         logger.error("Rate must be positive, got %s", rate)

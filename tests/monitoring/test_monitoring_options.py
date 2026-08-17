@@ -8,13 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.commands.monitoring_options import (
-    RSS_CAPABLE_FORMATS,
-    STATS_OFF_WORDS,
-    MonitoringOptions,
-    get_monitoring_options,
-)
-from gcmon.stats_output import StatsView, TableFormat
+from gcmon.commands.monitoring_options import RSS_CAPABLE_FORMATS, MonitoringOptions, get_monitoring_options
+from gcmon.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
 
 
 def _make_args(**overrides: object) -> Namespace:

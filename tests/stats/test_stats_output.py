@@ -8,7 +8,15 @@ import pytest
 
 from gcmon.data import GCStatsInfo
 from gcmon.stats import Stats, StreamingStats
-from gcmon.stats_output import StatsView, TableFormat, _build_rows, _print_table, print_stats, summary_lines
+from gcmon.stats_output import (
+    STATS_OFF_WORDS,
+    StatsView,
+    TableFormat,
+    _build_rows,
+    _print_table,
+    print_stats,
+    summary_lines,
+)
 from tests.helpers import create_mock_stats_item
 
 
@@ -731,6 +739,43 @@ class TestTheNoteOnRingsWithNoRow:
         print_stats(self._crowded(1), StatsView.FULL)
 
         assert "counted in Total" in capsys.readouterr().out
+
+
+class TestTheVocabularyOfTheFlag:
+    """`StatsView` owns every word `--stats` and `GCMON_STATS` take, so the
+    list the parser offers and the list the parser accepts cannot drift apart.
+    """
+
+    @pytest.mark.parametrize("word, view", [("total", StatsView.TOTAL), ("full", StatsView.FULL)])
+    def test_each_view_word_parses_to_its_view(self, word: str, view: StatsView) -> None:
+        assert StatsView.parse(word) is view
+
+    @pytest.mark.parametrize("word", STATS_OFF_WORDS)
+    def test_each_off_word_parses_to_no_table(self, word: str) -> None:
+        assert StatsView.parse(word) is None
+
+    @pytest.mark.parametrize("word", ["Total", "TOTAL", " total", "total\n", " Off ", "NO"])
+    def test_case_and_surrounding_space_are_forgiven(self, word: str) -> None:
+        """An env file keeps the trailing space it was written with, and a
+        compose block is as likely to say `Total`."""
+        StatsView.parse(word)  # does not raise
+
+    @pytest.mark.parametrize("word", ["", "  ", "all", "brief", "1", "true", "yes", "on", "totals"])
+    def test_a_word_it_does_not_know_is_refused(self, word: str) -> None:
+        """Including the truthy opposites of the off words: `1` says a table
+        was wanted, not which, and that is the question the views ask."""
+        with pytest.raises(ValueError):
+            StatsView.parse(word)
+
+    def test_words_lists_both_views_and_every_off_word(self) -> None:
+        assert StatsView.words() == ["total", "full", *STATS_OFF_WORDS]
+
+    def test_every_word_offered_is_a_word_accepted(self) -> None:
+        """`words()` feeds argparse `choices`, so a word it prints in the
+        usage line that `parse` then refused would be a flag advertising a
+        value it rejects."""
+        for word in StatsView.words():
+            StatsView.parse(word)  # does not raise
 
 
 class TestTheTwoViews:
