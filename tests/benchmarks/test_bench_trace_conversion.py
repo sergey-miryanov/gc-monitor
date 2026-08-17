@@ -2,7 +2,7 @@
 
 Converting captured GC records into Chrome Trace / Perfetto events is the main
 CPU cost of every ``gcmon convert`` and export. These benchmarks measure both
-single-item conversion and bulk conversion of a whole capture.
+per-item conversion and bulk conversion of a whole capture.
 """
 
 from __future__ import annotations
@@ -19,14 +19,31 @@ from gcmon.protocol import TGCStatsInfo, TInstantMsg
 from .conftest import make_gc_event
 
 EVENT_COUNT = 5_000
+ITEM_BATCH = 200
 
 
 @pytest.mark.benchmark
-def test_convert_item_to_trace_format(benchmark: BenchmarkFixture) -> None:
-    event = make_gc_event(0, gen=1)
+def test_convert_item_to_trace_format_batch(benchmark: BenchmarkFixture) -> None:
+    """Per-item conversion, amortised over a batch.
 
-    result = benchmark(convert_item_to_trace_format, 12345, event)
-    assert len(result) > 0
+    The measured callable used to convert one record. A single conversion grows
+    the interpreter's event list once, so whichever call happened to trip the
+    allocator into consolidating its free lists absorbed the cost of every chunk
+    freed before it — a figure that moved with the process's heap history rather
+    than with this function, and that flipped on branches touching nothing on
+    the conversion path. Converting a batch spreads that over ``ITEM_BATCH``
+    calls, so the number tracks the converter. Renamed on the way past: the unit
+    is no longer one call, so the old series would not have continued honestly.
+    """
+    events = [make_gc_event(i, gen=i % 3) for i in range(ITEM_BATCH)]
+
+    def run() -> int:
+        count = 0
+        for event in events:
+            count += len(convert_item_to_trace_format(12345, event))
+        return count
+
+    assert benchmark(run) > ITEM_BATCH
 
 
 @pytest.mark.benchmark
