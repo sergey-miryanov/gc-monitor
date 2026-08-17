@@ -84,26 +84,21 @@ The value is required, and it is one of these words:
 |-------|--------|
 | `total` | the run-wide `Total` block, `Read Time` and the footer |
 | `full` | that, plus one block per interpreter |
-| `no`, `off`, `false`, `0` | no table, as an unset flag prints none |
+| `no`, `off`, `false`, `0` | no table |
 
-Bare `--stats` is a parse error naming the words, and so is any word outside the
-table, `all` and `1` included. The truthy opposites of the off words are absent
-on purpose: "no table" is one outcome and "a table" is two, so `total` and
-`full` are what you choose between. [Statistics](statistics.md) reads the two
-views, and [ADR-0018](adr/0018-stats-requires-a-view-and-keeps-no-bare-alias.md)
-records why neither keeps an alias.
+Bare `--stats` is a parse error, and so is any word outside the table.
+[Statistics](statistics.md) reads the two views;
+[ADR-0018](adr/0018-stats-requires-a-view-and-keeps-no-bare-alias.md) records
+why no alias is kept.
 
-`GCMON_STATS` takes the same words, so a variable already set to `0` still asks
-for no table, and `--stats=no` declines a variable your shell profile or compose
-file sets for every run. Blank reads as unset. Anything else stops the run at
-startup, rather than letting a long capture finish and print nothing.
+`GCMON_STATS` takes the same words. Blank reads as unset, and anything else
+stops the run at startup.
 
 ## Environment Variables
 
 Each variable below sets a default for its flag, and a flag on the command line
 beats it. A value a variable cannot read falls back to the default. The
-exception is `GCMON_STATS`, which stops the run, since neither view is a safe
-guess at what was meant.
+exception is `GCMON_STATS`, which stops the run.
 
 | Variable | Equivalent flag | Description | Default |
 |----------|----------------|-------------|---------|

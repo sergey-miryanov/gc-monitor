@@ -11,9 +11,8 @@ interpreter. [CLI usage](cli.md#--stats) lists every word the flag and
 `GCMON_STATS` accept, including the ones asking for no table.
 
 **On a single-interpreter run `--stats=total` costs you nothing.** The block it
-drops is `12345:0`, and folding one interpreter into a run-wide roll-up changes
-no cell, so that block repeats the `Total` block above it line for line. Reach
-for `--stats=full` on a target running sub-interpreters or a tree of processes,
+drops, `12345:0`, repeats the `Total` block above it line for line. Reach for
+`--stats=full` on a target running sub-interpreters or a tree of processes,
 where the per-interpreter blocks say which interpreter carried the pause time.
 
 Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this
@@ -193,9 +192,8 @@ gcmon logs a warning the first time it happens. `Total` still counts every
 record, so the rows can add up to less than the run and this note says by how
 many rings.
 
-`--stats=total` prints no ring rows, so there is no gap for the note to explain
-and gcmon leaves it out. You lose nothing by asking for the narrower view: the
-warning naming the pid and the interpreter is logged either way. Notes 1 and 2
+`--stats=total` prints no ring rows, so gcmon leaves the note out. The warning
+naming the pid and the interpreter is logged under either view. Notes 1 and 2
 are run-wide and print under both.
 
 ## Without `[stats]` extra
