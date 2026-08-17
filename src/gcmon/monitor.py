@@ -70,7 +70,7 @@ class EventsMonitor:
     ) -> None:
         """
         *wait_policy_factory* builds the per-pid policy that decides when a pid
-        is finished. It has no default; ADR-0017 says why.
+        is finished.
 
         *is_pid_enabled* is the control plane's per-pid verdict: ``False`` means
         the control server has suppressed that pid and it must not be polled.
@@ -90,12 +90,10 @@ class EventsMonitor:
         """Poll the target and every child once, and report what answered.
 
         Prunes the state of every pid that has left the process tree first, so
-        a reused pid inherits nothing from the process before it. Why the
-        monitor owns all of this rather than the loop: ADR-0017.
+        a reused pid inherits nothing from the process before it.
 
         *now_ns* stamps the whole tick, liveness included. The caller reads the
-        clock once and hands the same instant to the RSS sampler in seconds
-        (ADR-0011, ADR-0013).
+        clock once and hands the same instant to the RSS sampler in seconds.
 
         *stop* is asked between pids, so a shutdown does not have to wait out a
         whole process tree.
