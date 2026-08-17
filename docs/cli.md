@@ -87,9 +87,7 @@ The value is required, and it is one of these words:
 | `no`, `off`, `false`, `0` | no table |
 
 Bare `--stats` is a parse error, and so is any word outside the table.
-[Statistics](statistics.md) reads the two views;
-[ADR-0018](adr/0018-stats-requires-a-view-and-keeps-no-bare-alias.md) records
-why no alias is kept.
+[Statistics](statistics.md) reads the two views.
 
 `GCMON_STATS` takes the same words. Blank reads as unset, and anything else
 stops the run at startup.
