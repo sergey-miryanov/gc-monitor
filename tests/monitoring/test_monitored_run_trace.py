@@ -23,12 +23,17 @@ red run.
 Determinism comes down to four things.
 
 *One clock, two consumers.* `monitor_loop` and `monitor` both do `import time`,
-so one patch of `time.monotonic_ns` feeds both. Per tick the loop reads once for
-the tick instant, then each polled pid costs the monitor two reads either side
-of `get_gc_stats`. `_script` lays that sequence out in advance and
-`_ScriptedClock` hands it out in order, raising rather than inventing a value.
-`test_the_clock_was_spent_exactly` checks none was left over: reading fewer
-instants would shift every timestamp downstream and still pass.
+so one patch of `time.monotonic_ns` feeds both. Per tick the loop reads once to
+stamp the tick, then each polled pid costs the monitor two reads either side of
+`get_gc_stats`, then the loop reads once more to pace itself
+([ADR-0019](../../docs/adr/0019-schedule-tick-starts-on-a-fixed-grid.md)).
+`_script` lays that sequence out in advance and `_ScriptedClock` hands it out in
+order, raising rather than inventing a value. `test_the_clock_was_spent_exactly`
+checks none was left over: reading fewer instants would shift every timestamp
+downstream and still pass.
+
+Only the stamping read reaches an event, so the pacing read's value is free and
+the fixture did not move when it was added.
 
 *Nothing else reads the machine.* `no_wait_policy` instead of
 `StartupTimeoutPolicy`, which reads `time.monotonic`; a fixed-tick runner
@@ -132,8 +137,13 @@ def _script() -> tuple[list[int], list[tuple[int, int]]]:
 
     Returns the `time.monotonic_ns` values in the order they will be asked for,
     and one `(pid, ts_read_start)` per `get_gc_stats` call. One tick is: the
-    loop's single read for the tick instant, then two reads per polled pid, one
-    either side of its `get_gc_stats`.
+    loop's stamping read for the tick instant, then two reads per polled pid,
+    one either side of its `get_gc_stats`, then the loop's pacing read.
+
+    The pacing read (ADR-0019) lands one slot past the last pid's, which is
+    where a real one falls: after every poll, before the wait. It stamps
+    nothing, so its value reaches no event -- which is why adding it left the
+    fixture byte-identical.
     """
     clock: list[int] = []
     reads: list[tuple[int, int]] = []
@@ -145,6 +155,7 @@ def _script() -> tuple[list[int], list[tuple[int, int]]]:
             clock.append(ts_read_start)
             clock.append(ts_read_start + READ_COST_NS)
             reads.append((pid, ts_read_start))
+        clock.append(instant + (len(pids) + 1) * READ_SLOT_NS)
     return clock, reads
 
 
@@ -263,7 +274,8 @@ def run_monitored(output: Path) -> MonitoredRun:
         StreamingStats(),
         wait_policy_factory=no_wait_policy,
     )
-    # `rate=0` so the between-tick wait returns at once, and no `rss_sampler`,
+    # `rate=0` asks for no schedule, so the between-tick wait is the loop's
+    # 1 ms spin-guard and nothing more (ADR-0019), and no `rss_sampler`,
     # which would read this machine's memory once a second. `NoWaitPolicy` per
     # pid rather than `StartupTimeoutPolicy`, whose verdict on a failed poll is
     # a `time.monotonic` reading in seconds -- a clock this file does not own.
@@ -324,9 +336,10 @@ class TestTheScriptIsWorthPinning:
         assert any(name.startswith("GC Loss(") for name in names)
 
     def test_the_clock_was_spent_exactly(self, run: MonitoredRun) -> None:
-        """One read for the tick, two per polled pid, nothing left over. A
-        different count per tick moves every timestamp downstream, and this says
-        so in one line instead of across the whole fixture diff."""
+        """One read to stamp the tick, two per polled pid, one to pace the
+        loop, nothing left over. A different count per tick moves every
+        timestamp downstream, and this says so in one line instead of across
+        the whole fixture diff."""
         assert run.clock_spent == run.clock_scripted
 
 

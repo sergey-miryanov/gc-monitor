@@ -298,6 +298,22 @@ class TestThePace:
 
         assert waits == [pytest.approx(0.001)]
 
+    def test_a_rate_of_zero_asks_for_no_schedule_and_gets_none(self, mock_monitor: MagicMock) -> None:
+        """Stepping to the next position one rate at a time never terminates
+        when the rate is zero. A test wanting an unpaced run passes `rate=0`,
+        so this hangs the suite rather than failing it."""
+        waits = _waits(mock_monitor, [0, 30_000_000], rate=0.0)
+
+        assert waits == [pytest.approx(0.001)], "the spin-guard is all that is left"
+
+    def test_a_long_stall_is_counted_rather_than_stepped(self, mock_monitor: MagicMock) -> None:
+        """A tick that stalled for a minute at a 1 ms rate misses sixty
+        thousand positions. Counting them costs one division; stepping to them
+        costs sixty thousand iterations inside the poll interval."""
+        waits = _waits(mock_monitor, [0, 60_000_000_000], rate=0.001)
+
+        assert waits == [pytest.approx(0.001)]
+
     def test_the_stamping_instant_is_not_the_pacing_one(self, mock_monitor: MagicMock) -> None:
         """The pacing read stamps nothing. What reaches the monitor is the
         instant taken before the tick, never the one taken after it."""

@@ -32,6 +32,10 @@ class MonitorLoop:
     tick costs. A tick that outlasts its position skips to the next position on
     the same grid, so the phase survives and the interval degrades in whole
     multiples of the rate instead of drifting with the size of the target.
+
+    A rate of zero or less asks for no schedule at all, and gets none: the loop
+    polls as fast as `MIN_IDLE_NS` allows. The CLI rejects it, so this is the
+    shape a test asking for an unpaced run takes.
     """
 
     def __init__(
@@ -85,15 +89,21 @@ class MonitorLoop:
                 # tick.
                 pacing_ns = time.monotonic_ns()
 
-                next_ns += self._rate_ns
-                while next_ns <= pacing_ns:
-                    # The tick outlasted its position. Skip to the next one on
-                    # the original grid rather than re-basing: missed positions
-                    # are dropped, never made up.
+                idle_ns = 0
+                if self._rate_ns > 0:
                     next_ns += self._rate_ns
-                    ticks_skipped += 1
+                    if next_ns <= pacing_ns:
+                        # The tick outlasted its position. Skip to the next
+                        # position on the original grid rather than re-basing:
+                        # missed positions are dropped, never made up. Counted
+                        # rather than stepped, so a tick that stalled for
+                        # minutes costs one division.
+                        missed = (pacing_ns - next_ns) // self._rate_ns + 1
+                        next_ns += missed * self._rate_ns
+                        ticks_skipped += missed
+                    idle_ns = next_ns - pacing_ns
 
-                self._stop_event.wait(timeout=max(next_ns - pacing_ns, MIN_IDLE_NS) / 1e9)
+                self._stop_event.wait(timeout=max(idle_ns, MIN_IDLE_NS) / 1e9)
 
         return RunReport(ticks_run=ticks_run, ticks_scheduled=ticks_run + ticks_skipped)
 

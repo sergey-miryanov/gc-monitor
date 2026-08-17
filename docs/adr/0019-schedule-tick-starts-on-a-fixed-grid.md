@@ -53,6 +53,12 @@ that is already struggling. Under a grid that keeps its phase that window is nar
 spin-guard rather than a policy, and it is a constant rather than a fraction of the rate — a
 fraction would weaken the protection exactly when an operator lowers the rate to chase coverage.
 
+**Missed positions are counted, not stepped to.** How many a tick missed is one division, so a tick
+that stalled for minutes against a millisecond rate costs the same as one that missed a single
+position. Stepping one rate at a time also never terminates when the rate is zero, which the CLI
+rejects but a test asking for an unpaced run passes deliberately: a rate of zero or less now asks
+for no schedule and gets none, leaving `MIN_IDLE_NS` as the only thing between two ticks.
+
 **A run answers a `RunReport`.** `MonitorLoop.run` returns how many ticks ran and how many positions
 were scheduled, and the end-of-run summary states both. Without it a saturated run is
 indistinguishable from a healthy one: both show low coverage, and only this says whether gcmon ever
