@@ -70,22 +70,11 @@ class EventsMonitor:
     ) -> None:
         """
         *wait_policy_factory* builds the per-pid policy that decides when a pid
-        is finished. Required, and keyword-only, because there is no safe
-        default: :func:`no_wait_policy` gives up on the first failed poll, so a
-        monitor that silently got it would end a run against a target still
-        initializing instead of waiting out a startup window -- and would do it
-        by answering `keep_running=False`, which reads as an orderly finish
-        rather than as a missing argument. A caller that only :meth:`poll`\\ s
-        and never :meth:`tick`\\ s still has to say which it wants, which is
-        the point: it makes "no policy was configured" impossible to reach by
-        omission.
+        is finished. It has no default; ADR-0017 says why.
 
-        *is_pid_enabled* is the control plane's per-pid verdict: ``False``
-        means the control server has suppressed that pid and it must not be
-        polled. ``None`` means no control plane. Not to be confused with
-        ``_enabled`` below, which is one flag for the whole monitor meaning
-        "not stopped"; the two were fields of the same name in two modules
-        until spec 0038 brought them together.
+        *is_pid_enabled* is the control plane's per-pid verdict: ``False`` means
+        the control server has suppressed that pid and it must not be polled.
+        ``None`` means no control plane.
         """
         self._process = process
         self._exporter = exporter
@@ -100,27 +89,16 @@ class EventsMonitor:
     def tick(self, now_ns: int, stop: Callable[[], bool]) -> PollReport:
         """Poll the target and every child once, and report what answered.
 
-        Why the monitor owns this rather than the loop: ADR-0017.
+        Prunes the state of every pid that has left the process tree first, so
+        a reused pid inherits nothing from the process before it. Why the
+        monitor owns all of this rather than the loop: ADR-0017.
 
-        One tick is one call because every piece of per-pid state behind that
-        answer has one lifetime: the ring cursors, the poll instant ADR-0015's
-        loss arithmetic runs on, the streaming stats, and the wait policy that
-        decides when the pid is finished. They are pruned together, against
-        one child set, by the code that owns them. Two prunes computed from
-        two expressions of that set is what would let a recycled pid inherit a
-        cursor from the process before it, and turn a fresh ``collections``
-        counter into a loss window for collections that never happened.
-
-        *now_ns* is the instant the whole tick is stamped with. The caller
-        reads the clock once and hands the same instant to the RSS sampler in
-        seconds, so a sample and a liveness observation from one tick agree
+        *now_ns* stamps the whole tick, liveness included. The caller reads the
+        clock once and hands the same instant to the RSS sampler in seconds
         (ADR-0011, ADR-0013).
 
-        *stop* is asked between pids, so a shutdown does not have to wait out
-        a whole process tree. The event behind it belongs to the caller; the
-        monitor only reads it. Required, since a caller driving ticks has a
-        shutdown path whether or not it has thought about one, and a caller
-        that truly cannot be interrupted can say so in a lambda.
+        *stop* is asked between pids, so a shutdown does not have to wait out a
+        whole process tree.
         """
         child_pids = self.get_child_pids()
         children = [self._process.pid, *(child_pids or [])]
@@ -157,15 +135,9 @@ class EventsMonitor:
 
         live_pids = frozenset(live)
 
-        # Liveness, after the poll phase and never during it (ADR-0011). One
-        # batched call carries the whole set, so the cost is one per tick and
-        # one lock acquisition, not one per pid. Skipped on an empty set: an
-        # observation of nothing would widen no span.
-        #
-        # After, not during, is what leaves a batch that crosses
-        # ``flush_threshold`` mid-poll still able to emit a rank-less process
-        # descriptor -- the records are enqueued by the polls above while this
-        # lands behind them. ADR-0011 records that and it stays true here.
+        # After the poll phase and never during it, in one batched call, and
+        # skipped on an empty set. All three are ADR-0011's, which explains
+        # what each of them buys.
         if live_pids:
             self._exporter.add_process_liveness(live_pids, now_ns)
 
