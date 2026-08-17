@@ -21,14 +21,9 @@ STATS_OFF_WORDS = ("no", "off", "false", "0")
 
 
 class StatsView(Enum):
-    """Which blocks the table prints.
+    """Which blocks the table prints: `FULL` is `TOTAL` plus one per ring.
 
-    The member's value is the word the operator types after `--stats`, as
-    `TableFormat`'s is. `TOTAL` is `FULL` minus the per-ring blocks: on a
-    single-interpreter run that block copies the roll-up above it, and on a
-    wider target it is the detail behind a summary that stands on its own.
-
-    No table at all is `None`, and `STATS_OFF_WORDS` names the words for it.
+    Each member's value is the word typed after `--stats`. No table is `None`.
     """
 
     TOTAL = "total"
@@ -36,26 +31,18 @@ class StatsView(Enum):
 
     @classmethod
     def words(cls) -> list[str]:
-        """Every word `--stats` and `GCMON_STATS` take, views first.
-
-        Feeds argparse `choices`, so the usage line offers what `parse`
-        accepts.
-        """
+        """Every word `--stats` and `GCMON_STATS` take, views first."""
         return [view.value for view in cls] + list(STATS_OFF_WORDS)
 
     @classmethod
     def parse(cls, word: str) -> StatsView | None:
         """Map a typed word to its view, or to None for no table.
 
-        Case and surrounding space are forgiven, as `GCMON_TABLE_FORMAT` and
-        `GCMON_FORMAT` forgive them: an env file keeps the trailing space it
-        was written with, and a compose block is as likely to say `Total`.
+        Case and surrounding space are forgiven.
 
         Raises:
             ValueError: the word is neither a view nor one of
-                `STATS_OFF_WORDS`. A blank word raises with the rest, though a
-                variable holding only spaces never reaches here, since
-                `get_env_stats` reads it as unset.
+                `STATS_OFF_WORDS`.
         """
         normalized = word.strip().lower()
         if normalized in STATS_OFF_WORDS:
@@ -231,19 +218,12 @@ def _ring_label(pid: int, iid: int, pid_epoch: int) -> str:
 def print_stats(stats: StreamingStats, view: StatsView, table_format: TableFormat = TableFormat.PLAIN) -> None:
     """Two levels: the run, then one block per ring under `FULL`.
 
-    Rings sort by `(pid, iid)`, so a process's interpreters stay adjacent and
-    in order. `Read Time` is monitor-side and belongs to no ring, so its first
-    cell stays empty, and it prints under either view.
+    Rings sort by `(pid, iid)`. `Read Time` belongs to no ring, so its first
+    cell stays empty and it prints under either view.
 
-    *view* chooses which blocks print and nothing else. The header, the
-    separators and every cell hold what they held before, and the first column
-    keeps its `PID:IID` heading under `TOTAL`, where `Total` is the only value
-    in it, so you can diff the two views side by side.
-
-    Widths follow the rows that print, as they always have. A target whose ring
-    labels outrun the `PID:IID` header (a six-digit pid, or the `12345:0#2` of
-    a reused one) pads its first column one wider under `FULL`. Same cells,
-    different padding around them.
+    *view* chooses which blocks print and nothing else. Widths follow the rows
+    that print, so ring labels wider than the `PID:IID` header pad `FULL`'s
+    first column one further than `TOTAL`'s.
     """
     all_rows: list[list[str] | Any] = []
 
@@ -302,12 +282,9 @@ def _print_footer(stats: StreamingStats, view: StatsView) -> None:
     Only printed when something was lost or the target collected before gcmon
     attached. A run that saw everything has nothing to explain.
 
-    Which notes appear depends on the run, so the number, not the order, is
-    what separates two that wrap on a narrow terminal. A lone note still
-    reads ``1.``.
-
-    The first two notes are run-wide and read the same either way; the third
-    reconciles ring rows against the run, which `TOTAL` prints none of.
+    Which notes appear depends on the run, so the number rather than the order
+    separates two that wrap on a narrow terminal. A lone note still reads
+    ``1.``. The first two are run-wide; the third is `FULL` only.
     """
     pauses = stats.pause_totals_by_gen()
     cumulative = stats.cumulative_totals_by_gen()
