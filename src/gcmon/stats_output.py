@@ -16,13 +16,7 @@ class TableFormat(Enum):
     MARKDOWN = "markdown"
 
 
-# Words that ask for no table, and so for no view. They are the falsy
-# complements of the truthy set `GCMON_STATS` took while it was a switch, so a
-# variable already set to `0` keeps meaning what it meant. The truthy words stay
-# out: "no table" is one outcome and "a table" is two, which is what the view
-# names make the operator choose between. They sit beside `StatsView` so that
-# one module says what the flag accepts, but not inside it: `print_stats` could
-# not render such a member, and four words would need four of them.
+# Words that ask for no table, and so for no view.
 STATS_OFF_WORDS = ("no", "off", "false", "0")
 
 
@@ -214,8 +208,6 @@ def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bo
         observed = _coverage_cell(sampled / (sampled + lost), lost)
         lines.append(f"Total events: {sampled} (+{lost} reconstructed, {observed} observed)")
         if not show_stats:
-            # The cheaper view, and it already holds the per-generation
-            # breakdown this sentence offers.
             lines.append("Run with --stats=total for the per-generation breakdown.")
     else:
         lines.append(f"Total events: {sampled}")
@@ -268,8 +260,6 @@ def print_stats(stats: StreamingStats, view: StatsView, table_format: TableForma
                 first = False
             has_rows = True
 
-    # The one place the view is read. `TOTAL` walks no rings, so the loop below
-    # and everything after it stay as they were.
     rings = stats.rings() if view is StatsView.FULL else []
     for pid, iid, pid_epoch in rings:
         all_rows.append(_SEP_GROUP)
@@ -345,10 +335,7 @@ def _print_footer(stats: StreamingStats, view: StatsView) -> None:
             f"{_plural(interpreters, 'interpreter')} in {_plural(processes, 'process', 'processes')}: {parts}."
         )
 
-    # A reader of `TOTAL` cannot find the discrepancy this note explains, and
-    # its closing line describes the only block on screen. Dropping it loses
-    # nothing: `StreamingStats` logs a warning naming the pid and the iid the
-    # first time it declines a ring, under either view.
+    # The note reconciles ring rows against the run, and `TOTAL` prints none.
     untracked = stats.untracked_rings() if view is StatsView.FULL else 0
     if untracked:
         # The rows are short of the run and a reader adding them up would find

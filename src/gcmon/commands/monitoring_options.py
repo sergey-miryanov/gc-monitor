@@ -93,11 +93,8 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         default=get_env_flush_threshold(),
         help=f"Number of events to buffer before flushing to file for JSONL format (default: 100 or {ENV_FLUSH_THRESHOLD} env var)",
     )
-    # A required value rather than `nargs="?"` with a `const`. `monitor` takes
-    # the pid as a required positional, and argparse decides whether an
-    # optional with `nargs="?"` eats the next token by whether it starts with
-    # `-`, which a pid does not. An alias would break `gcmon monitor --stats
-    # 12345` while looking like it kept every spelling working.
+    # Not `nargs="?"` with a `const`: that eats the pid of
+    # `gcmon monitor --stats 12345`. See ADR-0018.
     parser.add_argument(
         "--stats",
         choices=StatsView.words(),
@@ -159,8 +156,7 @@ class MonitoringOptions:
         self.output_format = output_format
         self.flush_threshold = flush_threshold
         self.duration_label = duration_label
-        # `None` is no table: what an operator who typed nothing asked for, and
-        # what one of `STATS_OFF_WORDS` asks for out loud.
+        # `None` is no table.
         self.stats_view = stats_view
         self.table_format = table_format
         self.rss_enabled = rss_enabled
