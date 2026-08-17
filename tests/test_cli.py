@@ -136,9 +136,9 @@ class TestCliVersion:
         assert gcmon.__version__ == result.stdout.strip()
 
     def test_importing_gcmon_does_not_resolve_the_version(self) -> None:
-        # Reading the distribution's metadata stats every sys.path entry (~35 ms here), and only
-        # `--version` ever asks for it. A fresh interpreter, so the check does not depend on
-        # whether another test already touched the attribute.
+        # Reading the metadata stats every sys.path entry (~35 ms here) and only `--version`
+        # needs it. A fresh interpreter, so an earlier test cannot mask a regression by having
+        # touched the attribute first.
         code = "import gcmon; print('__version__' in vars(gcmon))"
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
         assert result.stdout.strip() == "False"

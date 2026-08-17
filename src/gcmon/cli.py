@@ -18,8 +18,8 @@ logger = logging.getLogger("gcmon")
 class _VersionAction(argparse.Action):
     """Print gcmon's version and exit.
 
-    ``argparse``'s own ``version`` action wants the string when the flag is declared, which would
-    read the distribution's metadata on every run. This one asks for it when the flag is used.
+    ``argparse``'s ``version`` action wants the string when the flag is declared, so every run
+    would read the distribution's metadata. This one reads it when the flag is used.
     """
 
     def __init__(self, option_strings: Sequence[str], dest: str, help: str | None = None) -> None:

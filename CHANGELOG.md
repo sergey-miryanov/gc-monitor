@@ -20,7 +20,7 @@
 
 ### Bugfixes
 
-- `gcmon.__version__` reports the installed version instead of `0.1.0`, which it had said since `0.2.0`
+- `gcmon.__version__` reports the installed version; it had said `0.1.0` since `0.2.0`
 - Stop a reused PID inheriting its predecessor's `--stats` row, which put two processes' records under one heading
 - Stop a reused PID's lifetime totals overwriting its predecessor's, which made the note under the table drop mid-run
 

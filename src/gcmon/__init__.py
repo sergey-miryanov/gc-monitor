@@ -4,12 +4,11 @@ from .monitor import EventsMonitor
 
 
 def __getattr__(name: str) -> str:
-    """Resolve ``__version__`` from the installed distribution, on first read.
+    """Read ``__version__`` from the installed distribution's metadata.
 
-    ``pyproject.toml`` is the only place gcmon's version is written; this reads it back out of
-    the metadata the install carries. On demand, not at import: the lookup scans ``sys.path``
-    and costs tens of milliseconds, which every ``import gcmon`` would otherwise pay for a
-    string only ``gcmon --version`` reads.
+    ``pyproject.toml`` is the only place gcmon's version is written. The lookup scans
+    ``sys.path`` and costs tens of milliseconds, so it waits for a read of ``__version__``
+    instead of running at import: ``gcmon --version`` is the only caller.
     """
     if name == "__version__":
         import importlib.metadata
