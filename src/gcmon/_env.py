@@ -195,7 +195,7 @@ def get_env_server_port() -> int:
 
 
 def get_env_stats() -> str | None:
-    """Get the statistics view from environment variable.
+    """Get the statistics view, or a word asking for no table, from the environment.
 
     The value is handed on as it was written rather than checked here: every
     ``get_env_*`` is evaluated as an argparse ``default=`` while the parser is
@@ -204,10 +204,15 @@ def get_env_stats() -> str | None:
     ``get_monitoring_options`` refuses an unknown value where a bad rate or
     duration is already refused.
 
+    A blank value is the exception, and reads as unset: a variable left empty
+    in an env file names no view and asks for no table, which is the one thing
+    about it that is not ambiguous.
+
     Returns:
-        The raw GCMON_STATS value, or None if it is unset or empty.
+        The raw GCMON_STATS value, or None if it is unset or blank.
     """
-    return os.environ.get(ENV_STATS) or None
+    value = os.environ.get(ENV_STATS)
+    return value if value and value.strip() else None
 
 
 def get_env_rss() -> bool:

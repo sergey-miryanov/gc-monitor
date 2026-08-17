@@ -71,7 +71,7 @@ Exactly one of `-s`/`--script` or `-m`/`--module`.
 | `-v, --verbose` | both | Enable verbose output (`-v` for INFO, `-vv` for DEBUG) | `0` |
 | `--format` | both | Output format: `chrome`, `perfetto`, `jsonl` or `stdout` (see [Output formats](formats.md)) | `chrome` |
 | `--flush-threshold` | both | Number of events to buffer before flushing | `100` |
-| `--stats <view>` | both | Show a statistics table at end of monitoring: `total` for the run-wide block, `full` for that plus one block per interpreter. The value is required (see [Statistics](statistics.md)) | No table |
+| `--stats <view>` | both | Show a statistics table at end of monitoring: `total` for the run-wide block, `full` for that plus one block per interpreter, `no`/`off`/`false`/`0` for none. The value is required (see [Statistics](statistics.md)) | No table |
 | `--table-format` | both | Table format: `plain` or `markdown`/`md` | `plain` |
 | `--rss` | both | Track the target's Resident Set Size. `chrome` and `perfetto` only, and needs the `[cmdline]` extra (see [RSS Tracking](rss.md)) | `False` |
 | `--rss-interval` | both | RSS sampling interval in seconds | `1.0` |
@@ -91,7 +91,7 @@ was meant.
 | `GCMON_VERBOSE` | `-v, --verbose` | Verbose level (integer or truthy value) | `0` |
 | `GCMON_FORMAT` | `--format` | Output format: `chrome`, `perfetto`, `jsonl`, or `stdout` | `chrome` |
 | `GCMON_FLUSH_THRESHOLD` | `--flush-threshold` | Number of events to buffer before flushing | `100` |
-| `GCMON_STATS` | `--stats` | Statistics table view: `total` or `full`. Any other value stops the run | No table |
+| `GCMON_STATS` | `--stats` | Statistics table view: `total` or `full`, or `no`/`off`/`false`/`0` for no table. Blank reads as unset; any other value stops the run | No table |
 | `GCMON_TABLE_FORMAT` | `--table-format` | Table format: `plain`, `md`, or `markdown` | `plain` |
 | `GCMON_RSS` | `--rss` | Enable RSS tracking (`1`, `true`, `yes`, `on`) | `False` |
 | `GCMON_RSS_INTERVAL` | `--rss-interval` | RSS sampling interval in seconds | `1.0` |

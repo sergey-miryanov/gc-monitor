@@ -49,8 +49,15 @@ things a reader could expect `--stats=totals` to print, and neither is a block.
 **No alias is kept, for either half.** Not bare `--stats` for `full`, not `all` as a hidden
 synonym for it.
 
-**`GCMON_STATS` takes the same two words**, and an unreadable value fails the run rather than
+**`GCMON_STATS` takes the same words**, and an unreadable value fails the run rather than
 falling back. The flag and the variable are one vocabulary, refused in one voice.
+
+**Four words ask for no table: `no`, `off`, `false` and `0`.** On the flag and in the variable
+alike, they select what an unset flag selects. They are the falsy complements of the truthy set
+(`1`, `true`, `yes`, `on`) the variable took while it was a switch. Their truthy opposites are
+**not** re-admitted, and the asymmetry is the point: "no table" is one outcome and "a table" is
+two, so `off` has a referent and `on` does not. A blank `GCMON_STATS` reads as unset on the same
+grounds: it names no view, and asking for nothing is the only reading it has.
 
 **The wider view is `full`, not `all`.** `total` names the block it prints, which is the string
 in the table's first column; `full` is a size word and the only candidate that reads
@@ -67,6 +74,14 @@ re-typing the flag costs them one edit in the same pass.
 The flag becomes self-describing. Nobody has to remember which view a bare `--stats` picked,
 which matters more here than in most flags: the two views differ by how much they print and not
 by what the numbers mean, so a wrong guess is quiet.
+
+The off words halve the break in the variable. `GCMON_STATS=0` in a shell profile meant no table
+before this change and means no table after it, so only the settings that asked *for* the table
+stop the run — the ones whose author has a view to choose. They also give the flag something it
+had no way to say: the variable sets a default for every run in the shell, and `--stats=no` is
+how one run declines it. `GCMON_RSS` has the same shape and no such escape — `--rss` is a
+`store_true` with no off spelling — which reads as a gap in that flag rather than an argument
+against this one.
 
 `GCMON_STATS` becomes the only gcmon environment variable that can fail a run. Every other
 `get_env_*` returns its default on an unreadable value — `GCMON_FORMAT=bogus` yields `chrome`,
@@ -105,6 +120,11 @@ is built on. `Total`, singular, has one referent here and it is the one meant.
 **Keeping `--stats` as a boolean and adding a second flag for the view.** Rejected: two flags
 for one idea, with the invalid combination — the view flag without the enabling flag — left to
 be caught by hand.
+
+**Taking the truthy words back alongside the falsy ones, with `1` meaning `full`.** Rejected: it
+is the bare alias under another spelling, and it makes the same undecided choice — which view an
+operator who wrote `1` wanted — on their behalf and silently. `GCMON_STATS=1` says a table was
+wanted, not which, and that is the question worth stopping for.
 
 **Silently ignoring an unreadable `GCMON_STATS`, as the other variables do.** Rejected for this
 variable: consistency with the flag is worth more than consistency with the other variables,

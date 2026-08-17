@@ -36,6 +36,13 @@ logger = logging.getLogger("gcmon")
 # inherit the no-op base implementation and silently discard RSS samples.
 RSS_CAPABLE_FORMATS = ("chrome", "trace", "perfetto", "chrome+perfetto")
 
+# Values of `--stats` and GCMON_STATS that ask for no table. They are the falsy
+# complements of the truthy set the variable took while it was a switch, so a
+# variable already set to `0` keeps meaning what it meant. The truthy set does
+# not come back: "no table" is one outcome, while "a table" is two, and which
+# one `1` asks for is the question the two view names exist to make explicit.
+STATS_OFF_WORDS = ("no", "off", "false", "0")
+
 
 def _normalize_table_format(val: str) -> TableFormat:
     val = val.lower()
@@ -100,13 +107,14 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
     # appearing to keep every spelling working.
     parser.add_argument(
         "--stats",
-        choices=[view.value for view in StatsView],
+        choices=[view.value for view in StatsView] + list(STATS_OFF_WORDS),
         default=get_env_stats(),
         help=(
             f"Show a statistics table at the end of monitoring: 'total' for the run-wide block, "
-            f"'full' for that plus one block per interpreter. {ENV_STATS}=total|full asks for one "
-            f"from the environment. High-accuracy percentiles need the stats extra: "
-            f"pip install gcmon[stats]"
+            f"'full' for that plus one block per interpreter. 'no', 'off', 'false' or '0' asks "
+            f"for none, which is what an unset flag asks for and is the way to overrule "
+            f"{ENV_STATS} for one run. {ENV_STATS} takes the same words. High-accuracy "
+            f"percentiles need the stats extra: pip install gcmon[stats]"
         ),
     )
     parser.add_argument(
@@ -159,8 +167,8 @@ class MonitoringOptions:
         self.output_format = output_format
         self.flush_threshold = flush_threshold
         self.duration_label = duration_label
-        # `None` is no table at all, which is the run an operator who typed
-        # nothing asked for.
+        # `None` is no table at all: the run an operator who typed nothing
+        # asked for, and the run one of `STATS_OFF_WORDS` asks for out loud.
         self.stats_view = stats_view
         self.table_format = table_format
         self.rss_enabled = rss_enabled
@@ -207,18 +215,25 @@ def get_monitoring_options(
                 rate,
             )
 
-    # `--stats` is checked against the same two words at parse time, so the
-    # only value that reaches this is one the environment carried in. Case and
-    # surrounding space are forgiven, as `GCMON_TABLE_FORMAT` and
+    # `--stats` is checked against the same words at parse time, so the only
+    # value that can be unknown here is one the environment carried in. Case
+    # and surrounding space are forgiven, as `GCMON_TABLE_FORMAT` and
     # `GCMON_FORMAT` forgive them: an env file keeps a trailing space and a
     # compose block is as likely to say `Total`. The word itself is not.
     stats_view: StatsView | None = None
     if args.stats is not None:
-        try:
-            stats_view = StatsView(args.stats.strip().lower())
-        except ValueError:
-            logger.error("%s must be 'total' or 'full', got '%s'", ENV_STATS, args.stats)
-            return None
+        word = args.stats.strip().lower()
+        if word not in STATS_OFF_WORDS:
+            try:
+                stats_view = StatsView(word)
+            except ValueError:
+                logger.error(
+                    "%s must be 'total', 'full', or one of %s to ask for no table, got '%s'",
+                    ENV_STATS,
+                    ", ".join(f"'{off}'" for off in STATS_OFF_WORDS),
+                    args.stats,
+                )
+                return None
 
     if rate <= 0:
         logger.error("Rate must be positive, got %s", rate)

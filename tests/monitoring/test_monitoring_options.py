@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.commands.monitoring_options import RSS_CAPABLE_FORMATS, MonitoringOptions, get_monitoring_options
+from gcmon.commands.monitoring_options import (
+    RSS_CAPABLE_FORMATS,
+    STATS_OFF_WORDS,
+    MonitoringOptions,
+    get_monitoring_options,
+)
 from gcmon.stats_output import StatsView, TableFormat
 
 
@@ -297,3 +302,69 @@ class TestTheStatsEnvironmentVariable:
         self._options(["monitor", "12345"])
 
         assert "GCMON_STATS" in caplog.text
+
+
+class TestTheWordsThatTurnTheTableOff:
+    """`no`, `off`, `false` and `0` ask for no table. They are the falsy
+    complements of the truthy set `GCMON_STATS` took before it named a view,
+    so a variable that already read `0` keeps meaning what it meant. Their
+    truthy opposites do not come back: which view `1` asks for is the question
+    two named views exist to make the operator answer.
+    """
+
+    def _parse(self, argv: list[str]) -> Namespace:
+        from gcmon.cli import _create_parser
+
+        return _create_parser().parse_args(argv)
+
+    @pytest.mark.parametrize("word", STATS_OFF_WORDS)
+    def test_the_flag_takes_each_of_them(self, word: str) -> None:
+        result = get_monitoring_options(self._parse(["monitor", "12345", f"--stats={word}"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    @pytest.mark.parametrize("word", STATS_OFF_WORDS)
+    def test_the_variable_takes_each_of_them(self, monkeypatch: pytest.MonkeyPatch, word: str) -> None:
+        from gcmon.cli import _create_parser
+
+        monkeypatch.setenv("GCMON_STATS", word)
+
+        result = get_monitoring_options(_create_parser().parse_args(["monitor", "12345"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    @pytest.mark.parametrize("value", ["Off", "OFF", " off", "off\n"])
+    def test_the_variable_forgives_case_and_space(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+        from gcmon.cli import _create_parser
+
+        monkeypatch.setenv("GCMON_STATS", value)
+
+        result = get_monitoring_options(_create_parser().parse_args(["monitor", "12345"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    def test_the_flag_turns_off_what_the_variable_turned_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The reason to spell "no table" at all: a shell or a compose file
+        sets the variable for every run, and this run wants none."""
+        from gcmon.cli import _create_parser
+
+        monkeypatch.setenv("GCMON_STATS", "full")
+
+        result = get_monitoring_options(_create_parser().parse_args(["monitor", "12345", "--stats=no"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    def test_the_pid_survives_them(self) -> None:
+        assert self._parse(["monitor", "--stats", "off", "12345"]).pid == 12345
+
+    @pytest.mark.parametrize("word", ["1", "true", "yes", "on"])
+    def test_their_truthy_opposites_are_still_refused(self, capsys: pytest.CaptureFixture[str], word: str) -> None:
+        with pytest.raises(SystemExit) as exit_info:
+            self._parse(["monitor", "12345", f"--stats={word}"])
+
+        assert exit_info.value.code != 0
+        assert "total" in capsys.readouterr().err

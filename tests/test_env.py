@@ -170,8 +170,14 @@ class TestEnvStats:
         monkeypatch.setenv(env_module.ENV_STATS, value)
         assert env_module.get_env_stats() == value
 
-    def test_an_empty_value_reads_as_unset(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
-        monkeypatch.setenv(env_module.ENV_STATS, "")
+    @pytest.mark.parametrize("value", ["", " ", "\t\n"])
+    def test_a_blank_value_reads_as_unset(
+        self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str
+    ) -> None:
+        """A variable left blank in an env file states no view and asks for no
+        table, which is the one thing about it that is not ambiguous. It is
+        the only unusable value that does not stop the run."""
+        monkeypatch.setenv(env_module.ENV_STATS, value)
         assert env_module.get_env_stats() is None
 
 
