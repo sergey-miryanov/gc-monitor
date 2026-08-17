@@ -35,11 +35,6 @@ per tick, hands that instant unconverted to `tick` and then to `RssSampler`, bre
 `keep_running`, and owns the `threading.Event` a signal handler sets. It lends the monitor a read
 of that event, so a shutdown need not wait out a process tree.
 
-**`EventsMonitor` requires a wait policy factory, keyword-only.** No default is safe.
-`no_wait_policy` gives up on the first failed poll, so a monitor that got it by omission would end
-a run against a target still initializing, and would end it by answering `keep_running=False`,
-which the loop reads as an orderly finish. The failure leaves no error to trace.
-
 **A pid the policy gives up on keeps its policy and loses its cursors.** A replacement policy never
 saw the pid alive, so it answers "still starting" to every later invalid poll and holds the run
 open for a whole startup timeout.
@@ -52,8 +47,8 @@ empty. Reading it as empty drops every live child's cursor and re-exports its wh
 - Two prunes cannot disagree, because there is one.
 - A test drives one method and asserts on its report, instead of reproducing the loop's
   orchestration against a mock.
-- Every construction site names a wait policy, including the eight test monitors that only poll.
-  That is the cost, and it buys a monitor that cannot be built without one.
+- Every construction site names a wait policy, including the eight test monitors that only poll
+  and do not care which.
 - Liveness reporting moved off `MonitorLoop`, so
   [ADR-0011](0011-process-lifetime-and-ordering.md) was amended rather than contradicted. Its
   constraints hold: one clock read per tick, reporting after the poll phase, the call skipped on an
@@ -74,8 +69,10 @@ empty. Reading it as empty drops every live child's cursor and re-exports its wh
   makes a duration-limited run testable without waiting, and the stop event is what the signal
   handler sets. The count of modules was never the problem; the boundary ran through the per-pid
   state instead of around it.
-- **Default `wait_policy_factory` to `no_wait_policy`.** Rejected for the silent early exit above.
-  A required argument costs eight test call sites once.
+- **Default `wait_policy_factory` to `no_wait_policy`.** Rejected: `no_wait_policy` gives up on
+  the first failed poll, so a monitor that got it by omission would end a run against a target
+  still initializing by answering `keep_running=False`, which the loop reads as an orderly finish.
+  No error to trace. A required argument costs eight test call sites once.
 - **Keep `create_monitor`,** as an alias for the class or as a function supplying
   `no_wait_policy`. Deleted instead, because counting call sites found none: the command path
   constructs `EventsMonitor`, the eight poll-only test monitors construct it too, and no example or
