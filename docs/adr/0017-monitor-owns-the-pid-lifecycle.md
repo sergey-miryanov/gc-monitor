@@ -59,14 +59,6 @@ empty. Reading it as empty drops every live child's cursor and re-exports its wh
   makes a duration-limited run testable without waiting, and the stop event is what the signal
   handler sets. The count of modules was never the problem; the boundary ran through the per-pid
   state instead of around it.
-- **Default `wait_policy_factory` to `no_wait_policy`.** Rejected: `no_wait_policy` gives up on
-  the first failed poll, so a monitor that got it by omission would end a run against a target
-  still initializing by answering `keep_running=False`, which the loop reads as an orderly finish.
-  No error to trace. A required argument costs eight test call sites once.
-- **Keep `create_monitor`,** as an alias for the class or as a function supplying
-  `no_wait_policy`. Deleted instead, because counting call sites found none: the command path
-  constructs `EventsMonitor`, the eight poll-only test monitors construct it too, and no example or
-  doc page imports the name.
 
 ## Implementation
 
