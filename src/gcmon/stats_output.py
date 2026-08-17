@@ -205,9 +205,14 @@ def print_stats(stats: StreamingStats, view: StatsView, table_format: TableForma
     cell stays empty, and it prints under either view.
 
     *view* chooses which blocks are emitted and nothing else: the header, the
-    column widths, the separators and every cell are what they were. The first
-    column keeps its `PID:IID` heading under `TOTAL`, where the only value it
-    holds is `Total`, so the two views stay diffable side by side.
+    separators and every cell are what they were. The first column keeps its
+    `PID:IID` heading under `TOTAL`, where the only value it holds is `Total`,
+    so the two views stay diffable side by side.
+
+    Widths still follow the rows that print, as they always have, so a target
+    whose ring labels outrun the `PID:IID` header — a six-digit pid, or the
+    `12345:0#2` of a reused one — pads its first column one wider under
+    `FULL`. The cells are the same; the padding around them is not.
     """
     all_rows: list[list[str] | Any] = []
 

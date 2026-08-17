@@ -121,5 +121,6 @@ logging exists.
 The view itself is `StatsView` in `gcmon.stats_output`, beside the `TableFormat` behind
 `--table-format`; each member's value is the word the operator types.
 [Statistics](../statistics.md) documents what the two views print, and
-`tests/stats/test_stats_output.py` locks in that the narrower one is the wider one's opening
-lines to the byte.
+`tests/stats/test_stats_output.py` locks in that the narrower one carries the wider one's cells
+unchanged — line for line where the ring labels fit under the `PID:IID` header, and cell for cell
+where they do not and the first column pads one wider.

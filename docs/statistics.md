@@ -1,8 +1,9 @@
 # Statistics
 
 Use `--stats` to display a statistics table at the end of monitoring. The table
-reports GC pause durations (p50, p90, p95, p99) and counts per generation, with
-one block per interpreter plus an overall Total block for the run.
+reports GC pause durations (p50, p90, p95, p99) and counts per generation, in a
+`Total` block for the whole run and — if you ask for them — one block per
+interpreter under it.
 
 `--stats` takes the view you want, and takes it as a required value:
 
@@ -191,7 +192,7 @@ The third interval above. It changes no cell in the table. The counts say what
 the figure folded: three interpreters that started at different moments, in two
 processes. A run watching one interpreter reads `1 interpreter in 1 process`.
 
-**3. Rings with no row.**
+**3. Rings with no row.** `--stats=full` only.
 
 ```
 3. 2 rings got no row: gcmon was already tracking 256 interpreters at once. Those records are counted in Total.
@@ -203,6 +204,11 @@ interpreter that starts while every slot is busy gets no block of its own, and
 gcmon logs a warning the first time it happens. `Total` still counts every
 record, so the rows can add up to less than the run and this note says by how
 many rings.
+
+`--stats=total` prints no ring rows, so there is no gap for it to explain and
+the note is left out. The warning naming the pid and the interpreter is logged
+either way, so nothing is lost by asking for the narrower view. Notes 1 and 2
+are run-wide and print under both.
 
 ## Without `[stats]` extra
 

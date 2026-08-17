@@ -244,6 +244,18 @@ class TestTheStatsEnvironmentVariable:
         assert result is not None
         assert result.stats_view is view
 
+    @pytest.mark.parametrize("value", ["Total", "TOTAL", " total", "total\n"])
+    def test_case_and_space_are_forgiven(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+        """An env file keeps the trailing space it was written with, and a
+        compose block is as likely to say `Total`. `GCMON_TABLE_FORMAT` and
+        `GCMON_FORMAT` forgive the same things."""
+        monkeypatch.setenv("GCMON_STATS", value)
+
+        result = self._options(["monitor", "12345"])
+
+        assert result is not None
+        assert result.stats_view is StatsView.TOTAL
+
     def test_the_flag_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GCMON_STATS", "full")
 

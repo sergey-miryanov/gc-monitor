@@ -104,8 +104,9 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         default=get_env_stats(),
         help=(
             f"Show a statistics table at the end of monitoring: 'total' for the run-wide block, "
-            f"'full' for that plus one block per interpreter (requires stats extra: "
-            f"pip install gcmon[stats] or the {ENV_STATS} env var)"
+            f"'full' for that plus one block per interpreter. {ENV_STATS}=total|full asks for one "
+            f"from the environment. High-accuracy percentiles need the stats extra: "
+            f"pip install gcmon[stats]"
         ),
     )
     parser.add_argument(
@@ -207,11 +208,14 @@ def get_monitoring_options(
             )
 
     # `--stats` is checked against the same two words at parse time, so the
-    # only value that reaches this is one the environment carried in.
+    # only value that reaches this is one the environment carried in. Case and
+    # surrounding space are forgiven, as `GCMON_TABLE_FORMAT` and
+    # `GCMON_FORMAT` forgive them: an env file keeps a trailing space and a
+    # compose block is as likely to say `Total`. The word itself is not.
     stats_view: StatsView | None = None
     if args.stats is not None:
         try:
-            stats_view = StatsView(args.stats)
+            stats_view = StatsView(args.stats.strip().lower())
         except ValueError:
             logger.error("%s must be 'total' or 'full', got '%s'", ENV_STATS, args.stats)
             return None

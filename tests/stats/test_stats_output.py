@@ -789,8 +789,11 @@ class TestTheTwoViews:
     def test_total_is_the_head_of_full(self, capsys: pytest.CaptureFixture[str]) -> None:
         """The regression guard, and the one that catches a view branching on
         anything but which blocks it emits: every line the narrower view
-        prints before `Read Time` is the wider view's line, to the byte,
-        column widths included.
+        prints before `Read Time` is the wider view's line, to the byte.
+
+        It reads that way because `12345:0` fits under the `PID:IID` header,
+        so dropping the ring rows takes nothing out of the width the first
+        column is computed from. A wider label is the test below.
         """
         stats = self._two_interpreters()
         total = self._out(capsys, stats, StatsView.TOTAL).splitlines()
@@ -798,6 +801,21 @@ class TestTheTwoViews:
         head = total[: next(i for i, line in enumerate(total) if "Read Time" in line)]
 
         assert full[: len(head)] == head
+
+    def test_a_wider_ring_label_pads_the_first_column_of_full_alone(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Widths follow the rows that print, as they always have, so a
+        six-digit pid — or the `12345:0#2` of a reused one — leaves `full` one
+        character wider in the first column. The cells are still the same
+        cells: what moved is padding, not a number.
+        """
+        stats = StreamingStats()
+        for _ in range(3):
+            stats.update(123456, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=1_000_000))
+        total = table_rows(self._out(capsys, stats, StatsView.TOTAL))
+        full = table_rows(self._out(capsys, stats, StatsView.FULL))
+
+        assert full[: len(total)] == total
+        assert [row[0] for row in full[len(total) :]] == ["123456:0"]
 
     def test_the_views_of_a_single_ring_run_differ_by_one_block(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Folding one ring into a roll-up changes nothing, so what `full`
