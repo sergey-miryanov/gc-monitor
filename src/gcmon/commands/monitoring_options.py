@@ -203,8 +203,6 @@ def get_monitoring_options(
                 rate,
             )
 
-    # `--stats` is checked against `StatsView.words()` at parse time, so the
-    # only value that can be unknown here is one the environment carried in.
     stats_view: StatsView | None = None
     if args.stats is not None:
         try:
