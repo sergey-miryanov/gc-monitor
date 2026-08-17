@@ -175,7 +175,9 @@ def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bo
         observed = _coverage_cell(sampled / (sampled + lost), lost)
         lines.append(f"Total events: {sampled} (+{lost} reconstructed, {observed} observed)")
         if not show_stats:
-            lines.append("Run with --stats for the per-generation breakdown.")
+            # The cheaper of the two views, and the one that already holds the
+            # per-generation breakdown this sentence offers.
+            lines.append("Run with --stats=total for the per-generation breakdown.")
     else:
         lines.append(f"Total events: {sampled}")
 

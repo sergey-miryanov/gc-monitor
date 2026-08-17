@@ -834,7 +834,7 @@ class TestTheTwoViews:
             assert "No GC statistics collected." in self._out(capsys, StreamingStats(), view)
 
 
-POINTER = "Run with --stats for the per-generation breakdown."
+POINTER = "Run with --stats=total for the per-generation breakdown."
 
 _COUNTS = re.compile(r"^Total events: (\d+) \(\+(\d+) reconstructed, ([\d.]+)% observed\)$")
 

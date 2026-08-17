@@ -251,7 +251,7 @@ class TestCmdRunUnit:
             "verbose": 1,
             "format": "chrome",
             "flush_threshold": 100,
-            "stats": False,
+            "stats": None,
             "table_format": None,
             "control_name": None,
             "rss": False,

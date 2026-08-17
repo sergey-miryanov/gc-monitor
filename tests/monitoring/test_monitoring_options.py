@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from gcmon.commands.monitoring_options import RSS_CAPABLE_FORMATS, get_monitoring_options
-from gcmon.stats_output import TableFormat
+from gcmon.stats_output import StatsView, TableFormat
 
 
 def _make_args(**overrides: object) -> Namespace:
@@ -19,7 +19,7 @@ def _make_args(**overrides: object) -> Namespace:
         "duration": 0.05,
         "format": "chrome",
         "flush_threshold": 100,
-        "stats": False,
+        "stats": None,
         "table_format": TableFormat.PLAIN,
         "control_name": None,
         "rss": False,
@@ -156,3 +156,67 @@ class TestRssFormatWarning:
         result = get_monitoring_options(args)
         assert result is not None
         assert "RSS tracking is not supported" not in caplog.text
+
+
+class TestTheStatsFlagCarriesTheView:
+    """`--stats` names which blocks to print and refuses to guess: a value is
+    required, and it is one of two words.
+    """
+
+    def _parse(self, argv: list[str]) -> Namespace:
+        from gcmon.cli import _create_parser
+
+        return _create_parser().parse_args(argv)
+
+    @pytest.mark.parametrize("word, view", [("total", StatsView.TOTAL), ("full", StatsView.FULL)])
+    def test_each_word_selects_its_view(self, word: str, view: StatsView) -> None:
+        result = get_monitoring_options(self._parse(["monitor", "12345", f"--stats={word}"]))
+
+        assert result is not None
+        assert result.stats_view is view
+
+    def test_no_flag_asks_for_no_table(self) -> None:
+        result = get_monitoring_options(self._parse(["monitor", "12345"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["monitor", "12345", "--stats=total"],
+            ["monitor", "12345", "--stats", "total"],
+            ["monitor", "--stats", "total", "12345"],
+        ],
+    )
+    def test_the_pid_survives_the_flag(self, argv: list[str]) -> None:
+        """The ordering an alias would have eaten: `--stats` immediately
+        before a positional that does not start with `-`. Requiring the value
+        means every spelling reads the same way."""
+        assert self._parse(argv).pid == 12345
+
+    def test_a_bare_flag_is_refused(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(SystemExit) as exit_info:
+            self._parse(["monitor", "12345", "--stats"])
+
+        assert exit_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "total" in err
+        assert "full" in err
+
+    def test_an_unknown_value_is_refused(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """`all` reads as the wider view and is not one, so it fails where the
+        fix is the next thing typed rather than at the end of a capture."""
+        with pytest.raises(SystemExit) as exit_info:
+            self._parse(["monitor", "12345", "--stats=all"])
+
+        assert exit_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "total" in err
+        assert "full" in err
+
+    def test_run_takes_the_same_two_words(self) -> None:
+        result = get_monitoring_options(self._parse(["run", "--stats=total", "-m", "timeit"]))
+
+        assert result is not None
+        assert result.stats_view is StatsView.TOTAL
