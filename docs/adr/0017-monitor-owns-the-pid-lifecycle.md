@@ -11,10 +11,11 @@ the `WaitPolicy` deciding when a pid was finished. Each pruned its own half agai
 pids, computed twice per tick from one listing, through two expressions in two modules, with no
 test comparing them.
 
-They agreed, so no trace anyone opened was wrong. Their disagreeing is the reason to remove the
-split: a pid the OS reuses inherits the dead process's `collections` cursor, the next poll
-subtracts a fresh counter from a stale one, and gcmon draws a `GC Loss` span for hundreds of
-collections that never ran. An operator reads that as a measurement rather than a bug.
+Both prunes read one listing, so the two never diverged and no trace was affected. The split went
+because of what a divergence produces: a pid the OS reuses inherits the dead process's
+`collections` cursor, the next poll subtracts a fresh counter from a stale one, and gcmon draws a
+`GC Loss` span for hundreds of collections that never ran. That span looks like data, so an
+operator has no reason to distrust it.
 
 `EventsMonitor` also exposed its exporter as a public property, for one caller: the loop, reaching
 back through the monitor to report liveness.
@@ -71,7 +72,8 @@ empty. Reading it as empty drops every live child's cursor and re-exports its wh
   it, and compares the two expressions only on inputs a test author thought of.
 - **Move timing into the monitor too, leaving `MonitorLoop` a shell.** Rejected: the `Runner` seam
   makes a duration-limited run testable without waiting, and the stop event is what the signal
-  handler sets. Two modules is the right count; the old line between them was wrong.
+  handler sets. The count of modules was never the problem; the boundary ran through the per-pid
+  state instead of around it.
 - **Default `wait_policy_factory` to `no_wait_policy`.** Rejected for the silent early exit above.
   A required argument costs eight test call sites once.
 - **Keep `create_monitor`,** as an alias for the class or as a function supplying

@@ -135,5 +135,5 @@ this is a latency cleanup and its Kind becomes `feature — cleanup`. The fix is
 either way; §1 would be overclaiming.
 
 **Why not measure first.** That experiment is harder to build than the fix and needs a tuned
-collector racing a tuned ring. The one-pass change is contained, its state equivalence is
-checkable, and it removes the mechanism whether or not anyone reproduces the symptom.
+collector racing a tuned ring. The one-pass change is contained and its state equivalence is
+checkable, so it does not depend on the experiment landing first.
