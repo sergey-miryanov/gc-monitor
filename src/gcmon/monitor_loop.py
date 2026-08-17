@@ -14,9 +14,8 @@ class MonitorLoop:
     """Timing and shutdown around a monitor that owns the rest.
 
     One tick is one call on the monitor, which answers who was alive and
-    whether any wait policy still wants the run to go on. What is left here is
-    the clock, the stop event a signal handler sets, the rate, the RSS sampler
-    and the break.
+    whether any wait policy still wants the run to go on. Left here: the clock,
+    the stop event a signal handler sets, the rate and the RSS sampler.
     """
 
     def __init__(

@@ -34,19 +34,19 @@ the exporter, the interval, and the last-sample time. Its only public method is
 constructor argument and one line in the loop body. It knows nothing about `psutil`,
 timers, or how a sample turns into an event.
 
-`tick` takes the caller's instant in **nanoseconds**, and that instant both paces the round and
-stamps every sample in it. The loop takes one `time.monotonic_ns()` per tick and passes it
-unconverted, here and to the monitor
+`tick` takes the caller's instant in **nanoseconds**, which both paces the round and stamps every
+sample in it. The loop takes one `time.monotonic_ns()` per tick and passes it unconverted, here and
+to the monitor
 ([ADR-0011](0011-process-lifetime-and-ordering.md), [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)),
 so nanoseconds reach the encoder without a detour through seconds
 ([ADR-0009](0009-nanoseconds-canonical-time-unit.md)). `--rss-interval` stays seconds, because an
 operator types it; the sampler converts it once at construction.
 
-**The sampler reads no clock.** It stamped each sample with its own `time.monotonic_ns()`, which
-spread one round across however long `psutil` took per pid. That spread was not information: the
-round walks a `set`, so hash order decided which pid got the earliest timestamp. On the Perfetto
-side it decided which sibling's lifetime span got clipped, since spans that share a start nest
-and spans that merely nearly share one cross. One instant per round makes them nest.
+**The sampler reads no clock.** It used to stamp each sample with its own
+`time.monotonic_ns()`, spreading a round across however long `psutil` took. That spread carried no
+information: the round walks a `set`, so hash order picked which pid got the earliest timestamp,
+and on the Perfetto side which sibling's lifetime span got clipped. Spans sharing a start nest, so
+one instant per round removes the effect.
 
 **The sampler callback is injectable**, the same pattern as the cmdline provider in
 `ProtobufEventEncoder`. Tests pass a mock and never touch `psutil`. The constructor checks
@@ -73,13 +73,12 @@ the 0.1 s GC poll rate.
 
 - The default 1 Hz sampling costs an order of magnitude less than sampling at the GC poll
   rate, and RSS does not move fast enough for the resolution to matter.
-- **A sample is backdated to the start of its tick**, which is the price of one instant per
-  round. The instant is read before the poll phase and `psutil` runs after it, so a value is
-  attributed to a moment up to a whole poll phase before it was actually read, and earlier than
-  every GC record the same tick produced. The skew is bounded by how long the polls take, which
-  on a wide tree can exceed the 0.1 s poll rate. Accepted rather than overlooked: RSS moves
-  slowly enough that tens of milliseconds do not change what a reader concludes, whereas the
-  per-sample clock read it replaced distorted the `Processes` track by hash order
+- **A sample is backdated to the start of its tick**, the price of one instant per round. The
+  instant is read before the poll phase and `psutil` runs after it, so a value lands up to a whole
+  poll phase before it was read, and earlier than every GC record from the same tick. The skew is
+  bounded by how long the polls take, which on a wide tree exceeds the 0.1 s rate. Accepted: RSS
+  moves slowly enough that tens of milliseconds change nothing a reader concludes, while the
+  per-sample read it replaced distorted the `Processes` track by hash order
   ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 - You can unit-test `RssSampler` without `psutil` and without a monitor loop.
 - Missing `psutil`, a dead process, or a permission error each produce no sample and no

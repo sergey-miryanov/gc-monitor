@@ -47,15 +47,13 @@ class MockExporter(EventsExporter):
         super().__init__()
         self.events: list[TGCStatsInfo] = []
         self.instant_events: list[tuple[int, TInstantMsg]] = []
-        # Which pid each record was exported for, and every loss record. The
-        # defect class spec 0038 is about -- per-pid state surviving a process
-        # it does not belong to -- produces no records of its own; it shows up
-        # as the wrong pid's cursor answering, or as a loss window for
-        # collections that never happened. Neither is visible in `events`.
+        # Per-pid state surviving a process it does not belong to (ADR-0017)
+        # emits no record of its own. It shows up as the wrong pid's cursor
+        # answering, or as a loss window for collections that never happened,
+        # and `events` shows neither.
         self.events_by_pid: dict[int, list[TGCStatsInfo]] = {}
         self.loss_events: list[tuple[int, TLossMsg]] = []
-        # One entry per tick that observed anything, which is the only
-        # evidence a process gcmon never saw collect existed at all (ADR-0011).
+        # One entry per tick that observed anything (ADR-0011).
         self.liveness: list[tuple[Set[int], int]] = []
         self._close_called = False
         self._event_added = threading.Event()

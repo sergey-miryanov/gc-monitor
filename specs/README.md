@@ -10,10 +10,9 @@ spec here contradicts an ADR, one of the two is wrong and it is usually the spec
 
 ## Specs
 
-Mostly open work. A spec that has been **retired** — landed, declined or superseded — keeps its
-row and loses its file, so the number stays legible to anyone who meets it in a commit message
-or an older document. Retired rows say so in the **Kind** column and carry no link, since there
-is nothing left to link to; git holds the text. See [Lifecycle](#lifecycle).
+Mostly open work. A **retired** spec, landed or declined or superseded, keeps its row and loses
+its file, so the number still resolves for anyone who meets it in a commit message. Retired rows
+name the outcome in the **Kind** column and carry no link. See [Lifecycle](#lifecycle).
 
 | Spec | Kind | Effort | Summary |
 |------|------|--------|---------|
@@ -31,7 +30,7 @@ is nothing left to link to; git holds the text. See [Lifecycle](#lifecycle).
 | [0035](0035-derive-every-gc-sub-phase-from-one-table.md) | Feature — cleanup | L | CPython's eight optional GC sub-phases are written out by hand in six places; adding the ninth means six edits and nothing fails if one is missed |
 | [0036](0036-one-exporter-method-per-record-kind.md) | Feature — cleanup | M | `EventsExporter` has grown one method per record kind, three of them no-ops, and the CLI keeps a hand-maintained list of which formats really handle RSS |
 | [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md) | Feature — cleanup | M | Two implementations of "emit this pid's process and thread meta"; 0026 exists because they already drifted once |
-| 0038 | **Landed** 2026-08-17 — cleanup | M | Per-pid state had two owners and was pruned twice against the same set; had they ever disagreed, a recycled pid would have reported a loss window that never happened. One tick is one call on `EventsMonitor` now, which owns every piece of state behind it. Recorded in [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md); the liveness reporting site it moved is in [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) |
+| 0038 | **Landed** 2026-08-17 — cleanup | M | Per-pid state had two owners and was pruned twice against the same set; disagreeing would have reported a loss window that never happened. One tick is one call on `EventsMonitor` now. [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md), and [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) for the liveness site it moved |
 | [0039](0039-split-the-record-model-and-stats-by-concern.md) | Feature — cleanup | S | The record model and the stats module carry three jobs each; `tests/stats/` is already split along a seam the source does not have |
 | [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature — cleanup | M | Every monitoring option is declared three times, and a rejected configuration is echoed to the log as though it had been accepted |
 | [0041](0041-give-the-package-explicit-layers.md) | Feature — cleanup | L | The package's five layers are invisible and unchecked; the dependency direction is clean today and nothing keeps it that way |
@@ -80,9 +79,8 @@ reason at all, so those four can move.
 - 0026 before 0037, which assumes its shared naming helper.
 - 0028 before 0036, which it shrinks.
 - 0035 before 0039, which would otherwise move nine classes 0035 deletes.
-- 0046 before 0039, which moves the structure 0046 changes. Taken the other way round, 0046's
-  §4 open question about re-keying `_running_rings` would be settled by 0039 rather than left
-  for it, which is a bigger change than either spec asks for.
+- 0046 before 0039, which moves the structure 0046 changes. Reversed, 0039 would have to settle
+  0046's open question about re-keying `_running_rings`, which is more than either spec asks.
 - 0039 before 0041, or the same files move twice.
 
 0040 and 0042 are independent of everything and can be taken whenever there is an appetite for
@@ -171,28 +169,27 @@ incorrect field number. "We wrote something and it parsed" proves nothing about 
 
 ### Lifecycle
 
-**Delete the file when a spec retires; keep the row.** This folder is the open set and not a
-history, so the prose goes — git keeps it — but the number outlives it. A spec is cited from
-commit messages, ADRs, other specs and issue trackers, and a number that resolves to nothing
-reads as a mistake rather than as work that finished. The row is the cheapest possible answer to
-"what was 0038?": one line saying it landed, when, and where the durable part of it went.
+**Delete the file when a spec retires; keep the row.** This folder is the open set, not a
+history, so the prose goes and git keeps it. The number outlives it, because commit messages, ADRs
+and other specs cite one, and a number resolving to nothing reads as a mistake rather than as work
+that finished. The row answers "what was 0038?" in one line: that it landed, when, and where the
+durable part went.
 
-A retired row names its outcome in the **Kind** column — **Landed**, **Declined** or
-**Superseded** — with the date for the first two and the superseding spec for the third, and
-carries no link. Keep the summary, rewritten in the past tense if it read as a complaint, and
-point at whatever survived: an ADR if implementing it settled a durable design question, the
-spec that replaced it, or nothing at all if it merely fixed something.
+A retired row names its outcome in the **Kind** column as **Landed**, **Declined** or
+**Superseded**, with a date for the first two and the superseding spec for the third, and carries
+no link. Keep the summary, in the past tense if it read as a complaint, and point at whatever
+survived: an ADR if the work settled a durable design question, the spec that replaced it, or
+nothing.
 
-Numbers are assigned in order and **never reused or renumbered**, the same rule the ADRs follow,
-so a reference to spec 0026 keeps meaning one thing. Take the next number from the highest in the
-table, which carries a row for every number that ever became a file here rather than only the
-open ones. Gaps in the *folder* are normal and mean a spec retired.
+Numbers are assigned in order and **never reused or renumbered**, the rule the ADRs follow, so a
+reference to spec 0026 keeps meaning one thing. Take the next number from the highest in the table,
+which carries a row for every number that became a file here. Gaps in the *folder* are normal and
+mean a spec retired.
 
-Gaps in the *table* need a moment's care, because not all of them mean the same thing. From 0033
-on, every number became a file, so a gap there means a row was lost and git has the text to
-restore it. Below that, **0022**, **0023** and **0032** never became files at all: nothing in git
-records what they were, and no reference to them exists. Do not go looking. 0018, 0019 and 0021
-are in [Provenance](#provenance) below rather than the table.
+Gaps in the *table* mean two different things. From 0033 on every number became a file, so a gap
+there is a lost row and git has the text. Below that, **0022**, **0023** and **0032** never became
+files: nothing in git records what they were and nothing references them, so do not go looking.
+0018, 0019 and 0021 sit in [Provenance](#provenance) instead.
 
 **Two numbers were used twice before that was written down**, both reclaimed by the batch in
 `4731e50` from specs that had landed days earlier. A reference from before 2026-08-15 resolves

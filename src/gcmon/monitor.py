@@ -45,13 +45,11 @@ class PidState(msgspec.Struct):
 class PollReport(msgspec.Struct):
     """What one tick of monitoring found.
 
-    ``live_pids`` is the set that answered :attr:`PollStatus.OK`. A successful
-    read is the only evidence gcmon has that a process was still there, and
-    for a process that never collects it is the *only* evidence of any kind,
-    so it is what liveness reporting is built on (ADR-0011).
+    ``live_pids`` answered :attr:`PollStatus.OK`. For a process that never
+    collects, a successful read is the only evidence gcmon has that it existed,
+    which is what liveness reporting rests on (ADR-0011).
 
-    ``keep_running`` is false once no wait policy still wants the run to go
-    on, which is the caller's signal to stop.
+    ``keep_running`` is false once no wait policy wants the run to go on.
     """
 
     live_pids: frozenset[int]
@@ -102,8 +100,8 @@ class EventsMonitor:
         children = [self._process.pid, *(child_pids or [])]
 
         # A process that exits between two ticks is never polled again, so no
-        # policy gives up on it and the branch below never runs. None means
-        # the listing failed, so prune only when it worked.
+        # policy gives up on it and the branch below never runs. None means the
+        # listing failed, so prune only when it worked.
         if child_pids is not None:
             self._retain(set(children))
 
@@ -126,16 +124,14 @@ class EventsMonitor:
             if rc == PollStatus.OK:
                 live.add(pid)
             elif not keep_waiting:
-                # The policy decides when a pid is finished. It stays behind:
-                # a fresh one would answer True until its own startup timeout
-                # expired, holding the run open.
+                # The policy stays behind. A fresh one answers True until its
+                # own startup timeout expires, holding the run open.
                 self._forget(pid)
 
         live_pids = frozenset(live)
 
-        # After the poll phase and never during it, in one batched call, and
-        # skipped on an empty set. All three are ADR-0011's, which explains
-        # what each of them buys.
+        # After the poll phase, one batched call, skipped on an empty set.
+        # ADR-0011 argues all three.
         if live_pids:
             self._exporter.add_process_liveness(live_pids, now_ns)
 
@@ -184,21 +180,18 @@ class EventsMonitor:
 
     def _forget(self, pid: int) -> None:
         """Drop the cursors held for *pid*, so a reused pid inherits no counter
-        and no poll instant from the process before it.
-
-        The policy is deliberately left behind; see :meth:`tick`.
+        and no poll instant from the process before it. The policy stays; see
+        :meth:`tick`.
         """
         self._pids.pop(pid, None)
         self._stats.materialize(pid)
 
     def _retain(self, pids: Set[int]) -> None:
-        """Drop the state of every pid outside *pids*.
+        """Drop the state of every pid outside *pids*, all of it at once.
 
-        Every per-pid thing at once, which is the point: a cursor outliving
-        its policy, or the reverse, is the disagreement spec 0038 exists to
-        make impossible. A process that exits between two ticks is never
-        polled again, so no wait policy gives up on it and this is the only
-        thing that drops it.
+        A cursor outliving its policy, or the reverse, is the disagreement
+        ADR-0017 rules out. A process that exits between two ticks is never
+        polled again, so no policy gives up on it and this drops it instead.
         """
         for pid in self._pids.keys() - pids:
             del self._pids[pid]

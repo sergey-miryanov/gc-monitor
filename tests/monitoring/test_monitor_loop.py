@@ -1,11 +1,10 @@
-"""The loop, which is timing and shutdown and nothing else.
+"""The loop: timing and shutdown, nothing else.
 
-One tick is one call on the monitor, which answers a `PollReport`. What is
-left to test here is what the loop does with that report and with the clock:
-who it hands the live set to, when it breaks, and that a stop reaches the
-monitor mid-tick. Everything behind the report -- discovery, the prune, the
-policies, the enable check -- is the monitor's, and is tested at
-`test_monitor.py` where it lives.
+One tick is one call on the monitor, which answers a `PollReport`. What is left
+to test here is what the loop does with that report and with the clock: who it
+hands the live set to, when it breaks, and that a stop reaches the monitor
+mid-tick. Discovery, the prune, the policies and the enable check belong to the
+monitor, and `test_monitor.py` tests them there.
 """
 
 import threading
@@ -235,10 +234,10 @@ class TestTheLoopDoesNotTouchTheExporter:
 
 
 class TestTheLoopHoldsNoPerPidState:
-    """Spec 0038's structural claim, stated where it can regress.
+    """ADR-0017's structural claim, stated where it can regress.
 
     A second home for any of this is a second prune waiting to be written, and
-    the two disagreeing is what fabricates a loss window.
+    two prunes disagreeing is what fabricates a loss window.
     """
 
     @pytest.mark.parametrize("attribute", ["_wait_policy_factory", "_enabled", "_pid_policies"])

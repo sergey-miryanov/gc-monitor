@@ -107,16 +107,14 @@ class TestEventsMonitorExtra:
 # One tick, one call
 # --------------------------------------------------------------------------
 #
-# Spec 0038. Everything gcmon carries from one poll of a pid to the next --
-# the ring cursors, the poll instant ADR-0015's arithmetic runs on, and the
-# wait policy that decides when the pid is finished -- has one owner and is
-# pruned once, against one set.
+# ADR-0017. The ring cursors, the poll instant ADR-0015's arithmetic runs on,
+# and the wait policy deciding when a pid is finished have one owner between
+# them, and one prune against one set.
 #
-# These drive `tick` and assert on its report and on what reached the
-# exporter. Asserting that the monitor's state dicts are empty after a prune
-# would prove the prune ran, not that it was correct; the observable
-# consequence of getting it wrong is a `GC Loss` window for collections that
-# never happened.
+# These drive `tick` and assert on its report and on what reached the exporter.
+# Empty state dicts after a prune prove the prune ran, not that it was right.
+# Getting it wrong shows up as a `GC Loss` window for collections that never
+# happened.
 
 
 def _ring(*collections: int, gen: int = 0, iid: int = 0) -> list[GCStatsInfo]:
@@ -187,14 +185,13 @@ def _drive(
 ) -> list[PollReport]:
     """One tick per entry in *listings*; one report back per tick.
 
-    *listings* is what the child listing answers each tick, an exception
-    entry standing for a listing that failed -- which the monitor turns into
-    the ``None`` that means "no answer", not into an empty tree.
+    *listings* is what the child listing answers each tick. An exception entry
+    stands for a listing that failed, which the monitor turns into the ``None``
+    meaning "no answer" rather than an empty tree.
 
-    *rings* gives the whole ring buffer each successive poll of a pid
-    returns, so a pid polled three times needs three entries and a pid that
-    is expected never to be polled needs none: a poll that was not supposed
-    to happen raises `KeyError` here rather than passing quietly.
+    *rings* gives the whole ring buffer each successive poll of a pid returns,
+    so a pid polled three times needs three entries. A pid that should never be
+    polled needs none: an unexpected poll raises `KeyError` here.
     """
     pending = {pid: iter(batches) for pid, batches in rings.items()}
 
@@ -302,8 +299,8 @@ class TestTheControlPlaneVerdict:
 
 class TestTheStopCheck:
     def test_a_tick_gives_up_between_pids(self, exporter: MockExporter) -> None:
-        """Shutdown does not have to wait out a whole process tree. The
-        event behind the check belongs to the caller; the monitor reads it."""
+        """Shutdown need not wait out a whole process tree. The event behind
+        the check belongs to the caller; the monitor only reads it."""
         answers = iter([False, True])
         reports = _drive(
             _monitor(exporter),
@@ -317,13 +314,13 @@ class TestTheStopCheck:
 
 
 class TestARecycledPidStartsFromNothing:
-    """Spec 0038's hazard, seen where it would actually surface.
+    """ADR-0017's hazard, where it would surface.
 
     A pid that leaves the process tree loses its cursor and its poll instant.
     Whatever the OS gives that number to next is a different process with its
-    own `collections` counter, and comparing the two is what invents a loss
-    window for collections that never happened -- a span an operator would
-    read as a gcmon measurement rather than a gcmon bug.
+    own `collections` counter, and comparing the two invents a loss window for
+    collections that never happened. An operator reads that span as a gcmon
+    measurement.
     """
 
     def test_the_first_poll_back_emits_records_and_no_loss_window(self, exporter: MockExporter) -> None:
@@ -359,9 +356,9 @@ class TestARecycledPidStartsFromNothing:
 
 
 class TestOnePruneOverOneSet:
-    """The ring state and the wait policy have one lifetime between them.
+    """The ring state and the wait policy share one lifetime.
 
-    They were pruned in two modules against two expressions of the same child
+    Two modules used to prune them against two expressions of the same child
     set. These say both go, and go together.
     """
 

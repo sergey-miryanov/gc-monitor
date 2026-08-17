@@ -1,64 +1,52 @@
 """A whole monitored run, pinned to the byte.
 
 Everything else in the suite checks one piece of a tick. `test_loss_replay`
-drives `EventsMonitor.poll` straight off the capture and never runs the loop;
+drives `EventsMonitor.poll` off the capture and never runs the loop;
 `test_monitor_loop` runs the loop against a `MagicMock` monitor that produces no
-trace at all. The seam between them -- discovery, prune, poll order, the policy
-verdict, liveness, and the bytes that come out the other end -- has no witness,
-which is exactly the seam spec 0038 is about to rearrange.
+trace. This file covers the seam between them: discovery, prune, poll order, the
+policy verdict, liveness, and the bytes that come out the other end.
 
-So this file runs the real `MonitorLoop` over the real `EventsMonitor` over the
-real Chrome exporter, feeds it the `SSL_CONTEXT_SIZE` capture through a scripted
-process tree and a scripted clock, and compares the trace to
+It runs the real `MonitorLoop` over the real `EventsMonitor` over the real
+Chrome exporter, feeds it the `SSL_CONTEXT_SIZE` capture through a scripted
+process tree and clock, and compares the trace to
 `tests/fixtures/monitored_run_chrome_trace.json` byte for byte.
 
-**This test exists to be broken deliberately.** A red run here means the trace an
-operator opens is not the trace they opened yesterday. That is a fine thing to
-do on purpose and a terrible thing to do by accident, so the workflow is: read
-the diff, convince yourself every changed line is a change you meant, then
-regenerate the fixture with
+**This test exists to be broken deliberately.** A red run means the trace an
+operator opens is not the trace they opened yesterday. Read the diff, convince
+yourself every changed line is one you meant, then regenerate the fixture with
 
     PYTHONPATH=src python -m tests.monitoring.test_monitored_run_trace
 
-and commit the new fixture *in the same commit as the change that moved it*, so
-the diff is reviewable next to its cause. Never regenerate to make a red run go
-away.
+and commit it alongside the change that moved it. Never regenerate to clear a
+red run.
 
-Determinism is the whole difficulty, and it comes down to four things.
+Determinism comes down to four things.
 
 *One clock, two consumers.* `monitor_loop` and `monitor` both do `import time`,
-so they share one `time.monotonic_ns` and one patch feeds both. Per tick the
-order is fixed: the loop reads once for the tick instant, then each polled pid
-costs the monitor two reads, one either side of `get_gc_stats`. `_script`
-lays that sequence out in advance and `_ScriptedClock` hands it out in order,
-raising rather than inventing a value if the run asks for more than was written.
-`test_the_clock_was_spent_exactly` then checks none was left over: an ordering
-change that read fewer instants would otherwise shift every timestamp in the
-trace and still pass.
+so one patch of `time.monotonic_ns` feeds both. Per tick the loop reads once for
+the tick instant, then each polled pid costs the monitor two reads either side
+of `get_gc_stats`. `_script` lays that sequence out in advance and
+`_ScriptedClock` hands it out in order, raising rather than inventing a value.
+`test_the_clock_was_spent_exactly` checks none was left over: reading fewer
+instants would shift every timestamp downstream and still pass.
 
-*Nothing else may read the machine.* `NoWaitPolicy` in place of
-`StartupTimeoutPolicy`, which reads `time.monotonic` in seconds; a fixed-tick
-runner in place of `DurationRunner`, which reads it too; `rate=0` so the wait
-between ticks returns at once; and no RSS sampler, which would sample this
-machine's memory.
+*Nothing else reads the machine.* `no_wait_policy` instead of
+`StartupTimeoutPolicy`, which reads `time.monotonic`; a fixed-tick runner
+instead of `DurationRunner`, which reads it too; `rate=0`; and no RSS sampler.
 
-*The capture drives both pids.* The target replays `SSL_CONTEXT_SIZE` as it
-stands. The child replays the same collections shifted `CHILD_SKEW_NS` later, so
-its ring lands on different instants and its loss windows fall in different
-places -- two pids with genuinely different per-pid state rather than one pid
-counted twice.
+*The capture drives both pids.* The target replays `SSL_CONTEXT_SIZE` as
+recorded. The child replays the same collections `CHILD_SKEW_NS` later, so its
+ring lands on different instants and its loss windows fall elsewhere. Two pids
+with different per-pid state, not one counted twice.
 
 *The Chrome leg only.* Perfetto's process-lifetime sweep clips spans by the
-order liveness observations arrive in, which the loop's timing feeds; Chrome
-drops liveness on the floor (`add_process_liveness` is a base-class no-op) and
-resolves no cmdline through psutil, so its bytes depend on nothing but the
-capture and the script.
+order liveness arrives in, which the loop's timing feeds. Chrome drops liveness
+on a base-class no-op and resolves no cmdline through psutil, so its bytes
+depend on the capture and the script alone.
 
-The fixture is stored as the encoder's own output, unmodified. That format is
-already one JSON object per line, so the stored bytes are simultaneously the
-exact thing asserted and a per-event diff a human can read; normalizing it for
-legibility would only have put a second representation between the failure and
-the cause.
+The fixture is the encoder's own output, unmodified. That format is one JSON
+object per line, so the stored bytes are both the thing asserted and a per-event
+diff a human can read.
 """
 
 from __future__ import annotations
@@ -163,11 +151,10 @@ def _script() -> tuple[list[int], list[tuple[int, int]]]:
 class _ScriptedClock:
     """`time.monotonic_ns`, spelled out in advance.
 
-    Indexing rather than an iterator so overrunning raises `IndexError` naming
-    the position, and so `spent` can be compared with the length afterwards. A
-    change to the number of reads per tick has to fail here or in
-    `test_the_clock_was_spent_exactly`; what it must never do is quietly read
-    the next tick's instants and produce a plausible trace.
+    Indexed rather than iterated, so overrunning raises `IndexError` naming the
+    position and `spent` can be checked against the length. A change to the
+    reads per tick must fail here or in `test_the_clock_was_spent_exactly`,
+    never read the next tick's instants and produce a plausible trace.
     """
 
     def __init__(self, instants: Sequence[int]) -> None:
@@ -235,9 +222,9 @@ class MonitoredRun:
     reads: list[tuple[int, int]]
 
     def events(self) -> list[dict[str, Any]]:
-        """The trace parsed back, for the tests that ask what is in it rather
-        than what it weighs. Nothing asserted through here stands in for the
-        byte comparison -- these only say the fixture is worth having."""
+        """The trace parsed back, for tests asking what is in it rather than
+        what it weighs. No substitute for the byte comparison; these only say
+        the fixture is worth having."""
         parsed: list[dict[str, Any]] = json.loads(self.trace)
         return parsed
 
@@ -310,9 +297,9 @@ def run(tmp_path_factory: pytest.TempPathFactory) -> MonitoredRun:
 
 
 class TestTheScriptIsWorthPinning:
-    """A guard over a run that never exercised anything would stay green
-    forever. These say the run below is the one described in the docstring,
-    so a fixture regenerated off a weakened script fails here first."""
+    """A guard over a run that exercised nothing would stay green forever.
+    These say the run below is the one the module docstring describes, so a
+    fixture regenerated off a weakened script fails here first."""
 
     def test_more_than_one_pid_is_polled(self, run: MonitoredRun) -> None:
         assert {pid for pid, _ts in run.reads} == {TARGET_PID, CHILD_PID}
@@ -338,9 +325,8 @@ class TestTheScriptIsWorthPinning:
 
     def test_the_clock_was_spent_exactly(self, run: MonitoredRun) -> None:
         """One read for the tick, two per polled pid, nothing left over. A
-        change that reads the clock a different number of times per tick moves
-        every timestamp downstream of it, and this is where it says so in one
-        line rather than across the whole fixture diff."""
+        different count per tick moves every timestamp downstream, and this says
+        so in one line instead of across the whole fixture diff."""
         assert run.clock_spent == run.clock_scripted
 
 
@@ -358,8 +344,8 @@ class TestTheTracesAreIdentical:
         assert run.trace == expected
 
     def test_a_second_run_produces_the_same_bytes(self, run: MonitoredRun, tmp_path: Path) -> None:
-        """No machine clock anywhere. Cheap to state and the only thing that
-        distinguishes a fixture from a record of one afternoon's timings."""
+        """No machine clock anywhere, which is what separates a fixture from a
+        record of one afternoon's timings."""
         again = run_monitored(tmp_path / "again.json")
 
         assert again.trace == run.trace
@@ -368,13 +354,11 @@ class TestTheTracesAreIdentical:
 class TestTheChildLeavingIsVisible:
     """What the departure costs, in the trace rather than in a state dict.
 
-    Asserting the monitor's `_pids` is empty after a prune proves the prune
-    ran, not that it was correct. The observable consequence is here: a pid
-    that leaves the tree loses its `collections` cursor, so the ring it comes
-    back holding is entirely unseen and every record still in it is exported a
-    second time. Duplicate slices are the price of the prune. If they vanish,
-    the prune stopped happening -- and spec 0038's whole hazard is that the
-    two halves of it stop agreeing.
+    An empty `_pids` after a prune proves the prune ran, not that it was right.
+    Here is the observable consequence: a pid that leaves the tree loses its
+    `collections` cursor, so the ring it returns holding is unseen and every
+    record in it exports a second time. Duplicate slices are the price. If they
+    vanish, the prune stopped happening (ADR-0017).
     """
 
     def _pauses(self, run: MonitoredRun, pid: int) -> list[tuple[int, int]]:

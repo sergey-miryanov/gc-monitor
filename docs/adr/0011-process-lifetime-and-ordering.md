@@ -133,10 +133,9 @@ nothing, both still get a BEGIN/END pair; the trace processor accepts it and rep
 observation is any non-meta trace event, counters included, or a **liveness observation** from
 `EventsMonitor`: a `(pid, ts)` pair meaning gcmon read GC state out of that process at that
 instant. One tick of monitoring is one call on the monitor, which reports the whole
-`PollStatus.OK` set through `add_process_liveness(pids, ts_ns)` once, after its poll phase, so
-the cost is one call per tick and not one per pid. The instant is the caller's: `MonitorLoop`
-reads the clock once per tick and hands it in, which is what keeps a liveness observation and an
-RSS sample from one tick agreeing.
+`PollStatus.OK` set through `add_process_liveness(pids, ts_ns)` once, after its poll phase, so the
+cost is one call per tick rather than one per pid. `MonitorLoop` reads the clock once and hands the
+instant in, so a liveness observation and an RSS sample from one tick agree.
 The accumulator folds a `(pid, ts)` in as a plain min/max with no keyword: the counter
 carve-out this ADR called provisional is **removed**, since the sampler liveness it kept
 out of the end is now reported directly.
@@ -187,12 +186,11 @@ out of the span iteration.
   way for part of a fan-out: children whose earliest evidence is the tick that first polled them
   share that timestamp exactly and nest rather than clip, while those whose first GC event
   predates the poll keep their jitter.
-- **`--rss` no longer adds jitter of its own.** It used to: the sampler stamped each sample with
-  its own clock read, so one round spread across however long `psutil` took per pid, every
-  sample moved its span's start, and `set` iteration order decided which sibling got the
-  earliest one and was therefore clipped — hash order, not anything about the processes. The
-  sampler now stamps a whole round with the tick instant it was given
-  ([ADR-0013](0013-rss-sampling.md)), so those spans share a start exactly and nest.
+- **`--rss` no longer adds jitter of its own.** It used to. The sampler read its own clock per
+  sample, so a round spread across however long `psutil` took, every sample moved its span's
+  start, and `set` iteration order picked which sibling got clipped. The sampler now stamps a
+  whole round with the tick instant it was given ([ADR-0013](0013-rss-sampling.md)), so those
+  spans share a start and nest.
 - **The drawn duration is a lower bound, never an upper one**, so deaths are misreported as
   early rather than late. `real_end_ts - real_start_ts` recovers what was observed;
   `docs/perfetto-sql.md` carries the query.
@@ -310,12 +308,11 @@ out of the span iteration.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded so it goes
   out once.
 - The liveness path, monitor to accumulator: `src/gcmon/monitor_loop.py` takes one
-  `time.monotonic_ns()` per tick and hands it to the monitor, then the same instant unconverted
-  to the RSS sampler ([ADR-0013](0013-rss-sampling.md)). `src/gcmon/monitor.py` reports the live set to the exporter at the end of
-  a tick, after the poll phase and skipped on an empty set. The split is deliberate: the clock
-  and the stop signal belong to the loop, and everything per-pid — including who was observed —
-  belongs to the monitor, so the state behind a liveness observation is pruned once by its
-  owner rather than twice by two.
+  `time.monotonic_ns()` per tick and hands it to the monitor, then unconverted to the RSS sampler
+  ([ADR-0013](0013-rss-sampling.md)). `src/gcmon/monitor.py` reports the live set at the end of a
+  tick, after the poll phase and skipped on an empty set. The clock and the stop signal belong to
+  the loop; everything per-pid belongs to the monitor
+  ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)).
   `src/gcmon/exporters/exporter.py` holds the no-op base;
   `src/gcmon/exporters/combined_exporter.py` fans it out;
   `src/gcmon/exporters/perfetto_exporter.py` overrides it under the I/O lock, forwarding to
@@ -341,10 +338,9 @@ out of the span iteration.
   BEGIN/END is paired rather than orphaned and every pid keeps a slice, the two liveness
   shapes, and that a run forced through many flushes with `flush_threshold=5` still ends
   its slice at the last event's timestamp.
-- Liveness unit tests: `tests/monitoring/test_monitor.py`, next to the tick that reports it, with
-  `tests/monitoring/test_monitor_loop.py` covering the one clock read the tick is handed;
-  `tests/monitoring/test_monitored_run_trace.py` pins a whole run's Chrome output byte for byte,
-  so a change to when liveness is reported has to show its effect on the trace or show none;
+- Liveness unit tests: `tests/monitoring/test_monitor.py`, beside the tick that reports it, and
+  `tests/monitoring/test_monitor_loop.py` for the one clock read.
+  `tests/monitoring/test_monitored_run_trace.py` pins a whole run's Chrome output byte for byte;
   `tests/exporters/test_perfetto_exporter.py`, whose locking test asserts by contention
   rather than by inspection; and `tests/exporters/test_buffered_exporter.py`, pinning
   Chrome, JSONL and stdout output as byte-identical with and without liveness.

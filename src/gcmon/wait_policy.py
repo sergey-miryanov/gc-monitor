@@ -22,9 +22,9 @@ class NoWaitPolicy(WaitPolicy):
 def no_wait_policy() -> WaitPolicy:
     """A :class:`NoWaitPolicy`, as a :class:`WaitPolicyFactory`.
 
-    The class object itself satisfies the protocol structurally but not to a
-    type checker, which reads its ``__call__`` as returning the concrete class.
-    Callers that want "keep a pid only while its polls succeed" name this.
+    Keeps a pid while its polls succeed. A function rather than the class
+    object, which satisfies the protocol structurally but not to a type
+    checker: that reads ``__call__`` as returning the concrete class.
     """
     return NoWaitPolicy()
 
