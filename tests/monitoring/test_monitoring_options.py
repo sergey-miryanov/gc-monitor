@@ -159,9 +159,7 @@ class TestRssFormatWarning:
 
 
 class TestTheStatsFlagCarriesTheView:
-    """`--stats` names which blocks to print and refuses to guess. The value is
-    required, and it is one of two words.
-    """
+    """`--stats` requires a value, and it is one of two words."""
 
     def _parse(self, argv: list[str]) -> Namespace:
         from gcmon.cli import _create_parser
@@ -190,9 +188,7 @@ class TestTheStatsFlagCarriesTheView:
         ],
     )
     def test_the_pid_survives_the_flag(self, argv: list[str]) -> None:
-        """The ordering an alias would have eaten: `--stats` immediately
-        before a positional that does not start with `-`. Requiring the value
-        means every spelling reads the same way."""
+        """The ordering an alias would have eaten: `--stats` before the pid."""
         assert self._parse(argv).pid == 12345
 
     def test_a_bare_flag_is_refused(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -205,8 +201,7 @@ class TestTheStatsFlagCarriesTheView:
         assert "full" in err
 
     def test_an_unknown_value_is_refused(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """`all` reads as the wider view and is not one, so it fails where the
-        fix is the next thing typed rather than at the end of a capture."""
+        """`all` reads as the wider view and is not one."""
         with pytest.raises(SystemExit) as exit_info:
             self._parse(["monitor", "12345", "--stats=all"])
 
@@ -224,8 +219,7 @@ class TestTheStatsFlagCarriesTheView:
 
 class TestTheStatsEnvironmentVariable:
     """`GCMON_STATS` takes the same two words, and an unreadable value fails
-    the run rather than falling back. A variable choosing between two named
-    views has no default that is safely one of them.
+    the run rather than falling back.
     """
 
     def _options(self, argv: list[str]) -> MonitoringOptions | None:
@@ -246,9 +240,6 @@ class TestTheStatsEnvironmentVariable:
 
     @pytest.mark.parametrize("value", ["Total", "TOTAL", " total", "total\n"])
     def test_case_and_space_are_forgiven(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-        """An env file keeps the trailing space it was written with, and a
-        compose block is as likely to say `Total`. `GCMON_TABLE_FORMAT` and
-        `GCMON_FORMAT` forgive the same things."""
         monkeypatch.setenv("GCMON_STATS", value)
 
         result = self._options(["monitor", "12345"])
@@ -276,8 +267,7 @@ class TestTheStatsEnvironmentVariable:
     def test_a_value_it_does_not_know_fails_the_run(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, value: str
     ) -> None:
-        """`GCMON_STATS=1` from an older release stops the run at startup
-        rather than at the end of a long capture."""
+        """`GCMON_STATS=1` from an older release stops the run at startup."""
         caplog.set_level(logging.ERROR)
         monkeypatch.setenv("GCMON_STATS", value)
 
@@ -289,8 +279,7 @@ class TestTheStatsEnvironmentVariable:
     def test_the_message_names_the_variable(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Nothing else reaches this. argparse checks the flag's own values, so
-        naming the variable tells the operator which of the two to edit."""
+        """argparse checks the flag's own values, so only the variable gets here."""
         caplog.set_level(logging.ERROR)
         monkeypatch.setenv("GCMON_STATS", "1")
 
@@ -300,11 +289,8 @@ class TestTheStatsEnvironmentVariable:
 
 
 class TestTheWordsThatTurnTheTableOff:
-    """`no`, `off`, `false` and `0` ask for no table. They are the falsy
-    complements of the truthy set `GCMON_STATS` took before it named a view, so
-    a variable that already read `0` keeps meaning what it meant. The truthy
-    words stay out, since which view `1` asks for is what the operator has to
-    answer.
+    """`no`, `off`, `false` and `0` ask for no table. Their truthy opposites
+    stay out.
     """
 
     def _parse(self, argv: list[str]) -> Namespace:
@@ -342,8 +328,7 @@ class TestTheWordsThatTurnTheTableOff:
         assert result.stats_view is None
 
     def test_the_flag_turns_off_what_the_variable_turned_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Why "no table" needs a spelling. A shell or a compose file sets the
-        variable for every run, and this run wants none."""
+        """Why "no table" needs a spelling of its own."""
         from gcmon.cli import _create_parser
 
         monkeypatch.setenv("GCMON_STATS", "full")

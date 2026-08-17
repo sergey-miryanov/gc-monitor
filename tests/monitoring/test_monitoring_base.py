@@ -163,8 +163,7 @@ class TestRunMonitoringLoop:
         result = run_monitoring_loop(mock_factory, mock_wait_policy_factory, options)
 
         assert result == 0
-        # The view the operator typed reaches the table: the command decides
-        # nothing about which blocks print.
+        # The view the operator typed reaches the table.
         assert mock_monitoring_base_deps["print_stats"].call_args.args[1] is StatsView.TOTAL
 
     def test_no_view_prints_no_table(

@@ -742,9 +742,7 @@ class TestTheNoteOnRingsWithNoRow:
 
 
 class TestTheVocabularyOfTheFlag:
-    """`StatsView` owns every word `--stats` and `GCMON_STATS` take, so the
-    list the parser offers and the list the parser accepts cannot drift apart.
-    """
+    """`StatsView` owns every word `--stats` and `GCMON_STATS` take."""
 
     @pytest.mark.parametrize("word, view", [("total", StatsView.TOTAL), ("full", StatsView.FULL)])
     def test_each_view_word_parses_to_its_view(self, word: str, view: StatsView) -> None:
@@ -756,14 +754,11 @@ class TestTheVocabularyOfTheFlag:
 
     @pytest.mark.parametrize("word", ["Total", "TOTAL", " total", "total\n", " Off ", "NO"])
     def test_case_and_surrounding_space_are_forgiven(self, word: str) -> None:
-        """An env file keeps the trailing space it was written with, and a
-        compose block is as likely to say `Total`."""
         StatsView.parse(word)  # does not raise
 
     @pytest.mark.parametrize("word", ["", "  ", "all", "brief", "1", "true", "yes", "on", "totals"])
     def test_a_word_it_does_not_know_is_refused(self, word: str) -> None:
-        """The truthy opposites of the off words included. `1` says a table was
-        wanted without saying which, and that is what the views ask."""
+        """The truthy opposites of the off words included."""
         with pytest.raises(ValueError):
             StatsView.parse(word)
 
@@ -771,18 +766,13 @@ class TestTheVocabularyOfTheFlag:
         assert StatsView.words() == ["total", "full", *STATS_OFF_WORDS]
 
     def test_every_word_offered_is_a_word_accepted(self) -> None:
-        """`words()` feeds argparse `choices`. A word it prints in the usage
-        line that `parse` refuses is a flag advertising a value it rejects."""
+        """`words()` feeds argparse `choices`, so `parse` has to take them all."""
         for word in StatsView.words():
             StatsView.parse(word)  # does not raise
 
 
 class TestTheTwoViews:
-    """`total` is `full` minus the ring blocks, and minus one footer note.
-
-    Same header, same columns, same cells. An operator diffing one view
-    against the other finds whole blocks missing and nothing else moved.
-    """
+    """`total` is `full` minus the ring blocks, and minus one footer note."""
 
     def _two_interpreters(self) -> StreamingStats:
         """Same pid, 1 ms against 20 ms, and a read time under both blocks."""
@@ -806,8 +796,7 @@ class TestTheTwoViews:
         for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 1):
             stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000_000))
         stats.record_loss(0, 0, 0, 7, 7_000_000)
-        # Two generations, so a note that dropped one under a view would show
-        # up as a shorter line rather than an identical one.
+        # Two generations, so a note that dropped one shows as a shorter line.
         stats.record_loss(0, 0, 1, 3, 3_000_000)
         stats.observe_cumulative(0, 0, 0, 18, 0.02)
         return stats
@@ -834,13 +823,11 @@ class TestTheTwoViews:
         assert rows[-1][1] == "Read Time"
 
     def test_total_is_the_head_of_full(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """The regression guard. Every line the narrower view prints before
-        `Read Time` is the wider view's line, to the byte, which catches a view
-        that branches on anything beyond which blocks it emits.
+        """The regression guard: every line the narrower view prints before
+        `Read Time` is the wider view's line, to the byte.
 
-        It reads that way because `12345:0` fits under the `PID:IID` header, so
-        dropping the ring rows takes nothing out of the width the first column
-        is computed from. The test below covers a wider label.
+        It reads that way where the ring labels fit under the `PID:IID`
+        header. The test below covers a wider label.
         """
         stats = self._two_interpreters()
         total = self._out(capsys, stats, StatsView.TOTAL).splitlines()
@@ -850,9 +837,8 @@ class TestTheTwoViews:
         assert full[: len(head)] == head
 
     def test_a_wider_ring_label_pads_the_first_column_of_full_alone(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Widths follow the rows that print, as they always have, so a
-        six-digit pid (or the `12345:0#2` of a reused one) leaves `full` one
-        character wider in the first column. Padding moved, no number did.
+        """A six-digit pid leaves `full` one character wider in the first
+        column. Padding moved, no number did.
         """
         stats = StreamingStats()
         for _ in range(3):
@@ -864,8 +850,7 @@ class TestTheTwoViews:
         assert [row[0] for row in full[len(total) :]] == ["123456:0"]
 
     def test_the_views_of_a_single_ring_run_differ_by_one_block(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Folding one ring into a roll-up changes nothing, so what `full`
-        adds here is a copy of what both views already printed."""
+        """What `full` adds here is a copy of the roll-up above it."""
         stats = self._one_interpreter()
         total = table_rows(self._out(capsys, stats, StatsView.TOTAL))
         full = table_rows(self._out(capsys, stats, StatsView.FULL))
@@ -875,21 +860,15 @@ class TestTheTwoViews:
         assert [row[1:] for row in added] == [row[1:] for row in total if row[0] == "Total"]
 
     def test_the_untracked_note_is_full_only(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """It reconciles ring rows against the run. Under `total` there are no
-        ring rows, so it warns about the absence of rows nobody asked for."""
+        """It reconciles ring rows against the run, and `total` prints none."""
         stats = self._crowded()
 
         assert "got no row" in self._out(capsys, stats, StatsView.FULL)
         assert "got no row" not in self._out(capsys, stats, StatsView.TOTAL)
 
     def test_the_run_wide_notes_print_under_both(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """Coverage and the lifetime totals are run-wide already, and the
-        numbering closes over whatever is left.
-
-        Word for word under both views. These two notes count every record the
-        run saw, and the rows on screen do not narrow what they cover.
-        `test_total_is_the_head_of_full` pins the cells above them, so the two
-        together hold the view to choosing blocks and nothing else.
+        """Coverage and the lifetime totals are run-wide, so both views print
+        them word for word, and the numbering closes over whatever is left.
         """
         stats = self._crowded()
         bodies = {}

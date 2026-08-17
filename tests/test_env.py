@@ -145,9 +145,7 @@ class TestEnvOutputSpecialCases:
 class TestEnvStats:
     """GCMON_STATS names a view, and this layer only reads it.
 
-    Every `get_env_*` runs while the parser is being built, before logging is
-    configured, so `get_monitoring_options` refuses a value instead, where a
-    bad rate is already refused.
+    `get_monitoring_options` refuses an unknown one.
     """
 
     def test_default(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
@@ -165,8 +163,7 @@ class TestEnvStats:
     def test_a_value_it_cannot_use_is_still_handed_on(
         self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str
     ) -> None:
-        """Swallowing it here would leave the run to discover at the end of a
-        long capture that no table is coming."""
+        """Swallowing it here would leave the run to discover it at the end."""
         monkeypatch.setenv(env_module.ENV_STATS, value)
         assert env_module.get_env_stats() == value
 
@@ -174,9 +171,7 @@ class TestEnvStats:
     def test_a_blank_value_reads_as_unset(
         self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str
     ) -> None:
-        """A variable left blank in an env file names no view, and asking for
-        no table is the only reading it has. It is also the one unusable value
-        that does not stop the run."""
+        """The one unusable value that does not stop the run."""
         monkeypatch.setenv(env_module.ENV_STATS, value)
         assert env_module.get_env_stats() is None
 
