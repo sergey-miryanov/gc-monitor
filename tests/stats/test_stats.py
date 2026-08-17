@@ -613,6 +613,142 @@ class TestAProcessThatExits:
         assert stats.untracked_rings() == 0
 
 
+class TestAFanOutThatDeparts:
+    """A tick where many pids leave at once.
+
+    `retain` settles them in one pass over the running rings instead of one
+    pass per pid, and what it leaves behind is what settling them one at a
+    time leaves.
+    """
+
+    PIDS = tuple(range(1, 101))
+    IIDS = (0, 1, 2)
+    # Wide enough that the bound declines the tail, so the comparison covers
+    # a departing pid whose rings hold no buffers as well as ones that do.
+    SURVIVORS = frozenset({1, 100})
+
+    def _fan_out(self) -> StreamingStats:
+        """A hundred pids, three interpreters each, all running, each ring
+        carrying sampled records, loss and cumulative counters."""
+        stats = StreamingStats()
+        for pid in self.PIDS:
+            for iid in self.IIDS:
+                stats.update(pid, create_mock_stats_item(iid=iid, gen=0, ts_start=0, ts_stop=1_000 * pid))
+                stats.record_loss(pid, iid, 0, pid, 100 * pid)
+                stats.observe_cumulative(pid, iid, 0, 10 * pid, 0.5)
+        return stats
+
+    def _state(self, stats: StreamingStats) -> object:
+        """Everything settling a pid touches, as one comparable value."""
+        return (
+            set(stats._open_pids),
+            dict(stats._epoch_per_pid),
+            sorted(stats._running_rings),
+            sorted(stats._settled_rings),
+            stats._admitted_rings,
+            {
+                key: (
+                    ring.declined,
+                    ring.metrics is not None,
+                    None if ring.metrics is None else ring.metrics["pause"][0].percentiles,
+                    {gen: (loss.count, loss.pause_ns) for gen, loss in ring.loss.items()},
+                    {gen: (totals.collections, totals.duration_s) for gen, totals in ring.cumulative.items()},
+                )
+                for key, ring in stats._keyed_rings()
+            },
+        )
+
+    def test_one_pass_leaves_what_the_per_pid_path_leaves(self) -> None:
+        """The hazard is a ring settled under the wrong epoch, which no timing
+        assertion sees and which surfaces later as one process's percentiles
+        under its predecessor's heading."""
+        one_pass, per_pid = self._fan_out(), self._fan_out()
+
+        one_pass.retain(self.SURVIVORS)
+        for pid in self.PIDS:
+            if pid not in self.SURVIVORS:
+                per_pid.materialize(pid)
+
+        assert self._state(one_pass) == self._state(per_pid)
+
+    def test_a_departed_ring_settles_under_the_epoch_it_filled_during(self) -> None:
+        """The equivalence above compares two paths through one body, so the
+        epoch that body picks is pinned here."""
+        stats = self._fan_out()
+
+        stats.retain(self.SURVIVORS)
+        stats.update(3, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=7_000))
+
+        assert stats.pause_totals(3, 0, 0, pid_epoch=1).sampled_pause_ns == 3_000
+        assert stats.pause_totals(3, 0, 0, pid_epoch=2).sampled_pause_ns == 7_000
+
+    def test_the_survivors_keep_their_rings(self) -> None:
+        """A whole-tree drop exercises neither the grouping nor the pids it
+        has to leave alone."""
+        stats = self._fan_out()
+
+        stats.retain(self.SURVIVORS)
+
+        assert stats._open_pids == set(self.SURVIVORS)
+        assert set(stats._running_rings) == {(pid, iid) for pid in self.SURVIVORS for iid in self.IIDS}
+
+    def test_settling_the_same_pids_again_is_a_no_op(self) -> None:
+        stats = self._fan_out()
+        stats.retain(self.SURVIVORS)
+        settled = self._state(stats)
+
+        stats.retain(self.SURVIVORS)
+
+        assert self._state(stats) == settled
+
+    def test_a_pid_already_settled_costs_nothing(self) -> None:
+        """A pid the monitor forgets after `retain` has settled it, and a pid
+        gcmon holds no records from at all."""
+        stats = self._fan_out()
+        stats.retain(self.SURVIVORS)
+        settled = self._state(stats)
+
+        stats.materialize(self.PIDS[5])
+        stats.materialize(9_999)
+
+        assert self._state(stats) == settled
+
+    def test_a_tick_where_nothing_departed_settles_nothing(self) -> None:
+        """The early return is what keeps a quiet tick cheap, and every tick
+        of a stable tree is a quiet one."""
+        stats = self._fan_out()
+        running = self._state(stats)
+
+        stats.retain(set(self.PIDS))
+
+        assert self._state(stats) == running
+
+    def test_a_declined_ring_hands_back_no_slot(self) -> None:
+        """The bound counts rings holding buffers, so a batch decrementing per
+        ring rather than per admitted ring drifts it downward and starts
+        declining rings it should admit."""
+        stats = StreamingStats()
+        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 4):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        assert stats.untracked_rings() == 4
+
+        stats.retain(set())
+
+        assert stats._admitted_rings == 0
+
+    def test_the_slots_a_departed_fan_out_frees_are_whole(self) -> None:
+        stats = StreamingStats()
+        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 4):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+
+        stats.retain(set())
+        for pid in range(9_000, 9_000 + StreamingStats.MAX_ACTIVE_RINGS):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+
+        assert stats.untracked_rings() == 4
+        assert stats.get_ring_stats(9_000 + StreamingStats.MAX_ACTIVE_RINGS - 1, 0) is not None
+
+
 class TestTheBoundOnRunningRings:
     """Rings arriving to a full set get no row, and their records still count."""
 

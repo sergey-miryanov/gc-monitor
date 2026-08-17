@@ -562,9 +562,26 @@ class StreamingStats:
 
         The caller polls the target's children each tick, so a pid missing
         from that listing has gone.
+
+        One pass over the running rings settles however many departed
+        together. A tree that fans out wide leaves as one, and its departures
+        and its rings are both the width of the tree, so a scan per departed
+        pid is the tree squared — tens of milliseconds ahead of the polls, in
+        a tick the surviving rings are filling against.
         """
-        for pid in self._open_pids - set(pids):
-            self.materialize(pid)
+        departed = self._open_pids - set(pids)
+        if not departed:
+            # A quiet tick pays the set difference and nothing else.
+            return
+
+        keys_per_pid: dict[int, list[RingKey]] = {pid: [] for pid in departed}
+        for key in self._running_rings:
+            keys = keys_per_pid.get(key[0])
+            if keys is not None:
+                keys.append(key)
+
+        for pid, keys in keys_per_pid.items():
+            self._settle(pid, keys)
 
     def record_read_time(self, duration_ns: int) -> None:
         self._read_time.update(duration_ns)

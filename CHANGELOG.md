@@ -19,6 +19,7 @@
 
 ### Bugfixes
 
+- Stop a wide fan-out's exit stalling the polls behind it: settling the departed interpreters scanned every running ring once per departed process, and the survivors' ring buffers filled while gcmon was busy
 - Stop a reused PID inheriting its predecessor's `--stats` row, which put two processes' records under one heading
 - Stop a reused PID's lifetime totals overwriting its predecessor's, which made the note under the table drop mid-run
 
