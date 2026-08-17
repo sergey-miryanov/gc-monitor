@@ -1,4 +1,4 @@
-# Specs — open work
+# Specs
 
 One file per unit of *forward-looking* work: something identified, understood and specified,
 but not yet built. A spec states the problem, the evidence for it, the proposed change, and
@@ -10,9 +10,8 @@ spec here contradicts an ADR, one of the two is wrong and it is usually the spec
 
 ## Specs
 
-Mostly open work. A **retired** spec, landed or declined or superseded, keeps its row and loses
-its file, so the number still resolves for anyone who meets it in a commit message. Retired rows
-name the outcome in the **Kind** column and carry no link. See [Lifecycle](#lifecycle).
+Mostly open work. A **retired** spec keeps its row and loses its file: those rows name the
+outcome in the **Kind** column and carry no link. See [Lifecycle](#lifecycle) for why.
 
 | Spec | Kind | Effort | Summary |
 |------|------|--------|---------|
@@ -62,19 +61,18 @@ name the outcome in the **Kind** column and carry no link. See [Lifecycle](#life
 | 16 | 0020 | |
 | 17 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
 
-"Constrained" means the position is forced; the reason is in the list below. Blank cells carry no
-reason at all, so those four can move.
+"Constrained" means the position is forced and the list below says by what. A blank cell means
+no recorded reason, so that row can move.
 
 **Not in the run**, which is every other row in the index:
 
 - **0024** is the owner's to file, and depends on nothing here.
-- **0033** wants a real capture in front of you before it can be judged worth a fourth row.
+- **0033** wants a real capture in front of you first; see below.
 - **0044** waits on CPython synchronizing the ring. Its §4 states the one measurement that would
   put it back in play sooner.
-- **0029** and **0034** are superseded, and **0038** has landed. Retired rows are never in the
-  run; the index keeps them so their numbers still resolve.
+- **0029**, **0034** and **0038** are retired.
 
-**Five ordering constraints, and only five:**
+**The only ordering constraints:**
 
 - 0026 before 0037, which assumes its shared naming helper.
 - 0028 before 0036, which it shrinks.
@@ -183,13 +181,13 @@ nothing.
 
 Numbers are assigned in order and **never reused or renumbered**, the rule the ADRs follow, so a
 reference to spec 0026 keeps meaning one thing. Take the next number from the highest in the table,
-which carries a row for every number that became a file here. Gaps in the *folder* are normal and
-mean a spec retired.
+which carries a row for every number that became a file here. A gap in the *folder* means a spec
+retired.
 
-Gaps in the *table* mean two different things. From 0033 on every number became a file, so a gap
+A gap in the *table* means one of two things. From 0033 on every number became a file, so a gap
 there is a lost row and git has the text. Below that, **0022**, **0023** and **0032** never became
-files: nothing in git records what they were and nothing references them, so do not go looking.
-0018, 0019 and 0021 sit in [Provenance](#provenance) instead.
+files, and nothing records what they were, so do not go looking. 0018, 0019 and 0021 sit in
+[Provenance](#provenance).
 
 **Two numbers were used twice before that was written down**, both reclaimed by the batch in
 `4731e50` from specs that had landed days earlier. A reference from before 2026-08-15 resolves
