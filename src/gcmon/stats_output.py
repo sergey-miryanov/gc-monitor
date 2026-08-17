@@ -38,7 +38,7 @@ class StatsView(Enum):
     def parse(cls, word: str) -> StatsView | None:
         """Map a typed word to its view, or to None for no table.
 
-        Case and surrounding space are forgiven.
+        Case-insensitive, and surrounding whitespace is stripped.
 
         Raises:
             ValueError: the word is neither a view nor one of

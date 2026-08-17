@@ -753,7 +753,7 @@ class TestTheVocabularyOfTheFlag:
         assert StatsView.parse(word) is None
 
     @pytest.mark.parametrize("word", ["Total", "TOTAL", " total", "total\n", " Off ", "NO"])
-    def test_case_and_surrounding_space_are_forgiven(self, word: str) -> None:
+    def test_case_insensitive_and_stripped(self, word: str) -> None:
         StatsView.parse(word)  # does not raise
 
     @pytest.mark.parametrize("word", ["", "  ", "all", "brief", "1", "true", "yes", "on", "totals"])

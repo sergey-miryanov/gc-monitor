@@ -239,7 +239,7 @@ class TestTheStatsEnvironmentVariable:
         assert result.stats_view is view
 
     @pytest.mark.parametrize("value", ["Total", "TOTAL", " total", "total\n"])
-    def test_case_and_space_are_forgiven(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    def test_case_insensitive_and_stripped(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
         monkeypatch.setenv("GCMON_STATS", value)
 
         result = self._options(["monitor", "12345"])
@@ -317,7 +317,7 @@ class TestTheWordsThatTurnTheTableOff:
         assert result.stats_view is None
 
     @pytest.mark.parametrize("value", ["Off", "OFF", " off", "off\n"])
-    def test_the_variable_forgives_case_and_space(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    def test_the_variable_is_case_insensitive_and_stripped(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
         from gcmon.cli import _create_parser
 
         monkeypatch.setenv("GCMON_STATS", value)
