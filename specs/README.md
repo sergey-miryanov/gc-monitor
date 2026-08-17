@@ -36,7 +36,6 @@ This file holds the open set and the order to take it in. The other two:
 | [0043](0043-report-one-version-from-one-source.md) | Bug — reporting | XS | `gcmon.__version__` says `0.1.0` against a `0.5.0` distribution; nothing reads it, nothing checks it, and there is no `--version` to ask |
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug — correctness | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
 | [0045](0045-print-the-statistics-table-at-two-widths.md) | Feature — ergonomics | S | `--stats` prints one table with no way to ask for less; on a single-interpreter run half of it is a copy of the other half |
-| [0046](0046-settle-a-departed-fan-out-in-one-pass.md) | Bug — performance | S | Settling a departed pid rescans every running ring, so a fan-out that exits together costs a tick tens of milliseconds and may draw loss on its surviving siblings |
 
 Every row here has a file. A missing number either retired or never became one;
 [RETIRED.md](RETIRED.md) says which.
@@ -55,13 +54,12 @@ Every row here has a file. A missing number either retired or never became one;
 | 8 | 0035 | Constrained: before 0039 |
 | 9 | 0037 | Constrained: after 0026 |
 | 10 | 0036 | Constrained: after 0028 |
-| 11 | 0046 | Constrained: before 0039 |
-| 12 | 0039 | Constrained: after 0035 and 0046, before 0041 |
-| 13 | 0040 | Rewrites the option declarations 0045 edits |
-| 14 | 0042 | |
-| 15 | 0045 | Breaks `--stats`, so it wants the same release as ADR-0016's reshaping of that table |
-| 16 | 0020 | |
-| 17 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
+| 11 | 0039 | Constrained: after 0035, before 0041 |
+| 12 | 0040 | Rewrites the option declarations 0045 edits |
+| 13 | 0042 | |
+| 14 | 0045 | Breaks `--stats`, so it wants the same release as ADR-0016's reshaping of that table |
+| 15 | 0020 | |
+| 16 | 0041 | Last on purpose: its §7 argues against doing it between two changes that move code |
 
 "Constrained" means the list below forces the position. A blank cell means no recorded reason, so
 that row can move.
@@ -78,8 +76,6 @@ that row can move.
 - 0026 before 0037, which assumes its shared naming helper.
 - 0028 before 0036, which it shrinks.
 - 0035 before 0039, which would otherwise move nine classes 0035 deletes.
-- 0046 before 0039, which moves the structure 0046 changes. Reversed, 0039 would have to settle
-  0046's open question about re-keying `_running_rings`, which is more than either spec asks.
 - 0039 before 0041, or the same files move twice.
 
 0040 and 0042 depend on nothing else here; take either at any time. 0033 and 0035 both came out
