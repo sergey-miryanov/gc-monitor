@@ -1,8 +1,20 @@
-__version__ = "0.1.0"
-
 from .child_process_runner import ChildProcess, ChildProcessRunner
 from .exporters import EventsExporter, JsonlExporter, StdoutExporter, TraceExporter
 from .monitor import EventsMonitor
+
+
+def __getattr__(name: str) -> str:
+    """Read ``__version__`` from the installed distribution's metadata, on first use."""
+    if name == "__version__":
+        import importlib.metadata
+
+        try:
+            return importlib.metadata.version("gcmon")
+        except importlib.metadata.PackageNotFoundError:
+            # A source tree with no install: nothing to read a version from.
+            return "0.0.0+unknown"
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "ChildProcess",

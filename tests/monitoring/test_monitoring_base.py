@@ -6,6 +6,7 @@ import pytest
 
 from gcmon.events_reader import RemoteEventsReader
 from gcmon.stats import PauseTotals
+from gcmon.stats_output import StatsView
 
 
 class TestRunMonitoringLoop:
@@ -147,7 +148,7 @@ class TestRunMonitoringLoop:
         assert [record.getMessage() for record in logged] == expected
         assert {record.levelname for record in logged} == {"INFO"}
 
-    def test_show_stats_calls_print_stats(
+    def test_a_view_calls_print_stats(
         self,
         caplog: pytest.LogCaptureFixture,
         mock_factory: MagicMock,
@@ -159,12 +160,27 @@ class TestRunMonitoringLoop:
 
         mock_monitoring_base_deps["StreamingStats"].return_value.count.return_value = 0
 
-        result = run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options(show_stats=True))
+        options = monitoring_options(stats_view=StatsView.TOTAL)
+        result = run_monitoring_loop(mock_factory, mock_wait_policy_factory, options)
 
         assert result == 0
-        mock_monitoring_base_deps["print_stats"].assert_called_once()
+        # The view the operator typed reaches the table.
+        assert mock_monitoring_base_deps["print_stats"].call_args.args[1] is StatsView.TOTAL
 
-    def test_show_stats_drops_the_pointer_to_stats(
+    def test_no_view_prints_no_table(
+        self,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict[str, MagicMock],
+    ) -> None:
+        from gcmon.commands.monitoring_base import run_monitoring_loop
+
+        run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
+
+        mock_monitoring_base_deps["print_stats"].assert_not_called()
+
+    def test_a_view_drops_the_pointer_to_stats(
         self,
         caplog: pytest.LogCaptureFixture,
         mock_factory: MagicMock,
@@ -180,7 +196,7 @@ class TestRunMonitoringLoop:
         stats.count.return_value = 1234
         stats.pause_totals_by_gen.return_value = {0: PauseTotals(1234, 0.0, 8566, 0)}
 
-        run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options(show_stats=True))
+        run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options(stats_view=StatsView.FULL))
 
         assert "Total events: 1234 (+8566 reconstructed, 12.6% observed)" in caplog.text
         assert "Run with --stats" not in caplog.text

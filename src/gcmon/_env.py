@@ -194,16 +194,17 @@ def get_env_server_port() -> int:
     return 9999
 
 
-def get_env_stats() -> bool:
-    """Get stats flag from environment variable.
+def get_env_stats() -> str | None:
+    """Get the statistics view, or a word asking for no table, from the environment.
+
+    The value is handed on as written. ``get_monitoring_options`` refuses an
+    unknown one, once logging is configured. A blank value reads as unset.
 
     Returns:
-        True if GCMON_STATS is set to a truthy value ("1", "true", "yes", "on").
+        The raw GCMON_STATS value, or None if it is unset or blank.
     """
-    stats_str = os.environ.get(ENV_STATS, "").lower()
-    if not stats_str:
-        return False
-    return stats_str in ("1", "true", "yes", "on")
+    value = os.environ.get(ENV_STATS)
+    return value if value and value.strip() else None
 
 
 def get_env_rss() -> bool:

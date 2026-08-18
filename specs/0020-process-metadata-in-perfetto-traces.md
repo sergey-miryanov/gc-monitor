@@ -1,7 +1,7 @@
-# 0020 — Record the target's Python version and GC thresholds in the trace
+# 0020: Record the target's Python version and GC thresholds in the trace
 
 - **Status:** Not started
-- **Kind:** feature — enhancement
+- **Kind:** feature (enhancement)
 - **Effort:** M
 - **Origin:** carried over from the pre-2026-08 spec set (old spec 20), rewritten
 - **Respects:** [ADR-0010](../docs/adr/0010-process-identity-cmdline-and-start-marker.md) (cmdline as a debug annotation on the process slice), [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) (the `Processes` track and its slices), [ADR-0012](../docs/adr/0012-trace-output-formats.md) (Perfetto-only features are allowed to be Perfetto-only)
@@ -9,7 +9,7 @@
 ## 1. Problem statement
 
 A trace from three weeks ago says a generation-0 collection ran 4,000 times. Whether that is
-alarming depends entirely on the thresholds the process was running with — 700 is not 70 — and
+alarming depends entirely on the thresholds the process was running with (700 is not 70) and
 on which Python built it. Neither is in the file. Today both are logged to stderr at startup
 and lost with the terminal scrollback, so the moment a trace outlives the session that produced
 it, the numbers in it stop being interpretable. Comparing two traces from different builds is
@@ -23,7 +23,7 @@ travel with the file, so a trace opened months later still says what it was meas
 traces can be compared on the strength of what is in them rather than on someone's memory of how
 they were produced.
 
-Where the values cannot be known, they are absent rather than guessed — an attach to a process
+Where the values cannot be known, they are absent rather than guessed: an attach to a process
 that was not started by gcmon shows the command line it shows today and no metadata, and the
 trace is otherwise identical.
 
@@ -48,7 +48,7 @@ trace is otherwise identical.
 ## 4. Implementation decisions
 
 **Both values are emitted as string debug annotations on the `TYPE_SLICE_BEGIN` packet the
-`Processes` track already carries per pid** — the same packet and the same mechanism as
+`Processes` track already carries per pid**, the same packet and the same mechanism as
 `cmdline` under ADR-0010, built in `perfetto_process_lifetime._emit_process_lifetime_slice_begin`
 via `_build_debug_annotation_string`. No new track, no new packet, no change to
 `_emit_process_descriptor` or to `finalize_perfetto_packets`.
@@ -59,8 +59,8 @@ via `_build_debug_annotation_string`. No new track, no new packet, no change to
 | GC thresholds | `gc_thresholds` | string, JSON object | `{"0": 700, "1": 10, "2": 10}` |
 
 `PerfettoTrackState` stores both per pid, with getters and setters following the existing
-`set_cmdline` / `get_cmdline` pair. It is not internally thread-safe and does not need to be —
-see [0030](0030-exporter-hygiene-batch.md) §4.3 for why.
+`set_cmdline` / `get_cmdline` pair. It is not internally thread-safe and does not need to be;
+see [0030](0030-exporter-hygiene-batch.md) section 4.3 for why.
 
 **Each value has exactly one trustworthy source, and they are different sources.** This is the
 decision the original spec left open, and getting it wrong produces annotations that are
@@ -68,12 +68,12 @@ confidently false:
 
 - **`python_version` under `gcmon run`** is exact. `ChildProcessRunner` spawns the child with
   `sys.executable`, so the monitoring process's `sys.version` *is* the child's version. Inject
-  it as `GCMON_PYTHON_VERSION` in the child's environment at spawn — the runner already builds a
+  it as `GCMON_PYTHON_VERSION` in the child's environment at spawn; the runner already builds a
   merged environment for the child, so this is one more key.
 - **`gc_thresholds` is only knowable from inside the target**, and only as of a moment. The
   monitoring process's own `gc.get_threshold()` is not the child's: gcmon may have tuned its
   own, and the child may call `gc.set_threshold` at any point after start. Take it from the
-  control plane — the target already talks to gcmon through `ControlClient`, so a process that
+  control plane: the target already talks to gcmon through `ControlClient`, so a process that
   opted in reports its own thresholds, and one that did not gets no annotation. Record the
   observation time in the value (`{"0": 700, "1": 10, "2": 10, "observed_ts": …}`) so a reader
   can see it is a sample rather than an invariant.
@@ -98,13 +98,13 @@ trace changes. This matches how `cmdline` already behaves.
 
 - **Seam:** the trace processor, via `tests/exporters/test_perfetto_exporter_integration.py`.
   Debug annotations surface in the `args` table keyed `debug.python_version` /
-  `debug.gc_thresholds`, exactly as `debug.cmdline` does today — the highest seam available, and
+  `debug.gc_thresholds`, exactly as `debug.cmdline` does today, the highest seam available, and
   the only one that proves the annotation is attached to the right slice rather than merely
   present in the byte stream.
 - **New seam needed:** none for emission. The env-var injection needs an assertion at
   `ChildProcessRunner`'s environment-building step, which `tests/test_child_process_runner.py`
   already reaches.
-- **What makes a good test here:** query the annotation *through its slice* — join `args` to the
+- **What makes a good test here:** query the annotation *through its slice*: join `args` to the
   `Processes`-track slice for a known pid and assert the value. A test that greps the trace bytes
   for the string would pass on an annotation attached to the wrong slice, or to a packet the UI
   never renders. Assert the negative too: `--format chrome` and `--format jsonl` output stays
@@ -136,8 +136,8 @@ trace changes. This matches how `cmdline` already behaves.
 ## 7. Further notes
 
 **To confirm when this is picked up:** whether `_remote_debugging` exposes the target's version
-hex or GC thresholds directly. If it does, the attach case stops needing cooperation and §4's
-source table gets simpler — this is a factual question about the extension module, not a
+hex or GC thresholds directly. If it does, the attach case stops needing cooperation and section 4's
+source table gets simpler. This is a factual question about the extension module, not a
 preference, and it should be answered before the control-plane path is built. See
 [0024](0024-cpython-report-remote-readable-gc-stats.md), which reviews what that API does and
 does not expose.

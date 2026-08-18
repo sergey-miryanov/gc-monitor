@@ -6,13 +6,13 @@ puts on future work. Read one when you want to know why a piece of the design lo
 does.
 
 An ADR does not document *what* the code does. The code and its tests are the authority on
-that. Each ADR anchors into the source by module path and by the names the outside world sees —
-a slice or arg name in a trace, a JSONL field, a CLI flag, a `--stats` column — so you can
+that. Each ADR anchors into the source by module path and by the names the outside world sees (a
+slice or arg name in a trace, a JSONL field, a CLI flag, a `--stats` column), so you can
 check the two against each other. Renaming one of those is itself a decision, and the record
 moves with it.
 
 Forward-looking work that has been specified but not yet built lives in
-[`specs/`](../../specs/README.md), not here — one file per open item, deleted when it lands. A
+[`specs/`](../../specs/README.md), not here: one file per open item, deleted when it lands. A
 spec that settles a durable design question graduates into a record below.
 
 ## Conventions
@@ -79,5 +79,5 @@ trace, and 0019 extends 0017 — read them in that order.
 working directory. Those specs were forward-looking plans with step-by-step instructions. The
 part worth keeping, meaning the decisions and their rationale, is here under version control,
 and the original specs were removed once extracted. What remained of that folder was
-re-verified and rewritten on 2026-08-05, and `specs/` is now tracked — see
+re-verified and rewritten on 2026-08-05, and `specs/` is now tracked; see
 [its retired-spec record](../../specs/RETIRED.md#provenance).*

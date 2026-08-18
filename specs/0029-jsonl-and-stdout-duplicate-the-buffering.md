@@ -1,8 +1,8 @@
-# 0029 — Share one buffer-and-flush implementation with the JSONL exporters
+# 0029: Share one buffer-and-flush implementation with the JSONL exporters
 
 - **Status:** **Superseded** by [0036](0036-one-exporter-method-per-record-kind.md), which
   removes the duplication by construction rather than by extraction
-- **Kind:** feature — cleanup
+- **Kind:** feature (cleanup)
 - **Effort:** M
 - **Origin:** post-v0.2.0 code review (old spec 18, REQ-3 and REQ-4)
 - **Respects:** [ADR-0008](../docs/adr/0008-buffered-exporter-and-encoder-protocol.md) (exporter buffers, encoder serializes), [ADR-0009](../docs/adr/0009-nanoseconds-canonical-time-unit.md) (nanoseconds internally)
@@ -11,18 +11,18 @@
 
 The three byte-identical buffering blocks exist because `EventsExporter` has three `add_*`
 methods for the JSONL path to implement. 0036 collapses the interface to one `add`, so there is
-one block and nothing left to extract — §4's generic holder is not needed under that design.
+one block and nothing left to extract; section 4's generic holder is not needed under that design.
 
 Everything else here still holds and 0036 carries it forward verbatim: the JSONL schema does not
-change and JSONL does not move onto `TraceEvent` (§4, and the rejected alternative that goes
+change and JSONL does not move onto `TraceEvent` (section 4, and the rejected alternative that goes
 with it), the missing `_closed` guard, the `_open_writer` override, and the golden-file test.
-Read §4 before touching the JSONL exporter — it is the fullest statement of why the file format
+Read section 4 before touching the JSONL exporter: it is the fullest statement of why the file format
 is load-bearing, and 0036 summarizes rather than replaces it.
 
 ## 1. Problem statement
 
 Every time a record type is added to gcmon, it has to be added to `JsonlExporter` three times
-over — and the third copy is where the mistake will be. `add_event`, `add_loss_event` and
+over, and the third copy is where the mistake will be. `add_event`, `add_loss_event` and
 `add_instant_event` each carry their own byte-identical copy of the same twelve-line
 lock/append/threshold/flush dance, none of it shared with the base class that exists to hold
 exactly that logic. The loss records that landed with
@@ -57,7 +57,7 @@ of three, and closing a JSONL exporter twice is as safe as closing any other.
 
 **The JSONL record shape does not change, and JSONL does not move onto `TraceEvent`.** This is
 the decision the original review item got wrong. `BufferedTraceExporter` buffers `TraceEvent`
-and hands them to an `EventEncoder`; `JsonlExporter` buffers `to_mapping(item)` — the raw
+and hands them to an `EventEncoder`; `JsonlExporter` buffers `to_mapping(item)`, the raw
 record fields (`gen`, `collections`, `ts_start`, `heap_size`, …). Those are not two encodings
 of one thing. The JSONL schema is public, documented per-field in
 [docs/formats.md](../docs/formats.md#jsonl-output), and read back by
@@ -68,7 +68,7 @@ combine reader in the same commit. Rejected.
 So the sharing happens one level down, at the buffering, not at the representation:
 
 1. Extract the lock/append/threshold/flush logic out of `BufferedTraceExporter` into a small
-   generic holder — one buffer, two locks, one threshold, one `_closed` flag, parameterized by
+   generic holder: one buffer, two locks, one threshold, one `_closed` flag, parameterized by
    the buffered item type. `BufferedTraceExporter` keeps it as a member holding `TraceEvent`;
    `JsonlExporter` holds one over its record mappings.
 2. `JsonlExporter`'s three `add_*` methods shrink to "build the mapping, hand it to the
@@ -86,7 +86,7 @@ So the sharing happens one level down, at the buffering, not at the representati
 the test surface to protect against a copy-paste error that extraction removes outright.
 
 **Open, to settle when picked up:** whether the extracted holder is worth its own module or
-lives beside `BufferedTraceExporter`. Settled by how much `JsonlExporter` actually needs — if
+lives beside `BufferedTraceExporter`. Settled by how much `JsonlExporter` actually needs: if
 the two uses share fewer than ~30 lines, keep it a private base class in
 `_buffered_exporter.py` rather than a new file.
 
@@ -95,8 +95,8 @@ the two uses share fewer than ~30 lines, keep it a private base class in
 - **Seam:** the on-disk file, through `tests/exporters/test_jsonl_exporter.py` and the JSONL
   leg of `tests/test_convert_cmd.py`. That is the highest seam available and the correct one:
   the contract this refactor must not break is the file itself, not the class structure.
-- **New seam needed:** none. Do **not** assert on `__mro__` or on which class holds the buffer
-  — that pins the implementation this spec is trying to make free to change.
+- **New seam needed:** none. Do **not** assert on `__mro__` or on which class holds the
+  buffer; that pins the implementation this spec is trying to make free to change.
 - **What makes a good test here:** a golden-file comparison. Capture the JSONL a fixed set of
   records produces today, and assert the refactor reproduces it byte-for-byte, including the
   loss records and the instant events. "The file has three lines and parses as JSON" would
@@ -106,7 +106,7 @@ the two uses share fewer than ~30 lines, keep it a private base class in
   shape of an equivalence assertion.
 - **Cases:**
   1. GC records, loss records and instant events all reach the file when the buffer never
-     reaches the flush threshold and `close()` is what drains it — the path each of the three
+     reaches the flush threshold and `close()` is what drains it, the path each of the three
      duplicated blocks owns today.
   2. `close()` twice writes the file once; an `add_event` after `close()` does not resurrect
      the file.
@@ -116,7 +116,7 @@ the two uses share fewer than ~30 lines, keep it a private base class in
 ## 6. Out of scope
 
 - Any change to the JSONL schema, including the `ts` unit. Both are public and documented.
-- `output_path` on the `EventsExporter` ABC — that is [0028](0028-combined-exporter-reaches-into-sub-exporter-privates.md),
+- `output_path` on the `EventsExporter` ABC. That is [0028](0028-combined-exporter-reaches-into-sub-exporter-privates.md),
   which is independent and should land first.
 - A JSONL *input* format for anything other than `combine`.
 - Making `JsonlExporter.output_path` a required argument. It is `Path | None` because

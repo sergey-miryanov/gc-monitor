@@ -3,6 +3,8 @@
 import argparse
 import logging
 import sys
+from collections.abc import Sequence
+from typing import Any
 
 from .commands import (
     add_combine_parser,
@@ -13,11 +15,40 @@ from .commands import (
 logger = logging.getLogger("gcmon")
 
 
+class _VersionAction(argparse.Action):
+    """Print gcmon's version and exit.
+
+    ``argparse``'s ``version`` action wants the string when the flag is declared, so every run
+    would read the distribution's metadata. This one reads it when the flag is used.
+    """
+
+    def __init__(self, option_strings: Sequence[str], dest: str, help: str | None = None) -> None:
+        super().__init__(option_strings=list(option_strings), dest=dest, nargs=0, help=help)
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | Sequence[Any] | None,
+        option_string: str | None = None,
+    ) -> None:
+        from . import __version__
+
+        sys.stdout.write(f"{__version__}\n")
+        parser.exit()
+
+
 def _create_parser() -> argparse.ArgumentParser:
     """Create the argument parser with subcommands."""
     parser = argparse.ArgumentParser(
         prog="gcmon",
         description="Monitor Python's garbage collector and export statistics.",
+    )
+    parser.add_argument(
+        "--version",
+        action=_VersionAction,
+        dest=argparse.SUPPRESS,
+        help="Print the installed gcmon version and exit",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -79,7 +110,7 @@ def _split_run_args(argv: list[str]) -> tuple[list[str], list[str]]:
         if arg.startswith("--module=") or arg.startswith("--script="):
             # --module=value or --script=value → split after this arg
             return argv[: i + 1], argv[i + 1 :]
-    # No target option found — all args go to gcmon
+    # No target option found: all args go to gcmon
     return argv, []
 
 
@@ -114,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(args, "func"):
         return int(args.func(args))
 
-    # No command specified — default to monitor
+    # No command specified: default to monitor
     if args.command is None:
         return main(["monitor", *argv])
 

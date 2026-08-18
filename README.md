@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 gcmon watches a running Python process's garbage collector from **outside** the
-process — no code changes, no callbacks, no in-process overhead. Export to
+process: no code changes, no callbacks, no in-process overhead. Export to
 Chrome Trace, Perfetto, or JSONL; query with PerfettoSQL.
 
 > **Requires CPython 3.15+** for the monitored process and the `gcmon` process,
@@ -67,27 +67,27 @@ integrate GC metrics into benchmarks.
 
 **Use something else when you need to:**
 
-- Find which code paths trigger collections — use
+- Find which code paths trigger collections: use
   [`profiling.sampling`](https://docs.python.org/3.15/library/profiling.sampling.html),
   or [`austin`](https://github.com/P403n1x87/austin) with `-g` on interpreters
   older than 3.15 (statistical, no per-pause timing or heap data)
-- In-process GC callbacks (e.g., triggering actions on collection) — use
+- In-process GC callbacks (e.g., triggering actions on collection): use
   [`gc.callbacks`](https://docs.python.org/3/library/gc.html#gc.callbacks)
-- Cumulative collection counters without per-pause detail — use
+- Cumulative collection counters without per-pause detail: use
   [`gc.get_stats()`](https://docs.python.org/3/library/gc.html#gc.get_stats)
-- Monitor across different Python builds — gcmon requires the exact same binary
+- Monitor across different Python builds: gcmon requires the exact same binary
   (see [Limitations](#limitations))
 
 ## Alternatives Comparison
 
 | Tool | GC Pause Time | Code Changes | Overhead | Best Use Case |
 |---|---|---|---|---|
-| gcmon¹ | Yes — exact | None | Zero in-process | Production GC monitoring |
+| gcmon¹ | Yes (exact) | None | Zero in-process | Production GC monitoring |
 | [`profiling.sampling`](https://docs.python.org/3.15/library/profiling.sampling.html)², [`austin`](https://github.com/P403n1x87/austin) | Partial³ | None | Near-zero in-process | Which code triggers GC |
-| `gc.callbacks` | Yes — exact | High (custom code) | Moderate (Python call) | Custom metrics pipelines |
-| `gc.get_stats()` | No — cumulative only | Minimal | Minimal | Basic counters |
+| `gc.callbacks` | Yes (exact) | High (custom code) | Moderate (Python call) | Custom metrics pipelines |
+| `gc.get_stats()` | No (cumulative only) | Minimal | Minimal | Basic counters |
 | APM agents (Datadog, New Relic, Dynatrace) | Varies⁴ | Agent required | Moderate | Distributed tracing |
-| [OpenTelemetry runtime metrics](https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/system_metrics/system_metrics.html) | No — counts only⁵ | Wrapper or SDK | Low | Fleet-wide GC counters |
+| [OpenTelemetry runtime metrics](https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/system_metrics/system_metrics.html) | No (counts only⁵) | Wrapper or SDK | Low | Fleet-wide GC counters |
 
 ¹ Requires CPython 3.15+ on both sides, built from the same source. See
 [Limitations](#limitations).
@@ -114,10 +114,10 @@ GC phases.
 
 ### Decision Guide
 
-**GC pauses** — *My service stalls and I suspect the collector.* → Run **gcmon**
+**GC pauses**: *My service stalls and I suspect the collector.* → Run **gcmon**
 against the PID for exact per-pause timings.
 
-**GC origin** — *I know collections are costly, but not what triggers them.* →
+**GC origin**: *I know collections are costly, but not what triggers them.* →
 Sample the process with
 [`profiling.sampling`](https://docs.python.org/3.15/library/profiling.sampling.html)
 and read its `<GC>` frames.
@@ -156,8 +156,8 @@ In practice, run both processes from the same virtualenv, container image, or
 
 ### Sub-step breakdown requires a custom build
 
-The per-phase GC breakdown visible in the screenshot below — Mark Alive, Fill
-increment, Deduce Unreachable, and the fields that accompany it — is only
+The per-phase GC breakdown visible in the screenshot below (Mark Alive, Fill
+increment, Deduce Unreachable, and the fields that accompany it) is only
 produced when the monitored process runs a CPython build with enhanced GC
 instrumentation. Standard CPython builds give you the top-level GC Pause slices
 and counter data only. See
@@ -218,10 +218,10 @@ pip install gcmon[stats,cmdline]  # Both extras
 ```
 
 `[stats]` installs [DDSketch](https://github.com/DataDog/sketches-py) for
-high-accuracy, memory-efficient percentiles — see
+high-accuracy, memory-efficient percentiles; see
 [Statistics](https://github.com/sergey-miryanov/gcmon/blob/main/docs/statistics.md).
 `[cmdline]` installs [psutil](https://github.com/giampaolo/psutil), which
-populates process command lines in Perfetto traces and enables `--rss` — see
+populates process command lines in Perfetto traces and enables `--rss`; see
 [RSS Tracking](https://github.com/sergey-miryanov/gcmon/blob/main/docs/rss.md).
 Each extra degrades gracefully when absent; no other trace data is affected.
 
@@ -235,7 +235,7 @@ gcmon 12345
 gcmon run -s my_script.py
 
 # Monitor with custom output and statistics output
-gcmon 12345 -o trace.json --stats
+gcmon monitor 12345 -o trace.json --stats=total
 
 # Perfetto binary output with RSS tracking
 gcmon 12345 --format perfetto -o trace.pftrace --rss
@@ -262,24 +262,24 @@ for the full track inventory and the JSONL event schema.
 The tools weighed in [Alternatives Comparison](#alternatives-comparison), and
 the viewer gcmon writes for:
 
-- [`profiling.sampling`](https://docs.python.org/3.15/library/profiling.sampling.html)
-  — stdlib statistical profiler, Tachyon (out-of-process, `<GC>` frames but no
+- [`profiling.sampling`](https://docs.python.org/3.15/library/profiling.sampling.html):
+  stdlib statistical profiler, Tachyon (out-of-process, `<GC>` frames but no
   per-pause timing)
-- [`austin`](https://github.com/P403n1x87/austin) — sampling CPU/memory profiler
+- [`austin`](https://github.com/P403n1x87/austin): sampling CPU/memory profiler
   (out-of-process, `-g` tags GC samples on interpreters older than 3.15)
-- [`gc.callbacks`](https://docs.python.org/3/library/gc.html#gc.callbacks) —
+- [`gc.callbacks`](https://docs.python.org/3/library/gc.html#gc.callbacks):
   in-process hook, the other exact source of pause time
-- [`gc.get_stats()`](https://docs.python.org/3/library/gc.html#gc.get_stats) —
+- [`gc.get_stats()`](https://docs.python.org/3/library/gc.html#gc.get_stats):
   cumulative per-generation counters, no per-pause detail
-- [OpenTelemetry runtime metrics](https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/system_metrics/system_metrics.html)
-  — fleet-wide GC collection counts
-- [Perfetto UI](https://ui.perfetto.dev) — the trace viewer used by gcmon's
+- [OpenTelemetry runtime metrics](https://opentelemetry-python-contrib.readthedocs.io/en/latest/instrumentation/system_metrics/system_metrics.html):
+  fleet-wide GC collection counts
+- [Perfetto UI](https://ui.perfetto.dev): the trace viewer used by gcmon's
   Perfetto exporter
 
 ## Project documentation
 
-- [gcmon documentation](https://github.com/sergey-miryanov/gcmon/blob/main/docs/README.md)
-  — CLI reference, output formats, statistics, RSS tracking, the pyperf hook,
+- [gcmon documentation](https://github.com/sergey-miryanov/gcmon/blob/main/docs/README.md):
+  CLI reference, output formats, statistics, RSS tracking, the pyperf hook,
   programmatic control, Perfetto SQL, architecture decision records, and the
   release process
 

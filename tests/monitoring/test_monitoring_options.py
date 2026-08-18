@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.commands.monitoring_options import RSS_CAPABLE_FORMATS, get_monitoring_options
-from gcmon.stats_output import TableFormat
+from gcmon.commands.monitoring_options import RSS_CAPABLE_FORMATS, MonitoringOptions, get_monitoring_options
+from gcmon.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
 
 
 def _make_args(**overrides: object) -> Namespace:
@@ -19,7 +19,7 @@ def _make_args(**overrides: object) -> Namespace:
         "duration": 0.05,
         "format": "chrome",
         "flush_threshold": 100,
-        "stats": False,
+        "stats": None,
         "table_format": TableFormat.PLAIN,
         "control_name": None,
         "rss": False,
@@ -156,3 +156,195 @@ class TestRssFormatWarning:
         result = get_monitoring_options(args)
         assert result is not None
         assert "RSS tracking is not supported" not in caplog.text
+
+
+class TestTheStatsFlagCarriesTheView:
+    """`--stats` requires a value, and it is one of two words."""
+
+    def _parse(self, argv: list[str]) -> Namespace:
+        from gcmon.cli import _create_parser
+
+        return _create_parser().parse_args(argv)
+
+    @pytest.mark.parametrize("word, view", [("total", StatsView.TOTAL), ("full", StatsView.FULL)])
+    def test_each_word_selects_its_view(self, word: str, view: StatsView) -> None:
+        result = get_monitoring_options(self._parse(["monitor", "12345", f"--stats={word}"]))
+
+        assert result is not None
+        assert result.stats_view is view
+
+    def test_no_flag_asks_for_no_table(self) -> None:
+        result = get_monitoring_options(self._parse(["monitor", "12345"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["monitor", "12345", "--stats=total"],
+            ["monitor", "12345", "--stats", "total"],
+            ["monitor", "--stats", "total", "12345"],
+        ],
+    )
+    def test_the_pid_survives_the_flag(self, argv: list[str]) -> None:
+        """The ordering an alias would have eaten: `--stats` before the pid."""
+        assert self._parse(argv).pid == 12345
+
+    def test_a_bare_flag_is_refused(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(SystemExit) as exit_info:
+            self._parse(["monitor", "12345", "--stats"])
+
+        assert exit_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "total" in err
+        assert "full" in err
+
+    def test_an_unknown_value_is_refused(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """`all` reads as the wider view and is not one."""
+        with pytest.raises(SystemExit) as exit_info:
+            self._parse(["monitor", "12345", "--stats=all"])
+
+        assert exit_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "total" in err
+        assert "full" in err
+
+    def test_run_takes_the_same_two_words(self) -> None:
+        result = get_monitoring_options(self._parse(["run", "--stats=total", "-m", "timeit"]))
+
+        assert result is not None
+        assert result.stats_view is StatsView.TOTAL
+
+
+class TestTheStatsEnvironmentVariable:
+    """`GCMON_STATS` takes the same two words, and an unreadable value fails
+    the run rather than falling back.
+    """
+
+    def _options(self, argv: list[str]) -> MonitoringOptions | None:
+        from gcmon.cli import _create_parser
+
+        # The parser reads the variable while it is being built, so it has to
+        # be built after the test sets it.
+        return get_monitoring_options(_create_parser().parse_args(argv))
+
+    @pytest.mark.parametrize("word, view", [("total", StatsView.TOTAL), ("full", StatsView.FULL)])
+    def test_each_word_selects_its_view(self, monkeypatch: pytest.MonkeyPatch, word: str, view: StatsView) -> None:
+        monkeypatch.setenv("GCMON_STATS", word)
+
+        result = self._options(["monitor", "12345"])
+
+        assert result is not None
+        assert result.stats_view is view
+
+    @pytest.mark.parametrize("value", ["Total", "TOTAL", " total", "total\n"])
+    def test_case_insensitive_and_stripped(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+        monkeypatch.setenv("GCMON_STATS", value)
+
+        result = self._options(["monitor", "12345"])
+
+        assert result is not None
+        assert result.stats_view is StatsView.TOTAL
+
+    def test_the_flag_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GCMON_STATS", "full")
+
+        result = self._options(["monitor", "12345", "--stats=total"])
+
+        assert result is not None
+        assert result.stats_view is StatsView.TOTAL
+
+    def test_unset_asks_for_no_table(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GCMON_STATS", raising=False)
+
+        result = self._options(["monitor", "12345"])
+
+        assert result is not None
+        assert result.stats_view is None
+
+    @pytest.mark.parametrize("value", ["1", "true", "all", "brief"])
+    def test_a_value_it_does_not_know_fails_the_run(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, value: str
+    ) -> None:
+        """`GCMON_STATS=1` from an older release stops the run at startup."""
+        caplog.set_level(logging.ERROR)
+        monkeypatch.setenv("GCMON_STATS", value)
+
+        assert self._options(["monitor", "12345"]) is None
+        assert "total" in caplog.text
+        assert "full" in caplog.text
+        assert value in caplog.text
+
+    def test_the_message_names_the_variable(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """argparse checks the flag's own values, so only the variable gets here."""
+        caplog.set_level(logging.ERROR)
+        monkeypatch.setenv("GCMON_STATS", "1")
+
+        self._options(["monitor", "12345"])
+
+        assert "GCMON_STATS" in caplog.text
+
+
+class TestTheWordsThatTurnTheTableOff:
+    """`no`, `off`, `false` and `0` ask for no table. Their truthy opposites
+    stay out.
+    """
+
+    def _parse(self, argv: list[str]) -> Namespace:
+        from gcmon.cli import _create_parser
+
+        return _create_parser().parse_args(argv)
+
+    @pytest.mark.parametrize("word", STATS_OFF_WORDS)
+    def test_the_flag_takes_each_of_them(self, word: str) -> None:
+        result = get_monitoring_options(self._parse(["monitor", "12345", f"--stats={word}"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    @pytest.mark.parametrize("word", STATS_OFF_WORDS)
+    def test_the_variable_takes_each_of_them(self, monkeypatch: pytest.MonkeyPatch, word: str) -> None:
+        from gcmon.cli import _create_parser
+
+        monkeypatch.setenv("GCMON_STATS", word)
+
+        result = get_monitoring_options(_create_parser().parse_args(["monitor", "12345"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    @pytest.mark.parametrize("value", ["Off", "OFF", " off", "off\n"])
+    def test_the_variable_is_case_insensitive_and_stripped(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+        from gcmon.cli import _create_parser
+
+        monkeypatch.setenv("GCMON_STATS", value)
+
+        result = get_monitoring_options(_create_parser().parse_args(["monitor", "12345"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    def test_the_flag_turns_off_what_the_variable_turned_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Why "no table" needs a spelling of its own."""
+        from gcmon.cli import _create_parser
+
+        monkeypatch.setenv("GCMON_STATS", "full")
+
+        result = get_monitoring_options(_create_parser().parse_args(["monitor", "12345", "--stats=no"]))
+
+        assert result is not None
+        assert result.stats_view is None
+
+    def test_the_pid_survives_them(self) -> None:
+        assert self._parse(["monitor", "--stats", "off", "12345"]).pid == 12345
+
+    @pytest.mark.parametrize("word", ["1", "true", "yes", "on"])
+    def test_their_truthy_opposites_are_still_refused(self, capsys: pytest.CaptureFixture[str], word: str) -> None:
+        with pytest.raises(SystemExit) as exit_info:
+            self._parse(["monitor", "12345", f"--stats={word}"])
+
+        assert exit_info.value.code != 0
+        assert "total" in capsys.readouterr().err

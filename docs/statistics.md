@@ -1,8 +1,19 @@
 # Statistics
 
 Use `--stats` to display a statistics table at the end of monitoring. The table
-reports GC pause durations (p50, p90, p95, p99) and counts per generation, with
-one block per interpreter plus an overall Total block for the run.
+reports GC pause durations (p50, p90, p95, p99) and counts per generation, in a
+`Total` block for the whole run, with one block per interpreter under it if you
+ask for them.
+
+The flag takes the view as a required value. `--stats=total` prints the run-wide
+`Total` block, `Read Time` and the footer, and `--stats=full` adds one block per
+interpreter. [CLI usage](cli.md#--stats) lists every word the flag and
+`GCMON_STATS` accept, including the ones asking for no table.
+
+**On a single-interpreter run `--stats=total` costs you nothing.** The block it
+drops, `12345:0`, repeats the `Total` block above it line for line. Reach for
+`--stats=full` on a target running sub-interpreters or a tree of processes,
+where the per-interpreter blocks say which interpreter carried the pause time.
 
 Read it as: **P99 is your tail latency** (1 in 100 pauses is at least this
 long), **Sum divided by the monitoring wall time gives the share of the
@@ -12,7 +23,7 @@ SLO is a good starting point for tuning.
 
 The last row, `Read Time`, is monitor-side cost rather than target-process cost:
 it measures how long each read of a target's GC stats took, recorded once per
-successful poll of every monitored PID and aggregated into a single row — with
+successful poll of every monitored PID and aggregated into a single row; with
 child processes its `Count` is polls × PIDs, and there is no per-PID breakdown.
 Expect tens of microseconds, with one much larger reading per monitored process:
 the first read of a process has to locate its GC state before it can read it, and
@@ -29,7 +40,7 @@ default rate produces.
 ## Example Output
 
 ```bash
-$ gcmon 12345 --stats --table-format md
+$ gcmon monitor 12345 --stats=full --table-format md
 
 | PID:IID | Metric                   |   Count |             Sum |    Avg |    P50 |    P90 |    P95 |    P99 |    Cov |      F |
 |---------|--------------------------|---------|-----------------|--------|--------|--------|--------|--------|--------|--------|
@@ -176,7 +187,7 @@ The third interval above. It changes no cell in the table. The counts say what
 the figure folded: three interpreters that started at different moments, in two
 processes. A run watching one interpreter reads `1 interpreter in 1 process`.
 
-**3. Rings with no row.**
+**3. Rings with no row.** `--stats=full` only.
 
 ```
 3. 2 rings got no row: gcmon was already tracking 256 interpreters at once. Those records are counted in Total.
@@ -188,6 +199,10 @@ interpreter that starts while every slot is busy gets no block of its own, and
 gcmon logs a warning the first time it happens. `Total` still counts every
 record, so the rows can add up to less than the run and this note says by how
 many rings.
+
+`--stats=total` prints no ring rows, so gcmon leaves the note out. The warning
+naming the pid and the interpreter is logged under either view. Notes 1 and 2
+are run-wide and print under both.
 
 ## Without `[stats]` extra
 

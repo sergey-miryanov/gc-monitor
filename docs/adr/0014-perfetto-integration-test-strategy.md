@@ -44,7 +44,7 @@ deselected by `addopts = "-m 'not stress and not benchmark and not fuzz'"`:
   separate `fuzz-test` job on Linux only. Unlike `stress` these are **not** probabilistic:
   seeds are fixed, so a failure reproduces and repeating a trial re-runs the same trace.
   That is why the job passes no `--count`; widen coverage by raising the trial count in the
-  test. They earn a marker for cost, not flakiness — the trace processor starts once per
+  test. They earn a marker for cost, not flakiness; the trace processor starts once per
   trial, which is seconds rather than the milliseconds the default suite budgets for.
 
 **Tests are parametrized over Chrome JSON and Perfetto binary.** The trace processor
