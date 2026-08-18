@@ -86,8 +86,8 @@ reads as `dur = -1`; putting the outer BEGIN of two spans sharing a start ahead 
 inner belongs to the sweep, because `[(100, 2, 6), (101, 2, 3)]` emitted inner-first gives
 pid 100 a duration of 1 instead of 4 plus a `misplaced_end_event`. Neither claim is argued:
 the fuzz suite below checks both against the trace processor. The sweep's sort is therefore
-load-bearing twice over — longer-first on a tie keeps the clip safe *and* orders these
-BEGINs — which is why the sweep sorts its own input rather than documenting the order as a
+load-bearing twice over: longer-first on a tie keeps the clip safe *and* orders these
+BEGINs, which is why the sweep sorts its own input rather than documenting the order as a
 precondition.
 
 The sweep and the emission order together, on the crossing shape from the Context plus a nested

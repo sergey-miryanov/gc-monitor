@@ -1,8 +1,8 @@
-# 0024 — File an upstream report on the remote-readable GC stats ring
+# 0024: File an upstream report on the remote-readable GC stats ring
 
-- **Status:** Not started — material for an upstream report, to be filed by the owner
-- **Kind:** report — upstream (neither template fits; this produces an issue, not a change)
-- **Effort:** S — no gcmon code changes
+- **Status:** Not started; material for an upstream report, to be filed by the owner
+- **Kind:** report (upstream). Neither template fits; this produces an issue, not a change
+- **Effort:** S (no gcmon code changes)
 - **Origin:** built while implementing GC event loss detection, now [ADR-0015](../docs/adr/0015-gc-loss-spans-on-their-own-track.md)
 - **Respects:** [ADR-0015](../docs/adr/0015-gc-loss-spans-on-their-own-track.md) (what gcmon reconstructs from an incomplete sample)
 
@@ -60,7 +60,7 @@ structural rather than a tuning problem.
 
 Sizing the ring to survive one interval at 10 Hz for this workload needs ~87 young slots.
 `struct gc_generation_stats` is 64 bytes (eight 8-byte fields), so the whole `struct gc_stats` is
-about 1.1 KB today and would be about 5.8 KB at 87 young slots — per interpreter, once.
+about 1.1 KB today and would be about 5.8 KB at 87 young slots, per interpreter, once.
 
 One detail for whoever changes it: `index` is an `int8_t` in both buffer structs, so any size above
 128 needs a wider field.
@@ -75,13 +75,13 @@ change the character of the data. Removing the free-threaded special case matter
 
 ### 3.2 The write cursor is read from the target and then discarded
 
-`gc_stats.c:106-112` copies the entire `struct gc_stats` — including `young.index` and
-`old[].index` — into a local snapshot. `read_gc_stats` (lines 29-65) then walks `items` and builds
+`gc_stats.c:106-112` copies the entire `struct gc_stats`, including `young.index` and
+`old[].index`, into a local snapshot. `read_gc_stats` (lines 29-65) then walks `items` and builds
 one struct sequence per slot, and never touches `index`.
 
 So the field a reader would want is already in the module's hands and is dropped before it reaches
 Python. A consumer has to infer the write position by sorting on `collections`, which works but
-means the returned list is in raw slot order — rotated around a write position the caller cannot
+means the returned list is in raw slot order, rotated around a write position the caller cannot
 see, with the three generations concatenated. Every consumer will re-derive the same thing.
 
 The ring's capacity is in the same position. It is not returned either, but every slot comes back
@@ -112,7 +112,7 @@ works.
 
 The stores implementing it are plain, non-atomic and unordered. Nothing prevents a compiler from
 sinking the `ts_start` store past the two that follow, and on a weakly-ordered target such as
-AArch64 store-store order is not architecturally guaranteed to any other observer — including the
+AArch64 store-store order is not architecturally guaranteed to any other observer, including the
 kernel performing the cross-process read on the profiler's behalf.
 
 A reader landing inside a reordered window can obtain a record assembled from two collections: the
@@ -125,8 +125,8 @@ The window is a handful of instructions and we have not observed it. It is raise
 contract is load-bearing for every remote reader and currently rests on optimizer and hardware
 behaviour rather than on anything enforced.
 
-**Suggested fix.** A release store on `ts_stop` and an acquire on the reader side, or — better,
-since it also covers 3.4 — a seqlock: an even/odd generation counter bumped before and after the
+**Suggested fix.** A release store on `ts_stop` and an acquire on the reader side, or, better,
+since it also covers 3.4, a seqlock: an even/odd generation counter bumped before and after the
 record update, which lets a reader detect that the slot changed underneath it and retry.
 
 ### 3.4 One collection is briefly visible in two slots
@@ -137,7 +137,7 @@ previous record into the new slot before overwriting any field. Between the memc
 the same `collections`.
 
 A reader that identifies records by `collections` must therefore deduplicate, or it double-counts
-one collection. This is benign once known — the twins are identical, so either can be kept — but
+one collection. This is benign once known (the twins are identical, so either can be kept) but
 it is not documented anywhere, and a consumer that keys on the slot index instead of on
 `collections` gets it wrong.
 
@@ -181,20 +181,20 @@ Rows 3.3 and 3.5 stay unhandled by decision rather than by omission.
 [Spec 0044](0044-torn-reads-and-reordered-publishes.md) took them from the reader's side and
 concluded that gcmon waits: 3.3 leaves no fingerprint a genuine record cannot also leave, and
 3.5's seam is inside this module's own cross-process copy, so it is not observable from Python
-at all. A reader could only ever detect these; §3.3's suggested fix removes them.
+at all. A reader could only ever detect these; section 3.3's suggested fix removes them.
 
 The reconstruction in the first row is only possible because `collections` and `duration` are both
 cumulative and monotonic. That is a genuinely good property of this API and worth preserving in any
-redesign — it is what lets a reader recover exact totals from an incomplete sample.
+redesign: it is what lets a reader recover exact totals from an incomplete sample.
 
 ## 5. Suggested order of value
 
-1. **3.1** — raise the ring sizes, especially the free-threaded case. Largest effect on what is
+1. **3.1**: raise the ring sizes, especially the free-threaded case. Largest effect on what is
    measurable, and it is a constant.
-2. **3.3 and 3.5** — synchronize the publish and the read. Correctness of a contract that is
+2. **3.3 and 3.5**: synchronize the publish and the read. Correctness of a contract that is
    already documented, and one seqlock covers both.
-3. **3.2** — expose `index`. Two lines, saves every consumer the same inference.
-4. **3.4** — document, or subsume into the seqlock from 3.3.
+3. **3.2**: expose `index`. Two lines, saves every consumer the same inference.
+4. **3.4**: document, or subsume into the seqlock from 3.3.
 
 ## 6. Out of scope for the report
 
@@ -208,7 +208,7 @@ redesign — it is what lets a reader recover exact totals from an incomplete sa
 **Lifecycle.** This spec is done when the issue is filed: replace the file with nothing and record
 the issue URL in [ADR-0015](../docs/adr/0015-gc-loss-spans-on-their-own-track.md), which is where
 a future maintainer will look when the ring sizes change upstream. Any measurement here that gets
-re-run before filing should be re-run on the tag in §2, or the tag updated with it.
+re-run before filing should be re-run on the tag in section 2, or the tag updated with it.
 
 **A finding to re-check before filing:** whether 3.1's ring sizes still hold on the current 3.15
 branch. They are constants and constants get tuned; a report quoting a stale value is easy to

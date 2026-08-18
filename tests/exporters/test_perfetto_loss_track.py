@@ -212,7 +212,7 @@ def test_consecutive_intervals_come_back_as_neighbours(tmp_path: Path) -> None:
 def test_an_overlapping_pair_is_silently_reshaped(tmp_path: Path) -> None:
     """The negative control, and what makes the flat row worth asserting.
 
-    Two spans that genuinely overlap — a shape one span per poll interval
+    Two spans that genuinely overlap, a shape one span per poll interval
     cannot produce, and one the old per-generation windows produced by design.
     A track is a stack and an END closes whatever is on top, so the first END
     closes the wrong span: both come back at widths neither was given, one

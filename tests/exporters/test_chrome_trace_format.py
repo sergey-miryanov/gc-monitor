@@ -247,7 +247,7 @@ class TestConvertItemToTraceFormat:
         events = convert_item_to_trace_format(pid=12345, item=item)
         # The per-gen `G{gen}` counter no longer carries `increment_size`;
         # it is exposed on the GC Pause slice's args instead. The
-        # consolidated `heap_size` event is also a `C` event — pick the
+        # consolidated `heap_size` event is also a `C` event, so pick the
         # per-gen one by its name prefix.
         counter = next(e for e in events if e.ph == "C" and e.name.startswith("G"))
         assert "increment_size" not in counter.args
@@ -586,7 +586,7 @@ class TestConvertLoss:
         assert end.ts == 2_000
 
     def test_the_name_lists_the_generations_that_lost_records(self) -> None:
-        """Readable off the row, and a stable colour per combination —
+        """Readable off the row, and a stable colour per combination;
         Perfetto hashes the slice name."""
         msg = LossMsg(
             iid=0,

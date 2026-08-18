@@ -9,7 +9,8 @@ changelog body attached.
 
 ## Pre-release checklist
 
-- [ ] Bump `version` in `pyproject.toml`.
+- [ ] Bump `version` in `pyproject.toml`. Nothing else carries a version:
+  `gcmon.__version__` and `gcmon --version` follow from it.
 - [ ] Add a `## Version X.Y.Z` section to `CHANGELOG.md` (below the `## WIP`
   block).
 - [ ] Open a PR; CI runs the release workflow on the PR and fails if the
@@ -18,7 +19,7 @@ changelog body attached.
 - [ ] Tag the merge commit (`git tag vX.Y.Z <sha>`) and push the tag (`git push
   origin vX.Y.Z`).
 
-The `release` environment on GitHub must have at least one approver configured —
+The `release` environment on GitHub must have at least one approver configured;
 the publish step will wait for approval otherwise.
 
 ## Preview the changelog
@@ -58,7 +59,7 @@ is strict). Fix and re-tag.
 **Release body is empty / GitHub Release notes are missing the changelog.** The
 `## Version X.Y.Z` section was missing for the tag's version. The script prints
 `::error::No changelog section for version 'X.Y.Z'.` and lists the headers it
-found — add the section, fix, and re-tag.
+found. Add the section, fix, and re-tag.
 
 **Re-running a failed release.** Tags are immutable in git. Bump the version
 (e.g., `0.1.0` → `0.1.1`) or delete and recreate the tag. The `concurrency:
@@ -69,4 +70,13 @@ in-flight publish.
 
 [SemVer](https://semver.org/). Pre-release tags (`v0.2.0a1`, `v1.0.0rc2`) are
 matched against the same version string in `CHANGELOG.md`. The `pyproject.toml`
-version and the tag must match exactly — no `+local` or `.dev` suffixes.
+version and the tag must match exactly, with no `+local` or `.dev` suffixes.
+
+`pyproject.toml` is the single source. `gcmon.__version__` reads the version back
+from the installed distribution's metadata and `gcmon --version` prints it, so
+never write the number down a second time.
+
+Bump `pyproject.toml` in a dev tree without reinstalling and both report the
+older number, the one `pip show gcmon` also gives. Import gcmon from a checkout
+you never installed and you get `0.0.0+unknown`, which is not a release, so the
+no-suffix rule above does not reach it.

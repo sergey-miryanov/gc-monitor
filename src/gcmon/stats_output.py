@@ -16,6 +16,40 @@ class TableFormat(Enum):
     MARKDOWN = "markdown"
 
 
+# Words that ask for no table, and so for no view.
+STATS_OFF_WORDS = ("no", "off", "false", "0")
+
+
+class StatsView(Enum):
+    """Which blocks the table prints: `FULL` is `TOTAL` plus one per ring.
+
+    Each member's value is the word typed after `--stats`. No table is `None`.
+    """
+
+    TOTAL = "total"
+    FULL = "full"
+
+    @classmethod
+    def words(cls) -> list[str]:
+        """Every word `--stats` and `GCMON_STATS` take, views first."""
+        return [view.value for view in cls] + list(STATS_OFF_WORDS)
+
+    @classmethod
+    def parse(cls, word: str) -> StatsView | None:
+        """Map a typed word to its view, or to None for no table.
+
+        Case-insensitive, and surrounding whitespace is stripped.
+
+        Raises:
+            ValueError: the word is neither a view nor one of
+                `STATS_OFF_WORDS`.
+        """
+        normalized = word.strip().lower()
+        if normalized in STATS_OFF_WORDS:
+            return None
+        return cls(normalized)
+
+
 def _print_table(rows: list[list[str] | Any], table_format: TableFormat = TableFormat.PLAIN) -> None:
     if not rows:
         return
@@ -171,7 +205,7 @@ def summary_lines(
         observed = _coverage_cell(sampled / (sampled + lost), lost)
         lines.append(f"Total events: {sampled} (+{lost} reconstructed, {observed} observed)")
         if not show_stats:
-            lines.append("Run with --stats for the per-generation breakdown.")
+            lines.append("Run with --stats=total for the per-generation breakdown.")
     else:
         lines.append(f"Total events: {sampled}")
 
@@ -205,12 +239,15 @@ def _ring_label(pid: int, iid: int, pid_epoch: int) -> str:
     return f"{pid}:{iid}" if pid_epoch == 1 else f"{pid}:{iid}#{pid_epoch}"
 
 
-def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.PLAIN) -> None:
-    """Two levels: the run, then one block per ring.
+def print_stats(stats: StreamingStats, view: StatsView, table_format: TableFormat = TableFormat.PLAIN) -> None:
+    """Two levels: the run, then one block per ring under `FULL`.
 
-    Rings sort by `(pid, iid)`, so a process's interpreters stay adjacent and
-    in order. `Read Time` is monitor-side and belongs to no ring, so its first
-    cell stays empty.
+    Rings sort by `(pid, iid)`. `Read Time` belongs to no ring, so its first
+    cell stays empty and it prints under either view.
+
+    *view* chooses which blocks print and nothing else. Widths follow the rows
+    that print, so ring labels wider than the `PID:IID` header pad `FULL`'s
+    first column one further than `TOTAL`'s.
     """
     all_rows: list[list[str] | Any] = []
 
@@ -227,7 +264,8 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
                 first = False
             has_rows = True
 
-    for pid, iid, pid_epoch in stats.rings():
+    rings = stats.rings() if view is StatsView.FULL else []
+    for pid, iid, pid_epoch in rings:
         all_rows.append(_SEP_GROUP)
         ring_data = stats.get_ring_stats(pid, iid, pid_epoch)
         if ring_data is None:
@@ -259,18 +297,18 @@ def print_stats(stats: StreamingStats, table_format: TableFormat = TableFormat.P
         return
 
     _print_table(all_rows, table_format=table_format)
-    _print_footer(stats)
+    _print_footer(stats, view)
 
 
-def _print_footer(stats: StreamingStats) -> None:
+def _print_footer(stats: StreamingStats, view: StatsView) -> None:
     """What the table's two number kinds mean.
 
     Only printed when something was lost or the target collected before gcmon
     attached. A run that saw everything has nothing to explain.
 
-    Which notes appear depends on the run, so the number, not the order, is
-    what separates two that wrap on a narrow terminal. A lone note still
-    reads ``1.``.
+    Which notes appear depends on the run, so the number rather than the order
+    separates two that wrap on a narrow terminal. A lone note still reads
+    ``1.``. The first two are run-wide; the third is `FULL` only.
     """
     pauses = stats.pause_totals_by_gen()
     cumulative = stats.cumulative_totals_by_gen()
@@ -298,7 +336,8 @@ def _print_footer(stats: StreamingStats) -> None:
             f"{_plural(interpreters, 'interpreter')} in {_plural(processes, 'process', 'processes')}: {parts}."
         )
 
-    untracked = stats.untracked_rings()
+    # The note reconciles ring rows against the run, and `TOTAL` prints none.
+    untracked = stats.untracked_rings() if view is StatsView.FULL else 0
     if untracked:
         # The rows are short of the run and a reader adding them up would find
         # it, so say the count here rather than leave the gap unexplained.

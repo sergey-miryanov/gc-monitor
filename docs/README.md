@@ -22,9 +22,10 @@ how to read the result.
 
 | Page | What it covers |
 |---|---|
-| [adr/README.md](adr/README.md) | Architecture decision records — why the design looks the way it does |
-| [../specs/README.md](../specs/README.md) | Open work — what has been specified but not yet built, and the order to take it in |
+| [adr/README.md](adr/README.md) | Architecture decision records: why the design looks the way it does |
+| [../specs/README.md](../specs/README.md) | Open work: what has been specified but not yet built, and the order to take it in |
 | [../specs/CONVENTIONS.md](../specs/CONVENTIONS.md) | The rules a spec follows, the two templates, and what retiring one means |
 | [../specs/RETIRED.md](../specs/RETIRED.md) | Spec numbers that no longer have a file, and what became of each |
-| [agents/](agents/issue-tracker.md) | How agent skills work in this repo — issue tracker, triage labels, domain docs |
+| [agents/](agents/issue-tracker.md) | How agent skills work in this repo: issue tracker, triage labels, domain docs |
+| [agents/prose.md](agents/prose.md) | Prose conventions: which file owns which kind of statement, and what to cut from the rest |
 | [RELEASE.md](RELEASE.md) | The release process |

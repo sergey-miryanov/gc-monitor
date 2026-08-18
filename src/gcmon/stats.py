@@ -593,7 +593,7 @@ class StreamingStats:
         """Take one ring's totals since its interpreter started.
 
         The target counts both of them cumulatively, so the newest values
-        replace the previous ones — this observes a counter rather than
+        replace the previous ones; this observes a counter rather than
         appending to one, which is what separates it from `record_loss`. A
         successor on a reused pid writes into an entry of its own, so the fold
         adds the two rather than losing the larger history to the smaller one

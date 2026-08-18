@@ -100,8 +100,8 @@ def loss_slices(items: Sequence[TItem]) -> dict[tuple[int, int], list[Slice]]:
     them.
 
     Groups the converter's BEGIN/END events by ``(pid, tid)``, sorts each row
-    by timestamp — **stably**, so events sharing one timestamp keep the order
-    they were emitted in, which is what a trace processor does with them — and
+    by timestamp (**stably**, so events sharing one timestamp keep the order
+    they were emitted in, which is what a trace processor does with them) and
     walks it as a stack.
 
     Fails if a span opens while another is still open. Two spans on this row

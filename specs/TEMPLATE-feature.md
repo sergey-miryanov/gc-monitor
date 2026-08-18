@@ -1,22 +1,22 @@
-# NNNN — <imperative title: the capability this adds>
+# NNNN: <imperative title: the capability this adds>
 
 > Copy this file to `specs/NNNN-kebab-title.md` and delete every `>` guidance line as you
 > fill it in. See [CONVENTIONS.md](CONVENTIONS.md) for the rules these sections exist to
 > enforce.
 >
-> Use this template for enhancements, ergonomics and cleanups — anything where the change is
+> Use this template for enhancements, ergonomics and cleanups: anything where the change is
 > *wanted* rather than *broken*. For a defect, use [TEMPLATE-bugfix.md](TEMPLATE-bugfix.md).
 
 - **Status:** Not started | In progress | Blocked (`<on what>`)
-- **Kind:** feature — enhancement | ergonomics | efficiency | cleanup
+- **Kind:** feature (enhancement | ergonomics | efficiency | cleanup)
 - **Effort:** XS | S | M | L
 - **Origin:** `<where this came from>`
-- **Respects:** `<ADR links whose decisions this must not contradict, or "—">`
+- **Respects:** `<ADR links whose decisions this must not contradict, or "none">`
 
 ## 1. Problem statement
 
-> The problem from the **operator's** perspective — what they cannot do today, or what costs
-> them something. Not the implementation gap; that belongs in §4.
+> The problem from the **operator's** perspective: what they cannot do today, or what costs
+> them something. Not the implementation gap; that belongs in section 4.
 
 ## 2. Solution
 
@@ -25,7 +25,7 @@
 
 ## 3. User stories
 
-> A numbered list, `As a <actor>, I want <capability>, so that <benefit>`. Be extensive —
+> A numbered list, `As a <actor>, I want <capability>, so that <benefit>`. Be extensive:
 > cover the neighbouring cases, the failure paths, and the operator who must *not* be
 > disturbed by this change. The actors here are usually: an operator attaching to a production
 > process, a developer profiling their own script under `gcmon run`, someone reading a trace
@@ -40,13 +40,13 @@
 > between them becomes, what data shape is introduced, which existing abstraction absorbs the
 > change. Anchor on **symbols**, never line numbers.
 >
-> Inline a snippet only where it encodes a decision more precisely than prose can — a type
+> Inline a snippet only where it encodes a decision more precisely than prose can: a type
 > shape, a state machine, a signature. Trim to the decision-rich part; this is not a working
 > demo.
 >
 > Where an alternative was rejected, say so and why: that is the part of a spec that stops the
 > discussion happening twice. An alternative left open ("the implementer picks one") is a
-> decision the spec failed to make — name what would settle it instead.
+> decision the spec failed to make; name what would settle it instead.
 
 ## 5. Seams and testing decisions
 
@@ -67,7 +67,7 @@
 
 ## 6. Out of scope
 
-> The adjacent features this deliberately does not include, with reasons. Be generous here —
+> The adjacent features this deliberately does not include, with reasons. Be generous here:
 > for an enhancement this section is what keeps the change landable.
 
 ## 7. Further notes

@@ -1,7 +1,7 @@
-# 0040 — Derive the monitoring options from one table, and validate before reporting
+# 0040: Derive the monitoring options from one table, and validate before reporting
 
 - **Status:** Not started
-- **Kind:** feature — cleanup
+- **Kind:** feature (cleanup)
 - **Effort:** M
 - **Origin:** code structure review of `src/gcmon`, 2026-08-15
 - **Respects:** [ADR-0012](../docs/adr/0012-trace-output-formats.md) (which formats exist),
@@ -9,8 +9,8 @@
 
 ## 1. Problem statement
 
-Run `gcmon run -s app.py -v --rate -1` and gcmon reports the configuration it is about to use —
-`Format: chrome`, `Rate: -1.0s`, `Duration: until script exits` — and then refuses to start
+Run `gcmon run -s app.py -v --rate -1` and gcmon reports the configuration it is about to use
+(`Format: chrome`, `Rate: -1.0s`, `Duration: until script exits`) and then refuses to start
 because the rate must be positive. The echo is not a preview of a rejected configuration; it is
 the same echo a successful run prints, emitted before anything is checked. An operator reading a
 log has to reach the last line to know whether the lines above it describe a run that happened.
@@ -18,15 +18,15 @@ log has to reach the last line to know whether the lines above it describe a run
 Behind it, every monitoring option is written out three times: once as a `get_env_*` function,
 once as an `add_argument` block whose help text re-names the same environment variable, and once
 as a constructor parameter, a field assignment and a keyword at the call site. `monitoring_options`
-imports twenty-two names from the environment module to do it — the widest import in the
+imports twenty-two names from the environment module to do it, the widest import in the
 codebase. Adding an option means eight edits in three files, and the failure mode is an option
 that works on the command line and silently ignores its environment variable, or the reverse.
 
 ## 2. Solution
 
 An operator sees one difference: the configuration echo appears only for a configuration gcmon
-accepted. A rejected run prints the error and nothing else. Everything else — flag names,
-defaults, help text, environment variables, exit codes — is unchanged.
+accepted. A rejected run prints the error and nothing else. Everything else (flag names,
+defaults, help text, environment variables, exit codes) is unchanged.
 
 For a maintainer, an option becomes one row: its flag, its environment variable, its type, its
 default and its help text, with argparse wiring and environment defaults both derived from it.
@@ -53,38 +53,38 @@ default and its help text, with argparse wiring and environment defaults both de
 
 ## 4. Implementation decisions
 
-**4.1 — One `Option` row per option.** Flag names, destination, environment variable, parser,
+**4.1: One `Option` row per option.** Flag names, destination, environment variable, parser,
 argparse action, default and help template in one tuple; the argparse wiring and the environment
 default both derive from it. The help template carries a placeholder for the environment
 variable name so the name is written once, which is the part that currently rots.
 
 The rows are irregular in exactly three ways and the shape has to carry them: `--verbose` is
 `action="count"`, `--stats` and `--rss` are `store_true`, and `--table-format` parses through
-`_normalize_table_format`, which raises `argparse.ArgumentTypeError` and must keep doing so —
+`_normalize_table_format`, which raises `argparse.ArgumentTypeError` and must keep doing so:
 that is what produces argparse's own error message for a bad value. An `action` field and a
 `parser` field cover all three.
 
-**4.2 — `MonitoringOptions` becomes a frozen `msgspec.Struct` with a `from_args` classmethod.**
+**4.2: `MonitoringOptions` becomes a frozen `msgspec.Struct` with a `from_args` classmethod.**
 It is a ten-field hand-written `__init__` in a codebase where every other data carrier is a
 struct. `from_args` validates and raises a module-level error type; the caller catches once.
 Today each command writes `options = get_monitoring_options(...)` followed by `if options is
 None: return 1`, which is a check a third command can omit without anything noticing.
 
-**4.3 — Validate, then describe.** `from_args` validates. A separate `describe()` returns the
+**4.3: Validate, then describe.** `from_args` validates. A separate `describe()` returns the
 lines the commands log, and the commands log them only after construction succeeds. This is the
 operator-visible half of the spec and the only behaviour change in it.
 
 The order of the checks themselves is preserved, so an invocation with two bad values reports
 the same one it reports today.
 
-**4.4 — The RSS format-capability warning is not part of this.** It is the one line in
-`get_monitoring_options` that is not validation — it asks whether the chosen format will discard
+**4.4: The RSS format-capability warning is not part of this.** It is the one line in
+`get_monitoring_options` that is not validation: it asks whether the chosen format will discard
 RSS samples, using a hand-maintained tuple of format names.
 [0036](0036-one-exporter-method-per-record-kind.md) moves that question to the exporter, which
 can answer it. If 0036 lands first, the line is already gone; if not, it moves into `describe()`
 verbatim and 0036 removes it from there. Either order works.
 
-**4.5 — Environment variable names and semantics are frozen.** Every `GCMON_*` name, every
+**4.5: Environment variable names and semantics are frozen.** Every `GCMON_*` name, every
 accepted truthy spelling (`1`, `yes`, `on`, `true`), every default. They are documented in
 [docs/cli.md](../docs/cli.md) and in the help text, and `tests/test_env.py` pins them.
 
@@ -100,7 +100,7 @@ short string per row.
 
 ## 5. Seams and testing decisions
 
-- **Seam:** `tests/test_cli.py`, at the command line — the highest seam available, because
+- **Seam:** `tests/test_cli.py`, at the command line, the highest seam available, because
   everything here exists to turn an argv and an environment into a configuration, and that is
   observable from outside. `tests/test_env.py` and
   `tests/monitoring/test_monitoring_options.py` cover the environment defaults and the
@@ -108,7 +108,7 @@ short string per row.
 - **New seam needed:** none.
 - **What makes a good test here:** drive `main()` with an argv and a patched environment and
   assert on exit code and emitted log lines. A test that reads a default out of the option table
-  and compares it to the same table proves nothing — assert the *resolved* value after parsing,
+  and compares it to the same table proves nothing; assert the *resolved* value after parsing,
   which is what an operator gets. For the ordering change, assert that a rejected invocation
   emits the error and **no** configuration lines; asserting the error appears is not enough,
   since it appears today too.
@@ -117,13 +117,13 @@ short string per row.
   `RSS_CAPABLE_FORMATS` parametrization; `tests/test_cli.py` for driving `main()` end to end.
 - **Cases:**
   1. Every option resolves identically from a flag, from its environment variable, and from
-     neither — the same matrix `tests/test_env.py` covers today, unchanged.
+     neither: the same matrix `tests/test_env.py` covers today, unchanged.
   2. A flag overrides its environment variable, as today.
   3. `--rate -1` exits 1, prints the rate error, and prints no configuration lines.
   4. Two invalid options report the same one reported today.
   5. `--table-format nonsense` still fails through argparse with argparse's message.
   6. Regression guard: `gcmon run --help` and `gcmon monitor --help` are byte-identical to
-     today's output. Capture both as golden files first — the help text is the public surface
+     today's output. Capture both as golden files first; the help text is the public surface
      this refactor is most likely to move by accident.
 
 ## 6. Out of scope
@@ -134,7 +134,7 @@ short string per row.
 - The `combine` command's options, which are declared inline in its own module and are not
   shared with anything.
 - Logging setup and verbosity handling in `cli`, beyond `--verbose` being a row in the table.
-- The RSS capability warning's correctness — [0036](0036-one-exporter-method-per-record-kind.md)
+- The RSS capability warning's correctness. [0036](0036-one-exporter-method-per-record-kind.md)
   owns that.
 
 ## 7. Further notes

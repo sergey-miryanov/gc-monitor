@@ -1,9 +1,9 @@
-# 0046 — Settle every departed pid in one pass over the running rings
+# 0046: Settle every departed pid in one pass over the running rings
 
 - **Status:** Not started
-- **Kind:** bug — performance
+- **Kind:** bug (performance)
 - **Effort:** S
-- **Origin:** a design question while landing 0038, 2026-08-17, recorded in §6
+- **Origin:** a design question while landing 0038, 2026-08-17, recorded in section 6
 - **Respects:** [ADR-0016](../docs/adr/0016-the-ring-is-the-statistics-unit.md) (the ring settles,
   and settles once), [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md) (the monitor
   prunes per-pid state once per tick, before the polls)
@@ -16,7 +16,7 @@ milliseconds settling their statistics before polling anything, against a defaul
 0.1 s. The survivors pay: their ring buffers fill while gcmon is busy, a ring that wraps unread
 becomes a `GC Loss` span, and nothing in the trace says gcmon caused it rather than the target.
 
-The stretch is measured. The loss is not. See §7.
+The stretch is measured. The loss is not. See section 7.
 
 ## 2. Evidence
 
@@ -41,7 +41,7 @@ once, *D* and *R* are both the width of the tree.
 
 One machine, so read the ratios and ignore the absolute figures. A `retain` dropping every pid
 takes 0.81 ms at 100 rings, 19.7 ms at 1000, and 55.5 ms at 3000 (1000 pids × 3 interpreters). A
-single-pass prototype took 0.75 ms, 2.3 ms and 3.5 ms, and left state identical on everything §5
+single-pass prototype took 0.75 ms, 2.3 ms and 3.5 ms, and left state identical on everything section 5
 case 2 compares.
 
 ## 3. Scope
@@ -90,7 +90,7 @@ one-pass fix comes first.
 - **What makes a good test here:** compare state, not timing. The hazard in a batch rewrite is a
   ring settled under the wrong `pid_epoch`, which no wall-clock assertion sees and which surfaces
   later as one process's percentiles under its predecessor's heading. Two copies of the settling
-  sequence is how that happens, which is why §4 routes both paths through one helper.
+  sequence is how that happens, which is why section 4 routes both paths through one helper.
 - **Prior art:** `tests/benchmarks/test_bench_stats.py::test_streaming_stats_update_many_pids` for
   the fan-out setup and the CodSpeed marker; `tests/stats/test_stats.py` for what settling leaves
   behind; ADR-0016 for what a settled ring means.
@@ -115,7 +115,7 @@ one-pass fix comes first.
 - `EventsMonitor.tick` batching the pids it forgets, the question this spec came from. The call
   site is already one call per departed pid, so a list leaves the same *D × R*.
 - What a settled ring contains, or when a run reads one. ADR-0016 owns that.
-- The other scans over `_running_rings` that filter by pid. The keying question in §4 fixes them
+- The other scans over `_running_rings` that filter by pid. The keying question in section 4 fixes them
   together; alone, none of them sits in a poll interval.
 
 ## 7. Further notes
@@ -127,7 +127,7 @@ ADR-0015's arithmetic reports that, but nobody has run the case.
 What would settle it: a fan-out wide enough to cost tens of milliseconds, exiting in one tick,
 with a surviving sibling collecting fast enough to wrap its gen-0 ring inside the stall, then a
 check for a `GC Loss` span on that survivor across the exit. If no span appears, the Kind becomes
-`feature — cleanup` and §1 needs rewriting. The fix stays S either way.
+`feature (cleanup)` and section 1 needs rewriting. The fix stays S either way.
 
 That experiment is harder to build than the fix and needs a tuned collector racing a tuned ring,
 so the one-pass change does not wait on it.

@@ -385,7 +385,7 @@ class TestConvertItemToPerfettoPackets:
             if packet.track_event.type != TrackEvent.Type.TYPE_COUNTER:
                 continue
             counter_uuids.add(packet.track_event.track_uuid)
-        # collected, candidates, heap_size, duration — no uncollectable counter.
+        # collected, candidates, heap_size, duration; no uncollectable counter.
         assert len(counter_uuids) == 4
 
     def test_uncollectable_counter_emitted_when_nonzero(self) -> None:
@@ -873,7 +873,7 @@ class TestLossTrackDescriptor:
     """No meta event describes the loss track.
 
     Every other track gets its descriptor from a ``ProcessMeta`` or
-    ``ThreadMeta``, and the exporter emits neither for a negative tid — the
+    ``ThreadMeta``, and the exporter emits neither for a negative tid, the
     same guard that keeps the track from being drawn as a thread. So the
     descriptor has to come off the slices themselves, or they land on a uuid
     nothing ever named.

@@ -1,7 +1,7 @@
-# 0050 — Name the poll interval for what it is
+# 0050: Name the poll interval for what it is
 
 - **Status:** Not started
-- **Kind:** feature — ergonomics
+- **Kind:** feature (ergonomics)
 - **Effort:** S
 - **Origin:** split out of spec 0049, 2026-08-17, so a compatibility decision would not hold up a
   correctness fix. 0049 landed the same day
@@ -12,7 +12,7 @@
 
 ## 1. Problem statement
 
-`--rate 0.1` does not set a rate. A rate is a frequency, and this is a duration in seconds — the
+`--rate 0.1` does not set a rate. A rate is a frequency, and this is a duration in seconds, the
 interval between one poll and the next. An operator who reads the name literally sets `--rate 10`
 expecting 10 Hz and gets one poll every ten seconds, which on a short run looks like gcmon
 recording nothing.
@@ -61,7 +61,7 @@ current sees one name.
    are not reading this repo's changelog.
 
    **What would settle removing the alias:** a 1.0 release. There is no deprecation policy today,
-   so this spec does not invent one — it leaves the alias in place and names the event that lets
+   so this spec does not invent one; it leaves the alias in place and names the event that lets
    someone drop it.
 3. **The internal spelling changes with it.** `MonitoringOptions.rate` becomes `interval`, and
    `MonitorLoop`'s constructor parameter follows. Both are internal, so they move in one commit
@@ -82,7 +82,7 @@ current sees one name.
   highest seam that can observe a flag rename, and both suites exist.
 - **New seam needed:** none.
 - **What makes a good test here:** assert the value that reaches `MonitoringOptions`, from each of
-  the four inputs — new flag, old flag, new variable, old variable — rather than asserting the
+  the four inputs (new flag, old flag, new variable, old variable) rather than asserting the
   parser's internal attribute names. The hazard in an alias is precedence, not parsing.
 - **Prior art:** `tests/test_cli.py` for the flag cases; `tests/monitoring/test_monitor_cmd.py` for
   the env-var cases and for the pattern of setting `GCMON_*` around a parse.
@@ -98,17 +98,16 @@ current sees one name.
 
 ## 6. Out of scope
 
-- **How the interval is honoured.** [ADR-0019](../docs/adr/0019-schedule-tick-starts-on-a-fixed-grid.md)
-  owns the scheduling; this spec renames the number it schedules against and changes no behaviour.
-  The help text and the advisory it touches have already been rewritten to describe the contract,
-  so this moves a name over settled prose.
+- **How the interval is honoured.** 0049 owns the scheduling; this spec renames the number it
+  schedules against and changes no behaviour. Land 0049 first; reversed, 0049's help text and
+  advisory edits would land under a name this spec immediately moves.
 - **`--rss-interval`.** Already correctly named. It keeps its own name and its independence from
   the poll interval (ADR-0013).
 - **Accepting a frequency.** A `--rate 10` meaning 10 Hz, or a unit suffix like `100ms`. Both are
   real ergonomic ideas and both are a different feature: this spec makes one name honest, it does
   not add an input format. Adding a frequency later is easier once the duration has a duration's
   name.
-- **A general deprecation policy.** Named in §4 as the thing that does not exist. Inventing one to
+- **A general deprecation policy.** Named in section 4 as the thing that does not exist. Inventing one to
   retire a single alias is the wrong order.
 - **`GCMON_*` variables other than this one.** None of the rest is misnamed.
 

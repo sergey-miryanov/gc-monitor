@@ -494,8 +494,8 @@ class TestGuardsAreMutuallyExclusive:
         instant_item: InstantMsg,
         loss_item: LossMsg,
     ) -> None:
-        """No two call sites dispatch in the same order — ``_replay`` asks
-        ``is_gc_stats`` first, the converters ask ``is_loss`` first — so a
+        """No two call sites dispatch in the same order: ``_replay`` asks
+        ``is_gc_stats`` first, the converters ask ``is_loss`` first, so a
         record that two guards claim would take a different branch depending
         on who asked, silently. Exactly one may hold, for every record type,
         whatever fields those types grow later."""

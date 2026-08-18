@@ -82,7 +82,7 @@ _Avoid_: tier, level, cohort
 
 **Block**:
 One heading in the statistics table and the rows under it: either the run-wide
-`Total` or one ring's. The unit `--stats` selects — `total` prints the first
+`Total` or one ring's. The unit `--stats` selects: `total` prints the first
 alone, `full` prints both kinds.
 _Avoid_: section, group, table (the whole thing is the table), totals (the
 per-ring `PauseTotals` and `LossTotals` are companion figures on a row, and
@@ -126,8 +126,8 @@ _Avoid_: true, real, total
 Everything one interpreter has collected since it started, monitored window
 included. Always written with the qualifier: bare **lifetime** means the
 `Processes`-track span above. The source names the counters underneath rather
-than the interval — `CumulativeCounters`, `StreamingStats.observe_cumulative`,
-`cumulative_totals_by_gen` — so the bare word is left to the span everywhere
+than the interval (`CumulativeCounters`, `StreamingStats.observe_cumulative`,
+`cumulative_totals_by_gen`), so the bare word is left to the span everywhere
 outside this prose and the `pause_gen_N_lifetime_*` pyperf keys.
 _Avoid_: lifetime (bare), cumulative total (the counters underneath are
 cumulative, the interval is not), since-start count

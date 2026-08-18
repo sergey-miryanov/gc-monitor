@@ -696,7 +696,7 @@ class TestCombineFiles:
 
 class TestJsonlLossRoundTrip:
     """`combine` reads and writes JSONL, so a loss span has to survive the
-    round trip as well as a GC record does — otherwise a converted capture
+    round trip as well as a GC record does; otherwise a converted capture
     silently loses the spans the live run drew."""
 
     def _msg(self, **kw: int) -> LossMsg:
@@ -832,8 +832,8 @@ class TestAnOldFormatLossRecord:
     be read back as a collection it observed, and counted into `--stats` and
     drawn on an interpreter's own row as a `GC Pause`.
 
-    It cannot. A GC record is built around counters a loss record never had —
-    `gen`, `collections`, `heap_size` — so the conversion fails on the first of
+    It cannot. A GC record is built around counters a loss record never had (
+    `gen`, `collections`, `heap_size`), so the conversion fails on the first of
     them. Pinned here because "it happens to be missing a required field" is a
     property of the two shapes, not a decision anything states, and a later
     default on `GCStatsInfo.gen` would turn the failure into a silent misread.
@@ -885,7 +885,7 @@ class TestAnOldFormatLossRecord:
     def test_a_per_generation_record_is_refused_the_same_way(self) -> None:
         """The shape between the two: one record per generation, its counts at
         the top level and no ``gens``. It carries a ``gen`` where the flattened
-        one had none, so it gets further into ``GCStatsInfo`` before failing —
+        one had none, so it gets further into ``GCStatsInfo`` before failing,
         but fail it must, and for the same reason. Read as a collection it
         would put a pause on an interpreter's own row for an interval nothing
         was observed in."""

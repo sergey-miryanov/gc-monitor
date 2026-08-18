@@ -2,10 +2,10 @@
 
 Every number this folder has used that is no longer open work, and what became of it. A spec
 missing from [README.md](README.md) resolves here, so look before calling a reference broken.
-[CONVENTIONS.md §Lifecycle](CONVENTIONS.md#lifecycle) governs these rows.
+[CONVENTIONS.md's Lifecycle section](CONVENTIONS.md#lifecycle) governs these rows.
 
 **0029 and 0034 still have files.** The index marked both superseded, but nobody deleted the
-file, and each carries a §4 the superseding work summarizes rather than replaces. Either finish
+file, and each carries a section 4 the superseding work summarizes rather than replaces. Either finish
 retiring them, since git holds the argument either way, or record here that you keep them on
 purpose.
 
@@ -13,16 +13,19 @@ purpose.
 
 | Spec | Kind | Effort | Summary |
 |------|------|--------|---------|
-| [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md) | **Superseded** by 0036 | M | Three byte-identical copies of the buffer-and-flush logic in `JsonlExporter`. 0036 removes them by collapsing the interface that produced them; §4's JSONL-schema argument still stands |
+| [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md) | **Superseded** by 0036 | M | Three byte-identical copies of the buffer-and-flush logic in `JsonlExporter`. 0036 removes them by collapsing the interface that produced them; section 4's JSONL-schema argument still stands |
 | [0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) | **Superseded** by ADR-0015 | S | Loss spans reached back across a collection gcmon watched start. ADR-0015's rewrite moved the edge to the poll instant, which is later still |
 | 0038 | **Landed** 2026-08-17 — cleanup | M | Per-pid state had two owners, each pruning it against the same set; had they disagreed, gcmon would have reported a loss window that never happened. One tick is one call on `EventsMonitor` now. [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md), and [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) for the liveness site it moved |
+| 0043 | **Landed** 2026-08-18 (reporting) | XS | `gcmon.__version__` had said `0.1.0` since `0.2.0`, five releases behind the distribution. It reads the installed metadata now, `pyproject.toml` is the single source, and `gcmon --version` prints it. A clean 3.15 install on 2026-08-16 put the two numbers side by side, which is what it took to notice. [RELEASE.md](../docs/RELEASE.md)'s versioning policy carries the rule |
+| 0038 | **Landed** 2026-08-17 (cleanup) | M | Per-pid state had two owners, each pruning it against the same set; had they disagreed, gcmon would have reported a loss window that never happened. One tick is one call on `EventsMonitor` now. [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md), and [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) for the liveness site it moved |
+| 0045 | **Landed** 2026-08-17 (ergonomics) | S | `--stats` printed one table with no way to ask for less, and on a single-interpreter run half of it was a copy of the other half. The flag now takes `total` or `full`, `GCMON_STATS` takes the same two words, and neither keeps a bare spelling. [ADR-0018](../docs/adr/0018-stats-requires-a-view-and-keeps-no-bare-alias.md); its section 7 became [0047](0047-the-no-subcommand-form-has-never-worked.md) |
 | 0049 | **Landed** 2026-08-17 — correctness | S | `--rate` was the wait after each tick rather than the interval between two, so the target set the pace: a tree costing 30 ms a tick polled at 7.1 Hz under `--rate 0.1`, and nothing said so. Tick starts sit on a fixed grid now, a tick that overruns skips a position rather than shifting every one after it, and the summary reports ticks run against ticks scheduled. [ADR-0019](../docs/adr/0019-schedule-tick-starts-on-a-fixed-grid.md); the naming half is still open as 0050 |
 
-The two §4s still worth reading:
+The two section 4s still worth reading:
 
-- **0034 §4** argues why a temporal bound differs from the clipping ADR-0015 rejected. Read it
+- **0034 section 4** argues why a temporal bound differs from the clipping ADR-0015 rejected. Read it
   before proposing a narrower span.
-- **0029 §4** is the fullest statement of why the JSONL schema is load-bearing; 0036 summarizes
+- **0029 section 4** is the fullest statement of why the JSONL schema is load-bearing; 0036 summarizes
   it rather than replacing it.
 
 ## Gaps
@@ -43,6 +46,13 @@ the batch in `4731e50` from specs that had landed days earlier. A reference from
 They stay. Renumbering nine files to repair two would break the other half of the same rule, and
 nothing outside this folder cites either number.
 
+**Findings a review raised that never became specs**, because an open spec already covered them.
+One row per review, so the next one appends a line rather than editing this text:
+
+| Review | Findings already covered |
+|---|---|
+| `src/gcmon` structure, 2026-08-15 | [0028](0028-combined-exporter-reaches-into-sub-exporter-privates.md), 0029 (since retired), [0030](0030-exporter-hygiene-batch.md) section 4.5 |
+
 ## Provenance
 
 This folder takes its conventions from the sibling `gcscope` repo. Before 2026-08-05 it held six
@@ -56,12 +66,12 @@ keep-the-row rule and run too long for a table cell:
 
 | Old spec | Outcome |
 |---|---|
-| 18 — post-v0.2.0 review fixes (15 REQs) | Split. REQ-1 is **obsolete**: `EventsMonitor` has no `_last_ts` at all now, working from per-pid `_cursors` keyed on the `collections` counter ([ADR-0015](../docs/adr/0015-gc-loss-spans-on-their-own-track.md)). REQ-2 landed as `TestMetaDedupRaceClosed`. REQ-13 lost on the record: graceful degradation without `psutil` is a documented, tested property. The remaining twelve became 0025–0030. |
-| 19 — README update for v0.2.0 | Landed but for one item. The `combine`, `ControlClient`, Perfetto-SQL and de-duplicated "How It Works" sections are all in the README; the `## Optional Dependencies` heading is moot, since `## Installation` covers both extras with links and the graceful-degradation note. The remainder became 0031. |
-| 21 — monitor-reported process liveness | **Landed** 2026-08-02. `EventsMonitor` calls `add_process_liveness` once per tick, `PerfettoExporter` overrides it, and the provisional counter carve-out is gone. [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) records it; 0038 later moved the call from `MonitorLoop` into the monitor. |
+| 18: post-v0.2.0 review fixes (15 REQs) | Split. REQ-1 is **obsolete**: `EventsMonitor` has no `_last_ts` at all now, working from per-pid `_cursors` keyed on the `collections` counter ([ADR-0015](../docs/adr/0015-gc-loss-spans-on-their-own-track.md)). REQ-2 landed as `TestMetaDedupRaceClosed`. REQ-13 lost on the record: graceful degradation without `psutil` is a documented, tested property. The remaining twelve became 0025–0030. |
+| 19: README update for v0.2.0 | Landed but for one item. The `combine`, `ControlClient`, Perfetto-SQL and de-duplicated "How It Works" sections are all in the README; the `## Optional Dependencies` heading is moot, since `## Installation` covers both extras with links and the graceful-degradation note. The remainder became 0031. |
+| 21: monitor-reported process liveness | **Landed** 2026-08-02. `EventsMonitor` calls `add_process_liveness` once per tick, `PerfettoExporter` overrides it, and the provisional counter carve-out is gone. [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) records it; 0038 later moved the call from `MonitorLoop` into the monitor. |
 
 20 and 24 survived and keep their numbers, both rewritten into the templates. 20 also settled a
-decision it had left open: its §4 says why the monitoring process's own `gc.get_threshold()`
+decision it had left open: its section 4 says why the monitoring process's own `gc.get_threshold()`
 cannot serve as a source for the target's thresholds.
 
 One correction, worth stating because the old spec asserted the opposite: REQ-4 proposed moving

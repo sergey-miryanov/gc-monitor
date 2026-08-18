@@ -28,7 +28,7 @@ from gcmon._env import (
     get_env_table_format,
     get_env_verbose,
 )
-from gcmon.stats_output import TableFormat
+from gcmon.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
 
 logger = logging.getLogger("gcmon")
 
@@ -93,11 +93,18 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         default=get_env_flush_threshold(),
         help=f"Number of events to buffer before flushing to file for JSONL format (default: 100 or {ENV_FLUSH_THRESHOLD} env var)",
     )
+    # Not `nargs="?"` with a `const`: that eats the pid of
+    # `gcmon monitor --stats 12345`. See ADR-0018.
     parser.add_argument(
         "--stats",
-        action="store_true",
+        choices=StatsView.words(),
         default=get_env_stats(),
-        help=f"Show statistics table at end of monitoring (requires stats extra: pip install gcmon[stats] or {ENV_STATS}=1 env var)",
+        help=(
+            f"Show a statistics table at the end of monitoring: 'total' for the run-wide block, "
+            f"'full' for that plus one block per interpreter, 'no'/'off'/'false'/'0' for no "
+            f"table. {ENV_STATS} takes the same words. High-accuracy percentiles need the stats "
+            f"extra: pip install gcmon[stats]"
+        ),
     )
     parser.add_argument(
         "--table-format",
@@ -138,7 +145,7 @@ class MonitoringOptions:
         output_format: str,
         flush_threshold: int,
         duration_label: str,
-        show_stats: bool = False,
+        stats_view: StatsView | None = None,
         table_format: TableFormat = TableFormat.PLAIN,
         rss_enabled: bool = False,
         rss_interval: float = 1.0,
@@ -149,7 +156,8 @@ class MonitoringOptions:
         self.output_format = output_format
         self.flush_threshold = flush_threshold
         self.duration_label = duration_label
-        self.show_stats = show_stats
+        # `None` is no table.
+        self.stats_view = stats_view
         self.table_format = table_format
         self.rss_enabled = rss_enabled
         self.rss_interval = rss_interval
@@ -168,7 +176,6 @@ def get_monitoring_options(
     duration = args.duration
     output_format = args.format
     flush_threshold = args.flush_threshold
-    show_stats = args.stats
     table_format = args.table_format
     rss_enabled = args.rss
     rss_interval = args.rss_interval
@@ -196,6 +203,19 @@ def get_monitoring_options(
                 rate,
             )
 
+    stats_view: StatsView | None = None
+    if args.stats is not None:
+        try:
+            stats_view = StatsView.parse(args.stats)
+        except ValueError:
+            logger.error(
+                "%s must be 'total', 'full', or one of %s to ask for no table, got '%s'",
+                ENV_STATS,
+                ", ".join(f"'{off}'" for off in STATS_OFF_WORDS),
+                args.stats,
+            )
+            return None
+
     if rate <= 0:
         logger.error("Rate must be positive, got %s", rate)
         return None
@@ -222,7 +242,7 @@ def get_monitoring_options(
         output_format=output_format,
         flush_threshold=flush_threshold,
         duration_label=duration_label,
-        show_stats=show_stats,
+        stats_view=stats_view,
         table_format=table_format,
         rss_enabled=rss_enabled,
         rss_interval=rss_interval,

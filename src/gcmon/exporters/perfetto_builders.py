@@ -63,7 +63,7 @@ def build_track_descriptor(
         ``thread_ordering`` hints.
     name
         Human-readable track name. Falsy values (empty string) suppress
-        the ``name`` field — used for the root descriptor and for any
+        the ``name`` field, used for the root descriptor and for any
         other track where the name would be redundant.
     pid, tid, thread_name, cmdline, start_timestamp_ns
         Populate the OS-association sub-message: ``ThreadDescriptor`` if

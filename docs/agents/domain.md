@@ -6,9 +6,9 @@ exploring the codebase.
 ## Before exploring, read these
 
 - **`CONTEXT.md`** at the repo root, or
-- **`CONTEXT-MAP.md`** at the repo root if it exists — it points at one
+- **`CONTEXT-MAP.md`** at the repo root if it exists; it points at one
   `CONTEXT.md` per context. Read each one relevant to the topic.
-- **`docs/adr/`** — read ADRs that touch the area you're about to work in. In
+- **`docs/adr/`**: read ADRs that touch the area you're about to work in. In
   multi-context repos, also check `src/<context>/docs/adr/` for context-scoped
   decisions.
 
@@ -18,7 +18,7 @@ absence; don't suggest creating them upfront. The `/domain-modeling` skill
 them lazily when terms or decisions actually get resolved.
 
 `CONTEXT.md` does not exist in this repo yet. `docs/adr/` does, with an index
-and reading order in `docs/adr/README.md` — start there rather than listing the
+and reading order in `docs/adr/README.md`; start there rather than listing the
 directory.
 
 ## The forward-looking complement
@@ -26,7 +26,7 @@ directory.
 `docs/adr/` records decisions already taken. `specs/` records work specified but
 not yet built, one file per open item, deleted when it lands. Read
 `specs/README.md` when you need to know what is already planned in the area
-you're about to work in — proposing something that is already spec'd is the most
+you're about to work in; proposing something that is already spec'd is the most
 common way to duplicate work here. Its neighbour `specs/CONVENTIONS.md` carries
 this repo's vocabulary rules, which the next section depends on.
 
@@ -71,7 +71,7 @@ written into a trace is an **event**, an interpreter is identified by its
 **iid**, an interval whose records never reached gcmon is a **loss window**, and
 a `Processes`-track slice is a **span**.
 
-If the concept you need isn't in the glossary yet, that's a signal — either
+If the concept you need isn't in the glossary yet, that's a signal: either
 you're inventing language the project doesn't use (reconsider) or there's a real
 gap (note it for `/domain-modeling`).
 
@@ -80,5 +80,5 @@ gap (note it for `/domain-modeling`).
 If your output contradicts an existing ADR, surface it explicitly rather than
 silently overriding:
 
-> _Contradicts ADR-0007 (shared trace converter pipeline) — but worth reopening
+> _Contradicts ADR-0007 (shared trace converter pipeline), but worth reopening
 > because…_

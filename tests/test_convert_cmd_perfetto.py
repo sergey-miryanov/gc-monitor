@@ -45,7 +45,7 @@ _DURATION_NS: int = 5_000_000
 # Counter-track names produced by the encoder for each generation. All three
 # generations emit the same basic 3 per-gen metrics. `heap_size` is a single
 # shared counter per (pid, iid) updated by every generation, not split per
-# gen. `increment_size` is NOT a counter track — it lives on the `GC Pause`
+# gen. `increment_size` is NOT a counter track; it lives on the `GC Pause`
 # slice's args.
 _G0_COUNTERS: frozenset[str] = frozenset(
     {
@@ -126,7 +126,7 @@ def _multi_dimensional_records() -> list[dict[str, int | float]]:
             "duration": item_g0.duration,
         }
     )
-    # pid=1001, iid=1, gen=1 (incremental — exercises all sub-slices;
+    # pid=1001, iid=1, gen=1 (incremental: exercises all sub-slices;
     # only `increment_size` is emitted as a G1 counter, the other
     # incremental fields appear in pause/sub-step args).
     item_g1 = create_mock_incremental_item(
@@ -506,9 +506,9 @@ class TestCombineChromePerfettoEquivalenceIntegration:
             for query in [
                 # Track names: skip `Process <pid>` because chrome has no
                 # separate process-track descriptor (perfetto does). Also
-                # skip `GC Metrics` — a perfetto-only grouping track that
+                # skip `GC Metrics`, a perfetto-only grouping track that
                 # holds the counter tracks (chrome has no equivalent
-                # grouping concept). And skip `Processes` — the shared
+                # grouping concept). And skip `Processes`, the shared
                 # top-level track that holds one lifetime slice per pid
                 # (chrome has no equivalent).
                 "SELECT name FROM track "

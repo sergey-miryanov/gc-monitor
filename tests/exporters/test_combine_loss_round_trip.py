@@ -12,7 +12,7 @@ on a file whose lines were shuffled.
 So the check walks the combined **output**. The Chrome trace is parsed as plain
 JSON and its BEGIN/END events are resolved as a stack, the way a trace
 processor resolves them, and the resulting slices are compared against the ones
-the live capture drew. A span opened inside another shows up here as a depth —
+the live capture drew. A span opened inside another shows up here as a depth,
 the one place ADR-0015 says the mistake is visible at all, since the trace
 processor itself reports ``misplaced_end_event = 0`` and reads a crossing as a
 nesting.
@@ -68,7 +68,7 @@ def _chrome_row(path: Path, tid: int = LOSS_TID) -> list[Slice]:
 
     Reads the file as JSON and walks it, sharing no code with the converter
     that wrote it. Sorting is by timestamp and **stable**, so events at one
-    instant keep file order — which is the emission order, and the thing under
+    instant keep file order, which is the emission order, and the thing under
     test. Fails loudly if a span opens while another is still open: that is the
     shape a reordered file produces, and every downstream reader accepts it
     silently.
@@ -114,7 +114,7 @@ class TestTheCombinedRowIsTheLiveRow:
 
     def test_the_row_comes_back_flat(self, tmp_path: Path) -> None:
         """The claim JSONL could quietly drop. Depth is derived by the walk, so
-        a file whose spans were emitted out of order nests here — and would
+        a file whose spans were emitted out of order nests here, and would
         have passed a check that only counted two loss slices."""
         assert [(name, depth) for name, _s, _e, depth in self.combined(tmp_path)] == [
             ("GC Loss(0,1,2)", 0),
@@ -265,7 +265,7 @@ def test_a_shuffled_file_still_draws_a_flat_row(tmp_path: Path) -> None:
 @pytest.mark.fuzz
 class TestTheTraceProcessorAgrees:
     """The same claim put to the real trace processor, over `combine`'s
-    Perfetto output — marked ``fuzz`` for what loading a trace costs.
+    Perfetto output, marked ``fuzz`` for what loading a trace costs.
 
     Worth the cost because the walk above is gcmon's own opinion of how a row
     resolves. Perfetto is the one that decides, and it decides silently.
