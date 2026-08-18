@@ -10,7 +10,7 @@ numbers that no longer have a file in [RETIRED.md](RETIRED.md).
   user-perspective solution statement and user stories.
 
 Pick by whether the change fixes something or adds something, not by size. Both carry the same
-§5 seams-and-testing section; until you have written it you cannot tell whether the work is
+seams-and-testing section 5; until you have written it you cannot tell whether the work is
 finishable. 0024 fits neither and says so in its header, since it produces an upstream issue
 instead of a change to this repo. Treat it as the exception, not a third template.
 

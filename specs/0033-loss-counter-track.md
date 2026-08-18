@@ -1,7 +1,7 @@
-# 0033 — Show how much was lost, not only where
+# 0033: Show how much was lost, not only where
 
 - **Status:** Not started (unblocked; the loss-span redesign landed as ADR-0015)
-- **Kind:** feature — enhancement
+- **Kind:** feature (enhancement)
 - **Effort:** S
 - **Origin:** grilling session, 2026-08-08; recommendation 3 of `.scratch/problem.md`
 - **Respects:** [ADR-0003](../docs/adr/0003-gc-metrics-group-track.md) (`GC Metrics` group),
@@ -50,20 +50,20 @@ at the counter for how bad and where, then click the span for exactly which reco
 ## 4. Implementation decisions
 
 **Cumulative, not instantaneous.** A running total of lost collections per `(pid, iid, gen)`,
-emitted once per loss record at the window's `ts_start`. The alternative — step up to `n_lost` at
-the window start and back to 0 at its end — answers "how bad right here" directly but costs two
+emitted once per loss record at the window's `ts_start`. The alternative, stepping up to `n_lost` at
+the window start and back to 0 at its end, answers "how bad right here" directly but costs two
 packets per window against one, draws a square wave at roughly ten windows per second per
 generation, and has no readable final value. A monotonic staircase gives rate as slope and total
 as its last point, which covers both questions with one line.
 
 **Rejected: a coverage ratio over time.** The most directly useful quantity and the worst
 behaved. A ratio over the handful of collections in one poll is noisy, and it is undefined for a
-window with no observations on that key — exactly the case where loss is worst.
+window with no observations on that key, exactly the case where loss is worst.
 
 **Derived in the converter, not the monitor.** `convert_loss_to_trace_format` already receives
 every `LossMsg` and is the single place both live and `combine` paths pass through. The running
 total is per `(pid, iid, gen)` converter state. This keeps the JSONL record in the shape
-ADR-0015 settled — a consumer that ignores the counter sees exactly the same file — and means a
+ADR-0015 settled (a consumer that ignores the counter sees exactly the same file) and means a
 capture recorded before this lands still produces the counter when combined.
 
 **Lanes are lazy.** Emit a generation's counter only once that generation has lost something,
@@ -71,7 +71,7 @@ the same convention ADR-0015 applies to the loss track descriptor and OpenTeleme
 `otel.dropped_*_count`. A clean capture grows no rows.
 
 **Placement:** inside the per-process `GC Metrics` group (ADR-0003), beside the existing
-`collected` / `candidates` / `duration` counters, not top-level — ADR-0004 reserves top-level for
+`collected` / `candidates` / `duration` counters, not top-level: ADR-0004 reserves top-level for
 `heap_size` and `rss`, which are process-wide rather than per-generation. Give all three
 generations the same `y_axis_share_key` (ADR-0005) so they share a scale and can be compared by
 eye.
@@ -90,7 +90,7 @@ an ADR if this graduates.
   trace means rather than on our own emission.
 - **New seam needed:** none.
 - **What makes a good test here:** assert the counter against the loss records that produced it,
-  not against a literal — the final value equals `sum(lost_count)` for that `(pid, iid, gen)`,
+  not against a literal: the final value equals `sum(lost_count)` for that `(pid, iid, gen)`,
   and the series is non-decreasing. A literal test would pass equally with an off-by-one running
   total.
 - **Prior art:** the existing per-generation counter assertions in the Perfetto exporter tests,
@@ -121,5 +121,5 @@ an ADR if this graduates.
 Settle when picked up: whether the counter is per `(pid, iid, gen)` or per `(pid, gen)` summed
 across interpreters. Per-key matches the loss spans and the `GC Loss` row, and is the default
 assumed above; per-`(pid, gen)` matches the `--stats` table, which keys loss on `(pid, gen)`. A
-multi-interpreter capture is what settles it — if the two interpreters' curves are legible
+multi-interpreter capture is what settles it: if the two interpreters' curves are legible
 superimposed, sum them.

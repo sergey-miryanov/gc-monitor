@@ -1,4 +1,4 @@
-"""Tests for RssSampler — interval timing, live-PID filtering, injectable provider."""
+"""Tests for RssSampler: interval timing, live-PID filtering, injectable provider."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def mock_psutil() -> Generator[MagicMock]:
 
 
 class TestRssSampler:
-    """RssSampler unit tests — all use injectable rss_provider, no psutil dependency."""
+    """RssSampler unit tests; all use injectable rss_provider, no psutil dependency."""
 
     def test_tick_no_live_pids(self) -> None:
         """No sampling when live_pids is empty."""

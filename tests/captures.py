@@ -6,8 +6,8 @@ unbroken, so the capture says what the target did rather than what a monitor
 managed to see. gen 0: 230 (1..230), gen 1: 20 (1..20), gen 2: 2 (1..2), over 11.0 seconds on one interpreter.
 
 Timestamps are rebased so the first collection starts at zero. Nothing in the
-loss arithmetic reads an absolute timestamp — it compares them and subtracts
-them — so the shift costs nothing and keeps the table legible.
+loss arithmetic reads an absolute timestamp (it compares them and subtracts
+them), so the shift costs nothing and keeps the table legible.
 
 ``duration`` is the target's own cumulative pause total in seconds, carried
 verbatim. It is the field the reconstruction runs on, and it accumulates in a

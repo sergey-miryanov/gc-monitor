@@ -540,7 +540,7 @@ class TestCounterTracks:
     """The per-gen counter metrics (collected/uncollectable/candidates/
     duration) each have a counter track with the expected name, plus a
     shared `heap_size` track per (pid, tid). No extra counter tracks are
-    emitted — in particular `increment_size` is not a counter track (it
+    emitted; in particular `increment_size` is not a counter track (it
     lives on the pause slice's args). The set comparison is robust to
     multiple processes emitting the same counter-track names."""
 
@@ -730,8 +730,8 @@ class TestCounterYAxisShareKey:
         fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
-        """The top-level ``heap_size`` track has no ``y_axis_share_key``
-        — the SQL value is NULL or empty string, depending on how the
+        """The top-level ``heap_size`` track has no ``y_axis_share_key``:
+        the SQL value is NULL or empty string, depending on how the
         trace processor surfaces an absent optional string field.
         """
         rows = list(
@@ -866,7 +866,7 @@ class TestStartProcessMarker:
     instant event on the process track itself, lazily on the first
     non-meta event for the pid. This guarantees the process track has at
     least one event so its ``description`` (the joined cmdline) is
-    always visible in the Perfetto UI — independent of whether the caller
+    always visible in the Perfetto UI, independent of whether the caller
     emitted any ``InstantEvent`` for the pid.
     """
 
@@ -1466,7 +1466,7 @@ class TestProcessOrderingIntegration:
         """The root descriptor (``uuid=0``) carries no ``name`` and no
         ``process``/``thread``/``counter`` sub-message, so it must NOT
         produce a row in the ``track`` SQL table. We check for this by
-        asserting that no track has a NULL ``type`` column — every track
+        asserting that no track has a NULL ``type`` column; every track
         in the table should be a recognized kind (process_track_event,
         thread_execution, counter, etc.). The NULL-name rows in the
         table correspond to ``thread_execution`` tracks and are
@@ -1670,7 +1670,7 @@ class TestRssCounterTrackIntegration:
         trace_processor_with_rss: TraceProcessor,
     ) -> None:
         """RSS counter track must NOT be parented inside a ``GC Metrics``
-        group — it should be a top-level counter. Since the trace processor
+        group; it should be a top-level counter. Since the trace processor
         may not surface ``parent_id`` for OS-scoped parent relationships,
         verify by checking there is no ``GC Metrics`` track in the trace."""
         gc_metrics_rows = list(trace_processor_with_rss.query("SELECT name FROM track WHERE name = 'GC Metrics'"))
@@ -1725,7 +1725,7 @@ class TestRssCounterTrackIntegration:
         tmp_path: Path,
     ) -> None:
         """Adding RSS samples must not remove or alter existing GC counter
-        tracks — writing both GC events and RSS samples preserves GC tracks."""
+        tracks: writing both GC events and RSS samples preserves GC tracks."""
         path = tmp_path / "trace_combined.pb"
         exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
         exporter.add_event(

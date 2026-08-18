@@ -195,7 +195,7 @@ class TestRssCounterTrack:
 
     def test_no_thread_descriptor_for_rss_tid(self) -> None:
         """No ``ThreadDescriptor`` track should be emitted for
-        ``tid=-1`` — RSS is process-level."""
+        ``tid=-1``; RSS is process-level."""
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
@@ -225,7 +225,7 @@ class TestRssCounterTrack:
 
     def test_rss_renders_at_top_level(self) -> None:
         """RSS is a top-level counter metric, parented directly to the
-        process track — NOT inside the GC Metrics group."""
+        process track, NOT inside the GC Metrics group."""
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             process_meta(100, "Process 100"),

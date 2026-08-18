@@ -1,7 +1,7 @@
-# 0028 — Let an exporter report its own output path
+# 0028: Let an exporter report its own output path
 
 - **Status:** Not started
-- **Kind:** feature — cleanup
+- **Kind:** feature (cleanup)
 - **Effort:** XS
 - **Origin:** post-v0.2.0 code review (old spec 18, REQ-5)
 - **Respects:** [ADR-0008](../docs/adr/0008-buffered-exporter-and-encoder-protocol.md) (exporter/encoder split), [ADR-0012](../docs/adr/0012-trace-output-formats.md) (dual output)
@@ -11,8 +11,8 @@
 Nothing an operator sees is wrong. This is a maintenance cost: `--format chrome+perfetto`
 works only because `CombinedTraceExporter` reads a private attribute off each sub-exporter, and
 two `# type: ignore` comments hold the type checker off while it does so. Any exporter that
-stores its path under a different name — or stores no path, as a future stream or in-memory
-exporter would — silently breaks the combined format, and the checkers that exist to catch
+stores its path under a different name (or stores no path, as a future stream or in-memory
+exporter would) silently breaks the combined format, and the checkers that exist to catch
 exactly that have been told not to look.
 
 ## 2. Solution
@@ -43,7 +43,7 @@ implements it from the `output_path` it already takes in its constructor and sto
 
 `CombinedTraceExporter` itself has two paths and no single one; it keeps `chrome_path` /
 `perfetto_path` as its public surface and implements `output_path` by returning the chrome
-path — the file the operator names on the command line, and the one
+path, the file the operator names on the command line, and the one
 `derive_combined_paths` treats as the base.
 
 `StdoutExporter` writes to a stream. Rather than invent a path for it, `output_path` is typed
@@ -52,8 +52,8 @@ path, which is already `Path | None` today. `CombinedTraceExporter` only ever wr
 file exporters, so its call sites are unaffected by the optionality.
 
 **Rejected:** a separate `OutputPathProvider` protocol that only some exporters implement. It
-reproduces the current situation — the combined exporter would still need a cast or an
-`isinstance` check — and one property on one ABC is smaller than a second type to explain.
+reproduces the current situation (the combined exporter would still need a cast or an
+`isinstance` check), and one property on one ABC is smaller than a second type to explain.
 
 **Rejected:** leaving the `# type: ignore` comments and adding a comment explaining them. The
 suppression is not the problem; the missing contract is.
@@ -61,12 +61,12 @@ suppression is not the problem; the missing contract is.
 ## 5. Seams and testing decisions
 
 - **Seam:** `tests/exporters/test_combined_exporter.py`, at the exporter's public surface.
-  Nothing higher can see this — the behaviour under test is a type contract, and a
+  Nothing higher can see this: the behaviour under test is a type contract, and a
   trace-processor assertion would only confirm the files still land where they always did.
 - **New seam needed:** none.
 - **What makes a good test here:** assert that every concrete `EventsExporter` subclass answers
   `output_path`, discovered by walking `EventsExporter.__subclasses__()` rather than listing
-  the classes — a hardcoded list is one more thing to forget when adding an exporter, which is
+  the classes, since a hardcoded list is one more thing to forget when adding an exporter, which is
   the failure this spec exists to prevent. Plus a `chrome+perfetto` run asserting the two files
   exist at the derived paths, which is the behaviour that must not change.
 - **Prior art:** `tests/exporters/test_combined_exporter.py` for the fan-out assertions;

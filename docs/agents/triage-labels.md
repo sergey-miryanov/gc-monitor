@@ -21,13 +21,13 @@ This repo's tracker is local markdown, not GitHub Issues (see
 `Status:` line near the top of the issue file:
 
 ```markdown
-# 03 — Accept loop dies on the first transient error
+# 03: Accept loop dies on the first transient error
 
 Status: ready-for-agent
 ```
 
 One status per file. Changing a label means editing that line, and the file's
-history in the working copy is the only record of the change — `.scratch/` is
+history in the working copy is the only record of the change; `.scratch/` is
 gitignored.
 
 Edit the right-hand column above to match whatever vocabulary you actually use.

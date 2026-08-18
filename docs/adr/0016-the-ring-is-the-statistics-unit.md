@@ -60,7 +60,7 @@ which process a figure describes.
 **Everything a run keeps carries an epoch naming which process held the pid.** It counts from 1
 and advances on each of those deaths, so whatever claims the pid next starts clean: its own
 entry, its own loss, its own lifetime counters. The epoch belongs to the pid rather than the
-ring — `pid_epoch` in the code, since a ring's own index is CPython's write cursor into it — so
+ring (`pid_epoch` in the code, since a ring's own index is CPython's write cursor into it), so
 an interpreter a successor creates late counts as the successor's. The table prints the
 first block plain and marks the ones after it, `12345:0#2` for the second process to hold the
 pid.

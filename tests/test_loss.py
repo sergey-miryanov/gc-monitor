@@ -742,8 +742,8 @@ class TestTheRingSpanIsPartitioned:
     This is what ``lost_from`` buys, and it is the strongest statement
     available about the loss arithmetic: the counts alone can only be checked
     against themselves, whereas a partition is checked against the collections
-    the target actually performed. A fencepost anywhere — the near fence of a
-    range, its far fence, the count it was cut to — shows up here as an
+    the target actually performed. A fencepost anywhere (the near fence of a
+    range, its far fence, the count it was cut to) shows up here as an
     overlap or a hole, and nothing else in the suite would notice.
     """
 

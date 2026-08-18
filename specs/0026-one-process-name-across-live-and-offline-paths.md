@@ -1,7 +1,7 @@
-# 0026 — Give a process the same name whether the trace was written live or combined
+# 0026: Give a process the same name whether the trace was written live or combined
 
 - **Status:** Not started
-- **Kind:** bug — correctness
+- **Kind:** bug (correctness)
 - **Effort:** XS
 - **Origin:** post-v0.2.0 code review (old spec 18, REQ-6)
 - **Respects:** [ADR-0007](../docs/adr/0007-shared-trace-converter-pipeline.md) (one conversion pipeline), [ADR-0010](../docs/adr/0010-process-identity-cmdline-and-start-marker.md) (process identity)
@@ -18,8 +18,8 @@ PerfettoSQL query, gets two names for one thing.
 
 Two call sites build the `ProcessMeta`, and they disagree on the name string:
 
-- `BufferedTraceExporter._build_meta` (live path) — `process_meta(pid, f"Process {pid}")`
-- `trace_converter.convert_to_trace_format` (offline `combine` path) —
+- `BufferedTraceExporter._build_meta` (live path): `process_meta(pid, f"Process {pid}")`
+- `trace_converter.convert_to_trace_format` (offline `combine` path):
   `process_meta(pid, f"{pid}")`
 
 ADR-0007 put both paths behind one converter so a `TraceEvent` means the same thing wherever
@@ -32,7 +32,7 @@ converter, and the two literals drifted.
 **Affected:** the `process_name` metadata event in Chrome JSON, and the process name in
 Perfetto, for `gcmon combine` output. Live captures are already correct.
 
-**Not affected:** `ThreadMeta` — both paths name threads `f"Thread {iid}"`. The Perfetto
+**Not affected:** `ThreadMeta`, since both paths name threads `f"Thread {iid}"`. The Perfetto
 `cmdline` annotation (ADR-0010) is a different field and unaffected. Event content, timestamps
 and track layout are untouched.
 
@@ -43,7 +43,7 @@ while disagreeing.
 
 ## 4. Proposed change
 
-1. Adopt `f"Process {pid}"` — the live form. It is what most existing fixtures and helpers
+1. Adopt `f"Process {pid}"`, the live form. It is what most existing fixtures and helpers
    already carry (`tests/exporters/perfetto_helpers.py` builds
    `process_meta(pid, f"Process {pid}")`), it is the form users have seen since v0.1.0, and a
    bare integer reads as a track index rather than a name in the Perfetto UI.
@@ -59,7 +59,7 @@ while disagreeing.
   assertion is on what the trace means rather than on our own literal.
 - **New seam needed:** none.
 - **What makes a good test here:** one test that asserts *equality between the two paths* for
-  the same pid, not two tests each asserting a literal — a literal test is what let the drift
+  the same pid, not two tests each asserting a literal; a literal test is what let the drift
   happen. Build the live events and the offline events for the same pid and compare the
   `ProcessMeta` produced.
 - **Prior art:** the chrome↔perfetto content-equivalence test in
@@ -73,7 +73,7 @@ while disagreeing.
 ## 6. Out of scope
 
 - Naming a process after its cmdline or executable rather than its pid. That is a real
-  improvement and a separate decision — ADR-0010 already carries cmdline in Perfetto, and
+  improvement and a separate decision: ADR-0010 already carries cmdline in Perfetto, and
   changing the display name would affect every existing trace comparison.
 - Moving `_build_meta` itself into `trace_converter`. It holds the exporter's dedup state; the
   shared helper closes this defect without that move.

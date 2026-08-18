@@ -28,7 +28,7 @@ pip install gcmon[cmdline]
 When this extra is installed:
 - The Perfetto exporter reads the command line of each monitored process and
   records it in the trace, where it labels the process track and is queryable
-  from SQL — see [Process command lines](formats.md#process-command-lines).
+  from SQL; see [Process command lines](formats.md#process-command-lines).
 - RSS tracking (`--rss`) can sample Resident Set Size via
   `psutil.Process(pid).memory_info().rss`.
 
@@ -40,7 +40,7 @@ ignored (an info log is emitted at startup). All other trace data is unaffected.
 - RSS sampling runs inside the GC poll loop, so its effective rate is capped by
   `--rate`. If `--rss-interval` is shorter than `--rate`, a warning is logged
   and RSS is sampled at the poll rate.
-- Only PIDs that returned a successful GC poll status are sampled — no stale
+- Only PIDs that returned a successful GC poll status are sampled; no stale
   data for dead processes.
 - The counter track is process-level (`tid=-1`), parented directly to the
   process track outside the `GC Metrics` group.

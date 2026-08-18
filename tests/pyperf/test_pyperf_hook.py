@@ -519,7 +519,7 @@ class TestLossIsNeverReplayedAsACollection:
     the codebase asks the other way round. That stays harmless only while the
     two guards are disjoint. A loss record claimed by `is_gc_stats` would be
     folded in as a collection here and nowhere else, inflating the very
-    sample the loss it carries exists to correct — and the inflated sum would
+    sample the loss it carries exists to correct, and the inflated sum would
     still be published labelled exact. All that stands between the hook and
     that is which field each guard reaches for, which is far too load-bearing
     to leave resting on nobody having noticed.
@@ -582,7 +582,7 @@ class TestLossIsNeverReplayedAsACollection:
         assert to_metrics(as_written) == to_metrics(reversed_order)
 
     def test_a_capture_of_nothing_but_loss_replays_and_still_counts_it(self, tmp_path: Path) -> None:
-        """Nothing was sampled, so there is no pause to describe — but the
+        """Nothing was sampled, so there is no pause to describe, but the
         collections nobody saw happened all the same."""
         stats = _RecordingStats()
 

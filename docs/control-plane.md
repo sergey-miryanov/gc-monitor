@@ -9,7 +9,7 @@ your application.
 ```python
 from gcmon.control.control_client import ControlClient
 
-# Create a client — no address needed, auto-discovered from environment
+# Create a client: no address needed, auto-discovered from environment
 client = ControlClient()
 ```
 
