@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import logging
-from argparse import Namespace
+from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
 import pytest
 
-from gcmon.commands.monitoring_options import RSS_CAPABLE_FORMATS, MonitoringOptions, get_monitoring_options
+from gcmon._env import ENV_RATE
+from gcmon.commands.monitoring_options import (
+    RSS_CAPABLE_FORMATS,
+    MonitoringOptions,
+    add_monitoring_options,
+    get_monitoring_options,
+)
 from gcmon.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
 
 
@@ -348,3 +354,51 @@ class TestTheWordsThatTurnTheTableOff:
 
         assert exit_info.value.code != 0
         assert "total" in capsys.readouterr().err
+
+
+class TestRateValidation:
+    """A rate that reaches the loop is one the loop can hold.
+
+    `MonitorLoop` asserts it, so the two spellings that get past `rate > 0`
+    are refused here: a value under a nanosecond, which converts to no
+    schedule at all, and a `GCMON_RATE` the parser never saw.
+    """
+
+    def test_a_rate_smaller_than_a_nanosecond_is_refused(self, caplog: pytest.LogCaptureFixture) -> None:
+        """It is positive and it converts to zero, so `rate > 0` lets it by."""
+        with caplog.at_level(logging.ERROR, logger="gcmon"):
+            assert get_monitoring_options(_make_args(rate=1e-12)) is None
+
+        assert "nanosecond" in caplog.text
+
+    def test_an_env_rate_that_is_not_a_rate_stops_the_run(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """`None` is how `get_env_rate` reports one, since the parser applies
+        no type to a default. Falling back to 0.1 would poll at a rate nobody
+        asked for."""
+        monkeypatch.setenv(ENV_RATE, "1e-3")
+
+        with caplog.at_level(logging.ERROR, logger="gcmon"):
+            assert get_monitoring_options(_make_args(rate=None)) is None
+
+        assert ENV_RATE in caplog.text
+
+
+class TestRateArgument:
+    """`--rate` on the command line, refused by the parser rather than below."""
+
+    @pytest.fixture
+    def parser(self, monkeypatch: pytest.MonkeyPatch) -> ArgumentParser:
+        monkeypatch.delenv(ENV_RATE, raising=False)
+        parser = ArgumentParser()
+        add_monitoring_options(parser)
+        return parser
+
+    def test_a_plain_decimal_is_taken(self, parser: ArgumentParser) -> None:
+        assert parser.parse_args(["--rate", "0.25"]).rate == 0.25
+
+    @pytest.mark.parametrize("value", ["1e-3", "1E-3", "0", "-0.1", "0.0000000001", "inf"])
+    def test_a_value_the_loop_cannot_hold_exits(self, parser: ArgumentParser, value: str) -> None:
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--rate", value])

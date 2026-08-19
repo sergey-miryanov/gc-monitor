@@ -37,7 +37,7 @@ the fixture did not move when it was added.
 
 *Nothing else reads the machine.* `no_wait_policy` instead of
 `StartupTimeoutPolicy`, which reads `time.monotonic`; a fixed-tick runner
-instead of `DurationRunner`, which reads it too; `rate=0`; and no RSS sampler.
+instead of `DurationRunner`, which reads it too; a 1 ms rate; and no RSS sampler.
 
 *The capture drives both pids.* The target replays `SSL_CONTEXT_SIZE` as
 recorded. The child replays the same collections `CHILD_SKEW_NS` later, so its
@@ -274,13 +274,14 @@ def run_monitored(output: Path) -> MonitoredRun:
         StreamingStats(),
         wait_policy_factory=no_wait_policy,
     )
-    # `rate=0` asks for no schedule, so the between-tick wait is the loop's
-    # 1 ms spin-guard and nothing more (ADR-0019), and no `rss_sampler`,
+    # A 1 ms rate, the point where the loop's spin-guard takes over, so the
+    # between-tick wait is that guard and nothing more (ADR-0019), and no
+    # `rss_sampler`,
     # which would read this machine's memory once a second. `NoWaitPolicy` per
     # pid rather than `StartupTimeoutPolicy`, whose verdict on a failed poll is
     # a `time.monotonic` reading in seconds -- a clock this file does not own.
     # The policy factory goes to the monitor, which owns per-pid lifetime.
-    loop = MonitorLoop(monitor, FixedRunner(TICKS), rate=0.0)
+    loop = MonitorLoop(monitor, FixedRunner(TICKS), rate=0.001)
 
     with (
         patch("gcmon.monitor.get_child_pids", side_effect=one_listing),

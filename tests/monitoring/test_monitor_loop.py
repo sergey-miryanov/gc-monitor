@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from gcmon.monitor import PollReport
-from gcmon.monitor_loop import MonitorLoop
+from gcmon.monitor_loop import MIN_IDLE_NS, MonitorLoop, _next_position
 from gcmon.rss_sampler import RssSampler
 from gcmon.run_policy import InfinityRunner, Runner
 from gcmon.run_report import RunReport
@@ -55,6 +55,13 @@ def loop(mock_monitor: MagicMock, mock_runner: Mock) -> MonitorLoop:
 
 
 class TestMonitorLoopInit:
+    @pytest.mark.parametrize("rate", [0.0, -0.1, 1e-12])
+    def test_a_rate_it_cannot_hold_is_refused(self, mock_monitor: MagicMock, mock_runner: Mock, rate: float) -> None:
+        """Zero, negative, and small enough to round to no nanoseconds at all.
+        The schedule is arithmetic on a rate, so there is nothing to run."""
+        with pytest.raises(ValueError, match="nanosecond"):
+            MonitorLoop(mock_monitor, mock_runner, rate=rate)
+
     def test_close_sets_stop_event(self, loop: MonitorLoop) -> None:
         assert not loop._stop_event.is_set()
         loop.close()
@@ -231,6 +238,53 @@ class TestTheTickInstant:
         assert isinstance(sampler_ns, int)
 
 
+class TestTheNextPosition:
+    """The arithmetic behind one wait, apart from the loop that runs it.
+
+    A rate in nanoseconds, the position the last tick was given and the instant
+    it ended, answering the idle, the next position and the count of positions
+    the tick ran through.
+    """
+
+    def test_the_idle_subtracts_what_the_tick_cost(self) -> None:
+        """The defect: the loop used to wait the whole rate on top of the tick,
+        so the target's size decided how often gcmon looked."""
+        assert _next_position(0, 30_000_000, 100_000_000) == (70_000_000, 100_000_000, 0)
+
+    def test_an_overrun_goes_to_the_next_position_on_the_grid(self) -> None:
+        """A tick 50 ms past its position skips that position rather than
+        starting late: the next start is 200 ms, not 250 ms."""
+        assert _next_position(0, 150_000_000, 100_000_000) == (50_000_000, 200_000_000, 1)
+
+    def test_a_tick_ending_on_its_position_has_missed_it(self) -> None:
+        """The position is now, so nothing can start on it any more."""
+        assert _next_position(0, 100_000_000, 100_000_000) == (100_000_000, 200_000_000, 1)
+
+    def test_a_tick_ending_a_hair_early_still_yields(self) -> None:
+        """Otherwise the loop re-enters immediately and pins gcmon at a full
+        duty cycle against a target that is already struggling."""
+        assert _next_position(0, 99_999_500, 100_000_000) == (MIN_IDLE_NS, 100_999_500, 0)
+
+    def test_the_guard_moves_the_schedule_to_where_the_tick_will_begin(self) -> None:
+        """gcmon chose the wait, so the position it pushes past is not a miss.
+        Carried as a debt against the grid it would surface as one later."""
+        _idle_ns, next_ns, missed = _next_position(0, 99_999_500, 100_000_000)
+
+        assert (next_ns, missed) == (99_999_500 + MIN_IDLE_NS, 0)
+
+    def test_a_rate_that_is_not_one_has_no_schedule_to_answer(self) -> None:
+        """The division below it has no meaning without a rate, and the loop
+        refuses one before a tick ever runs."""
+        with pytest.raises(AssertionError):
+            _next_position(0, 30_000_000, 0)
+
+    def test_a_long_stall_is_counted_rather_than_stepped(self) -> None:
+        """A tick that stalled for a minute at a 1 ms rate misses sixty
+        thousand positions. Counting them costs one division; stepping to them
+        costs sixty thousand iterations inside the poll interval."""
+        assert _next_position(0, 60_000_000_000, 1_000_000) == (MIN_IDLE_NS, 60_001_000_000, 60_000)
+
+
 class _RecordingEvent(threading.Event):
     """A stop event that records what it was asked to wait for, and never sleeps.
 
@@ -265,11 +319,11 @@ def _waits(monitor: MagicMock, instants: list[int], ticks: int = 1, rate: float 
 
 
 class TestThePace:
-    """The interval between tick starts is the rate, whatever a tick costs.
+    """What the loop does with the schedule the arithmetic hands it.
 
-    Tick starts land on `t0 + k * rate` for whole `k`. A tick that outlasts its
-    position does not shift the grid: the loop goes to the next position on it
-    and never makes up the ones it missed.
+    It carries the position from one tick to the next, and waits the idle out
+    on its stop event, converted to seconds. `TestTheNextPosition` covers where
+    those numbers come from.
     """
 
     def test_the_wait_subtracts_what_the_tick_cost(self, mock_monitor: MagicMock) -> None:
@@ -279,42 +333,12 @@ class TestThePace:
 
         assert waits == [pytest.approx(0.07)]
 
-    def test_an_overrun_goes_to_the_next_position_on_the_grid(self, mock_monitor: MagicMock) -> None:
-        """A tick 50 ms past its position skips that position rather than
-        starting late: the next one is 200 ms, not 250 ms."""
-        waits = _waits(mock_monitor, [0, 150_000_000])
-
-        assert waits == [pytest.approx(0.05)]
-
     def test_the_grid_keeps_its_phase_across_ticks(self, mock_monitor: MagicMock) -> None:
         """The positions are absolute, so a tick that starts late and runs long
         leaves its successor on the original grid rather than re-basing it."""
         waits = _waits(mock_monitor, [0, 30_000_000, 40_000_000, 160_000_000], ticks=2)
 
         assert waits == [pytest.approx(0.07), pytest.approx(0.04)]
-
-    def test_a_tick_ending_a_hair_early_still_yields(self, mock_monitor: MagicMock) -> None:
-        """Otherwise the loop re-enters immediately and pins gcmon at a full
-        duty cycle against a target that is already struggling."""
-        waits = _waits(mock_monitor, [0, 99_999_500])
-
-        assert waits == [pytest.approx(0.001)]
-
-    def test_a_rate_of_zero_asks_for_no_schedule_and_gets_none(self, mock_monitor: MagicMock) -> None:
-        """Stepping to the next position one rate at a time never terminates
-        when the rate is zero. A test wanting an unpaced run passes `rate=0`,
-        so this hangs the suite rather than failing it."""
-        waits = _waits(mock_monitor, [0, 30_000_000], rate=0.0)
-
-        assert waits == [pytest.approx(0.001)], "the spin-guard is all that is left"
-
-    def test_a_long_stall_is_counted_rather_than_stepped(self, mock_monitor: MagicMock) -> None:
-        """A tick that stalled for a minute at a 1 ms rate misses sixty
-        thousand positions. Counting them costs one division; stepping to them
-        costs sixty thousand iterations inside the poll interval."""
-        waits = _waits(mock_monitor, [0, 60_000_000_000], rate=0.001)
-
-        assert waits == [pytest.approx(0.001)]
 
     def test_the_stamping_instant_is_not_the_pacing_one(self, mock_monitor: MagicMock) -> None:
         """The pacing read stamps nothing. What reaches the monitor is the

@@ -24,6 +24,33 @@ this is the number. See ADR-0019.
 """
 
 
+def _next_position(position_ns: int, tick_end_ns: int, rate_ns: int) -> tuple[int, int, int]:
+    """How long to idle, where the next tick starts, and what the last one missed.
+
+    *position_ns* is the position the tick that just ended was given, and
+    *tick_end_ns* the instant it ended.
+    """
+    assert rate_ns > 0, "a schedule needs a rate"
+
+    missed = 0
+    next_ns = position_ns + rate_ns
+
+    if next_ns <= tick_end_ns:
+        # The tick outlasted its position. Skip along the original grid
+        # rather than re-basing, and count the missed positions rather
+        # than stepping to them (ADR-0019).
+        missed = (tick_end_ns - next_ns) // rate_ns + 1
+        next_ns += missed * rate_ns
+
+    idle_ns = next_ns - tick_end_ns
+
+    if idle_ns < MIN_IDLE_NS:
+        idle_ns = MIN_IDLE_NS
+        next_ns = tick_end_ns + MIN_IDLE_NS
+
+    return idle_ns, next_ns, missed
+
+
 class MonitorLoop:
     """Timing and shutdown around a monitor that owns the rest.
 
@@ -35,8 +62,8 @@ class MonitorLoop:
     tick costs. A tick that outlasts its position skips to the next position on
     the same grid, and the missed ones are never made up (ADR-0019).
 
-    A rate of zero or less asks for no schedule at all, and gets none: the loop
-    polls as fast as `MIN_IDLE_NS` allows.
+    The rate has to be positive: `--rate` is refused before it reaches here if
+    it is not, including a value too small to be a nanosecond.
     """
 
     def __init__(
@@ -48,9 +75,9 @@ class MonitorLoop:
     ) -> None:
         self._monitor = monitor
         self._runner = runner
-        # An operator types seconds; everything downstream of here is
-        # nanoseconds (ADR-0009), converted back only for `Event.wait`.
         self._rate_ns = secs_to_ns(rate)
+        if self._rate_ns <= 0:
+            raise ValueError(f"rate must be a nanosecond or more, got {rate}")
         self._stop_event = threading.Event()
         self._rss_sampler = rss_sampler
 
@@ -58,56 +85,29 @@ class MonitorLoop:
         self._stop_event.set()
 
     def run(self) -> RunReport:
-        next_ns: int | None = None
+        position_ns: int | None = None
         ticks_run = 0
         ticks_skipped = 0
 
         with set_on_exit(self._stop_event):
             for _ in self._runner.run(self._stop_event.is_set):
-                # One stamping read per tick, in nanoseconds. Everything the
-                # tick emits agrees on it: the monitor stamps liveness
-                # (ADR-0011), the sampler paces and stamps (ADR-0013).
-                now_ns = time.monotonic_ns()
+                tick_start_ns = time.monotonic_ns()
 
-                if next_ns is None:
-                    next_ns = now_ns
+                if position_ns is None:
+                    position_ns = tick_start_ns
 
                 ticks_run += 1
-                report = self._monitor.tick(now_ns, self._stop_event.is_set)
+                report = self._monitor.tick(tick_start_ns, self._stop_event.is_set)
 
                 if self._rss_sampler:
-                    self._rss_sampler.tick(now_ns, report.live_pids)
+                    self._rss_sampler.tick(tick_start_ns, report.live_pids)
 
                 if not report.keep_running:
                     break
 
-                # A second read, for pacing only: it stamps nothing and
-                # reaches nothing outside this method. The wait cannot be
-                # worked out from the instant above without adding the tick's
-                # cost to the interval, which is the defect ADR-0019 records.
-                pacing_ns = time.monotonic_ns()
-
-                idle_ns = 0
-                if self._rate_ns > 0:
-                    next_ns += self._rate_ns
-                    if next_ns <= pacing_ns:
-                        # The tick outlasted its position. Skip along the
-                        # original grid rather than re-basing, and count the
-                        # missed positions rather than stepping to them
-                        # (ADR-0019).
-                        missed = (pacing_ns - next_ns) // self._rate_ns + 1
-                        next_ns += missed * self._rate_ns
-                        ticks_skipped += missed
-                    idle_ns = next_ns - pacing_ns
-
-                if idle_ns < MIN_IDLE_NS:
-                    # Waiting the guard out starts the next tick past its
-                    # position. gcmon chose that wait, so move the schedule to
-                    # where the tick will really begin; carried as a debt
-                    # against the grid it would surface later as a skipped
-                    # position and blame the target (ADR-0019).
-                    idle_ns = MIN_IDLE_NS
-                    next_ns = pacing_ns + MIN_IDLE_NS
+                tick_end_ns = time.monotonic_ns()
+                idle_ns, position_ns, missed = _next_position(position_ns, tick_end_ns, self._rate_ns)
+                ticks_skipped += missed
 
                 self._stop_event.wait(timeout=idle_ns / 1e9)
 

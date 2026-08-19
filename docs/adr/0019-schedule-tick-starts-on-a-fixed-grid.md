@@ -44,9 +44,14 @@ two reads back into one reintroduces the defect.
 **A tick that outlasts its position skips to the next position on the same grid.** The missed
 positions are dropped and never made up. The phase survives, so the effective interval degrades in
 whole multiples of the rate rather than to an arbitrary value, and two captures stay comparable even
-when one of them fell behind. How far to skip is one division rather than a step per position, which
-also terminates when the rate is zero: a rate of zero or less asks for no schedule and gets none,
-leaving `MIN_IDLE_NS` as the only thing between two ticks.
+when one of them fell behind. How far to skip is one division rather than a step per position, so a
+tick that stalled for minutes costs what one that missed a single position costs.
+
+**A rate is a plain decimal number of seconds, and positive.** Scientific notation is refused at the
+boundary, because it hides how small a value is: `1e-12` reads as a rate, converts to zero
+nanoseconds, and no grid can be built on it. Below the boundary a usable rate is a precondition
+rather than a case to handle: the loop refuses one that converts to nothing, and the arithmetic
+asserts it.
 
 **The wait is floored at `MIN_IDLE_NS`, one millisecond.** Without a floor, a tick finishing a hair
 before its next position sends the loop straight back in and pins gcmon at a full duty cycle against
@@ -93,6 +98,8 @@ which keeps [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s boundary intact
   not before.
 - RSS sampling inherits an evenly spaced schedule at no cost, since the sampler paces off the
   stamping instant and its own interval logic is unchanged.
+- An operator who spells a good rate in scientific notation gets an error rather than a run, and
+  `1e-3` is a good rate.
 - Rates at or below a millisecond are not honoured, and the report will not say so: it counts
   positions the target cost gcmon, and a rate below the floor costs none. The bound belongs to the
   constant and is documented there; if `--rate` ever grows a lower bound, this is the number.
@@ -115,11 +122,11 @@ which keeps [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s boundary intact
 - **Changing the wait primitive** to beat the scheduler quantum, with a chunked sleep or by raising
   the platform timer resolution. Rejected: it costs shutdown latency, and the grid already stops the
   error accumulating, which is the part that made captures incomparable.
-- **Extracting the arithmetic into a schedule object.** Rejected for now: it is fifteen lines of
-  integer arithmetic with no I/O, and a separate object earns itself only if something other than
-  the loop needs to ask. The cost is that pacing is tested by observing the timeout the loop passes
-  to its stop event, which reaches a private attribute; if the arithmetic ever moves, the tests
-  should move onto it.
+- **Extracting the arithmetic into a schedule object.** Rejected: the arithmetic is a pure function
+  of the last position, the instant the tick ended and the rate, and it sits in the module as one.
+  An object holding the position as state earns itself only if something other than the loop needs
+  to ask, and nothing does. What still reaches a private attribute is the wiring, tested by
+  observing the timeout the loop passes to its stop event.
 - **Lending the monitor an overrun predicate**, the way the loop already lends it a stop predicate,
   so the advisory could pick its own wording. Rejected: the answer is meaningless in the first few
   ticks, exactly when the advisory is most likely to fire, so it would need a warm-up threshold with
@@ -127,16 +134,21 @@ which keeps [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s boundary intact
 
 ## Implementation
 
-- `src/gcmon/monitor_loop.py` holds the grid, the two clock reads, the skip, `MIN_IDLE_NS` and the
-  counters. `MonitorLoop.run` returns the report.
+- `src/gcmon/monitor_loop.py` holds the two clock reads, `MIN_IDLE_NS` and the counters. The grid
+  arithmetic is a module-level function there: the last position, the instant the tick ended and the
+  rate in, the idle, the next position and the positions missed out. `MonitorLoop.run` returns the
+  report.
 - `src/gcmon/run_report.py` holds `RunReport` and `OVERRUN_SHARE`, in a module of its own because
   the report crosses from the loop to the summary. `PollReport` sits beside its producer in
   `monitor.py`; this one cannot, because `stats_output` is reached from `_env` and the option
   parser, and importing the loop there would pull the monitor in behind every environment read.
 - `src/gcmon/stats_output.py` states the tick counts and selects the remedy; `src/gcmon/monitor.py`
   carries the advisory that no longer prescribes one.
-- Tests: `tests/monitoring/test_monitor_loop.py` for the schedule, the skip, the floor and the
-  report, driven by a scripted clock and a stop event that records what it was asked to wait for,
-  never by elapsed wall time, which would assert the operating system rather than gcmon;
-  `tests/stats/test_stats_output.py` for the summary line and the two remedies;
-  `tests/test_monitor_coverage.py` for the advisory keeping to what it knows.
+- `src/gcmon/_env.py` parses one rate spelling for both `--rate` and `GCMON_RATE`;
+  `src/gcmon/commands/monitoring_options.py` reports what it rejects and refuses a rate arriving
+  from anywhere else that converts to less than a nanosecond.
+- Tests: `tests/monitoring/test_monitor_loop.py`, where the schedule, the skip and the floor are
+  asserted on the arithmetic directly and the rest is driven by a scripted clock and a stop event
+  that records what it was asked to wait for, never by elapsed wall time, which would assert the
+  operating system rather than gcmon; `tests/stats/test_stats_output.py` for the summary line and
+  the two remedies; `tests/test_monitor_coverage.py` for the advisory keeping to what it knows.

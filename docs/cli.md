@@ -66,7 +66,7 @@ Exactly one of `-s`/`--script` or `-m`/`--module`.
 | `-s, --script <path>` | `run` | Python script path to run | - |
 | `-m, --module <name>` | `run` | Module name to run (like `python -m`) | - |
 | `-o, --output` | both | Output file path for trace data | `gcmon.json` (chrome), `gcmon.pftrace` (perfetto), `gcmon.jsonl` (JSONL) |
-| `-r, --rate` | both | Seconds between poll starts | `0.1` |
+| `-r, --rate` | both | Seconds between poll starts, as a plain decimal | `0.1` |
 | `-d, --duration` | both | Monitoring duration in seconds | Until interrupted / script exits |
 | `-v, --verbose` | both | Enable verbose output (`-v` for INFO, `-vv` for DEBUG) | `0` |
 | `--format` | both | Output format: `chrome`, `perfetto`, `jsonl` or `stdout` (see [Output formats](formats.md)) | `chrome` |
@@ -101,7 +101,7 @@ exception is `GCMON_STATS`, which stops the run.
 | Variable | Equivalent flag | Description | Default |
 |----------|----------------|-------------|---------|
 | `GCMON_OUTPUT` | `-o, --output` | Output file path for trace data | `gcmon.json` (chrome), `gcmon.pftrace` (perfetto), `gcmon.jsonl` (JSONL) |
-| `GCMON_RATE` | `-r, --rate` | Seconds between poll starts | `0.1` |
+| `GCMON_RATE` | `-r, --rate` | Seconds between poll starts, as a plain decimal | `0.1` |
 | `GCMON_DURATION` | `-d, --duration` | Monitoring duration in seconds | Until interrupted / script exits |
 | `GCMON_VERBOSE` | `-v, --verbose` | Verbose level (integer or truthy value) | `0` |
 | `GCMON_FORMAT` | `--format` | Output format: `chrome`, `perfetto`, `jsonl`, or `stdout` | `chrome` |
