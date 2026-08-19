@@ -26,7 +26,7 @@ it measures how long each read of a target's GC stats took, recorded once per
 successful poll of every monitored PID and aggregated into a single row; with
 child processes its `Count` is polls × PIDs, and there is no per-PID breakdown.
 Use it to sanity-check `--rate`: a mean `Read Time` approaching `--rate` means a
-round is close to outlasting its own position on the schedule, and the summary's
+tick is close to outlasting its own position on the schedule, and the summary's
 tick counts say whether it did. See
 [How gcmon reads a process](monitoring.md#polling).
 
@@ -129,11 +129,9 @@ Both are blank on rows with no generation, such as `Read Time`.
 If any one interpreter's coverage falls below 90%, gcmon logs one advisory per
 session, naming the process, the interpreter and the generation of the least
 covered ring. A starved interpreter beside a busy one trips it on its own
-figure. It says what survives the loss and no more: it fires the first time
-coverage dips, which can be early enough that gcmon does not yet know whether it
-is holding its poll schedule, and whether polling faster can help at all depends
-on that. The end-of-run summary carries the remedy, where both figures are
-final. Polling faster may observe more, but it will not lift `Cov` to 100%;
+figure. It says what survives the loss and no more; the end-of-run summary
+carries the remedy, where the coverage and the tick counts are both final.
+Polling faster may observe more, but it will not lift `Cov` to 100%;
 [How gcmon reads a process](monitoring.md) covers why.
 
 ## Percentiles are sampled and read high

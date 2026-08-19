@@ -227,14 +227,14 @@ class TestRunReportOverran:
     Not on any skipped position at all. The loop waits on an event whose
     timeout the platform rounds up to its scheduler tick (ADR-0019), so a long
     run is near certain to overshoot a position occasionally, and reading that
-    as saturation would contradict the advice on the strength of one late
+    as an overrun would contradict the advice on the strength of one late
     wake-up.
     """
 
     def test_a_run_that_hit_every_position_did_not_overrun(self) -> None:
         assert not RunReport(ticks_run=600, ticks_scheduled=600).overran
 
-    def test_one_miss_in_a_long_run_is_not_saturation(self) -> None:
+    def test_one_miss_in_a_long_run_is_not_an_overrun(self) -> None:
         """Ten minutes at the default rate is about 6000 ticks. One hiccup --
         an oversized wake-up, a momentary fan-out -- must not rewrite the
         advice for the whole run."""
@@ -251,7 +251,7 @@ class TestRunReportOverran:
         ],
     )
     def test_the_share_is_a_floor_not_a_ceiling(self, ticks_run: int, ticks_scheduled: int, overran: bool) -> None:
-        """Exactly a tenth missing is not yet saturation; past it is."""
+        """Exactly a tenth missing is not yet an overrun; past it is."""
         assert RunReport(ticks_run=ticks_run, ticks_scheduled=ticks_scheduled).overran is overran
 
     def test_a_run_with_no_ticks_divides_by_nothing(self) -> None:

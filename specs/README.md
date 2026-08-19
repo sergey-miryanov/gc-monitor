@@ -48,7 +48,7 @@ Every row here has a file. A missing number either retired or never became one;
 |------|----------|
 | 0025 | The only outage, and the fix is one word |
 | 0026 | Smallest user-visible wrongness |
-| 0050 | Constrained: after 0049, and immediately after, so the help text and the advisory are edited once |
+| 0050 | Unblocked: 0049 landed, and taking this next edits the help text and the advisory once |
 | 0028 | XS, and it shrinks 0036 |
 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
 | 0031 | |

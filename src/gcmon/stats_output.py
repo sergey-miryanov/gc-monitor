@@ -193,9 +193,9 @@ def summary_lines(
 ) -> list[str]:
     """Summary lines for monitoring commands.
 
-    *pacing* is what the loop did with its schedule. Without it the summary
-    says nothing about pacing, which is what a caller that never ran a loop
-    wants.
+    *pacing* is what the loop did with its schedule. It picks the remedy a
+    lossy run is offered, which the mid-run coverage warning cannot; see
+    ADR-0019.
     """
     sampled = stats.count()
     lost = sum(totals.lost_count for totals in stats.pause_totals_by_gen().values())
@@ -212,10 +212,6 @@ def summary_lines(
     if pacing is not None:
         lines.append(f"Ticks: {pacing.ticks_run} of {pacing.ticks_scheduled} scheduled")
         if lost:
-            # The remedy lives here rather than in the mid-run coverage
-            # warning, because only here are both figures final: whether
-            # polling more often can help at all depends on whether the loop
-            # was reaching the positions it already had.
             lines.append(
                 "The poll loop overran, so a smaller --rate will not help."
                 if pacing.overran

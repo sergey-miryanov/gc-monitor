@@ -1,10 +1,8 @@
 # ADR-0013: Sample RSS in a standalone `RssSampler`, on a `tid = -1` sentinel track
 
 - **Status:** Accepted
-- **Date:** 2026-07-13 (caller note added 2026-08-02; `tick` moved to nanoseconds and the
-  per-sample clock read removed 2026-08-17; "one clock read per tick" narrowed to one *stamping*
-  instant per tick 2026-08-17, when [ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md) added a
-  second read for pacing)
+- **Date:** 2026-07-13 (caller note added 2026-08-02; `tick` moved to nanoseconds, the per-sample
+  clock read removed, and "one clock read per tick" narrowed to one *stamping* read, 2026-08-17)
 
 ## Context
 

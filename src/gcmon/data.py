@@ -78,26 +78,21 @@ class LossMsg(msgspec.Struct):
 
 
 OVERRUN_SHARE = 0.1
-"""How much of a run has to go missing before gcmon calls itself saturated.
+"""How much of a run has to go missing before gcmon calls it an overrun.
 
-Not any skipped position at all. The loop waits on an event whose timeout the
-platform rounds up to its scheduler tick, so an occasional overshoot past a
-position is what a healthy run looks like, and a long one is near certain to
-contain a few. Reading those as saturation would tell an operator their rate is
-unreachable on the strength of one late wake-up in thousands.
+Not one skipped position: the loop waits on an event whose timeout the platform
+rounds up to its scheduler tick, so a long healthy run is near certain to skip a
+few. See ADR-0019.
 """
 
 
 class RunReport(msgspec.Struct):
     """What one run of the monitoring loop did with its schedule.
 
-    ``ticks_run`` is how many ticks happened. ``ticks_scheduled`` is how many
-    positions the schedule offered over the same span, which is larger whenever
-    a tick outlasted its own position and the loop skipped to the next one
-    rather than making the missed ones up.
-
-    It lives here rather than beside the loop because it crosses from the loop
-    to the summary, and the output modules must not import the loop to read it.
+    ``ticks_scheduled`` counts the positions the schedule offered, which is
+    larger than ``ticks_run`` whenever a tick outlasted its own position and the
+    loop skipped to the next one rather than making the missed ones up. See
+    ADR-0019.
     """
 
     ticks_run: int
@@ -105,8 +100,7 @@ class RunReport(msgspec.Struct):
 
     @property
     def overran(self) -> bool:
-        """True when enough of the run went missing that a smaller rate cannot
-        help: the loop was not reaching the positions it already had."""
+        """True when enough of the run went missing that a smaller rate cannot help."""
         if self.ticks_scheduled <= 0:
             return False
         missed = self.ticks_scheduled - self.ticks_run

@@ -253,11 +253,9 @@ class EventsMonitor:
     def _warn_low_coverage(self, pid: int) -> None:
         """Say once per run that gcmon is reading too little of its target.
 
-        What to do about it is not said here. This fires the first time
-        coverage dips, which can be seconds into a run, before the loop has
-        run enough ticks to know whether it is holding its schedule -- and
-        whether polling more often can help at all depends on that. The
-        end-of-run summary carries the remedy, where both figures are final.
+        What to do about it is not said here: it turns on whether the loop is
+        holding its schedule, which this cannot know when it fires. The
+        end-of-run summary carries the remedy; see ADR-0019.
         """
         if self._coverage_warned:
             return

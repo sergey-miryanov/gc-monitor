@@ -14,7 +14,7 @@
 - `--stats` takes the view to print: `total` for the run-wide block, `full` for that plus one block per interpreter, `no`/`off`/`false`/`0` for no table
 - The low-coverage warning drops the ring-buffer explanation and suggests a smaller `--rate`
 - The end-of-run summary counts the events gcmon reconstructed and the share it observed: `Total events: 1234 (+8566 reconstructed, 12.6% observed)`
-- The end-of-run summary reports how many ticks ran against how many were scheduled: `Ticks: 188 of 600 scheduled`. A lossy run is told either that polling more often may observe more, or that the poll loop overran and a smaller `--rate` will not help
+- The end-of-run summary counts the ticks that ran against the ticks scheduled, `Ticks: 188 of 600 scheduled`, and tells a lossy run whether polling more often can help
 - The lifetime note under the `--stats` table names the fold: `summed over 3 interpreters in 2 processes`
 - An interpreter's statistics settle when its process exits: its percentiles cover its whole life, and its sample buffers go to the next interpreter
 - Each process that held a reused PID gets its own `--stats` block, the second headed `12345:0#2`
@@ -23,7 +23,7 @@
 
 ### Bugfixes
 
-- `--rate` is the interval between poll starts, not the wait after each poll. gcmon holds it whatever a poll costs, where a tree costing 30 ms a round used to poll at 7.1 Hz under `--rate 0.1`. A round that outlasts its position skips to the next one rather than shifting every round after it
+- `--rate` is the interval between poll starts, not the wait after each poll: gcmon holds it whatever a poll costs, where a wide process tree used to stretch every interval by what its reads took
 - `gcmon.__version__` reports the installed version; it had said `0.1.0` since `0.2.0`
 - Stop a reused PID inheriting its predecessor's `--stats` row, which put two processes' records under one heading
 - Stop a reused PID's lifetime totals overwriting its predecessor's, which made the note under the table drop mid-run

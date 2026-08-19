@@ -17,12 +17,9 @@ Without it a tick finishing a hair before its next position sends the loop
 straight back in, pinning gcmon at a full duty cycle against a target that is
 already struggling.
 
-**It bounds the rate gcmon can hold.** A rate at or below this cannot be met:
-the guard is longer than the interval, so tick starts land further apart than
-asked and the schedule follows where they really fall rather than pretending
-otherwise. The bound is academic in practice -- one pid's read costs several
-hundred microseconds, so a tick alone outlasts a millisecond -- but it is a
-bound, and a rate near it gets an interval near this constant instead.
+It bounds the rate gcmon can hold: a rate at or below this cannot be met, and
+tick starts land this far apart instead. If ``--rate`` ever grows a lower bound,
+this is the number. See ADR-0019.
 """
 
 
@@ -35,12 +32,10 @@ class MonitorLoop:
 
     Tick starts land on a schedule: `t0 + k * rate` for whole `k`, whatever a
     tick costs. A tick that outlasts its position skips to the next position on
-    the same grid, so the phase survives and the interval degrades in whole
-    multiples of the rate instead of drifting with the size of the target.
+    the same grid, and the missed ones are never made up (ADR-0019).
 
     A rate of zero or less asks for no schedule at all, and gets none: the loop
-    polls as fast as `MIN_IDLE_NS` allows. The CLI rejects it, so this is the
-    shape a test asking for an unpaced run takes.
+    polls as fast as `MIN_IDLE_NS` allows.
     """
 
     def __init__(
@@ -69,9 +64,8 @@ class MonitorLoop:
         with set_on_exit(self._stop_event):
             for _ in self._runner.run(self._stop_event.is_set):
                 # One stamping read per tick, in nanoseconds. Everything the
-                # tick emits agrees on this one instant: the monitor stamps
-                # liveness with it (ADR-0011) and the sampler both paces and
-                # stamps with it (ADR-0013).
+                # tick emits agrees on it: the monitor stamps liveness
+                # (ADR-0011), the sampler paces and stamps (ADR-0013).
                 now_ns = time.monotonic_ns()
 
                 if next_ns is None:
@@ -86,23 +80,20 @@ class MonitorLoop:
                 if not report.keep_running:
                     break
 
-                # A second read, for pacing only. It stamps nothing and reaches
-                # nothing outside this method -- but the wait cannot be worked
-                # out from the instant above without adding the tick's cost to
-                # the interval, which is the defect ADR-0019 records. The RSS
-                # round is inside the measured cost because it is inside the
-                # tick.
+                # A second read, for pacing only: it stamps nothing and
+                # reaches nothing outside this method. The wait cannot be
+                # worked out from the instant above without adding the tick's
+                # cost to the interval, which is the defect ADR-0019 records.
                 pacing_ns = time.monotonic_ns()
 
                 idle_ns = 0
                 if self._rate_ns > 0:
                     next_ns += self._rate_ns
                     if next_ns <= pacing_ns:
-                        # The tick outlasted its position. Skip to the next
-                        # position on the original grid rather than re-basing:
-                        # missed positions are dropped, never made up. Counted
-                        # rather than stepped, so a tick that stalled for
-                        # minutes costs one division.
+                        # The tick outlasted its position. Skip along the
+                        # original grid rather than re-basing, and count the
+                        # missed positions rather than stepping to them
+                        # (ADR-0019).
                         missed = (pacing_ns - next_ns) // self._rate_ns + 1
                         next_ns += missed * self._rate_ns
                         ticks_skipped += missed
@@ -110,11 +101,10 @@ class MonitorLoop:
 
                 if idle_ns < MIN_IDLE_NS:
                     # Waiting the guard out starts the next tick past its
-                    # position. That is gcmon choosing to wait, not the target
-                    # outrunning it, so move the schedule to where the tick
-                    # will really begin. Left as a debt against the grid it
-                    # would surface later as a skipped position, and the
-                    # summary would blame the target for gcmon's own floor.
+                    # position. gcmon chose that wait, so move the schedule to
+                    # where the tick will really begin; carried as a debt
+                    # against the grid it would surface later as a skipped
+                    # position and blame the target (ADR-0019).
                     idle_ns = MIN_IDLE_NS
                     next_ns = pacing_ns + MIN_IDLE_NS
 
