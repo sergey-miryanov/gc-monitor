@@ -38,6 +38,7 @@ This file holds the open set and the order to take it in. The other two:
 | [0048](0048-attach-once-per-pid.md) | Feature (efficiency) | M | gcmon re-derives where a process keeps its GC state on every poll and throws it away again; 470 µs of each 473 µs read is that, per process, per tick |
 | [0049](0049-poll-on-the-requested-schedule.md) | Bug (correctness) | S | `--rate 0.1` polls every 0.1 s *plus* however long a tick took, so the target sets the interval; a tree costing 30 ms a tick polls at 7.1 Hz and nothing says so |
 | [0050](0050-name-the-poll-interval-for-what-it-is.md) | Feature (ergonomics) | S | `--rate` is a duration in seconds under a name that means a frequency, and gcmon echoes `Rate: 0.1s` back |
+| [0051](0051-key-the-running-rings-by-pid.md) | Feature (efficiency) | S | Asking `StreamingStats` about one process walks every process's rings; `low_coverage` does it once per polled pid per tick, and on a healthy run it never stops |
 
 Every row here has a file. A missing number either retired or never became one;
 [RETIRED.md](RETIRED.md) says which.
@@ -64,6 +65,7 @@ Every row here has a file. A missing number either retired or never became one;
 | 0042 | |
 | 0020 | |
 | 0048 | Constrained: before 0041, which would otherwise have to place the module it adds |
+| 0051 | Constrained: after 0039 and 0048 |
 | 0041 | Last on purpose: its section 7 argues against doing it between two changes that move code |
 
 Rows run in order, top to bottom. "Constrained" means the table below forces the position. A blank
@@ -86,6 +88,8 @@ cell means no recorded reason, so that row can move.
 | 0039 | 0041 | Or the same files move twice |
 | 0046 | 0039 | 0039 moves the structure 0046 changes. Reversed, 0039 would have to settle 0046's open question about re-keying `_running_rings`, which is more than either spec asks |
 | 0048 | 0041 | 0041 assigns modules to layers and would otherwise have to place the one 0048 adds |
+| 0039 | 0051 | 0039 moves `StreamingStats`; taken first, 0051 edits the module in its final home rather than one about to move |
+| 0048 | 0051 | 0048 removes the read cost that hides 0051's. Reversed, 0051 lands with no measurement an operator can see |
 | 0049 | 0050 | 0049 corrects the `--rate` help text and moves a sentence out of the coverage advisory; 0050 renames the option both of those name. Reversed, 0049 writes prose under a name 0050 immediately moves |
 | 0050 | 0040 | 0040 derives the option declarations from one table and would otherwise have to carry the alias 0050 introduces through a rewrite of the structure holding it |
 
