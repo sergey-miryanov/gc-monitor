@@ -613,6 +613,20 @@ class TestAProcessThatExits:
         assert stats.untracked_rings() == 0
 
 
+class TestAnOpenPidHoldsARing:
+    """`retain` finds the rings of the departed by scanning `_running_rings`,
+    so a pid that opened without one would go unsettled and count as departed
+    on every later tick. Every path that opens a pid opens a ring with it."""
+
+    def test_each_path_that_opens_a_pid_opens_a_ring(self) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(2, 0, 0, 4, 400)
+        stats.observe_cumulative(3, 0, 0, 10, 0.5)
+
+        assert stats._open_pids == {pid for pid, _ in stats._running_rings} == {1, 2, 3}
+
+
 class TestAFanOutThatDeparts:
     """A tick where many pids leave at once."""
 
@@ -672,6 +686,23 @@ class TestAFanOutThatDeparts:
 
         assert stats.pause_totals(3, 0, 0, pid_epoch=1).sampled_pause_ns == 3_000
         assert stats.pause_totals(3, 0, 0, pid_epoch=2).sampled_pause_ns == 7_000
+
+    def test_a_pid_whose_rings_interleave_settles_in_one_go(self) -> None:
+        """A ring is keyed by its first record, so another pid's ring can sit
+        between two of a pid's own. Grouping the departed by adjacency would
+        settle such a pid once per run of its keys, filing its interpreters
+        under an epoch each."""
+        stats = StreamingStats()
+        for iid in self.IIDS:
+            for pid in self.PIDS:
+                stats.update(pid, create_mock_stats_item(iid=iid, gen=0, ts_start=0, ts_stop=1_000))
+
+        stats.retain(self.SURVIVORS)
+
+        assert stats._epoch_per_pid == {pid: 1 if pid in self.SURVIVORS else 2 for pid in self.PIDS}
+        assert sorted(stats._settled_rings) == [
+            (pid, iid, 1) for pid in self.PIDS if pid not in self.SURVIVORS for iid in self.IIDS
+        ]
 
     def test_the_survivors_keep_their_rings(self) -> None:
         """A whole-tree drop exercises neither the grouping nor the pids it has

@@ -536,9 +536,6 @@ class StreamingStats:
     def _settle(self, pid: int, keys: list[RingKey]) -> None:
         """Close *pid*, which is open, and settle *keys*, which are its rings
         and no other pid's.
-
-        *keys* is a list, not a view over `_running_rings`: settling pops from
-        that dict.
         """
         pid_epoch = self._epoch_per_pid.get(pid, 1)
         self._open_pids.discard(pid)
@@ -556,22 +553,18 @@ class StreamingStats:
 
         A pid missing from the caller's per-tick listing of the target's
         children has gone.
-
-        A wide tree leaves as one. Walking the running rings once per departed
-        pid would cost the width of that tree squared, inside the poll interval
-        the surviving rings are filling against.
         """
         departed = self._open_pids - set(pids)
         if not departed:
             return
 
-        keys_per_pid: dict[int, list[RingKey]] = {pid: [] for pid in departed}
+        pid_keys: dict[int, list[RingKey]] = {pid: [] for pid in departed}
         for key in self._running_rings:
-            keys = keys_per_pid.get(key[0])
+            keys = pid_keys.get(key[0])
             if keys is not None:
                 keys.append(key)
 
-        for pid, keys in keys_per_pid.items():
+        for pid, keys in pid_keys.items():
             self._settle(pid, keys)
 
     def record_read_time(self, duration_ns: int) -> None:
