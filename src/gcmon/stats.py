@@ -537,12 +537,8 @@ class StreamingStats:
         """Close *pid*, which is open, and settle *keys*, which are its rings
         and no other pid's.
 
-        The single body that ends a process's statistics, whichever caller
-        found the keys. Written twice, the epoch advance and the move into
-        `_settled_rings` drift apart and a ring settles under the wrong epoch,
-        which nothing catches until one process's percentiles turn up under
-        its predecessor's heading. *keys* is a list because settling pops from
-        `_running_rings`, so a live view over it would not survive the loop.
+        *keys* is a list, not a view over `_running_rings`: settling pops from
+        that dict.
         """
         pid_epoch = self._epoch_per_pid.get(pid, 1)
         self._open_pids.discard(pid)
@@ -551,8 +547,6 @@ class StreamingStats:
         for key in keys:
             settled = self._running_rings.pop(key)
             if settled.metrics is not None:
-                # Conditional on the buffers, not on the ring: a ring the
-                # bound declined never took a slot and gives none back.
                 self._admitted_rings -= 1
             settled.settle()
             self._settled_rings[(*key, pid_epoch)] = settled
@@ -560,18 +554,15 @@ class StreamingStats:
     def retain(self, pids: Set[int]) -> None:
         """Settle every ring whose process is not in *pids*.
 
-        The caller polls the target's children each tick, so a pid missing
-        from that listing has gone.
+        A pid missing from the caller's per-tick listing of the target's
+        children has gone.
 
-        One pass over the running rings settles however many departed
-        together. A tree that fans out wide leaves as one, and its departures
-        and its rings are both the width of the tree, so a scan per departed
-        pid is the tree squared — tens of milliseconds ahead of the polls, in
-        a tick the surviving rings are filling against.
+        A wide tree leaves as one. Walking the running rings once per departed
+        pid would cost the width of that tree squared, inside the poll interval
+        the surviving rings are filling against.
         """
         departed = self._open_pids - set(pids)
         if not departed:
-            # A quiet tick pays the set difference and nothing else.
             return
 
         keys_per_pid: dict[int, list[RingKey]] = {pid: [] for pid in departed}

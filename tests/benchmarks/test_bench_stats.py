@@ -18,8 +18,8 @@ from gcmon.stats import Stats, StreamingStats, get_quantile_value
 from .conftest import make_gc_event
 
 EVENT_COUNT = 5_000
-# A process tree wide enough for the settling cost to be visible, with several
-# interpreters each, since settling walks the rings rather than the pids.
+# A tree wide enough for the settling cost to show, at several interpreters per
+# pid: settling walks the rings, not the pids.
 FAN_OUT_PIDS = 1_000
 FAN_OUT_IIDS = 3
 FAN_OUT_FIRST_PID = 1_000
@@ -60,10 +60,8 @@ def test_streaming_stats_update_many_pids(benchmark: BenchmarkFixture) -> None:
 def test_streaming_stats_retain_wide_fan_out(benchmark: BenchmarkFixture) -> None:
     """A whole fan-out exiting inside one tick.
 
-    The monitor settles departed pids before it polls, so this sits in the
-    poll interval every surviving ring is filling against. The fan-out is
-    built in `setup`, which runs once per round and is not measured: `retain`
-    settles a pid once, so a second call over the same state would measure an
+    The fan-out is built in `setup`, outside the measured window: `retain`
+    settles a pid once, and a second call over the same state would measure an
     empty set difference.
     """
 

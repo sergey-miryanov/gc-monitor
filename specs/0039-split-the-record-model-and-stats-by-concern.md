@@ -87,14 +87,11 @@ module holding the ns→µs conversion; ADR-0015 names the modules holding the l
 gap accounting. The ADR README's rule is explicit: amend a record when a name it anchors on
 moves. This is a rename inside the implementation section of each, not a change of decision.
 
-**4.6 — Whether `_running_rings` gets a structural key is this spec's to settle**, inherited from
-0046 (**Landed** 2026-08-17). That change made a departing fan-out cost one traversal instead of
-one per departed pid, and deliberately left the structure a flat map scanned by pid: re-keying it
-as `dict[int, dict[int, RingStats]]`, or adding a per-pid index beside it, removes the traversal
-rather than amortising it and helps the five other methods that filter by pid, but it was more
-than a performance fix should touch when this spec moves the structure anyway. Taking it here is a
-behaviour-preserving change inside one module. Declining it costs nothing, since none of those
-scans sits in a poll interval any more.
+**4.6: Whether `_running_rings` gets a structural key is this spec's to settle**, inherited from
+0046 (**Landed** 2026-08-17), which left it a flat map scanned by pid. Re-keying it as
+`dict[int, dict[int, RingStats]]`, or adding a per-pid index beside it, removes the scan from the
+five other methods that filter by pid, and is behaviour-preserving inside one module. Declining it
+costs nothing: no remaining scan sits in a poll interval.
 
 **Rejected: leave `data` alone and only split `stats`.** The unit conversions are the reason the
 Perfetto encoder imports the record model, and they are three functions. Splitting the larger

@@ -614,22 +614,16 @@ class TestAProcessThatExits:
 
 
 class TestAFanOutThatDeparts:
-    """A tick where many pids leave at once.
-
-    `retain` settles them in one pass over the running rings instead of one
-    pass per pid, and what it leaves behind is what settling them one at a
-    time leaves.
-    """
+    """A tick where many pids leave at once."""
 
     PIDS = tuple(range(1, 101))
     IIDS = (0, 1, 2)
-    # Wide enough that the bound declines the tail, so the comparison covers
-    # a departing pid whose rings hold no buffers as well as ones that do.
+    # 300 rings against MAX_ACTIVE_RINGS: the tail is declined, and the
+    # comparison covers departing pids whose rings hold no buffers.
     SURVIVORS = frozenset({1, 100})
 
     def _fan_out(self) -> StreamingStats:
-        """A hundred pids, three interpreters each, all running, each ring
-        carrying sampled records, loss and cumulative counters."""
+        """A hundred pids, three interpreters each, every ring still running."""
         stats = StreamingStats()
         for pid in self.PIDS:
             for iid in self.IIDS:
@@ -659,9 +653,6 @@ class TestAFanOutThatDeparts:
         )
 
     def test_one_pass_leaves_what_the_per_pid_path_leaves(self) -> None:
-        """The hazard is a ring settled under the wrong epoch, which no timing
-        assertion sees and which surfaces later as one process's percentiles
-        under its predecessor's heading."""
         one_pass, per_pid = self._fan_out(), self._fan_out()
 
         one_pass.retain(self.SURVIVORS)
@@ -672,8 +663,8 @@ class TestAFanOutThatDeparts:
         assert self._state(one_pass) == self._state(per_pid)
 
     def test_a_departed_ring_settles_under_the_epoch_it_filled_during(self) -> None:
-        """The equivalence above compares two paths through one body, so the
-        epoch that body picks is pinned here."""
+        """The equivalence above compares two paths through one body. This pins
+        the epoch that body picks."""
         stats = self._fan_out()
 
         stats.retain(self.SURVIVORS)
@@ -683,8 +674,8 @@ class TestAFanOutThatDeparts:
         assert stats.pause_totals(3, 0, 0, pid_epoch=2).sampled_pause_ns == 7_000
 
     def test_the_survivors_keep_their_rings(self) -> None:
-        """A whole-tree drop exercises neither the grouping nor the pids it
-        has to leave alone."""
+        """A whole-tree drop exercises neither the grouping nor the pids it has
+        to leave alone."""
         stats = self._fan_out()
 
         stats.retain(self.SURVIVORS)
@@ -702,8 +693,7 @@ class TestAFanOutThatDeparts:
         assert self._state(stats) == settled
 
     def test_a_pid_already_settled_costs_nothing(self) -> None:
-        """A pid the monitor forgets after `retain` has settled it, and a pid
-        gcmon holds no records from at all."""
+        """One pid `retain` already settled, and one gcmon never saw."""
         stats = self._fan_out()
         stats.retain(self.SURVIVORS)
         settled = self._state(stats)
@@ -714,8 +704,6 @@ class TestAFanOutThatDeparts:
         assert self._state(stats) == settled
 
     def test_a_tick_where_nothing_departed_settles_nothing(self) -> None:
-        """The early return is what keeps a quiet tick cheap, and every tick
-        of a stable tree is a quiet one."""
         stats = self._fan_out()
         running = self._state(stats)
 
@@ -724,9 +712,7 @@ class TestAFanOutThatDeparts:
         assert self._state(stats) == running
 
     def test_a_declined_ring_hands_back_no_slot(self) -> None:
-        """The bound counts rings holding buffers, so a batch decrementing per
-        ring rather than per admitted ring drifts it downward and starts
-        declining rings it should admit."""
+        """The bound counts rings holding buffers."""
         stats = StreamingStats()
         for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 4):
             stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
