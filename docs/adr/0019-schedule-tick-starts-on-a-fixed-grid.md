@@ -129,8 +129,10 @@ which keeps [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s boundary intact
 
 - `src/gcmon/monitor_loop.py` holds the grid, the two clock reads, the skip, `MIN_IDLE_NS` and the
   counters. `MonitorLoop.run` returns the report.
-- `src/gcmon/data.py` holds `RunReport`. It lives there rather than beside the loop because it
-  crosses from the loop to the summary, and the output modules must not import the loop to read it.
+- `src/gcmon/run_report.py` holds `RunReport` and `OVERRUN_SHARE`, in a module of its own because
+  the report crosses from the loop to the summary. `PollReport` sits beside its producer in
+  `monitor.py`; this one cannot, because `stats_output` is reached from `_env` and the option
+  parser, and importing the loop there would pull the monitor in behind every environment read.
 - `src/gcmon/stats_output.py` states the tick counts and selects the remedy; `src/gcmon/monitor.py`
   carries the advisory that no longer prescribes one.
 - Tests: `tests/monitoring/test_monitor_loop.py` for the schedule, the skip, the floor and the

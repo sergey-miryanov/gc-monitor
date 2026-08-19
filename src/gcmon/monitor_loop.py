@@ -2,10 +2,11 @@ import threading
 import time
 from typing import Self
 
-from .data import RunReport, secs_to_ns
+from .data import secs_to_ns
 from .monitor import EventsMonitor
 from .rss_sampler import RssSampler
 from .run_policy import Runner
+from .run_report import RunReport
 from .utils import set_on_exit
 
 __all__ = ["MonitorLoop"]

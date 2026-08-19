@@ -4,7 +4,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .data import RunReport, dur_to_ms
+from .data import dur_to_ms
+from .run_report import RunReport
 from .stats import METRICS, PauseTotals, Stats, StreamingStats
 
 _SEP_GROUP: Any = object()
