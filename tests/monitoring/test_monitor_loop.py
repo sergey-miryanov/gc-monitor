@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from gcmon.monitor import PollReport
-from gcmon.monitor_loop import MIN_IDLE_NS, MonitorLoop, _next_position
+from gcmon.monitor_loop import MIN_IDLE_NS, MonitorLoop, _idle_to_next_position, _position_of
 from gcmon.rss_sampler import RssSampler
 from gcmon.run_policy import InfinityRunner, Runner
 from gcmon.run_report import RunReport
@@ -92,9 +92,10 @@ class TestMonitorLoopRun:
         loop = MonitorLoop(mock_monitor, runner, rate=0.01)
         loop._stop_event.set()
 
-        loop.run()
+        report = loop.run()
 
         mock_monitor.tick.assert_not_called()
+        assert (report.ticks_run, report.ticks_scheduled) == (0, 0), "a run with no ticks scheduled none"
 
     def test_breaks_when_the_report_says_to_stop(self, mock_monitor: MagicMock) -> None:
         """The wait policies live in the monitor; `keep_running` is their
@@ -238,51 +239,54 @@ class TestTheTickInstant:
         assert isinstance(sampler_ns, int)
 
 
-class TestTheNextPosition:
-    """The arithmetic behind one wait, apart from the loop that runs it.
+class TestThePositionOfAnInstant:
+    """Where an instant falls on `t0 + k * rate`, apart from the loop."""
 
-    A rate in nanoseconds, the position the last tick was given and the instant
-    it ended, answering the idle, the next position and the count of positions
-    the tick ran through.
-    """
+    def test_the_run_starts_on_the_first_position(self) -> None:
+        assert _position_of(0, 0, 100_000_000) == 0
 
-    def test_the_idle_subtracts_what_the_tick_cost(self) -> None:
+    def test_an_instant_on_a_position_is_that_position(self) -> None:
+        assert _position_of(200_000_000, 0, 100_000_000) == 2
+
+    def test_an_instant_between_two_belongs_to_the_one_behind(self) -> None:
+        """The position a tick starting here occupies is the one that has come
+        round, not the one it is waiting for."""
+        assert _position_of(250_000_000, 0, 100_000_000) == 2
+
+    def test_a_rate_that_is_not_one_has_no_grid_to_answer(self) -> None:
+        """The division has no meaning without a rate, and the loop refuses
+        one before a tick ever runs."""
+        with pytest.raises(AssertionError):
+            _position_of(250_000_000, 0, 0)
+
+
+class TestTheIdleToTheNextPosition:
+    """The wait one tick asks for: to the position after the one it ended on."""
+
+    def test_it_subtracts_what_the_tick_cost(self) -> None:
         """The defect: the loop used to wait the whole rate on top of the tick,
         so the target's size decided how often gcmon looked."""
-        assert _next_position(0, 30_000_000, 100_000_000) == (70_000_000, 100_000_000, 0)
+        assert _idle_to_next_position(30_000_000, 0, 100_000_000) == 70_000_000
 
-    def test_an_overrun_goes_to_the_next_position_on_the_grid(self) -> None:
-        """A tick 50 ms past its position skips that position rather than
-        starting late: the next start is 200 ms, not 250 ms."""
-        assert _next_position(0, 150_000_000, 100_000_000) == (50_000_000, 200_000_000, 1)
+    def test_a_tick_past_its_position_waits_for_the_next_one(self) -> None:
+        """A tick 50 ms over does not start the next one late: it goes to the
+        position after, so starts stay on the grid."""
+        assert _idle_to_next_position(150_000_000, 0, 100_000_000) == 50_000_000
 
-    def test_a_tick_ending_on_its_position_has_missed_it(self) -> None:
-        """The position is now, so nothing can start on it any more."""
-        assert _next_position(0, 100_000_000, 100_000_000) == (100_000_000, 200_000_000, 1)
+    def test_a_tick_ending_on_a_position_waits_a_whole_rate(self) -> None:
+        """That position is now, so nothing can start on it any more."""
+        assert _idle_to_next_position(100_000_000, 0, 100_000_000) == 100_000_000
 
     def test_a_tick_ending_a_hair_early_still_yields(self) -> None:
         """Otherwise the loop re-enters immediately and pins gcmon at a full
         duty cycle against a target that is already struggling."""
-        assert _next_position(0, 99_999_500, 100_000_000) == (MIN_IDLE_NS, 100_999_500, 0)
+        assert _idle_to_next_position(99_999_500, 0, 100_000_000) == MIN_IDLE_NS
 
-    def test_the_guard_moves_the_schedule_to_where_the_tick_will_begin(self) -> None:
-        """gcmon chose the wait, so the position it pushes past is not a miss.
-        Carried as a debt against the grid it would surface as one later."""
-        _idle_ns, next_ns, missed = _next_position(0, 99_999_500, 100_000_000)
-
-        assert (next_ns, missed) == (99_999_500 + MIN_IDLE_NS, 0)
-
-    def test_a_rate_that_is_not_one_has_no_schedule_to_answer(self) -> None:
-        """The division below it has no meaning without a rate, and the loop
-        refuses one before a tick ever runs."""
-        with pytest.raises(AssertionError):
-            _next_position(0, 30_000_000, 0)
-
-    def test_a_long_stall_is_counted_rather_than_stepped(self) -> None:
-        """A tick that stalled for a minute at a 1 ms rate misses sixty
-        thousand positions. Counting them costs one division; stepping to them
-        costs sixty thousand iterations inside the poll interval."""
-        assert _next_position(0, 60_000_000_000, 1_000_000) == (MIN_IDLE_NS, 60_001_000_000, 60_000)
+    def test_a_long_stall_costs_one_division(self) -> None:
+        """A tick that stalled for a minute at a 1 ms rate ran through sixty
+        thousand positions. Stepping to them would cost sixty thousand
+        iterations inside the poll interval."""
+        assert _idle_to_next_position(60_000_000_000, 0, 1_000_000) == MIN_IDLE_NS
 
 
 class _RecordingEvent(threading.Event):
@@ -308,12 +312,14 @@ def _waits(monitor: MagicMock, instants: list[int], ticks: int = 1, rate: float 
     """Run the loop over a scripted clock and answer what it waited for.
 
     *instants* is read in order: one stamping instant then one pacing instant
-    per tick, so a tick's cost is the difference between its pair.
+    per tick, so a tick's cost is the difference between its pair. The loop
+    reads once more before its first tick, to seed position zero, and that read
+    is served the first instant again so the pairs stay as written.
     """
     loop = MonitorLoop(monitor, _runner(ticks), rate=rate)
     event = _RecordingEvent()
     loop._stop_event = event
-    with patch("time.monotonic_ns", side_effect=instants):
+    with patch("time.monotonic_ns", side_effect=[instants[0], *instants]):
         loop.run()
     return event.waits
 
@@ -321,9 +327,9 @@ def _waits(monitor: MagicMock, instants: list[int], ticks: int = 1, rate: float 
 class TestThePace:
     """What the loop does with the schedule the arithmetic hands it.
 
-    It carries the position from one tick to the next, and waits the idle out
-    on its stop event, converted to seconds. `TestTheNextPosition` covers where
-    those numbers come from.
+    It holds `t0` across ticks and waits the idle out on its stop event,
+    converted to seconds. Where those numbers come from is asserted above, on
+    the arithmetic itself.
     """
 
     def test_the_wait_subtracts_what_the_tick_cost(self, mock_monitor: MagicMock) -> None:
@@ -350,10 +356,13 @@ class TestThePace:
 
 
 def _report_of(monitor: MagicMock, instants: list[int], ticks: int = 1, rate: float = 0.1) -> RunReport:
-    """Run the loop over a scripted clock and answer what `run` returned."""
+    """Run the loop over a scripted clock and answer what `run` returned.
+
+    Instants as `_waits` takes them, seeding read included.
+    """
     loop = MonitorLoop(monitor, _runner(ticks), rate=rate)
     loop._stop_event = _RecordingEvent()
-    with patch("time.monotonic_ns", side_effect=instants):
+    with patch("time.monotonic_ns", side_effect=[instants[0], *instants]):
         return loop.run()
 
 
@@ -390,21 +399,27 @@ class TestTheRunReport:
         assert report.ticks_run == 2
         assert report.ticks_scheduled == 2
 
-    def test_the_spin_guard_does_not_read_as_the_target_outrunning_gcmon(self, mock_monitor: MagicMock) -> None:
-        """At a rate near the guard, waiting it out starts every tick past its
-        position. Left as a debt against the grid that surfaces as a skipped
-        position, and the summary tells the operator to stop lowering a rate
-        that was never the problem -- gcmon's own floor was.
-
-        Four ticks costing 0.2 ms against a 1 ms rate: the guard stretches each
-        interval to 1.2 ms, and none of that is the target's doing.
-        """
+    def test_a_short_run_against_the_floor_has_lost_no_position_yet(self, mock_monitor: MagicMock) -> None:
+        """Four ticks costing 0.2 ms against a 1 ms rate: the guard stretches
+        every interval to 1.2 ms, and that drift takes five ticks to eat a
+        whole position."""
         instants = [0, 200_000, 1_200_000, 1_400_000, 2_400_000, 2_600_000, 3_600_000, 3_800_000]
 
         report = _report_of(mock_monitor, instants, ticks=4, rate=0.001)
 
-        assert report.ticks_scheduled == 4, "no position was missed because the target was slow"
+        assert report.ticks_scheduled == 4
         assert not report.overran
+
+    def test_a_rate_the_floor_cannot_serve_reads_as_unreachable(self, mock_monitor: MagicMock) -> None:
+        """Ten of those ticks drift past two positions. The operator asked for
+        1 ms and gcmon holds 1.2, which no smaller `--rate` fixes, so the run
+        has to read as one that did not keep up."""
+        instants = [k * 1_200_000 + offset for k in range(10) for offset in (0, 200_000)]
+
+        report = _report_of(mock_monitor, instants, ticks=10, rate=0.001)
+
+        assert (report.ticks_run, report.ticks_scheduled) == (10, 12)
+        assert report.overran
 
     def test_a_tick_that_really_outlasts_its_position_still_counts(self, mock_monitor: MagicMock) -> None:
         """The guard forgiving its own overshoot must not forgive a genuine

@@ -23,9 +23,10 @@ red run.
 Determinism comes down to four things.
 
 *One clock, two consumers.* `monitor_loop` and `monitor` both do `import time`,
-so one patch of `time.monotonic_ns` feeds both. Per tick the loop reads once to
-stamp the tick, then each polled pid costs the monitor two reads either side of
-`get_gc_stats`, then the loop reads once more to pace itself
+so one patch of `time.monotonic_ns` feeds both. The loop reads once before the
+run to seed position zero. Per tick it reads once to stamp the tick, then each
+polled pid costs the monitor two reads either side of `get_gc_stats`, then the
+loop reads once more to pace itself
 ([ADR-0019](../../docs/adr/0019-schedule-tick-starts-on-a-fixed-grid.md)).
 `_script` lays that sequence out in advance and `_ScriptedClock` hands it out in
 order, raising rather than inventing a value. `test_the_clock_was_spent_exactly`
@@ -136,9 +137,11 @@ def _script() -> tuple[list[int], list[tuple[int, int]]]:
     """The clock to hand out, and the reads to answer, for the whole run.
 
     Returns the `time.monotonic_ns` values in the order they will be asked for,
-    and one `(pid, ts_read_start)` per `get_gc_stats` call. One tick is: the
-    loop's stamping read for the tick instant, then two reads per polled pid,
-    one either side of its `get_gc_stats`, then the loop's pacing read.
+    and one `(pid, ts_read_start)` per `get_gc_stats` call. The run opens with
+    the loop's seeding read, served the first tick's instant so position zero
+    is where the first tick starts. One tick is then: the loop's stamping read
+    for the tick instant, then two reads per polled pid, one either side of its
+    `get_gc_stats`, then the loop's pacing read.
 
     The pacing read (ADR-0019) lands one slot past the last pid's, which is
     where a real one falls: after every poll, before the wait. It stamps
@@ -156,7 +159,7 @@ def _script() -> tuple[list[int], list[tuple[int, int]]]:
             clock.append(ts_read_start + READ_COST_NS)
             reads.append((pid, ts_read_start))
         clock.append(instant + (len(pids) + 1) * READ_SLOT_NS)
-    return clock, reads
+    return [clock[0], *clock], reads
 
 
 class _ScriptedClock:
@@ -337,10 +340,10 @@ class TestTheScriptIsWorthPinning:
         assert any(name.startswith("GC Loss(") for name in names)
 
     def test_the_clock_was_spent_exactly(self, run: MonitoredRun) -> None:
-        """One read to stamp the tick, two per polled pid, one to pace the
-        loop, nothing left over. A different count per tick moves every
-        timestamp downstream, and this says so in one line instead of across
-        the whole fixture diff."""
+        """One read to seed the grid, then per tick one to stamp it, two per
+        polled pid, one to pace the loop, nothing left over. A different count
+        per tick moves every timestamp downstream, and this says so in one line
+        instead of across the whole fixture diff."""
         assert run.clock_spent == run.clock_scripted
 
 

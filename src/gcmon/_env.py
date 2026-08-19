@@ -77,9 +77,8 @@ def get_env_output() -> Path:
 def parse_rate(text: str) -> float:
     """One `--rate` or GCMON_RATE spelling, as seconds.
 
-    A plain decimal only. Scientific notation is refused because it hides how
-    small a value is: `1e-12` reads as a rate and reaches the loop as zero
-    nanoseconds, where the schedule it asks for cannot be built (ADR-0019).
+    A plain decimal only: scientific notation hides how small a value is, and
+    the loop needs a rate it can build a schedule on (ADR-0019).
 
     Raises:
         ValueError: on any spelling that is not a rate the loop can hold.

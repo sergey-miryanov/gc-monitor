@@ -32,20 +32,22 @@ that produced the defect.
 
 ## Decision
 
-**Tick starts land on a fixed grid.** The loop holds a next-start instant, seeded from the first
-stamping read, and waits until it rather than for a fixed span. Starts fall on `t0 + k * rate` for
-whole `k`, whatever a tick costs.
+**Tick starts land on a fixed grid.** Positions are `t0 + k * rate` for whole `k`, where `t0` is a
+read taken before the first tick, and a tick waits until the next one rather than for a fixed span.
+The grid is a formula over `t0` rather than an instant the loop carries, so which position an
+instant falls on is one division and nothing accumulates.
 
 **A second clock read paces the loop.** It is taken after the tick and the RSS round, immediately
 before the wait. It stamps nothing, is passed to nothing, and does not leave `MonitorLoop.run`, so
 ADR-0011 and ADR-0013 hold as written; ADR-0013 is amended to say *stamping* read. Collapsing the
-two reads back into one reintroduces the defect.
+two reads back into one reintroduces the defect. The read that seeds `t0` is a third, taken once per
+run rather than once per tick, and it stamps nothing either.
 
 **A tick that outlasts its position skips to the next position on the same grid.** The missed
 positions are dropped and never made up. The phase survives, so the effective interval degrades in
 whole multiples of the rate rather than to an arbitrary value, and two captures stay comparable even
-when one of them fell behind. How far to skip is one division rather than a step per position, so a
-tick that stalled for minutes costs what one that missed a single position costs.
+when one of them fell behind. A tick that stalled for minutes costs what one that missed a single
+position costs, because the positions it ran through are divided out rather than stepped over.
 
 **A rate is a plain decimal number of seconds, and positive.** Scientific notation is refused at the
 boundary, because it hides how small a value is: `1e-12` reads as a rate, converts to zero
@@ -57,14 +59,17 @@ asserts it.
 before its next position sends the loop straight back in and pins gcmon at a full duty cycle against
 a target that is already struggling.
 
-**The floor bounds the rate gcmon can hold, and the schedule follows the floor rather than fighting
-it.** A rate at or below a millisecond cannot be met: the guard is longer than the interval asked
-for, so tick starts land further apart than requested. The bound is academic, since a real tick
-costs more than a millisecond on its own, but it is real, and it must not be *misreported*. When the
-guard stretches a wait past the next position, the schedule moves to where the tick will really
-begin instead of carrying the difference as a debt against the grid. Left as a debt it surfaces
-later as a skipped position, and the summary blames the target for a wait gcmon chose. Choosing to
-wait and failing to keep up are different things and the report distinguishes them.
+**The floor bounds the wait and nothing else.** A rate at or below a millisecond cannot be met: the
+guard is longer than the interval asked for, so tick starts land further apart than requested and
+drift past positions on the grid. The schedule does not follow them. It cannot: a wait is asked for
+in advance and delivered late, so a schedule chasing the floor would be chasing a number the
+platform is free to overshoot, and the correction would be defeated by the same rounding it was
+meant to absorb.
+
+**The count is of positions the loop did not reach, whatever pushed it past them.** A slow tick, a
+late wake-up, a wait the floor stretched: the report does not separate them, because what it is for
+is telling an operator whether gcmon looked as often as they asked. A rate the floor cannot serve is
+one gcmon cannot hold.
 
 **A run answers a `RunReport`.** `MonitorLoop.run` returns how many ticks ran and how many positions
 were scheduled, and the end-of-run summary states both. Without it a run that never kept up is
@@ -100,9 +105,8 @@ which keeps [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s boundary intact
   stamping instant and its own interval logic is unchanged.
 - An operator who spells a good rate in scientific notation gets an error rather than a run, and
   `1e-3` is a good rate.
-- Rates at or below a millisecond are not honoured, and the report will not say so: it counts
-  positions the target cost gcmon, and a rate below the floor costs none. The bound belongs to the
-  constant and is documented there; if `--rate` ever grows a lower bound, this is the number.
+- The bound the floor puts under `--rate` belongs to the constant and is documented there; if
+  `--rate` ever grows a lower bound, this is the number.
 
 ## Alternatives considered
 
@@ -123,10 +127,11 @@ which keeps [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s boundary intact
   the platform timer resolution. Rejected: it costs shutdown latency, and the grid already stops the
   error accumulating, which is the part that made captures incomparable.
 - **Extracting the arithmetic into a schedule object.** Rejected: the arithmetic is a pure function
-  of the last position, the instant the tick ended and the rate, and it sits in the module as one.
-  An object holding the position as state earns itself only if something other than the loop needs
-  to ask, and nothing does. What still reaches a private attribute is the wiring, tested by
-  observing the timeout the loop passes to its stop event.
+  of the run's first instant, one later instant and the rate, and it sits in the module as two. An
+  object holding a position as state earns itself only if something other than the loop needs to
+  ask, and nothing does, which is also why the loop stopped holding one. What still reaches a
+  private attribute is the wiring, tested by observing the timeout the loop passes to its stop
+  event.
 - **Lending the monitor an overrun predicate**, the way the loop already lends it a stop predicate,
   so the advisory could pick its own wording. Rejected: the answer is meaningless in the first few
   ticks, exactly when the advisory is most likely to fire, so it would need a warm-up threshold with
@@ -134,10 +139,10 @@ which keeps [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s boundary intact
 
 ## Implementation
 
-- `src/gcmon/monitor_loop.py` holds the two clock reads, `MIN_IDLE_NS` and the counters. The grid
-  arithmetic is a module-level function there: the last position, the instant the tick ended and the
-  rate in, the idle, the next position and the positions missed out. `MonitorLoop.run` returns the
-  report.
+- `src/gcmon/monitor_loop.py` holds the two clock reads and `MIN_IDLE_NS`. The grid arithmetic is
+  two module-level functions there, one answering which position an instant falls on and one the
+  idle to the position after it. `MonitorLoop.run` counts no positions up: the last instant of the
+  run divides out to the number of them, and the run answers the report.
 - `src/gcmon/run_report.py` holds `RunReport` and `OVERRUN_SHARE`, in a module of its own because
   the report crosses from the loop to the summary. `PollReport` sits beside its producer in
   `monitor.py`; this one cannot, because `stats_output` is reached from `_env` and the option
