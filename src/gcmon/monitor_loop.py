@@ -57,8 +57,7 @@ class MonitorLoop:
         self._monitor = monitor
         self._runner = runner
         self._rate_ns = secs_to_ns(rate)
-        if self._rate_ns <= 0:
-            raise ValueError(f"rate must be a nanosecond or more, got {rate}")
+        assert self._rate_ns > 0, "a schedule needs a rate"
         self._stop_event = threading.Event()
         self._rss_sampler = rss_sampler
 

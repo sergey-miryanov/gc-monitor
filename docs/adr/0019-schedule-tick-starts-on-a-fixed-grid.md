@@ -52,8 +52,8 @@ position costs, because the positions it ran through are divided out rather than
 **A rate is a plain decimal number of seconds, and positive.** Scientific notation is refused at the
 boundary, because it hides how small a value is: `1e-12` reads as a rate, converts to zero
 nanoseconds, and no grid can be built on it. Below the boundary a usable rate is a precondition
-rather than a case to handle: the loop refuses one that converts to nothing, and the arithmetic
-asserts it.
+rather than a case to handle: the loop and the arithmetic assert it and report nothing, because a
+caller that breaks the contract is a caller with a bug, not an operator with a typo.
 
 **The wait is floored at `MIN_IDLE_NS`, one millisecond.** Without a floor, a tick finishing a hair
 before its next position sends the loop straight back in and pins gcmon at a full duty cycle against

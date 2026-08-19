@@ -58,8 +58,9 @@ class TestMonitorLoopInit:
     @pytest.mark.parametrize("rate", [0.0, -0.1, 1e-12])
     def test_a_rate_it_cannot_hold_is_refused(self, mock_monitor: MagicMock, mock_runner: Mock, rate: float) -> None:
         """Zero, negative, and small enough to round to no nanoseconds at all.
-        The schedule is arithmetic on a rate, so there is nothing to run."""
-        with pytest.raises(ValueError, match="nanosecond"):
+        The schedule is arithmetic on a rate, so there is nothing to run. The
+        CLI reports these; here it is a precondition."""
+        with pytest.raises(AssertionError):
             MonitorLoop(mock_monitor, mock_runner, rate=rate)
 
     def test_close_sets_stop_event(self, loop: MonitorLoop) -> None:
