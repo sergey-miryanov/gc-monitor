@@ -347,6 +347,14 @@ class TestThePace:
 
         assert waits == [pytest.approx(0.07), pytest.approx(0.04)]
 
+    def test_a_late_wake_up_does_not_shift_the_grid(self, mock_monitor: MagicMock) -> None:
+        """`Event.wait` delivers no earlier than asked and can deliver much
+        later. Tick two was due at 100 ms and starts at 250: the wait after it
+        goes to 300, the next position on the original grid, not to 350."""
+        waits = _waits(mock_monitor, [0, 10_000_000, 250_000_000, 260_000_000], ticks=2)
+
+        assert waits == [pytest.approx(0.09), pytest.approx(0.04)]
+
     def test_the_stamping_instant_is_not_the_pacing_one(self, mock_monitor: MagicMock) -> None:
         """The pacing read stamps nothing. What reaches the monitor is the
         instant taken before the tick, never the one taken after it."""
@@ -389,6 +397,15 @@ class TestTheRunReport:
 
         assert report.ticks_run == 2
         assert report.ticks_scheduled == 3
+        assert report.overran
+
+    def test_a_late_wake_up_costs_the_positions_it_slept_through(self, mock_monitor: MagicMock) -> None:
+        """The same run: two ticks over three positions, because the wait after
+        the first slept through the one at 100 ms. Nothing about the target was
+        slow, and the report counts it all the same."""
+        report = _report_of(mock_monitor, [0, 10_000_000, 250_000_000, 260_000_000], ticks=2)
+
+        assert (report.ticks_run, report.ticks_scheduled) == (2, 3)
         assert report.overran
 
     def test_a_run_cut_short_reports_the_ticks_it_ran(self, mock_monitor: MagicMock) -> None:
