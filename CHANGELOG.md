@@ -28,6 +28,10 @@
 - Stop a reused PID inheriting its predecessor's `--stats` row, which put two processes' records under one heading
 - Stop a reused PID's lifetime totals overwriting its predecessor's, which made the note under the table drop mid-run
 
+### Internal
+
+- Stability, correctness and performance improvements
+
 ## Version 0.5.0 (2026-08-14)
 
 ### Breaking changes

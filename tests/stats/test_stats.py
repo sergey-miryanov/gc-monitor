@@ -613,6 +613,159 @@ class TestAProcessThatExits:
         assert stats.untracked_rings() == 0
 
 
+class TestAnOpenPidHoldsARing:
+    """`retain` finds the rings of the departed by scanning `_running_rings`,
+    so a pid that opened without one would go unsettled and count as departed
+    on every later tick. Every path that opens a pid opens a ring with it."""
+
+    def test_each_path_that_opens_a_pid_opens_a_ring(self) -> None:
+        stats = StreamingStats()
+        stats.update(1, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=1_000))
+        stats.record_loss(2, 0, 0, 4, 400)
+        stats.observe_cumulative(3, 0, 0, 10, 0.5)
+
+        assert stats._open_pids == {pid for pid, _ in stats._running_rings} == {1, 2, 3}
+
+
+class TestAFanOutThatDeparts:
+    """A tick where many pids leave at once."""
+
+    PIDS = tuple(range(1, 101))
+    IIDS = (0, 1, 2)
+    # 300 rings against MAX_ACTIVE_RINGS: the tail is declined, and the
+    # comparison covers departing pids whose rings hold no buffers.
+    SURVIVORS = frozenset({1, 100})
+
+    def _fan_out(self) -> StreamingStats:
+        """A hundred pids, three interpreters each, every ring still running."""
+        stats = StreamingStats()
+        for pid in self.PIDS:
+            for iid in self.IIDS:
+                stats.update(pid, create_mock_stats_item(iid=iid, gen=0, ts_start=0, ts_stop=1_000 * pid))
+                stats.record_loss(pid, iid, 0, pid, 100 * pid)
+                stats.observe_cumulative(pid, iid, 0, 10 * pid, 0.5)
+        return stats
+
+    def _state(self, stats: StreamingStats) -> object:
+        """Everything settling a pid touches, as one comparable value."""
+        return (
+            set(stats._open_pids),
+            dict(stats._epoch_per_pid),
+            sorted(stats._running_rings),
+            sorted(stats._settled_rings),
+            stats._admitted_rings,
+            {
+                key: (
+                    ring.declined,
+                    ring.metrics is not None,
+                    None if ring.metrics is None else ring.metrics["pause"][0].percentiles,
+                    {gen: (loss.count, loss.pause_ns) for gen, loss in ring.loss.items()},
+                    {gen: (totals.collections, totals.duration_s) for gen, totals in ring.cumulative.items()},
+                )
+                for key, ring in stats._keyed_rings()
+            },
+        )
+
+    def test_one_pass_leaves_what_the_per_pid_path_leaves(self) -> None:
+        one_pass, per_pid = self._fan_out(), self._fan_out()
+
+        one_pass.retain(self.SURVIVORS)
+        for pid in self.PIDS:
+            if pid not in self.SURVIVORS:
+                per_pid.materialize(pid)
+
+        assert self._state(one_pass) == self._state(per_pid)
+
+    def test_a_departed_ring_settles_under_the_epoch_it_filled_during(self) -> None:
+        """The equivalence above compares two paths through one body. This pins
+        the epoch that body picks."""
+        stats = self._fan_out()
+
+        stats.retain(self.SURVIVORS)
+        stats.update(3, create_mock_stats_item(iid=0, gen=0, ts_start=0, ts_stop=7_000))
+
+        assert stats.pause_totals(3, 0, 0, pid_epoch=1).sampled_pause_ns == 3_000
+        assert stats.pause_totals(3, 0, 0, pid_epoch=2).sampled_pause_ns == 7_000
+
+    def test_a_pid_whose_rings_interleave_settles_in_one_go(self) -> None:
+        """A ring is keyed by its first record, so another pid's ring can sit
+        between two of a pid's own. Grouping the departed by adjacency would
+        settle such a pid once per run of its keys, filing its interpreters
+        under an epoch each."""
+        stats = StreamingStats()
+        for iid in self.IIDS:
+            for pid in self.PIDS:
+                stats.update(pid, create_mock_stats_item(iid=iid, gen=0, ts_start=0, ts_stop=1_000))
+
+        stats.retain(self.SURVIVORS)
+
+        assert stats._epoch_per_pid == {pid: 1 if pid in self.SURVIVORS else 2 for pid in self.PIDS}
+        assert sorted(stats._settled_rings) == [
+            (pid, iid, 1) for pid in self.PIDS if pid not in self.SURVIVORS for iid in self.IIDS
+        ]
+
+    def test_the_survivors_keep_their_rings(self) -> None:
+        """A whole-tree drop exercises neither the grouping nor the pids it has
+        to leave alone."""
+        stats = self._fan_out()
+
+        stats.retain(self.SURVIVORS)
+
+        assert stats._open_pids == set(self.SURVIVORS)
+        assert set(stats._running_rings) == {(pid, iid) for pid in self.SURVIVORS for iid in self.IIDS}
+
+    def test_settling_the_same_pids_again_is_a_no_op(self) -> None:
+        stats = self._fan_out()
+        stats.retain(self.SURVIVORS)
+        settled = self._state(stats)
+
+        stats.retain(self.SURVIVORS)
+
+        assert self._state(stats) == settled
+
+    def test_a_pid_already_settled_costs_nothing(self) -> None:
+        """One pid `retain` already settled, and one gcmon never saw."""
+        stats = self._fan_out()
+        stats.retain(self.SURVIVORS)
+        settled = self._state(stats)
+
+        stats.materialize(self.PIDS[5])
+        stats.materialize(9_999)
+
+        assert self._state(stats) == settled
+
+    def test_a_tick_where_nothing_departed_settles_nothing(self) -> None:
+        stats = self._fan_out()
+        running = self._state(stats)
+
+        stats.retain(set(self.PIDS))
+
+        assert self._state(stats) == running
+
+    def test_a_declined_ring_hands_back_no_slot(self) -> None:
+        """The bound counts rings holding buffers."""
+        stats = StreamingStats()
+        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 4):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        assert stats.untracked_rings() == 4
+
+        stats.retain(set())
+
+        assert stats._admitted_rings == 0
+
+    def test_the_slots_a_departed_fan_out_frees_are_whole(self) -> None:
+        stats = StreamingStats()
+        for pid in range(StreamingStats.MAX_ACTIVE_RINGS + 4):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+
+        stats.retain(set())
+        for pid in range(9_000, 9_000 + StreamingStats.MAX_ACTIVE_RINGS):
+            stats.update(pid, create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+
+        assert stats.untracked_rings() == 4
+        assert stats.get_ring_stats(9_000 + StreamingStats.MAX_ACTIVE_RINGS - 1, 0) is not None
+
+
 class TestTheBoundOnRunningRings:
     """Rings arriving to a full set get no row, and their records still count."""
 

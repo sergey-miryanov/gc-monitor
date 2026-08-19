@@ -531,11 +531,17 @@ class StreamingStats:
         if pid not in self._open_pids:
             return
 
+        self._settle(pid, [key for key in self._running_rings if key[0] == pid])
+
+    def _settle(self, pid: int, keys: list[RingKey]) -> None:
+        """Close *pid*, which is open, and settle *keys*, which are its rings
+        and no other pid's.
+        """
         pid_epoch = self._epoch_per_pid.get(pid, 1)
         self._open_pids.discard(pid)
         self._epoch_per_pid[pid] = pid_epoch + 1
 
-        for key in [ring for ring in self._running_rings if ring[0] == pid]:
+        for key in keys:
             settled = self._running_rings.pop(key)
             if settled.metrics is not None:
                 self._admitted_rings -= 1
@@ -545,11 +551,21 @@ class StreamingStats:
     def retain(self, pids: Set[int]) -> None:
         """Settle every ring whose process is not in *pids*.
 
-        The caller polls the target's children each tick, so a pid missing
-        from that listing has gone.
+        A pid missing from the caller's per-tick listing of the target's
+        children has gone.
         """
-        for pid in self._open_pids - set(pids):
-            self.materialize(pid)
+        departed = self._open_pids - set(pids)
+        if not departed:
+            return
+
+        pid_keys: dict[int, list[RingKey]] = {pid: [] for pid in departed}
+        for key in self._running_rings:
+            keys = pid_keys.get(key[0])
+            if keys is not None:
+                keys.append(key)
+
+        for pid, keys in pid_keys.items():
+            self._settle(pid, keys)
 
     def record_read_time(self, duration_ns: int) -> None:
         self._read_time.update(duration_ns)
