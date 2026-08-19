@@ -3,9 +3,9 @@
 - **Status:** Not started
 - **Kind:** feature (cleanup)
 - **Effort:** M
-- **Origin:** code structure review of `src/gcmon`, 2026-08-15. **Supersedes**
-  [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md), whose buffering duplication this
-  removes by construction; section 4 carries forward every constraint 0029 established.
+- **Origin:** code structure review of `src/gcmon`, 2026-08-15. **Supersedes** 0029
+  ([RETIRED.md](RETIRED.md)), whose buffering duplication this removes by construction; section 4
+  carries forward every constraint 0029 established.
 - **Respects:** [ADR-0008](../docs/adr/0008-buffered-exporter-and-encoder-protocol.md)
   (exporter buffers, encoder serializes), [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md)
   (liveness arrives batched, once per tick), [ADR-0013](../docs/adr/0013-rss-sampling.md)
@@ -177,8 +177,7 @@ and independent; 0028 is XS and should land first, as it always should have.
 
 ## 7. Further notes
 
-0029 is superseded rather than deleted, following the precedent
-[0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) set. Its section 4 carries the
-full argument for why JSONL must not move onto `TraceEvent`, which is the single most important
-constraint on this work and which a reader should have in front of them before touching
-`JsonlExporter`. When 0036 lands, both files go.
+0029 is retired with no file of its own; [RETIRED.md](RETIRED.md) carries its row. Section 4.4
+above holds the argument for why JSONL must not move onto `TraceEvent`, which is the single most
+important constraint on this work and which a reader should have in front of them before touching
+`JsonlExporter`.

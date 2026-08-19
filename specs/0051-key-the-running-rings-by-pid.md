@@ -79,9 +79,9 @@ sake.
 
 ### 4.2 `_settle` loses its `keys` argument
 
-`_settle(pid, keys)` exists because the caller has to find the pid's keys first, and its docstring
-carries the caveat that *keys* is a list rather than a view, since settling pops from the dict it
-was read out of. Under the new shape it pops one entry:
+`_settle(pid, keys)` exists because the caller has to find the pid's keys first, and it pops each
+of them from the dict they were read out of, so *keys* has to be a list rather than a view over
+`_running_rings`. Under the new shape it pops one entry:
 
 ```python
 def _settle(self, pid: int) -> None:

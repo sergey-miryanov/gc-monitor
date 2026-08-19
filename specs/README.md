@@ -59,8 +59,7 @@ Every row here has a file. A missing number either retired or never became one;
 | 0035 | Constrained: before 0039 |
 | 0037 | Constrained: after 0026 |
 | 0036 | Constrained: after 0028 |
-| 0046 | Constrained: before 0039 |
-| 0039 | Constrained: after 0035 and 0046, before 0041 |
+| 0039 | Constrained: after 0035, before 0041 |
 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edited |
 | 0042 | |
 | 0020 | |
@@ -86,7 +85,6 @@ cell means no recorded reason, so that row can move.
 | 0028 | 0036 | 0028 shrinks 0036 |
 | 0035 | 0039 | 0039 would otherwise move nine classes 0035 deletes |
 | 0039 | 0041 | Or the same files move twice |
-| 0046 | 0039 | 0039 moves the structure 0046 changes. Reversed, 0039 would have to settle 0046's open question about re-keying `_running_rings`, which is more than either spec asks |
 | 0048 | 0041 | 0041 assigns modules to layers and would otherwise have to place the one 0048 adds |
 | 0039 | 0051 | 0039 moves `StreamingStats`; taken first, 0051 edits the module in its final home rather than one about to move |
 | 0048 | 0051 | 0048 removes the read cost that hides 0051's. Reversed, 0051 lands with no measurement an operator can see |

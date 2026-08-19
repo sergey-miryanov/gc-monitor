@@ -4,28 +4,16 @@ Every number this folder has used that is no longer open work, and what became o
 missing from [README.md](README.md) resolves here, so look before calling a reference broken.
 [CONVENTIONS.md's Lifecycle section](CONVENTIONS.md#lifecycle) governs these rows.
 
-**0029 and 0034 still have files.** The index marked both superseded, but nobody deleted the
-file, and each carries a section 4 the superseding work summarizes rather than replaces. Either finish
-retiring them, since git holds the argument either way, or record here that you keep them on
-purpose.
-
 ## Retired
 
 | Spec | Kind | Effort | Summary |
 |------|------|--------|---------|
-| [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md) | **Superseded** by 0036 | M | Three byte-identical copies of the buffer-and-flush logic in `JsonlExporter`. 0036 removes them by collapsing the interface that produced them; section 4's JSONL-schema argument still stands |
-| [0034](0034-separate-interpreter-confirmation-from-loss-arithmetic.md) | **Superseded** by ADR-0015 | S | Loss spans reached back across a collection gcmon watched start. ADR-0015's rewrite moved the edge to the poll instant, which is later still |
+| 0029 | **Superseded** by 0036 | M | Three byte-identical copies of the buffer-and-flush logic in `JsonlExporter`. 0036 removes them by collapsing the interface that produced them, and its section 4.4 carries the JSONL-schema argument forward: the schema is public and JSONL does not move onto `TraceEvent` |
+| 0034 | **Superseded** by ADR-0015 | S | Loss spans reached back across a collection gcmon watched start. ADR-0015's rewrite moved the edge to the poll instant, which is later still. Its argument that a temporal bound is not the eviction-order clipping the ADR rejected is in [ADR-0015](../docs/adr/0015-gc-loss-spans-on-their-own-track.md)'s rejected alternatives now |
 | 0043 | **Landed** 2026-08-18 (reporting) | XS | `gcmon.__version__` had said `0.1.0` since `0.2.0`, five releases behind the distribution. It reads the installed metadata now, `pyproject.toml` is the single source, and `gcmon --version` prints it. A clean 3.15 install on 2026-08-16 put the two numbers side by side, which is what it took to notice. [RELEASE.md](../docs/RELEASE.md)'s versioning policy carries the rule |
 | 0038 | **Landed** 2026-08-17 (cleanup) | M | Per-pid state had two owners, each pruning it against the same set; had they disagreed, gcmon would have reported a loss window that never happened. One tick is one call on `EventsMonitor` now. [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md), and [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) for the liveness site it moved |
 | 0045 | **Landed** 2026-08-17 (ergonomics) | S | `--stats` printed one table with no way to ask for less, and on a single-interpreter run half of it was a copy of the other half. The flag now takes `total` or `full`, `GCMON_STATS` takes the same two words, and neither keeps a bare spelling. [ADR-0018](../docs/adr/0018-stats-requires-a-view-and-keeps-no-bare-alias.md); its section 7 became [0047](0047-the-no-subcommand-form-has-never-worked.md) |
 | 0046 | **Landed** 2026-08-17 (performance) | S | Settling a departed pid rescanned every running ring, so a fan-out exiting together cost the tick that noticed it tens of milliseconds ahead of the polls its surviving siblings were timed against. `StreamingStats.retain` groups the departing keys in one traversal now, both paths through one settling body, under [ADR-0016](../docs/adr/0016-the-ring-is-the-statistics-unit.md). No ADR of its own: it changed how fast rings settle, not what a settled ring means. Its open question, whether `_running_rings` should be keyed structurally, is [0051](0051-key-the-running-rings-by-pid.md) |
-
-The two section 4s still worth reading:
-
-- **0034 section 4** argues why a temporal bound differs from the clipping ADR-0015 rejected. Read it
-  before proposing a narrower span.
-- **0029 section 4** is the fullest statement of why the JSONL schema is load-bearing; 0036 summarizes
-  it rather than replacing it.
 
 ## Gaps
 
