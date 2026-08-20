@@ -94,7 +94,7 @@ def ingest(*batches: Sequence[GCStatsInfo]) -> list[TItem]:
 
     with patch("gcmon.monitor.time.monotonic_ns", side_effect=lambda: next(ticks)):
         for _ in batches:
-            assert monitor.poll(PID) is PollStatus.OK
+            assert monitor._poll(PID) is PollStatus.OK
 
     return recorder.items
 

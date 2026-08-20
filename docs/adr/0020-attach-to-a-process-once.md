@@ -116,7 +116,7 @@ gap exists on every platform, is not detectable from the reader's side, and is n
   reintroduces a per-poll probe of the target, which is the cost this decision exists to remove,
   and it is re-deriving on every tick exactly what attaching once was meant to stop.
 
-- **Let `poll` widen its `except` clause instead of translating in the reader.** Two words smaller,
+- **Let the monitor widen its `except` clause instead of translating in the reader.** Two words smaller,
   and it leaves `gcmon.monitor` owning a platform-specific error vocabulary, which is what the
   seam exists to contain. Returning an empty result instead of raising was also rejected: it loses
   the cause the debug log prints.

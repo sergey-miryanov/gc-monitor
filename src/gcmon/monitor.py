@@ -103,7 +103,7 @@ class EventsMonitor:
         *stop* is asked between pids, so a shutdown does not have to wait out a
         whole process tree.
         """
-        child_pids = self.get_child_pids()
+        child_pids = self._get_child_pids()
         children = [self._process.pid, *(child_pids or [])]
 
         # A process that exits between two ticks is never polled again, so no
@@ -125,7 +125,7 @@ class EventsMonitor:
             if policy is None:
                 policy = self._policies[pid] = self._wait_policy_factory()
 
-            rc = self.poll(pid)
+            rc = self._poll(pid)
             keep_waiting = policy.wait(rc)
             keep_running = keep_running or keep_waiting
             if rc == PollStatus.OK:
@@ -144,7 +144,7 @@ class EventsMonitor:
 
         return PollReport(live_pids=live_pids, keep_running=keep_running)
 
-    def get_child_pids(self) -> list[int] | None:
+    def _get_child_pids(self) -> list[int] | None:
         """Every descendant of the target, or ``None`` when the read failed.
 
         An empty list means no children. ``None`` means no answer, so a caller
@@ -158,7 +158,7 @@ class EventsMonitor:
             )
             return None
 
-    def poll(self, pid: int) -> PollStatus:
+    def _poll(self, pid: int) -> PollStatus:
 
         if not self._enabled:
             logger.warning(

@@ -414,7 +414,7 @@ class TestGCMonitorStreamsLoss:
     ) -> list[dict[str, ChromeTraceValue]]:
         monitor, path = monitor_with_exporter
         for _ in range(polls):
-            monitor.poll(DEFAULT_PID)
+            monitor._poll(DEFAULT_PID)
         monitor.stop()
         return assert_valid_chrome_trace_format(path)
 
@@ -490,7 +490,7 @@ class TestGCMonitorStreaming:
     def test_streams_to_exporter(self, mock_gc_stats: None, monitor_with_exporter: tuple[EventsMonitor, Path]) -> None:
         monitor, path = monitor_with_exporter
         for _ in range(4):
-            monitor.poll(12345)
+            monitor._poll(12345)
         monitor.stop()
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
@@ -509,7 +509,7 @@ class TestGCMonitorStreaming:
     ) -> None:
         monitor, path = monitor_with_exporter
         for _ in range(3):
-            monitor.poll(12345)
+            monitor._poll(12345)
         monitor.stop()
         data = assert_valid_chrome_trace_format(path)
         assert len([e for e in data if e["ph"] == "B"]) >= 4
@@ -517,7 +517,7 @@ class TestGCMonitorStreaming:
     def test_stop_closes_exporter(self, mock_gc_stats: None, monitor_with_exporter: tuple[EventsMonitor, Path]) -> None:
         monitor, path = monitor_with_exporter
         for _ in range(3):
-            monitor.poll(12345)
+            monitor._poll(12345)
         monitor.stop()
         assert path.exists()
         data = assert_valid_chrome_trace_format(path)
@@ -557,8 +557,8 @@ class TestGCMonitorStreaming:
 
         from gcmon.poll_status import PollStatus
 
-        assert monitor.poll(12345) == PollStatus.OK
-        result = monitor.poll(12345)
+        assert monitor._poll(12345) == PollStatus.OK
+        result = monitor._poll(12345)
         assert result in (PollStatus.INVALID_PROCESS, PollStatus.FAIL)
 
         monitor.stop()

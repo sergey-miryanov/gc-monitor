@@ -36,7 +36,7 @@ def mock_stats_update(monitor: EventsMonitor) -> Generator[MagicMock]:
 class TestEventsMonitorExtra:
     def test_get_child_pids(self, monitor: EventsMonitor) -> None:
         with patch("gcmon.monitor.get_child_pids", return_value=[999, 888]) as mock_get:
-            children = monitor.get_child_pids()
+            children = monitor._get_child_pids()
 
         mock_get.assert_called_once_with(12345, recursive=True)
         assert children == [999, 888]
@@ -45,7 +45,7 @@ class TestEventsMonitorExtra:
         """None rather than [], so the caller can tell a failed listing from
         a target with no children and skip pruning that tick."""
         with patch("gcmon.monitor.get_child_pids", side_effect=Exception("boom")) as mock_get:
-            children = monitor.get_child_pids()
+            children = monitor._get_child_pids()
 
         mock_get.assert_called_once_with(12345, recursive=True)
         assert children is None
@@ -60,7 +60,7 @@ class TestEventsMonitorExtra:
     def test_poll_updates_stats(
         self, monitor: EventsMonitor, one_record: GCStatsInfo, mock_stats_update: MagicMock
     ) -> None:
-        monitor.poll(12345)
+        monitor._poll(12345)
 
         mock_stats_update.assert_called_once_with(12345, one_record)
 
@@ -69,7 +69,7 @@ class TestEventsMonitorExtra:
     ) -> None:
         reader.reads = _reads([create_mock_stats_item(ts_start=2_000, ts_stop=1_000)])
 
-        monitor.poll(12345)
+        monitor._poll(12345)
 
         assert exporter.events == []
 
@@ -78,7 +78,7 @@ class TestEventsMonitorExtra:
     ) -> None:
         reader.reads = _reads([create_mock_stats_item(ts_start=1_000, ts_stop=1_000)])
 
-        monitor.poll(12345)
+        monitor._poll(12345)
 
         assert exporter.events == []
 
@@ -97,8 +97,8 @@ class TestEventsMonitorExtra:
         }
         reader.reads = lambda pid: per_pid[pid]
 
-        monitor.poll(12345)
-        monitor.poll(999)
+        monitor._poll(12345)
+        monitor._poll(999)
 
         assert [e.ts_start for e in exporter.events] == [5_000, 4_000, 6_000]
 
@@ -107,8 +107,8 @@ class TestEventsMonitorExtra:
     ) -> None:
         reader.reads = _reads([create_mock_stats_item(ts_start=5_000, ts_stop=5_100)])
 
-        monitor.poll(12345)
-        monitor.poll(12345)
+        monitor._poll(12345)
+        monitor._poll(12345)
 
         assert [e.ts_start for e in exporter.events] == [5_000]
 
