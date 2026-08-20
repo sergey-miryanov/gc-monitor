@@ -8,6 +8,15 @@ Everything here lives in `Python/remote_debug.h`, read at CPython 3.15.0b4.
 The three read paths are branches of one function,
 `_Py_RemoteDebug_ReadRemoteMemory`.
 
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| An attachment holds | `HANDLE hProcess` | `mach_port_t task` | `int memfd`, normally unused |
+| A read addresses | the handle | the task | **the pid** |
+| A recycled pid | cannot happen while attached | read fails, gcmon recovers | read succeeds against the stranger |
+| Dropping it releases | the handle, and the pid with it | **nothing** | the fd, if one was opened |
+
+The rest of this page is where each row comes from.
+
 ## What an attachment holds
 
 `proc_handle_t` keeps the pid everywhere, and one field beside it that differs
@@ -22,6 +31,18 @@ by platform.
 On Linux that second field is normally unused. `open_proc_mem_fd` runs only as
 a fallback, when `process_vm_readv` is unavailable or when something is
 written, so an ordinary Linux attachment holds a pid and nothing else.
+
+## What dropping an attachment releases
+
+`GCMonitor_dealloc` reaches `_Py_RemoteDebug_CleanupProcHandle` through
+`cleanup_runtime_offsets`, so letting go of the last reference is what returns
+the resource. That function has an arm for Windows and an arm for Linux and
+none for macOS, so the task port a macOS attachment took is never given back.
+On Windows the same call is what releases the pid, since the pin lasts exactly
+as long as the handle.
+
+[Spec 0054](../../specs/0054-macos-attachment-leaks-a-mach-task-port.md) covers
+the macOS leak.
 
 ## What a read goes through
 
@@ -82,6 +103,13 @@ not rebound, so the successor is out of reach.
 
 [Spec 0052](../../specs/0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md)
 covers the Linux exposure.
+
+None of that covers the moment before the first attach. gcmon holds nothing
+between the child listing naming a pid and attaching to it, so a recycle inside
+that window leaves gcmon monitoring a process the listing did not mean. It
+reads that process correctly and from a clean slate, so nothing is fabricated
+and no loss window is drawn: the records belong to the pid, not to the process
+that held it when the listing ran.
 
 ## What a failed read raises
 
