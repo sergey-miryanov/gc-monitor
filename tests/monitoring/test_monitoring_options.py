@@ -357,19 +357,27 @@ class TestTheWordsThatTurnTheTableOff:
 
 
 class TestRateValidation:
-    """A rate that reaches the loop is one the loop can hold.
+    """A rate that reaches the loop is one gcmon can hold.
 
-    `MonitorLoop` asserts it, so the two spellings that get past `rate > 0`
-    are refused here: a value under a nanosecond, which converts to no
-    schedule at all, and a `GCMON_RATE` the parser never saw.
+    This is the gate for a rate the parser never saw: one passed as an already
+    typed value, and a `GCMON_RATE` that failed to parse.
     """
 
-    def test_a_rate_smaller_than_a_nanosecond_is_refused(self, caplog: pytest.LogCaptureFixture) -> None:
-        """It is positive and it converts to zero, so `rate > 0` lets it by."""
+    @pytest.mark.parametrize("rate", [1e-12, 0.0005])
+    def test_a_rate_under_the_minimum_is_refused(self, caplog: pytest.LogCaptureFixture, rate: float) -> None:
+        """Below a millisecond the spin guard is longer than the interval asked
+        for, so no tick can start on time (ADR-0019)."""
         with caplog.at_level(logging.ERROR, logger="gcmon"):
-            assert get_monitoring_options(_make_args(rate=1e-12)) is None
+            assert get_monitoring_options(_make_args(rate=rate)) is None
 
-        assert "nanosecond" in caplog.text
+        assert "0.001 seconds" in caplog.text
+
+    def test_the_minimum_itself_is_taken(self) -> None:
+        """The guard is exactly the interval asked for, which the loop can hold."""
+        result = get_monitoring_options(_make_args(rate=0.001))
+
+        assert result is not None
+        assert result.rate == 0.001
 
     def test_an_env_rate_that_is_not_a_rate_stops_the_run(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -398,7 +406,10 @@ class TestRateArgument:
     def test_a_plain_decimal_is_taken(self, parser: ArgumentParser) -> None:
         assert parser.parse_args(["--rate", "0.25"]).rate == 0.25
 
-    @pytest.mark.parametrize("value", ["1e-3", "1E-3", "0", "-0.1", "0.0000000001", "inf"])
+    def test_the_minimum_itself_is_taken(self, parser: ArgumentParser) -> None:
+        assert parser.parse_args(["--rate", "0.001"]).rate == 0.001
+
+    @pytest.mark.parametrize("value", ["1e-3", "1E-3", "0", "-0.1", "0.0000000001", "0.0005", "inf"])
     def test_a_value_the_loop_cannot_hold_exits(self, parser: ArgumentParser, value: str) -> None:
         with pytest.raises(SystemExit):
             parser.parse_args(["--rate", value])

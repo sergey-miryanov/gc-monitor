@@ -108,7 +108,13 @@ class TestEnvRate:
         monkeypatch.setenv(env_module.ENV_RATE, "0.05")
         assert env_module.get_env_rate() == 0.05
 
-    @pytest.mark.parametrize("value", ["not-a-number", "1e-3", "1E-3", "0", "-0.1", "0.0000000001", "inf", "nan"])
+    def test_the_minimum_itself_is_taken(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
+        monkeypatch.setenv(env_module.ENV_RATE, "0.001")
+        assert env_module.get_env_rate() == 0.001
+
+    @pytest.mark.parametrize(
+        "value", ["not-a-number", "1e-3", "1E-3", "0", "-0.1", "0.0000000001", "0.0005", "inf", "nan"]
+    )
     def test_a_value_that_is_not_a_rate_answers_none(
         self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str
     ) -> None:

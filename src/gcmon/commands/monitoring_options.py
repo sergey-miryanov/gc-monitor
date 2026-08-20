@@ -31,6 +31,7 @@ from gcmon._env import (
     parse_rate,
 )
 from gcmon.data import secs_to_ns
+from gcmon.schedule import MIN_RATE_NS
 from gcmon.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
 
 logger = logging.getLogger("gcmon")
@@ -230,11 +231,8 @@ def get_monitoring_options(
             )
             return None
 
-    if rate <= 0:
-        logger.error("Rate must be positive, got %s", rate)
-        return None
-    if secs_to_ns(rate) <= 0:
-        logger.error("Rate must be a nanosecond or more, got %s", rate)
+    if secs_to_ns(rate) < MIN_RATE_NS:
+        logger.error("Rate must be at least %s seconds, got %s", MIN_RATE_NS / 1e9, rate)
         return None
     if duration is not None and duration <= 0:
         logger.error("Duration must be positive, got %s", duration)

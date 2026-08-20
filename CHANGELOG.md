@@ -8,7 +8,7 @@
 - Bare `--stats` is a parse error: the flag requires a value now, and `GCMON_STATS` takes the same words, so `GCMON_STATS=1` stops the run
 - The `--stats` table reports one block per interpreter, not one per process: `PID:IID` heads every row, `12345:0` included. `Total` is the only blended row
 - The low-coverage advisory measures each interpreter on its own and names the least covered. It fires where a busy interpreter used to lift the whole PID over the 90% floor
-- `--rate` and `GCMON_RATE` take a plain decimal number of seconds, a nanosecond or more: `1e-3` and `1e-12` are refused where they used to be accepted
+- `--rate` and `GCMON_RATE` take a plain decimal number of seconds, `0.001` or more: `1e-3` and `0.0005` are refused where they used to be accepted
 
 ### Features
 

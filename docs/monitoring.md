@@ -31,6 +31,8 @@ reads every monitored process once, and gcmon holds the interval whatever those
 reads cost. Watch a wide process tree and you still sample at the number you
 asked for.
 
+A rate gcmon could never hold is refused at startup ([CLI Usage](cli.md)).
+
 A tick that outlasts its own position on the schedule is the exception. gcmon
 skips to the next position rather than making the missed ticks up: the interval
 degrades in whole multiples of `--rate` instead of tracking the size of the

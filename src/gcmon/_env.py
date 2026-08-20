@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from .data import secs_to_ns
+from .schedule import MIN_RATE_NS
 from .stats_output import TableFormat
 
 # Environment variable names for CLI options
@@ -77,18 +78,17 @@ def get_env_output() -> Path:
 def parse_rate(text: str) -> float:
     """One `--rate` or GCMON_RATE spelling, as seconds.
 
-    A plain decimal only: scientific notation hides how small a value is, and
-    the loop needs a rate it can build a schedule on (ADR-0019).
+    A plain decimal only: scientific notation hides how small a value is (ADR-0019).
 
     Raises:
-        ValueError: on any spelling that is not a rate the loop can hold.
+        ValueError: on any spelling that is not a rate gcmon can hold.
     """
     if "e" in text.lower():
         raise ValueError(f"must be a plain decimal number of seconds, not scientific notation, got '{text}'")
 
     value = float(text)
-    if not math.isfinite(value) or secs_to_ns(value) <= 0:
-        raise ValueError(f"must be a positive number of seconds, a nanosecond or more, got '{text}'")
+    if not math.isfinite(value) or secs_to_ns(value) < MIN_RATE_NS:
+        raise ValueError(f"must be at least {MIN_RATE_NS / 1e9} seconds, got '{text}'")
 
     return value
 

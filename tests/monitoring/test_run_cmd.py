@@ -350,7 +350,7 @@ class TestCmdRunUnit:
         result = run_cmd.cmd_run(args)
 
         assert result == 1
-        assert "Rate must be positive" in caplog.text
+        assert "Rate must be at least 0.001 seconds" in caplog.text
 
 
 class TestRunCommandScriptMode:
