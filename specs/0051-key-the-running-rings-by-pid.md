@@ -29,10 +29,11 @@ rings all sit above the advisory, median of 21 ticks:
 | 90 (30 pids, 3 iids) | 0.158 ms |
 | 255 (85 pids, 3 iids) | 1.089 ms |
 
-Today an operator cannot see this, because the read dominates it: the same thirty-worker tree
-spends around 14 ms of every tick attaching ([0048](0048-attach-once-per-pid.md) section 1)
-against 0.158 ms scanning. 0048 removes the attach. After it, that tick's thirty reads cost about
-0.18 ms, and the scan is the same size as the work it wraps.
+Until 0048 landed an operator could not see this, because the read dominated it: the same
+thirty-worker tree spent around 14 ms of every tick attaching, against 0.158 ms scanning.
+Attaching once per pid ([ADR-0020](../docs/adr/0020-attach-to-a-process-once.md)) took that out.
+The same tick's thirty reads now cost about 0.18 ms, and the scan is the same size as the work it
+wraps.
 
 ## 2. Solution
 
@@ -151,12 +152,12 @@ interpreter as today. Everything else that walks the rings either sorts (`rings`
 
 ## 7. Further notes
 
-**Order it after [0048](0048-attach-once-per-pid.md)**, which is what makes the cost visible, and
-after [0039](0039-split-the-record-model-and-stats-by-concern.md), which moves `StreamingStats`
-into `gcmon/stats/`. Taken before 0039 it edits a module that is about to move; taken after, it
-edits the module in its final home. 0046 was ordered before 0039 for the opposite reason, that
-0039 would otherwise move code 0046 was about to rewrite, and that argument does not carry here:
-this touches one class, not the split.
+**Order it after [0039](0039-split-the-record-model-and-stats-by-concern.md)**, which moves
+`StreamingStats` into `gcmon/stats/`. Taken before 0039 it edits a module that is about to move;
+taken after, it edits the module in its final home. 0046 was ordered before 0039 for the opposite
+reason, that 0039 would otherwise move code 0046 was about to rewrite, and that argument does not
+carry here: this touches one class, not the split. The other half of the ordering has gone: 0048
+landed, and it is what made this cost visible.
 
 **No ADR.** It changes how a ring is reached, not what a settled ring means, which is the reason
 0046 wrote none either.

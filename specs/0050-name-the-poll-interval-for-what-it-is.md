@@ -99,8 +99,8 @@ current sees one name.
 ## 6. Out of scope
 
 - **How the interval is honoured.** 0049 owns the scheduling; this spec renames the number it
-  schedules against and changes no behaviour. Land 0049 first; reversed, 0049's help text and
-  advisory edits would land under a name this spec immediately moves.
+  schedules against and changes no behaviour. 0049 has landed, so the ordering it wanted is
+  settled and what remains here is the prose it wrote under the old name.
 - **`--rss-interval`.** Already correctly named. It keeps its own name and its independence from
   the poll interval (ADR-0013).
 - **Accepting a frequency.** A `--rate 10` meaning 10 Hz, or a unit suffix like `100ms`. Both are
