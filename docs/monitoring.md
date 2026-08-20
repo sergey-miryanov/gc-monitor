@@ -26,7 +26,6 @@ keeps it for the session.
 
 ## Polling
 
-
 `--rate` is the interval between the *starts* of two ticks, in seconds. One tick
 reads every monitored process once, and gcmon holds the interval whatever those
 reads cost. Watch a wide process tree and you still sample at the number you

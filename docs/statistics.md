@@ -26,17 +26,10 @@ it measures how long each read of a target's GC stats took, recorded once per
 successful poll of every monitored PID and aggregated into a single row; with
 child processes its `Count` is polls × PIDs, and there is no per-PID breakdown.
 
-Expect tens of microseconds, with one much larger reading per monitored process:
-the first read of a process has to locate its GC state before it can read it, and
-that costs a few hundred microseconds.
-
-That first read is why **`Avg` sits above `P50`** here — 19 µs against 16 µs. It
-does not show up in the percentiles at all: one outlier in 300 reads sits above the
-99th, so `P99` describes the ordinary reads and only `Sum` and `Avg` carry the
-attach. The gap between them closes the longer a run goes, and widens with the
-number of processes monitored. A mean approaching `--rate` would mean gcmon is
-spending its whole budget reading — worth looking into, and not something the
-default rate produces.
+The first read of a process has to locate its GC state before it can read it,
+which costs far more than the read itself: one outlier per monitored process,
+charged to this row. That is why `Avg` sits above `P50` here, while the
+percentiles describe the ordinary reads.
 
 Use it to sanity-check `--rate`: a mean `Read Time` approaching `--rate` means a
 tick is close to outlasting its own position on the schedule, and the summary's

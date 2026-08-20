@@ -1,17 +1,13 @@
 """Reaching a process: one attachment per pid, held across many reads.
 
 Finding a target costs roughly two orders of magnitude more than reading it, so
-gcmon attaches once and reads many times. That makes the pid something gcmon
-*holds* rather than an argument it passes, which is why this module exists at
-all: the attachment has a lifetime, and [ADR-0019] fixes it.
+gcmon attaches once and reads many times. The pid becomes something gcmon
+*holds* rather than an argument it passes, and [ADR-0019] fixes the lifetime of
+what it holds.
 
 This is the only module in the package that imports a stateful handle from
 ``_remote_debugging``, and the only one that names its exception types. Callers
 see :class:`TargetUnavailable` and nothing else about the platform underneath.
-
-``get_child_pids`` is deliberately not here. It is stateless, caches nothing,
-and answers a question about the process tree rather than about a ring; the line
-this seam draws is statefulness, not provenance.
 
 [ADR-0019]: ../../docs/adr/0019-attach-to-a-process-once.md
 """
@@ -29,11 +25,9 @@ class TargetUnavailable(Exception):
     """gcmon cannot read this process right now.
 
     It has not started yet, it has exited, gcmon may not look at it, or its GC
-    layout does not match the interpreter gcmon is running on. Those are
-    different situations and this does not distinguish them, because nothing
-    consumes the distinction: every one of them means the same thing to a wait
-    policy. Telling them apart needs ``debug=False``, and ADR-0019 says why
-    that trade is not taken yet.
+    layout does not match the interpreter gcmon is running on. Every one of
+    those means the same thing to a wait policy, and ADR-0019 says why telling
+    them apart is not worth what it costs yet.
     """
 
 
@@ -80,21 +74,12 @@ class RemoteEventsReader(EventsReader):
         # failure and not only for the ones translated below: nothing is put
         # back unless the read returned. So a failed attach is never
         # remembered, and a failed read lets go of the attachment it had.
-        #
-        # That matters more than it looks. An attachment holds the runtime
-        # address and debug offsets of the process that existed when it was
-        # made and revalidates neither, so one applied to a recycled pid reads
-        # a stranger's memory at the old address -- and since every field gcmon
-        # wants is an integer copied out of memory, the result is not an error
-        # but a set of records that pass every filter gcmon has.
         monitor = self._monitors.pop(pid, None)
         try:
             if monitor is None:
                 # debug=True selects the exception *type* CPython raises, not a
-                # log level: it replaces the error with a RuntimeError carrying
-                # a descriptive message and demotes the original to __cause__.
-                # The free function this replaced hardcoded it, so gcmon
-                # catches and logs what it always did. ADR-0019.
+                # log level; the free function this replaced hardcoded it, so
+                # gcmon catches and logs what it always did. ADR-0019.
                 monitor = GCMonitor(pid, debug=True)
             records = monitor.get_gc_stats(all_interpreters=True)
         except (RuntimeError, OSError) as exc:

@@ -59,9 +59,10 @@ eight times between polls, and a reader would have to poll at roughly 900 Hz to 
 collection. That is not a rate anybody wants to run a monitor at, and it is a demand the ring size
 creates rather than one the workload does.
 
-Read cost is not the binding constraint. Holding a `GCMonitor` and reading through it costs single-
-digit microseconds per process, against ~1.15 ms between gen-0 collections in the same workload —
-three orders of magnitude of headroom. The loss is structural in the buffer, not in the reader.
+Read cost is not the binding constraint. Holding a `GCMonitor` and reading through it costs
+single-digit microseconds per process, against ~1.15 ms between gen-0 collections in the same
+workload, three orders of magnitude of headroom. The loss is structural in the buffer, not in the
+reader.
 
 Sizing the ring to survive one interval at 10 Hz for this workload needs ~87 young slots.
 `struct gc_generation_stats` is 64 bytes (eight 8-byte fields), so the whole `struct gc_stats` is

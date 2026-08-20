@@ -70,9 +70,8 @@ class EventsMonitor:
     ) -> None:
         """
         *reader* reads a process's records and holds whatever that takes. It has
-        no default on purpose: a default would build a real reader, and a caller
-        that forgot to pass one would attach to whatever process happens to hold
-        the integer it used as a pid.
+        no default: a caller that forgot to pass one would attach to whatever
+        process happens to hold the integer it used as a pid (ADR-0019).
 
         *wait_policy_factory* builds the per-pid policy that decides when a pid
         is finished.
@@ -297,8 +296,7 @@ class EventsMonitor:
         The reader is pruned here and not left to garbage collection because an
         attachment is a handle on somebody else's process: on Windows it holds
         the pid reserved for as long as gcmon keeps it (ADR-0019), and a monitor
-        that has stopped monitoring should not be doing that. ``retain`` with an
-        empty set is the existing verb for "keep none of them".
+        that has stopped monitoring should not be doing that.
 
         Safe to call more than once.
         """
