@@ -19,6 +19,7 @@ cut on review, and asking for more costs one line.
 | Why the design has this shape | `docs/adr/` | user docs, docstrings, comments |
 | Work specified but not built | `specs/` | ADRs |
 | How to drive gcmon, how to read its output | `docs/*.md` | CPython internals |
+| A CPython or OS internal the design rests on | `docs/internals/` | `docs/*.md` and the ADRs |
 | What the code below cannot say itself | the docstring summary line | a body narrating the code |
 | A constraint that must not regress | a test name and its assertion | a comment asserting it |
 | A reading from one run: a rate, a byte count | nowhere | all of the above |
