@@ -376,28 +376,6 @@ class TestAgainstARealProcess:
         assert {r.gen for r in records} == {0, 1, 2}
         assert all(r.iid >= 0 for r in records)
 
-    def test_reading_the_same_target_again_does_not_pay_to_attach(self, remote_reader: RemoteEventsReader) -> None:
-        """Attaching costs roughly two orders of magnitude more than a read, so
-        a cached read has to come in far under the first one. The threshold is
-        5x against a measured gap near 100x: this is here to catch an
-        attachment that is being rebuilt every time, not to track performance.
-        """
-        with running_target() as target:
-            fresh = RemoteEventsReader()
-
-            attach_start = time.perf_counter_ns()
-            fresh.read(target.pid)
-            attach_ns = time.perf_counter_ns() - attach_start
-
-            reads: list[int] = []
-            for _ in range(20):
-                start = time.perf_counter_ns()
-                fresh.read(target.pid)
-                reads.append(time.perf_counter_ns() - start)
-
-        cached_ns = sorted(reads)[len(reads) // 2]
-        assert cached_ns * 5 < attach_ns, f"first read {attach_ns} ns, cached median {cached_ns} ns"
-
     def test_a_target_that_exits_becomes_unavailable(self, remote_reader: RemoteEventsReader) -> None:
         with running_target() as target:
             remote_reader.read(target.pid)

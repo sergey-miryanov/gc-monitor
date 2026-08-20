@@ -135,9 +135,11 @@ gap exists on every platform, is not detectable from the reader's side, and is n
   `time.monotonic_ns` brackets that feed `Read Time`, and prunes it alongside the cursors.
   [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) fixes the read-start instant as the one that
   closes the previous poll's interval, so that bracket did not move.
-- Tests: `tests/test_events_reader.py` for the lifetime against real subprocesses, a second read of
-  the same pid costing an order of magnitude less than the first, a failed attach retried rather
-  than remembered, and a failed read followed by a fresh attach; `tests/test_monitor.py` for both
+- Tests: `tests/test_events_reader.py` for the lifetime, a failed attach retried rather than
+  remembered and a failed read followed by a fresh attach, against a counting stand-in for the
+  attachment and against real subprocesses; `tests/benchmarks/test_bench_events_reader.py` for the
+  gap the decision rests on, a held read measured against a fresh attach, which is where an
+  attachment rebuilt on every read would show; `tests/test_monitor.py` for both
   arms of a poll, an unreadable target yielding `INVALID_PROCESS` with **no** warning and an
   unrecognised failure yielding one with a traceback, since a test watching one arm passes with the
   two swapped; `tests/monitoring/test_monitor.py` for the prune, a pid leaving the child listing
