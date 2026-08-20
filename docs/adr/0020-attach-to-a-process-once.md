@@ -52,23 +52,13 @@ attach.**
   are structurally valid, pass every filter gcmon has, and reach the trace. A stale cursor makes a
   number wrong; a stale attachment invents the data.
 
-- **A recycled pid cannot be read through a held attachment on Windows or macOS, and the two are
-  not the same guarantee.** Windows does not reuse the pid while gcmon holds a process handle,
-  so there is no successor to read. macOS reuses it as freely as Linux, but a read addresses a
-  Mach task port rather than the pid, so a stale attachment fails instead of reaching the
-  successor and the rule above drops it. Linux reuses the pid and its reads name it, so the
-  read succeeds against the successor and nothing observes the swap. That leaves Linux the one
-  platform exposed.
-  [Remote reads, per platform](../internals/remote-reads.md) carries the evidence, and anything
-  leaning on this has to say which platform it is on. None of it covers the gap between the child
-  listing naming a pid and the first attach to it, which exists everywhere and is not addressed
-  here.
-
-- **The window this closes is every one gcmon can detect, and no more.** A pid recycled between two
-  polls with no failing read in between is not detectable from the reader's side; it wants the
-  pid-epoch machinery, which
-  [spec 0052](../../specs/0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md) specifies.
-  Windows is not exposed to it, because of the pin.
+- **gcmon cannot notice a pid recycled between two successful reads.**
+  [Spec 0052](../../specs/0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md) specifies
+  the pid-epoch machinery that would close it. Only Linux is exposed.
+  [Remote reads, per platform](../internals/remote-reads.md) says why Windows and macOS cannot
+  serve a read from a recycled pid at all. macOS depends on the drop rule above, since only a
+  failing read notices the swap there. Anything leaning on that safety has to say which platform
+  it is on.
 
 - **`gcmon.monitor` no longer names any exception type from `_remote_debugging`.** The platform
   vocabulary for an unreadable target, `ESRCH` on Linux and Windows, `ProcessLookupError` by name
@@ -88,9 +78,9 @@ attach.**
   translation to swallow either would turn a bug into a silent "target unavailable" and burn the
   startup timeout hiding it.
 
-- **The first poll of each process is still attach-sized**, and it is charged to the `Read Time`
-  statistic, which is where the time was spent. Operators see one outlier per process and single
-  digits thereafter.
+- **The first poll of each process still pays for the attach**, and `Read Time` carries that cost
+  rather than excluding it. An operator sees one outlier per process, and the cost of reading
+  alone after it.
 
 ## Alternatives considered
 
