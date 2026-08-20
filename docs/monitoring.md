@@ -70,3 +70,22 @@ Three numbers in the stream come off those counters exactly:
 
 The counters give totals and nothing else. gcmon cannot split a total back into
 the runs behind it, so averages and percentiles cover only the records it read.
+
+## Caveats
+
+**A process that starts and exits inside one interval is never seen.** gcmon
+lists the target's children once a tick and reads whatever that listing names. A
+worker whose whole life falls between two ticks leaves no records, no track and
+no row.
+
+**On Linux, a reissued pid can put two processes on one track.** The operating
+system is free to hand a dead worker's pid to a new process, and gcmon has no
+way to tell that it happened: records read afterwards belong to the new process
+and are drawn on the old one's track. Windows does not reissue a pid gcmon is
+attached to. macOS stops reading the moment the first process exits, and starts
+the second one afresh, so both give you two separate blocks instead of one
+blended track.
+
+**A process gcmon is not allowed to read is left out quietly.** A child owned by
+another user is polled, refused, and dropped, and nothing says so at the default
+log level. Run with `-vv` if a process you expected is missing from the trace.
