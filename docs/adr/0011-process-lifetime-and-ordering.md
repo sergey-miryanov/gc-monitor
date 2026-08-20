@@ -7,7 +7,8 @@
   counter carve-out was removed 2026-08-02; pointer to ADR-0015 added 2026-08-05; the
   reporting site moved from `MonitorLoop` to `EventsMonitor` 2026-08-17, see
   [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md); the RSS round stopped adding start jitter
-  the same day, see [ADR-0013](0013-rss-sampling.md))
+  the same day, see [ADR-0013](0013-rss-sampling.md); "one clock read" narrowed to one
+  *stamping* read 2026-08-20, see [ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md))
 
 ## Context
 
@@ -134,8 +135,8 @@ observation is any non-meta trace event, counters included, or a **liveness obse
 `EventsMonitor`: a `(pid, ts)` pair meaning gcmon read GC state out of that process at that
 instant. One tick of monitoring is one call on the monitor, which reports the whole
 `PollStatus.OK` set through `add_process_liveness(pids, ts_ns)` once, after its poll phase, so the
-cost is one call per tick rather than one per pid. `MonitorLoop` reads the clock once and hands the
-instant in, so a liveness observation and an RSS sample from one tick agree.
+cost is one call per tick rather than one per pid. `MonitorLoop` takes one stamping clock read per
+tick and hands the instant in, so a liveness observation and an RSS sample from one tick agree.
 The accumulator folds a `(pid, ts)` in as a plain min/max with no keyword: the counter
 carve-out this ADR called provisional is **removed**, since the sampler liveness it kept
 out of the end is now reported directly.
@@ -307,11 +308,12 @@ out of the span iteration.
   twice, covering the non-idempotent track descriptor too.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded so it goes
   out once.
-- The liveness path, monitor to accumulator: `src/gcmon/monitor_loop.py` takes one
+- The liveness path, monitor to accumulator: `src/gcmon/monitor_loop.py` takes one stamping
   `time.monotonic_ns()` per tick and hands it to the monitor, then unconverted to the RSS sampler
-  ([ADR-0013](0013-rss-sampling.md)). `src/gcmon/monitor.py` reports the live set at the end of a
-  tick, after the poll phase and skipped on an empty set. The clock and the stop signal belong to
-  the loop; everything per-pid belongs to the monitor
+  ([ADR-0013](0013-rss-sampling.md)). A second read paces the loop and stamps nothing
+  ([ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md)). `src/gcmon/monitor.py` reports the
+  live set at the end of a tick, after the poll phase and skipped on an empty set. The clock and
+  the stop signal belong to the loop; everything per-pid belongs to the monitor
   ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)).
   `src/gcmon/exporters/exporter.py` holds the no-op base;
   `src/gcmon/exporters/combined_exporter.py` fans it out;
@@ -339,7 +341,7 @@ out of the span iteration.
   shapes, and that a run forced through many flushes with `flush_threshold=5` still ends
   its slice at the last event's timestamp.
 - Liveness unit tests: `tests/monitoring/test_monitor.py`, beside the tick that reports it, and
-  `tests/monitoring/test_monitor_loop.py` for the one clock read.
+  `tests/monitoring/test_monitor_loop.py` for the stamping read.
   `tests/monitoring/test_monitored_run_trace.py` pins a whole run's Chrome output byte for byte;
   `tests/exporters/test_perfetto_exporter.py`, whose locking test asserts by contention
   rather than by inspection; and `tests/exporters/test_buffered_exporter.py`, pinning

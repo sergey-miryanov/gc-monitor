@@ -1,8 +1,11 @@
 """Environment variable helpers for CLI defaults."""
 
+import math
 import os
 from pathlib import Path
 
+from .data import secs_to_ns
+from .schedule import MIN_RATE_NS
 from .stats_output import TableFormat
 
 # Environment variable names for CLI options
@@ -52,6 +55,7 @@ __all__ = [
     "get_env_table_format",
     "get_env_thread_id",
     "get_env_verbose",
+    "parse_rate",
 ]
 
 
@@ -71,18 +75,37 @@ def get_env_output() -> Path:
     return Path("gcmon.json")
 
 
-def get_env_rate() -> float:
+def parse_rate(text: str) -> float:
+    """One `--rate` or GCMON_RATE spelling, as seconds.
+
+    A plain decimal only: scientific notation hides how small a value is (ADR-0019).
+
+    Raises:
+        ValueError: on any spelling that is not a rate gcmon can hold.
+    """
+    if "e" in text.lower():
+        raise ValueError(f"must be a plain decimal number of seconds, not scientific notation, got '{text}'")
+
+    value = float(text)
+    if not math.isfinite(value) or secs_to_ns(value) < MIN_RATE_NS:
+        raise ValueError(f"must be at least {MIN_RATE_NS / 1e9} seconds, got '{text}'")
+
+    return value
+
+
+def get_env_rate() -> float | None:
     """Get polling rate from environment variable.
 
     Returns:
-        Rate from GCMON_RATE env var, or default 0.1.
+        Rate from GCMON_RATE env var, default 0.1 when it is unset, or None
+        when it holds something that is not a rate, which stops the run.
     """
     rate_str = os.environ.get(ENV_RATE)
     if rate_str:
         try:
-            return float(rate_str)
+            return parse_rate(rate_str)
         except ValueError:
-            pass
+            return None
     return 0.1
 
 

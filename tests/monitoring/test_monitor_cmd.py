@@ -63,7 +63,7 @@ class TestCmdMonitorValidation:
         "override, expected_msg",
         [
             ({"pid": -2}, "PID must be positive"),
-            ({"rate": 0}, "Rate must be positive"),
+            ({"rate": 0}, "Rate must be at least 0.001 seconds"),
             ({"duration": 0}, "Duration must be positive"),
             ({"flush_threshold": 0}, "Flush threshold must be positive"),
         ],

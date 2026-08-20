@@ -117,6 +117,10 @@ and are read together everywhere; separating them would be layout for its own sa
 
 ## 6. Out of scope
 
+- Re-keying `_running_rings`, the question 0046 left open. It is
+  [0051](0051-key-the-running-rings-by-pid.md) now. Section 5 promises a move with no test body
+  edited, and the re-key rewrites six assertions that read the flat shape, so carrying it here
+  would blunt the one tripwire this spec has.
 - Which package these modules end up in. This splits by concern; placing the results into
   layers is [0041](0041-give-the-package-explicit-layers.md), which should land after and which
   this makes tractable.

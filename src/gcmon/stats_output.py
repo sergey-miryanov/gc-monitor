@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .data import dur_to_ms
+from .run_report import RunReport
 from .stats import METRICS, PauseTotals, Stats, StreamingStats
 
 _SEP_GROUP: Any = object()
@@ -185,8 +186,18 @@ def _factor_cell(factor: float, lost: int) -> str:
     return ">1.000" if lost and cell == "1.000" else cell
 
 
-def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bool = False) -> list[str]:
-    """Summary lines for monitoring commands."""
+def summary_lines(
+    stats: StreamingStats,
+    trace_path: Path | None,
+    show_stats: bool = False,
+    pacing: RunReport | None = None,
+) -> list[str]:
+    """Summary lines for monitoring commands.
+
+    *pacing* is what the loop did with its schedule. It picks the remedy a
+    lossy run is offered, which the mid-run coverage warning cannot; see
+    ADR-0019.
+    """
     sampled = stats.count()
     lost = sum(totals.lost_count for totals in stats.pause_totals_by_gen().values())
 
@@ -198,6 +209,16 @@ def summary_lines(stats: StreamingStats, trace_path: Path | None, show_stats: bo
             lines.append("Run with --stats=total for the per-generation breakdown.")
     else:
         lines.append(f"Total events: {sampled}")
+
+    if pacing is not None:
+        lines.append(f"Ticks: {pacing.ticks_run} of {pacing.ticks_scheduled} scheduled")
+        if lost:
+            lines.append(
+                "The poll loop overran, so a smaller --rate will not help."
+                if pacing.overran
+                else "Polling more often (a smaller --rate) may observe more, unless the target "
+                "collects faster than gcmon can poll."
+            )
 
     if trace_path is not None:
         lines.append(f"Trace saved to: {trace_path}")

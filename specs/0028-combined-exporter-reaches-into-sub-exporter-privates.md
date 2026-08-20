@@ -79,7 +79,7 @@ suppression is not the problem; the missing contract is.
 
 ## 6. Out of scope
 
-- The JSONL/stdout layering work in [0029](0029-jsonl-and-stdout-duplicate-the-buffering.md).
+- The JSONL/stdout layering work in 0029 ([RETIRED.md](RETIRED.md)).
   It touches the same two classes, but this change is independent and much smaller; doing it
   first shrinks that one.
 - Exposing anything else about an exporter (flush threshold, buffered count, encoder identity).

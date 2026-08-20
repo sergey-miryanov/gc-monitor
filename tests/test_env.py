@@ -75,7 +75,6 @@ class TestEnvVarInvalidValues:
     @pytest.mark.parametrize(
         "env_var, getter_suffix, default",
         [
-            ("ENV_RATE", "rate", 0.1),
             ("ENV_DURATION", "duration", None),
             ("ENV_THREAD_ID", "thread_id", 0),
             ("ENV_FLUSH_THRESHOLD", "flush_threshold", 100),
@@ -95,6 +94,34 @@ class TestEnvVarInvalidValues:
         actual_env_name = getattr(env_module, env_var)
         monkeypatch.setenv(actual_env_name, "not-a-number")
         assert getter() == default
+
+
+class TestEnvRate:
+    """GCMON_RATE takes what `--rate` takes, and refuses the rest outright.
+
+    The other getters fall back to their default on a value they cannot read.
+    This one cannot: a rate nobody asked for is not a safe thing to poll at,
+    so `None` says so and the run stops.
+    """
+
+    def test_a_plain_decimal_is_taken(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
+        monkeypatch.setenv(env_module.ENV_RATE, "0.05")
+        assert env_module.get_env_rate() == 0.05
+
+    def test_the_minimum_itself_is_taken(self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType) -> None:
+        monkeypatch.setenv(env_module.ENV_RATE, "0.001")
+        assert env_module.get_env_rate() == 0.001
+
+    @pytest.mark.parametrize(
+        "value", ["not-a-number", "1e-3", "1E-3", "0", "-0.1", "0.0000000001", "0.0005", "inf", "nan"]
+    )
+    def test_a_value_that_is_not_a_rate_answers_none(
+        self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str
+    ) -> None:
+        """`1e-3` is a rate anywhere else. Here the spelling goes, because
+        `1e-12` reads the same and is not one."""
+        monkeypatch.setenv(env_module.ENV_RATE, value)
+        assert env_module.get_env_rate() is None
 
 
 class TestEnvVerbose:

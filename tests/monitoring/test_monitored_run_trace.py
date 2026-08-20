@@ -23,16 +23,22 @@ red run.
 Determinism comes down to four things.
 
 *One clock, two consumers.* `monitor_loop` and `monitor` both do `import time`,
-so one patch of `time.monotonic_ns` feeds both. Per tick the loop reads once for
-the tick instant, then each polled pid costs the monitor two reads either side
-of its poll of the reader. `_script` lays that sequence out in advance and
-`_ScriptedClock` hands it out in order, raising rather than inventing a value.
-`test_the_clock_was_spent_exactly` checks none was left over: reading fewer
-instants would shift every timestamp downstream and still pass.
+so one patch of `time.monotonic_ns` feeds both. The loop reads once before the
+run to seed position zero. Per tick it reads once to stamp the tick, then each
+polled pid costs the monitor two reads either side of `get_gc_stats`, then the
+loop reads once more to pace itself
+([ADR-0019](../../docs/adr/0019-schedule-tick-starts-on-a-fixed-grid.md)).
+`_script` lays that sequence out in advance and `_ScriptedClock` hands it out in
+order, raising rather than inventing a value. `test_the_clock_was_spent_exactly`
+checks none was left over: reading fewer instants would shift every timestamp
+downstream and still pass.
+
+Only the stamping read reaches an event, so the pacing read's value is free and
+the fixture did not move when it was added.
 
 *Nothing else reads the machine.* `no_wait_policy` instead of
 `StartupTimeoutPolicy`, which reads `time.monotonic`; a fixed-tick runner
-instead of `DurationRunner`, which reads it too; `rate=0`; and no RSS sampler.
+instead of `DurationRunner`, which reads it too; a 1 ms rate; and no RSS sampler.
 
 *The capture drives both pids.* The target replays `SSL_CONTEXT_SIZE` as
 recorded. The child replays the same collections `CHILD_SKEW_NS` later, so its
@@ -132,9 +138,16 @@ def _script() -> tuple[list[int], list[tuple[int, int]]]:
     """The clock to hand out, and the reads to answer, for the whole run.
 
     Returns the `time.monotonic_ns` values in the order they will be asked for,
-    and one `(pid, ts_read_start)` per read of the reader. One tick is: the
-    loop's single clock read for the tick instant, then two clock reads per
-    polled pid, one either side of its read.
+    and one `(pid, ts_read_start)` per `get_gc_stats` call. The run opens with
+    the loop's seeding read, served the first tick's instant so position zero
+    is where the first tick starts. One tick is then: the loop's stamping read
+    for the tick instant, then two reads per polled pid, one either side of its
+    `get_gc_stats`, then the loop's pacing read.
+
+    The pacing read (ADR-0019) lands one slot past the last pid's, which is
+    where a real one falls: after every poll, before the wait. It stamps
+    nothing, so its value reaches no event -- which is why adding it left the
+    fixture byte-identical.
     """
     clock: list[int] = []
     reads: list[tuple[int, int]] = []
@@ -146,7 +159,8 @@ def _script() -> tuple[list[int], list[tuple[int, int]]]:
             clock.append(ts_read_start)
             clock.append(ts_read_start + READ_COST_NS)
             reads.append((pid, ts_read_start))
-    return clock, reads
+        clock.append(instant + (len(pids) + 1) * READ_SLOT_NS)
+    return [clock[0], *clock], reads
 
 
 class _ScriptedClock:
@@ -265,12 +279,14 @@ def run_monitored(output: Path) -> MonitoredRun:
         reader=FakeEventsReader(one_read),
         wait_policy_factory=no_wait_policy,
     )
-    # `rate=0` so the between-tick wait returns at once, and no `rss_sampler`,
+    # A 1 ms rate, the point where the loop's spin-guard takes over, so the
+    # between-tick wait is that guard and nothing more (ADR-0019), and no
+    # `rss_sampler`,
     # which would read this machine's memory once a second. `NoWaitPolicy` per
     # pid rather than `StartupTimeoutPolicy`, whose verdict on a failed poll is
     # a `time.monotonic` reading in seconds -- a clock this file does not own.
     # The policy factory goes to the monitor, which owns per-pid lifetime.
-    loop = MonitorLoop(monitor, FixedRunner(TICKS), rate=0.0)
+    loop = MonitorLoop(monitor, FixedRunner(TICKS), rate=0.001)
 
     with (
         patch("gcmon.monitor.get_child_pids", side_effect=one_listing),
@@ -325,9 +341,10 @@ class TestTheScriptIsWorthPinning:
         assert any(name.startswith("GC Loss(") for name in names)
 
     def test_the_clock_was_spent_exactly(self, run: MonitoredRun) -> None:
-        """One read for the tick, two per polled pid, nothing left over. A
-        different count per tick moves every timestamp downstream, and this says
-        so in one line instead of across the whole fixture diff."""
+        """One read to seed the grid, then per tick one to stamp it, two per
+        polled pid, one to pace the loop, nothing left over. A different count
+        per tick moves every timestamp downstream, and this says so in one line
+        instead of across the whole fixture diff."""
         assert run.clock_spent == run.clock_scripted
 
 

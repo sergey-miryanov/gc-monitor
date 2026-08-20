@@ -3,10 +3,12 @@
 - **Status:** Not started
 - **Kind:** feature (ergonomics)
 - **Effort:** S
-- **Origin:** split out of [0049](0049-poll-on-the-requested-schedule.md), 2026-08-17, so a
-  compatibility decision would not hold up a correctness fix
+- **Origin:** split out of spec 0049, 2026-08-17, so a compatibility decision would not hold up a
+  correctness fix. 0049 landed the same day
 - **Respects:** [ADR-0013](../docs/adr/0013-rss-sampling.md) (`--rss-interval` is decoupled from
-  the poll interval and stays a separate option)
+  the poll interval and stays a separate option),
+  [ADR-0019](../docs/adr/0019-schedule-tick-starts-on-a-fixed-grid.md) (the interval is between
+  tick starts; this renames the number, not what the loop does with it)
 
 ## 1. Problem statement
 
@@ -111,8 +113,8 @@ current sees one name.
 
 ## 7. Further notes
 
-The rename is plausibly upstream of the defect 0049 fixes. `sleep(rate)` after the work is a
+The rename is plausibly upstream of the defect spec 0049 fixed. `sleep(rate)` after the work is a
 natural thing to write if you are thinking "rate", and an obviously wrong thing to write if you are
-thinking "the interval between poll starts". That is an argument for doing this soon rather than
-for doing it first: 0049 makes the timing contract precise, and this makes the name match the
+thinking "the interval between poll starts". That was an argument for doing this soon rather than
+for doing it first: 0049 made the timing contract precise, and this makes the name match the
 contract.

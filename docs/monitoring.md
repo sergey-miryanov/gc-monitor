@@ -26,11 +26,19 @@ keeps it for the session.
 
 ## Polling
 
-`--rate` is the wait *between* rounds, in seconds. One round reads every
-monitored process once, so the real interval is `--rate` plus those reads.
-A read costs microseconds, so at the default rate the difference is not worth
-thinking about; the first read of each process is the exception, because gcmon has
-to work out where that process keeps its GC state before it can read it.
+
+`--rate` is the interval between the *starts* of two ticks, in seconds. One tick
+reads every monitored process once, and gcmon holds the interval whatever those
+reads cost. Watch a wide process tree and you still sample at the number you
+asked for.
+
+A rate gcmon could never hold is refused at startup ([CLI Usage](cli.md)).
+
+A tick that outlasts its own position on the schedule is the exception. gcmon
+skips to the next position rather than making the missed ticks up: the interval
+degrades in whole multiples of `--rate` instead of tracking the size of the
+tree. The end-of-run summary reports how many ticks ran against how many were
+scheduled, which is how you tell a run that kept up from one that did not.
 
 ## Records gcmon misses
 
@@ -38,11 +46,10 @@ A target whose collector runs faster than gcmon polls drops records before any
 poll reads them. At the default 0.1 s rate, a GC-heavy workload might lose
 records on most ticks.
 
-A shorter `--rate` narrows the gap without closing it. What bounds how much gcmon
-can see is the ring buffer: CPython keeps a fixed number of slots per generation,
-and a poll can only report what is still in them. Beyond the rate where gcmon
-reads the ring faster than the target overwrites it, polling harder costs CPU and
-observes nothing new.
+A shorter `--rate` narrows the gap without closing it, and only up to a point:
+once a tick costs more than the interval it was given, asking for a shorter one
+adds no ticks. The summary says when a run reached that point, and gcmon stops
+suggesting a smaller `--rate` when it has.
 
 A lost record takes its timestamps with it. The two polls around it still bound
 the run: a record goes missing between two consecutive reads, and nothing

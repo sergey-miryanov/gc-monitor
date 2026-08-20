@@ -162,14 +162,17 @@ class TestCoverageWarning:
 
         assert ADVISORY not in caplog.text
 
-    def test_it_says_what_survives_and_what_to_try(
+    def test_it_says_what_survives_and_leaves_the_remedy_to_the_summary(
         self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture
     ) -> None:
+        """This fires once, early, possibly before the loop has run enough
+        ticks to know whether it is keeping up -- so it cannot say whether a
+        smaller `--rate` would help. The end-of-run summary can, and does."""
         poll(monitor, PID, [1])
         poll(monitor, PID, [10])
 
         assert "reconstructed and exact" in caplog.text
-        assert "--rate" in caplog.text
+        assert "--rate" not in caplog.text
 
     def test_it_reads_as_a_running_figure(self, monitor: EventsMonitor, caplog: pytest.LogCaptureFixture) -> None:
         """The latch keeps the first figure that dipped, which a run that

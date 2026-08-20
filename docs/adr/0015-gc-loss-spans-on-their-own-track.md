@@ -165,6 +165,11 @@ about to be overwritten, so the chain survives the ring wrapping.
   that ring's kept records and says nothing about another generation's, so a lost gen-0 run can
   have happened after an observed gen-2 one. Clipping can also leave a span narrower than the
   pause it reports.
+  This rejects the **eviction-order** inference, not every narrowing. A bound taken from a
+  record still in progress at the read is temporal: that record held the interpreter at that
+  moment, and collections in an interpreter are serialized, so anything lost after the read ran
+  after that collection ended, whatever generation either belongs to. No ring, no cross-key
+  inference. Rejecting the first argument leaves the second open.
 - **Bounding a span by how many runs it could hold**, taking a ring's shortest observed
   interval between two records as a floor on its period. Rejected: one fast burst weakens that
   floor for the whole session, and it errs in the dangerous direction, since a stretch narrower

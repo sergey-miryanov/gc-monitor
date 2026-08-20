@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 from gcmon._env import (
@@ -27,7 +28,10 @@ from gcmon._env import (
     get_env_stats,
     get_env_table_format,
     get_env_verbose,
+    parse_rate,
 )
+from gcmon.data import secs_to_ns
+from gcmon.schedule import MIN_RATE_NS
 from gcmon.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
 
 logger = logging.getLogger("gcmon")
@@ -35,6 +39,14 @@ logger = logging.getLogger("gcmon")
 # Formats whose exporters implement EventsExporter.add_rss_sample. The others
 # inherit the no-op base implementation and silently discard RSS samples.
 RSS_CAPABLE_FORMATS = ("chrome", "trace", "perfetto", "chrome+perfetto")
+
+
+def _rate_argument(text: str) -> float:
+    """`--rate`, reported by argparse rather than by the validation below."""
+    try:
+        return parse_rate(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def _normalize_table_format(val: str) -> TableFormat:
@@ -58,9 +70,9 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-r",
         "--rate",
-        type=float,
+        type=_rate_argument,
         default=get_env_rate(),
-        help=f"Polling rate in seconds (default: 0.1 or {ENV_RATE} env var)",
+        help=f"Seconds between poll starts (default: 0.1 or {ENV_RATE} env var)",
     )
     parser.add_argument(
         "-d",
@@ -173,6 +185,9 @@ def get_monitoring_options(
     """
     output_path: Path = args.output
     rate = args.rate
+    if rate is None:
+        logger.error("%s must be a rate, got '%s'", ENV_RATE, os.environ.get(ENV_RATE, ""))
+        return None
     duration = args.duration
     output_format = args.format
     flush_threshold = args.flush_threshold
@@ -216,8 +231,8 @@ def get_monitoring_options(
             )
             return None
 
-    if rate <= 0:
-        logger.error("Rate must be positive, got %s", rate)
+    if secs_to_ns(rate) < MIN_RATE_NS:
+        logger.error("Rate must be at least %s seconds, got %s", MIN_RATE_NS / 1e9, rate)
         return None
     if duration is not None and duration <= 0:
         logger.error("Duration must be positive, got %s", duration)

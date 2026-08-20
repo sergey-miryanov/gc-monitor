@@ -39,7 +39,8 @@ ignored (an info log is emitted at startup). All other trace data is unaffected.
 
 - RSS sampling runs inside the GC poll loop, so its effective rate is capped by
   `--rate`. If `--rss-interval` is shorter than `--rate`, a warning is logged
-  and RSS is sampled at the poll rate.
+  and RSS is sampled at the poll rate. Samples are evenly spaced, because the
+  poll loop holds its schedule.
 - Only PIDs that returned a successful GC poll status are sampled; no stale
   data for dead processes.
 - The counter track is process-level (`tid=-1`), parented directly to the

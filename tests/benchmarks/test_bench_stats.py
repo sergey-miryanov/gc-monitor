@@ -7,6 +7,8 @@ computation, and the final aggregation step.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from pytest_codspeed import BenchmarkFixture
 
@@ -16,6 +18,11 @@ from gcmon.stats import Stats, StreamingStats, get_quantile_value
 from .conftest import make_gc_event
 
 EVENT_COUNT = 5_000
+# A tree wide enough for the settling cost to show, at several interpreters per
+# pid: settling walks the rings, not the pids.
+FAN_OUT_PIDS = 1_000
+FAN_OUT_IIDS = 3
+FAN_OUT_FIRST_PID = 1_000
 
 
 @pytest.mark.benchmark
@@ -47,6 +54,32 @@ def test_streaming_stats_update_many_pids(benchmark: BenchmarkFixture) -> None:
 
     result = benchmark(run)
     assert result.count() == EVENT_COUNT
+
+
+@pytest.mark.benchmark
+def test_streaming_stats_retain_wide_fan_out(benchmark: BenchmarkFixture) -> None:
+    """A whole fan-out exiting inside one tick.
+
+    The fan-out is built in `setup`, outside the measured window: `retain`
+    settles a pid once, and a second call over the same state would measure an
+    empty set difference.
+    """
+
+    def setup() -> tuple[tuple[Any, ...], dict[str, Any]]:
+        stats = StreamingStats()
+        for pid in range(FAN_OUT_FIRST_PID, FAN_OUT_FIRST_PID + FAN_OUT_PIDS):
+            for iid in range(FAN_OUT_IIDS):
+                stats.update(pid, make_gc_event(pid + iid, pid=pid, iid=iid))
+        return (stats,), {}
+
+    def run(stats: StreamingStats) -> StreamingStats:
+        stats.retain(set())
+        return stats
+
+    result = benchmark.pedantic(run, setup=setup)
+    # Not timing: a run that stopped settling would otherwise read as a win.
+    assert result._running_rings == {}
+    assert len(result.rings()) == StreamingStats.MAX_ACTIVE_RINGS
 
 
 @pytest.mark.benchmark

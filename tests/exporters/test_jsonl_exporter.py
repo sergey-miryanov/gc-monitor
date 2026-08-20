@@ -195,6 +195,28 @@ class TestJsonlExporterFlushThreshold:
         exporter.add_event(DEFAULT_PID, mock_stats_item)
         assert len(read_jsonl(path)) == 2
 
+    def test_flush_on_threshold_reached_for_loss_events(
+        self, jsonl_exporter: ExporterFactory, read_jsonl: JsonlFileReader
+    ) -> None:
+        exporter, path = jsonl_exporter(threshold=5)
+        for _ in range(4):
+            exporter.add_loss_event(DEFAULT_PID, create_mock_loss_item())
+            if path.exists():
+                assert len(read_jsonl(path)) == 0
+        exporter.add_loss_event(DEFAULT_PID, create_mock_loss_item())
+        assert len(read_jsonl(path)) == 5
+
+    def test_flush_on_threshold_reached_for_instant_events(
+        self, jsonl_exporter: ExporterFactory, read_jsonl: JsonlFileReader
+    ) -> None:
+        exporter, path = jsonl_exporter(threshold=5)
+        for _ in range(4):
+            exporter.add_instant_event(DEFAULT_PID, create_instant_msg())
+            if path.exists():
+                assert len(read_jsonl(path)) == 0
+        exporter.add_instant_event(DEFAULT_PID, create_instant_msg())
+        assert len(read_jsonl(path)) == 5
+
 
 class TestJsonlExporterInstantEvents:
     def test_add_instant_event_json_output_format(
