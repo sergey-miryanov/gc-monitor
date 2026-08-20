@@ -1,4 +1,4 @@
-# ADR-0019: Attach to a process once, and let go the moment a read fails
+# ADR-0020: Attach to a process once, and let go the moment a read fails
 
 - **Status:** Accepted
 - **Date:** 2026-08-17

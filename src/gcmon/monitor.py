@@ -71,7 +71,7 @@ class EventsMonitor:
         """
         *reader* reads a process's records and holds whatever that takes. It has
         no default: a caller that forgot to pass one would attach to whatever
-        process happens to hold the integer it used as a pid (ADR-0019).
+        process happens to hold the integer it used as a pid (ADR-0020).
 
         *wait_policy_factory* builds the per-pid policy that decides when a pid
         is finished.
@@ -178,7 +178,7 @@ class EventsMonitor:
         except TargetUnavailable as exc:
             # The ordinary end of a run reaches here, so it stays at debug
             # level: a warning would put a traceback on stderr every time a
-            # target exits. ADR-0019.
+            # target exits. ADR-0020.
             logger.debug("Error while polling PID %s (child PID=%s): %s", self._process.pid, pid, exc)
             return PollStatus.INVALID_PROCESS
         except Exception as exc:
@@ -198,7 +198,7 @@ class EventsMonitor:
         """Drop the state of every pid outside *pids*, all of it at once.
 
         A cursor outliving its policy, or the reverse, is the disagreement
-        ADR-0017 rules out, and ADR-0019 puts the reader's attachment under the
+        ADR-0017 rules out, and ADR-0020 puts the reader's attachment under the
         same rule. A process that exits between two ticks is never polled again,
         so no policy gives up on it and this drops it instead.
         """
@@ -295,7 +295,7 @@ class EventsMonitor:
 
         The reader is pruned here and not left to garbage collection because an
         attachment is a handle on somebody else's process: on Windows it holds
-        the pid reserved for as long as gcmon keeps it (ADR-0019), and a monitor
+        the pid reserved for as long as gcmon keeps it (ADR-0020), and a monitor
         that has stopped monitoring should not be doing that.
 
         Safe to call more than once.

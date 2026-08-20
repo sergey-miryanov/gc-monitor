@@ -4,8 +4,8 @@
 - **Kind:** bug (correctness)
 - **Effort:** M
 - **Origin:** spec 0048 section 6, retired, see [RETIRED.md](RETIRED.md); filed once
-  [ADR-0019](../docs/adr/0019-attach-to-a-process-once.md) existed to cite
-- **Respects:** [ADR-0019](../docs/adr/0019-attach-to-a-process-once.md) (an attachment is dropped
+  [ADR-0020](../docs/adr/0020-attach-to-a-process-once.md) existed to cite
+- **Respects:** [ADR-0020](../docs/adr/0020-attach-to-a-process-once.md) (an attachment is dropped
   on every failed read, and revalidating on each read is rejected),
   [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md) (the pid epoch is what keeps a
   successor out of its predecessor's figures)
@@ -58,11 +58,11 @@ an unrelated process's memory.
 **Not affected:**
 
 - **Windows.** Attaching opens a process handle, and a held handle keeps the process object alive,
-  so the kernel will not reissue that pid while gcmon is attached (ADR-0019). The scenario is
+  so the kernel will not reissue that pid while gcmon is attached (ADR-0020). The scenario is
   impossible there, not merely unlikely.
 - **`gcmon combine`** and every offline path: no reads, no attachments.
 - **A pid recycled while gcmon is *not* attached**, after a failed read or after the pid left the
-  child listing. ADR-0019's lifetime already drops the attachment in both, so the next read attaches
+  child listing. ADR-0020's lifetime already drops the attachment in both, so the next read attaches
   afresh.
 - **`get_child_pids`.** Stateless and re-derived every tick.
 
@@ -77,7 +77,7 @@ fact.
 1. **Give a pid an identity beyond its number, taken once at attach.** The process start time is the
    one cheap identifier the OS keeps that a successor cannot inherit: field 22 of `/proc/<pid>/stat`
    on Linux, `kinfo_proc.p_starttime` on macOS. Record it alongside the attachment.
-2. **Compare on the tick boundary, not on the read.** ADR-0019 rejects revalidating inside `read`,
+2. **Compare on the tick boundary, not on the read.** ADR-0020 rejects revalidating inside `read`,
    and that decision holds: a probe per read reintroduces a per-poll syscall against the target,
    which is the cost attaching once exists to remove. The comparison belongs in the pruning pass the
    monitor already makes once per tick, the same pass that reconciles the child listing.
@@ -143,7 +143,7 @@ reader.
   correct read of the wrong process.
 - **The version-mismatch classification** 0048 section 6 also left open. It shares a cause with
   this, both wanting a failure gcmon can tell apart from "not started yet", but it wants
-  `debug=False`, which means arguing against ADR-0019, and it is operator-facing where this is
+  `debug=False`, which means arguing against ADR-0020, and it is operator-facing where this is
   silent.
 - **Anything about what a record means or how loss is computed.** ADR-0015 and ADR-0016 own those.
 

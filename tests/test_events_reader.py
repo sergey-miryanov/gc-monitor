@@ -1,6 +1,6 @@
 """The reader that attaches to a process once and reads it many times.
 
-Two kinds of test here. The lifetime rules of ADR-0019 -- attach once, never
+Two kinds of test here. The lifetime rules of ADR-0020 -- attach once, never
 remember a failed attach, let go on any failed read -- are asserted against a
 counting stand-in for ``GCMonitor``, because they are claims about *how many
 times* gcmon attaches and a stopwatch answers that question badly. A smaller
@@ -106,7 +106,7 @@ class TestAttachOncePerPid:
         remote_reader.read(7)
 
         # debug=True is what the free function this replaced hardcoded, so the
-        # exception type gcmon catches did not change with the swap. ADR-0019.
+        # exception type gcmon catches did not change with the swap. ADR-0020.
         assert spy.attaches == [(7, True)]
 
     def test_what_the_target_returned_is_what_the_caller_gets(

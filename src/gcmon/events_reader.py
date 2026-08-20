@@ -2,14 +2,14 @@
 
 Finding a target costs roughly two orders of magnitude more than reading it, so
 gcmon attaches once and reads many times. The pid becomes something gcmon
-*holds* rather than an argument it passes, and [ADR-0019] fixes the lifetime of
+*holds* rather than an argument it passes, and [ADR-0020] fixes the lifetime of
 what it holds.
 
 This is the only module in the package that imports a stateful handle from
 ``_remote_debugging``, and the only one that names its exception types. Callers
 see :class:`TargetUnavailable` and nothing else about the platform underneath.
 
-[ADR-0019]: ../../docs/adr/0019-attach-to-a-process-once.md
+[ADR-0020]: ../../docs/adr/0020-attach-to-a-process-once.md
 """
 
 from _remote_debugging import GCMonitor
@@ -26,7 +26,7 @@ class TargetUnavailable(Exception):
 
     It has not started yet, it has exited, gcmon may not look at it, or its GC
     layout does not match the interpreter gcmon is running on. Every one of
-    those means the same thing to a wait policy, and ADR-0019 says why telling
+    those means the same thing to a wait policy, and ADR-0020 says why telling
     them apart is not worth what it costs yet.
     """
 
@@ -70,7 +70,7 @@ class RemoteEventsReader(EventsReader):
 
     @override
     def read(self, pid: int) -> Sequence[TGCStatsInfo]:
-        # Popping up front is what makes ADR-0019's lifetime hold for *any*
+        # Popping up front is what makes ADR-0020's lifetime hold for *any*
         # failure and not only for the ones translated below: nothing is put
         # back unless the read returned. So a failed attach is never
         # remembered, and a failed read lets go of the attachment it had.
@@ -79,7 +79,7 @@ class RemoteEventsReader(EventsReader):
             if monitor is None:
                 # debug=True selects the exception *type* CPython raises, not a
                 # log level; the free function this replaced hardcoded it, so
-                # gcmon catches and logs what it always did. ADR-0019.
+                # gcmon catches and logs what it always did. ADR-0020.
                 monitor = GCMonitor(pid, debug=True)
             records = monitor.get_gc_stats(all_interpreters=True)
         except (RuntimeError, OSError) as exc:

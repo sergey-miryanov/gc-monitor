@@ -21,7 +21,7 @@ class GCMonitor:
     ``debug`` selects which exception type a failure raises, not a log level:
     with it set, CPython replaces the error with a ``RuntimeError`` carrying a
     descriptive message and demotes the original to ``__cause__``. See
-    ADR-0019.
+    ADR-0020.
     """
 
     def __init__(self, pid: int, /, *, debug: bool = False) -> None: ...

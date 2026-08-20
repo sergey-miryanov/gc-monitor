@@ -421,7 +421,7 @@ class TestOnePruneOverOneSet:
         assert factory.call_count == 3
 
     def test_a_pid_that_leaves_the_tree_loses_its_attachment(self, exporter: MockExporter) -> None:
-        """ADR-0019 puts the reader's attachment under ADR-0017's rule, so it
+        """ADR-0020 puts the reader's attachment under ADR-0017's rule, so it
         goes in the same pass as the cursors.
 
         This is the half no other assertion can reach. A kept attachment holds
