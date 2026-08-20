@@ -123,16 +123,16 @@ because the failure mode is a long capture that prints no table at the end.
 `gcmon.commands.monitoring_options` declares `--stats` and refuses a bad `GCMON_STATS`;
 `gcmon._env` reads the raw value. The refusal does not sit with the reading, because every
 `get_env_*` runs while the parser is being built, before logging is configured.
-`get_monitoring_options` turns it down instead, alongside `rate`, `duration` and
+The options builder turns it down instead, alongside `rate`, `duration` and
 `flush_threshold`, once logging exists.
 
 `StatsView` in `gcmon.stats_output` holds the view, beside the `TableFormat` behind
 `--table-format`, and each member's value is the word the operator types. The enum owns the
-vocabulary: `StatsView.words()` feeds argparse `choices`, and `StatsView.parse` maps a typed
-word to a view, to `None` for the words in `STATS_OFF_WORDS`, or to `ValueError`. The usage line
+vocabulary: it feeds argparse `choices`, and maps a typed word to a view, to `None` for the
+words in `STATS_OFF_WORDS`, or to `ValueError`. The usage line
 and the parser cannot drift apart, and `monitoring_options` keeps only the flag and the message
-naming `GCMON_STATS`. No table is `None` rather than a member: `print_stats` has nothing to
-render for it, and one member cannot carry four words.
+naming `GCMON_STATS`. No table is `None` rather than a member: there is nothing to render
+for it, and one member cannot carry four words.
 
 [CLI usage](../cli.md#--stats) lists the words the flag and the variable take;
 [Statistics](../statistics.md) reads what the two views print. `tests/stats/test_stats_output.py`

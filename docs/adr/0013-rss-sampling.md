@@ -86,8 +86,8 @@ the 0.1 s GC poll rate.
 - You can unit-test `RssSampler` without `psutil` and without a monitor loop.
 - Missing `psutil`, a dead process, or a permission error each produce no sample and no
   error. `--rss` on a machine without `psutil` is ignored, with one info log.
-- **Perfetto-only in practice.** `add_rss_sample` is a no-op on the `EventsExporter` base
-  and `BufferedTraceExporter` overrides it, so JSONL and stdout carry no RSS. Chrome traces
+- **Perfetto-only in practice.** An RSS sample is a no-op on the `EventsExporter` base and
+  `BufferedTraceExporter` overrides it, so JSONL and stdout carry no RSS. Chrome traces
   *technically* contain the counter event, since it flows through the same buffered base
   into `JsonEventEncoder`, but that is a side effect of the shared base. Nobody validates
   or tests it. Only the Perfetto path is a supported feature.
@@ -116,7 +116,7 @@ the 0.1 s GC poll rate.
 - `src/gcmon/rss_sampler.py` holds `RssSampler`, its `tick(now_ns, live_pids)` entry point,
   the interval check, and the default sampler catching `NoSuchProcess` / `AccessDenied`.
 - `src/gcmon/exporters/_buffered_exporter.py` holds the `-1` sentinel, the `iid >= 0` guard
-  that suppresses thread meta for it, and `add_rss_sample`.
+  that suppresses thread meta for it, and the exporter's RSS sample.
 - `src/gcmon/exporters/perfetto_format.py` carries `"rss"` in the top-level metric set.
 - `src/gcmon/monitor_loop.py` takes one stamping read per tick and hands the instant to the monitor
   and then to the sampler; the monitor collects the live pids and reports liveness

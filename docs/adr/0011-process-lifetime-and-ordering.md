@@ -168,11 +168,12 @@ ship two definitions of a `Processes` slice.
 **Liveness attaches at `PerfettoExporter`, not on the `EventEncoder` protocol**, which is
 three methods meaning "translate a batch of `TraceEvent` into bytes"; a liveness observation
 is neither. `PerfettoExporter` builds its own `ProtobufEventEncoder`, so it keeps a typed
-handle and overrides `add_process_liveness`; Chrome, JSONL and stdout reach the
+handle and overrides the liveness call; Chrome, JSONL and stdout reach the
 `EventsExporter` no-op. The override takes the I/O lock, which is not optional: it guards
-every other encoder touch including `close()`, and `ControlServer` writes from its own
+every other encoder touch, closing included, and `ControlServer` writes from its own
 thread. Without it a concurrent read-modify-write can drop a min/max update, and a new pid
-arriving mid-`close()` can raise `RuntimeError: dictionary changed size during iteration`
+arriving while the exporter closes can raise `RuntimeError: dictionary changed size during
+iteration`
 out of the span iteration.
 
 ## Consequences
@@ -199,8 +200,8 @@ out of the span iteration.
   one-to-one. A pid that answered a single poll and never collected gets one; only a pid seen
   through meta events alone has none. Finalization therefore does *not* filter on a pid
   having a process descriptor, which would have required an event.
-- **A zero-GC pid's slice carries no cmdline**, since cmdline registration hangs off
-  `write_events` and such a pid never reaches it. It has no process track either, which the UI
+- **A zero-GC pid's slice carries no cmdline**, since cmdline registration hangs off the
+  encoder's write and such a pid never reaches it. It has no process track either, which the UI
   hides anyway, the problem
   [ADR-0010](0010-process-identity-cmdline-and-start-marker.md)'s `Start Process` marker was
   invented for. Emitting either for it is out of scope.
@@ -321,7 +322,7 @@ out of the span iteration.
   `src/gcmon/exporters/encoder.py`.
 - Encoder close gates on having packets to emit, not on whether anything was written
   before. That guard meant "no spans exist" while only events could create one; liveness
-  reaches the track state without passing through `write_events`, so the first write may
+  reaches the track state without passing through the encoder's write, so the first write may
   now have to select `"wb"`. A trace with neither events nor liveness still produces no
   file.
 - `tests/exporters/test_perfetto_process_lifetime.py` covers the sweep directly at full

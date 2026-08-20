@@ -109,7 +109,7 @@ scope `Total` reports.
   the bound leaves its later rings out of the table.
 - **Every printed row covers one process's ring over one unbroken stretch**, so a row's `Count`,
   its `Sum` and its percentiles always describe the same records. A settled ring cannot take
-  more values: `Stats.materialize` raises on one that tries.
+  more values, and one that tries raises.
 - **A run can print two blocks under one `PID:IID`**, where the operating system handed the pid
   out twice. The `#2` on the second says why, and a reader who never sees one loses nothing.
 - **The rows can be short of the run**, which the footer note states as a count. `Total` is a

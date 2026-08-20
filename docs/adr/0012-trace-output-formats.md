@@ -52,7 +52,7 @@ verbatim.
 `CombinedTraceExporter` is a thin forwarder over a real `TraceExporter` and a real
 `PerfettoExporter`. It implements `EventsExporter` directly and does **not** extend
 `BufferedTraceExporter`, so each sub-exporter owns its own buffer, locks and meta-dedup
-state. `close()` closes Chrome inside a `try` and Perfetto in the `finally`, so a Chrome
+state. Closing takes Chrome inside a `try` and Perfetto in the `finally`, so a Chrome
 failure still closes Perfetto.
 
 One `-o` argument becomes two files via `Path.stem`, which strips only the last extension:
@@ -78,7 +78,7 @@ included. Its whitelist had omitted both, so `GCMON_FORMAT=perfetto` fell back t
 - You can convert existing captures to Perfetto without re-running anything.
 - One monitoring session yields both viewers' formats, describing the same run.
 - **Cross-file ordering is not guaranteed under multi-threaded callers.** If two threads
-  interleave between the Chrome and Perfetto calls inside `add_event`, the two files may
+  interleave between the Chrome and Perfetto calls the forwarder makes, the two files may
   order events differently. The monitor loop is single-threaded, so the primary use case
   is unaffected.
 - **Partial failure is not rolled back.** Chrome is written first, so if the Perfetto

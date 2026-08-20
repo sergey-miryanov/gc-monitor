@@ -17,7 +17,7 @@ Only the trace processor can settle whether a trace means what you think it mean
 the same binary the Perfetto UI runs in the browser.
 
 Separately, `ControlClient` is the child-side IPC surface used by each monitored process.
-Its send and `close()` paths are locked, and the *server* side had a thread-safety suite,
+Its send and close paths are locked, and the *server* side had a thread-safety suite,
 but the client side had no regression guard.
 
 ## Decision
@@ -102,7 +102,7 @@ tests do not assert on it.
   code path that one fully-populated synthetic item does not.
 - **Stress tests for `ControlClient`'s lazy-reconnect and failure-recovery contracts.**
   Rejected as redundant: the unit tests in `tests/control/test_control_client.py` already
-  assert that `close()` followed by a send reconnects silently, and that `BrokenPipeError`
+  assert that a close followed by a send reconnects silently, and that `BrokenPipeError`
   clears the connection for the next call. Those assertions are stricter than "no exception
   under contention."
 
