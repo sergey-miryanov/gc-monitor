@@ -38,6 +38,7 @@ This file holds the open set and the order to take it in. The other two:
 | [0050](0050-name-the-poll-interval-for-what-it-is.md) | Feature (ergonomics) | S | `--rate` is a duration in seconds under a name that means a frequency, and gcmon echoes `Rate: 0.1s` back |
 | [0051](0051-key-the-running-rings-by-pid.md) | Feature (efficiency) | S | Asking `StreamingStats` about one process walks every process's rings; `low_coverage` does it once per polled pid per tick, and on a healthy run it never stops |
 | [0052](0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md) | Bug (correctness) | M | A pid the OS reissues between two ticks is read through the attachment gcmon still holds, so an unrelated process's memory reaches the trace as plausible records; Windows is safe, Linux and macOS are not |
+| [0054](0054-macos-attachment-leaks-a-mach-task-port.md) | Bug (availability) | S | On macOS every attachment costs gcmon a Mach port name that nothing gives back; CPython's cleanup has a Windows arm and a Linux arm and no Apple one |
 
 Every row here has a file. A missing number either retired or never became one;
 [RETIRED.md](RETIRED.md) says which.
@@ -74,6 +75,8 @@ cell means no recorded reason, so that row can move.
 - **0033** wants a real capture in front of you before anyone can judge it worth a fourth row.
 - **0044** waits on CPython synchronizing the ring. Its section 4 states the one measurement that would
   put it back in play sooner.
+- **0054** was found in CPython's source and not in a run. Nobody should size it until the ports have
+  been counted on a Mac.
 
 **The only ordering constraints:**
 
