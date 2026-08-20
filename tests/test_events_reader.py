@@ -197,9 +197,8 @@ class TestTheExceptionTaxonomy:
             RuntimeError("Failed to read interpreter state address"),
             ProcessLookupError(3, "No such process"),
             PermissionError(13, "Permission denied"),
-            OSError(5, "Input/output error"),
         ],
-        ids=["runtime", "no-such-process", "permission", "oserror"],
+        ids=["runtime", "no-such-process", "permission"],
     )
     def test_a_target_gcmon_cannot_read_is_unavailable(
         self, remote_reader: RemoteEventsReader, spy: SpyMonitor, error: BaseException
@@ -233,10 +232,17 @@ class TestTheExceptionTaxonomy:
 
         assert caught.value.__cause__ is error
 
-    def test_anything_else_propagates_untouched(self, remote_reader: RemoteEventsReader, spy: SpyMonitor) -> None:
-        spy.read_errors = [MemoryError("out of memory")]
+    @pytest.mark.parametrize(
+        "error",
+        [MemoryError("out of memory"), OSError(5, "Input/output error"), ValueError("bad address")],
+        ids=["memory", "oserror", "value"],
+    )
+    def test_anything_else_propagates_untouched(
+        self, remote_reader: RemoteEventsReader, spy: SpyMonitor, error: BaseException
+    ) -> None:
+        spy.read_errors = [error]
 
-        with pytest.raises(MemoryError):
+        with pytest.raises(type(error)):
             remote_reader.read(7)
 
 

@@ -85,12 +85,16 @@ gap exists on every platform, is not detectable from the reader's side, and is n
   into `TargetUnavailable`. Test doubles say "unavailable" instead of impersonating CPython's
   taxonomy.
 
-- **`ValueError` is deliberately outside that translation.** macOS raises it for a read whose
-  arguments made no sense *while `task_info` reports the task still valid*: a bad address, not a
-  dead process. A terminated macOS target raises `ProcessLookupError`, which is an `OSError` and is
-  translated. `ValueError` therefore means gcmon asked for something wrong, which is a gcmon defect
-  and belongs on `PollStatus.FAIL` with a traceback, where it was before this change. Widening the
-  translation to swallow it would turn a bug into a silent "target unavailable" and burn the
+- **The translation takes `ProcessLookupError` and `PermissionError`, not `OSError`.** Those two
+  are the platform's way of saying the process is gone or closed to gcmon. Every other `OSError`
+  says the read itself was wrong, `EFAULT` and `EINVAL` out of `process_vm_readv` among them, and
+  a wrong read is a gcmon defect.
+
+- **`ValueError` is outside it for the same reason.** macOS raises it for a read whose arguments
+  made no sense *while `task_info` reports the task still valid*: a bad address, not a dead
+  process. A terminated macOS target raises `ProcessLookupError`, which is translated. So both
+  belong on `PollStatus.FAIL` with a traceback, where they were before this change. Widening the
+  translation to swallow either would turn a bug into a silent "target unavailable" and burn the
   startup timeout hiding it.
 
 - **The first poll of each process is still attach-sized**, and it is charged to the `Read Time`
@@ -116,10 +120,10 @@ gap exists on every platform, is not detectable from the reader's side, and is n
   reintroduces a per-poll probe of the target, which is the cost this decision exists to remove,
   and it is re-deriving on every tick exactly what attaching once was meant to stop.
 
-- **Let the monitor widen its `except` clause instead of translating in the reader.** Two words smaller,
-  and it leaves `gcmon.monitor` owning a platform-specific error vocabulary, which is what the
-  seam exists to contain. Returning an empty result instead of raising was also rejected: it loses
-  the cause the debug log prints.
+- **Let the monitor widen its `except` clause instead of translating in the reader.** Two words
+  smaller, and it leaves `gcmon.monitor` owning a platform-specific error vocabulary, which is
+  what the seam exists to contain. Returning an empty result instead of raising was also
+  rejected: it loses the cause the debug log prints.
 
 ## Implementation
 

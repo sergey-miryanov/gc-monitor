@@ -61,10 +61,7 @@ class RemoteEventsReader(EventsReader):
                 # gcmon catches and logs what it always did.
                 monitor = GCMonitor(pid, debug=True)
             records = monitor.get_gc_stats(all_interpreters=True)
-        except (RuntimeError, OSError) as exc:
-            # RuntimeError is what debug=True turns every failure into.
-            # OSError covers what reaches gcmon without passing through that
-            # macro: ESRCH for a dead target, EPERM for one gcmon may not read.
+        except (RuntimeError, ProcessLookupError, PermissionError) as exc:
             raise TargetUnavailable(f"PID {pid} is not readable: {exc}") from exc
 
         self._monitors[pid] = monitor
