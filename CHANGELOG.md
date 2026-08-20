@@ -2,12 +2,14 @@
 
 ## WIP
 
+## Version 0.6.0 (2026-08-21)
+
 ### Breaking changes
 
 - `GC Loss` slice args drop the `missing_` prefix for the `lost_` one
-- Bare `--stats` is a parse error: the flag requires a value now, and `GCMON_STATS` takes the same words, so `GCMON_STATS=1` stops the run
+- Bare `--stats` is a parse error: the flag requires a value, and `GCMON_STATS` takes the same words, so `GCMON_STATS=1` stops the run
 - The `--stats` table reports one block per interpreter, not one per process: `PID:IID` heads every row, `12345:0` included. `Total` is the only blended row
-- The low-coverage advisory measures each interpreter on its own and names the least covered. It fires where a busy interpreter used to lift the whole PID over the 90% floor
+- The low-coverage warning measures each interpreter on its own and names the least covered. It fires where a busy interpreter used to lift the whole PID over the 90% floor
 - `--rate` and `GCMON_RATE` take a plain decimal number of seconds, `0.001` or more: `1e-3` and `0.0005` are refused where they used to be accepted
 
 ### Features
@@ -15,16 +17,16 @@
 - `--stats` takes the view to print: `total` for the run-wide block, `full` for that plus one block per interpreter, `no`/`off`/`false`/`0` for no table
 - The low-coverage warning drops the ring-buffer explanation and suggests a smaller `--rate`
 - The end-of-run summary counts the events gcmon reconstructed and the share it observed: `Total events: 1234 (+8566 reconstructed, 12.6% observed)`
-- The end-of-run summary counts the ticks that ran against the ticks scheduled, `Ticks: 188 of 600 scheduled`, and tells a lossy run whether polling more often can help
-- The lifetime note under the `--stats` table names the fold: `summed over 3 interpreters in 2 processes`
-- An interpreter's statistics settle when its process exits: its percentiles cover its whole life, and its sample buffers go to the next interpreter
+- The end-of-run summary reports the ticks that ran against the ticks scheduled, `Ticks: 188 of 600 scheduled`, and says whether polling more often can help a lossy run
+- The lifetime note under the `--stats` table says what it covers: `summed over 3 interpreters in 2 processes`
+- An interpreter's statistics settle when its process exits: its percentiles cover its whole life
 - Each process that held a reused PID gets its own `--stats` block, the second headed `12345:0#2`
 - Warn when an interpreter gets no row because 256 were already running, and count the ones left out in a footer note. Their records still reach `Total`
 - `gcmon --version` prints the installed version
 
 ### Bugfixes
 
-- `--rate` is the interval between poll starts, not the wait after each poll: gcmon holds it whatever a poll costs, where a wide process tree used to stretch every interval by what its reads took
+- `--rate` is the interval between poll starts, not the wait after each poll: a wide process tree used to stretch every interval by what its reads took
 - `gcmon.__version__` reports the installed version; it had said `0.1.0` since `0.2.0`
 - Stop a reused PID inheriting its predecessor's `--stats` row, which put two processes' records under one heading
 - Stop a reused PID's lifetime totals overwriting its predecessor's, which made the note under the table drop mid-run
