@@ -12,7 +12,7 @@ half away each time.
 
 Attaching scans the target's loaded modules for the runtime section and validates what it finds;
 a read is a handful of remote memory copies. The gap is two orders of magnitude; see the
-benchmarks below. gcmon therefore spent nine tenths of every poll re-deriving what it had derived
+benchmarks below. gcmon therefore spent almost all of every poll re-deriving what it had derived
 on the poll before, once per process per tick.
 
 CPython 3.15 offers both shapes: a free function that attaches, reads and detaches, and a
@@ -60,11 +60,11 @@ attach.**
   failing read notices the swap there. Anything leaning on that safety has to say which platform
   it is on.
 
-- **`gcmon.monitor` no longer names any exception type from `_remote_debugging`.** The platform
-  vocabulary for an unreadable target, `ESRCH` on Linux and Windows, `ProcessLookupError` by name
-  on macOS, and whatever `debug=True` rewrites each into, stops at the reader, which translates it
-  into `TargetUnavailable`. Test doubles say "unavailable" instead of impersonating CPython's
-  taxonomy.
+- **`gcmon.monitor` no longer names any exception type from `_remote_debugging`.** What an
+  unreadable target raises differs by platform, and again under `debug=True`;
+  [Remote reads, per platform](../internals/remote-reads.md) has the whole table. That vocabulary
+  stops at the reader, which translates it into `TargetUnavailable`. Test doubles say
+  "unavailable" instead of impersonating CPython's taxonomy.
 
 - **The translation takes `ProcessLookupError` and `PermissionError`, not `OSError`.** Those two
   are the platform's way of saying the process is gone or closed to gcmon. Every other `OSError`
@@ -90,21 +90,19 @@ attach.**
   A required argument fails loudly on a runner instead of silently reading a stranger.
 
 - **Keep the free function and cache nothing.** The status quo. It is correct, and it makes gcmon's
-  own cost proportional to the number of reads rather than to the number of processes, which is the
-  cost an operator attached to a production process is least willing to explain.
+  own cost proportional to the number of reads rather than to the number of processes.
 
 - **Drop the attachment only when a read proves the process is gone.** Narrower and cheaper, and
-  wrong for the reason above: a read can fail without proving anything, and what gcmon must not do
-  is carry offsets it can no longer vouch for.
+  wrong for the reason above: a read can fail without proving anything, and gcmon must not carry
+  offsets it can no longer vouch for.
 
 - **Revalidate the attachment on each read**, comparing the target's start time, say. Rejected: it
-  reintroduces a per-poll probe of the target, which is the cost this decision exists to remove,
-  and it is re-deriving on every tick exactly what attaching once was meant to stop.
+  puts back a per-poll probe of the target, which is the cost this decision exists to remove.
 
 - **Let the monitor widen its `except` clause instead of translating in the reader.** Two words
-  smaller, and it leaves `gcmon.monitor` owning a platform-specific error vocabulary, which is
-  what the seam exists to contain. Returning an empty result instead of raising was also
-  rejected: it loses the cause the debug log prints.
+  smaller, and it leaves `gcmon.monitor` owning the platform-specific error vocabulary the seam
+  exists to contain. Returning an empty result instead of raising was also rejected: it loses
+  the cause the debug log prints.
 
 ## Implementation
 
@@ -116,13 +114,8 @@ attach.**
   `time.monotonic_ns` brackets that feed `Read Time`, and prunes it alongside the cursors.
   [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) fixes the read-start instant as the one that
   closes the previous poll's interval, so that bracket did not move.
-- Tests: `tests/test_events_reader.py` for the lifetime, a failed attach retried rather than
-  remembered and a failed read followed by a fresh attach, against a counting stand-in for the
-  attachment and against real subprocesses; `tests/benchmarks/test_bench_events_reader.py` for the
-  gap the decision rests on, a held read measured against a fresh attach, which is where an
-  attachment rebuilt on every read would show; `tests/test_monitor.py` for both arms of a poll, an
-  unreadable target yielding `INVALID_PROCESS` with **no** warning and an unrecognised failure
-  yielding one with a traceback, since a test watching one arm passes with the two swapped;
-  `tests/monitoring/test_monitor.py` for the prune, a pid leaving the child listing and a pid its
-  policy gives up on each losing their attachment in the pass that drops their cursors, and a
-  failed child listing dropping neither.
+- Tests: `tests/test_events_reader.py` for the lifetime, against a counting stand-in for the
+  attachment and against real subprocesses; `tests/benchmarks/test_bench_events_reader.py` for
+  the gap the decision rests on, a held read measured against a fresh attach;
+  `tests/test_monitor.py` for both arms of a poll, since a test watching one arm passes with the
+  two swapped; `tests/monitoring/test_monitor.py` for the prune.
