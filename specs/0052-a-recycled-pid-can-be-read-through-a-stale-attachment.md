@@ -1,4 +1,4 @@
-# 0049: Refuse to read a pid whose process changed underneath gcmon
+# 0052: Refuse to read a pid whose process changed underneath gcmon
 
 - **Status:** Not started
 - **Kind:** bug (correctness)
