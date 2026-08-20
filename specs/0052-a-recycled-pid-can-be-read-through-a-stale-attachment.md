@@ -2,7 +2,7 @@
 
 - **Status:** Not started
 - **Kind:** bug (correctness)
-- **Effort:** M
+- **Effort:** S
 - **Origin:** spec 0048 section 6, retired, see [RETIRED.md](RETIRED.md); filed once
   [ADR-0020](../docs/adr/0020-attach-to-a-process-once.md) existed to cite
 - **Respects:** [ADR-0020](../docs/adr/0020-attach-to-a-process-once.md) (an attachment is dropped
@@ -51,15 +51,21 @@ an unrelated process's memory.
 
 **Affected:**
 
-- Linux and macOS, every subcommand that monitors live (`gcmon run`, `gcmon monitor`), every
-  `--format`. Worse the wider the fan-out and the shorter the child lifetimes, because both raise
-  the chance of a recycle inside one tick.
+- Linux, every subcommand that monitors live (`gcmon run`, `gcmon monitor`), every `--format`.
+  Worse the wider the fan-out and the shorter the child lifetimes, because both raise the chance
+  of a recycle inside one tick.
 
 **Not affected:**
 
 - **Windows.** Attaching opens a process handle, and a held handle keeps the process object alive,
   so the kernel will not reissue that pid while gcmon is attached (ADR-0020). The scenario is
   impossible there, not merely unlikely.
+- **macOS.** The pid is reissued as freely as on Linux, but a read addresses the Mach task port
+  the attachment holds, and a dead task's port is not rebound to the successor. The read fails,
+  ADR-0020 drops the attachment, and the next poll attaches to whatever holds the pid now. The
+  successor's counters then meet the predecessor's cursor and make a number wrong instead of
+  inventing records: the older case ADR-0017 was written about.
+  [Remote reads, per platform](../docs/internals/remote-reads.md) carries the evidence for both.
 - **`gcmon combine`** and every offline path: no reads, no attachments.
 - **A pid recycled while gcmon is *not* attached**, after a failed read or after the pid left the
   child listing. ADR-0020's lifetime already drops the attachment in both, so the next read attaches
@@ -75,8 +81,9 @@ fact.
 ## 4. Proposed change
 
 1. **Give a pid an identity beyond its number, taken once at attach.** The process start time is the
-   one cheap identifier the OS keeps that a successor cannot inherit: field 22 of `/proc/<pid>/stat`
-   on Linux, `kinfo_proc.p_starttime` on macOS. Record it alongside the attachment.
+   one cheap identifier the OS keeps that a successor cannot inherit: field 22 of
+   `/proc/<pid>/stat`. Record it alongside the attachment. Linux is the only platform that needs
+   one.
 2. **Compare on the tick boundary, not on the read.** ADR-0020 rejects revalidating inside `read`,
    and that decision holds: a probe per read reintroduces a per-poll syscall against the target,
    which is the cost attaching once exists to remove. The comparison belongs in the pruning pass the
@@ -132,8 +139,8 @@ reader.
 
 ## 6. Out of scope
 
-- **Windows.** The handle pin makes the scenario impossible, so the identity read is a no-op there,
-  and it should be written as one rather than as a platform branch with two live arms.
+- **Windows and macOS.** Neither can be served a read from a recycled pid, so the identity read is
+  a no-op on both and should be written as one rather than as a platform branch with live arms.
 - **A record-level plausibility filter**, bounds on `duration` or monotonicity of `ts_start` against
   the previous record. Tempting, and a trap: it would reject some fabricated records and some real
   ones, and it would leave gcmon unable to say which. The problem is that gcmon read the wrong
@@ -156,4 +163,4 @@ conclusion about their own workload rather than about gcmon.
 
 Sizing note: the pid-epoch machinery, the settle-and-restart path and the prune pass all exist and
 all do the right thing already. What this adds is one fact per attachment and one comparison per
-tick. The M rather than S is the platform work and the test seam, not the logic.
+tick, on one platform. The cost is the test seam, not the logic.
