@@ -10,51 +10,34 @@ runtime, reading and validating its debug offsets. The other is copying the ring
 second is the point, and gcmon used to do both on every poll of every process, throwing the first
 half away each time.
 
-The two halves are not comparable in cost. Attaching is dominated by scanning the target's loaded
-modules for the runtime section and validating what it finds; a read is a handful of remote memory
-copies. The ratio holds at roughly two orders of magnitude on any machine: time
-`_remote_debugging.get_gc_stats` against a held `_remote_debugging.GCMonitor` on the same target.
-gcmon was therefore spending upwards of nine tenths of every poll re-deriving what it had derived
-on the poll before, per process, per tick, across a whole process tree.
+Attaching scans the target's loaded modules for the runtime section and validates what it finds;
+a read is a handful of remote memory copies. The gap is two orders of magnitude; see the
+benchmarks below. gcmon therefore spent nine tenths of every poll re-deriving what it had derived
+on the poll before, once per process per tick.
 
 CPython 3.15 offers both shapes: a free function that attaches, reads and detaches, and a
-`GCMonitor` object that attaches once and reads many times. Taking the second is arithmetic, and it
-is not free: the pid stops being an argument and becomes an identity, something gcmon now *holds*
-per process, with a lifetime, in a program whose central hazard is a pid that outlives the
-process that owned it ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)).
+`GCMonitor` object that attaches once and reads many times.
 
 ## Decision
 
 **Attachment is state, so it has one owner and one prune.** It lives behind `EventsReader` in
-`gcmon.events_reader`, injected into `EventsMonitor` as a required argument, and the monitor drops
-it in the same pass that drops that pid's cursors and streaming statistics. ADR-0017's rule extends
-to it unchanged: cursors and attachment share a lifetime, and nothing prunes either one anywhere
-else. A default reader was rejected; see below.
+`gcmon.events_reader`, and the monitor drops it in the same pass that drops that pid's cursors and
+streaming statistics. [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s rule extends to it
+unchanged: cursors and attachment share a lifetime, and nothing prunes either one anywhere else.
 
 **`debug=True` is passed explicitly, and it selects an exception type rather than a log level.**
 Under `debug=False` a dead target surfaces as `ProcessLookupError`; under `debug=True` CPython
 *replaces* the live exception with a `RuntimeError` carrying a descriptive message and demotes the
-original to `__cause__`. It is not a verbosity setting and does not print anything. gcmon passes
-`True` because that is what the free function hardcoded, so the switch to `GCMonitor` changes what
-gcmon reads and not what it catches or logs.
+original to `__cause__`. It prints nothing. gcmon passes `True` because that is what the free
+`get_gc_stats` function hardcoded, so the switch to `GCMonitor` changes what gcmon reads and not
+what it catches or logs.
 
-`debug=False` gives strictly better signal: it is the only way to tell a target that has died from
-one whose GC layout does not match gcmon's build. Nothing consumes that distinction today, because
+`debug=False` gives better signal: it is the only way to tell a target that has died from one whose
+GC layout does not match gcmon's build. Nothing consumes that distinction today, because
 both collapse into `TargetUnavailable`. It becomes the right answer when something does.
 
-**An attachment is dropped on every failed read, and a failed attach is never cached.** Not only on
-`TargetUnavailable`, and not only on a read that proves the process is gone. Any failure at all.
-
-**On Windows, a held attachment pins the pid.** Attaching opens a process handle, and a held handle
-keeps the process object alive, so the operating system will not hand that pid to a new process
-while gcmon is attached. The pin covers exactly the interval gcmon holds the attachment, which is
-exactly the interval gcmon reads through it, so **no successful read on Windows can ever be served
-from a recycled pid**. The failing read that observes the death releases the pin, and gcmon reads
-that pid no further before dropping its cursors: the epoch advance that follows is bookkeeping
-against state gcmon already holds, not another look at the process.
-
-It does not cover the gap between the child listing naming a pid and the first attach to it. That
-gap exists on every platform, is not detectable from the reader's side, and is not addressed here.
+**gcmon holds an attachment only while its reads keep returning, and never remembers a failed
+attach.**
 
 ## Consequences
 
@@ -67,17 +50,25 @@ gap exists on every platform, is not detectable from the reader's side, and is n
   reads an unrelated process's memory at the old address. Every field gcmon wants is an integer
   copied out of memory, so the result is not a crash and not an error: it is a set of records that
   are structurally valid, pass every filter gcmon has, and reach the trace. A stale cursor makes a
-  number wrong; a stale attachment invents the data. That asymmetry is why the two share a prune
-  but not a tolerance.
+  number wrong; a stale attachment invents the data.
+
+- **A recycled pid cannot be read through a held attachment on Windows or macOS, and the two are
+  not the same guarantee.** Windows does not reuse the pid while gcmon holds a process handle,
+  so there is no successor to read. macOS reuses it as freely as Linux, but a read addresses a
+  Mach task port rather than the pid, so a stale attachment fails instead of reaching the
+  successor and the rule above drops it. Linux reuses the pid and its reads name it, so the
+  read succeeds against the successor and nothing observes the swap. That leaves Linux the one
+  platform exposed.
+  [Remote reads, per platform](../internals/remote-reads.md) carries the evidence, and anything
+  leaning on this has to say which platform it is on. None of it covers the gap between the child
+  listing naming a pid and the first attach to it, which exists everywhere and is not addressed
+  here.
 
 - **The window this closes is every one gcmon can detect, and no more.** A pid recycled between two
-  polls with no failing read in between is not detectable from the reader's side and is not
-  addressed here; it wants the pid-epoch machinery. Windows is not exposed to it, because of the
-  pin.
-
-- **A pid gcmon is attached to cannot be recycled on Windows**, which is a guarantee on one platform
-  and not on the others. Anything relying on it must say so, and must not read it as covering a pid
-  gcmon has merely been told about.
+  polls with no failing read in between is not detectable from the reader's side; it wants the
+  pid-epoch machinery, which
+  [spec 0052](../../specs/0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md) specifies.
+  Windows is not exposed to it, because of the pin.
 
 - **`gcmon.monitor` no longer names any exception type from `_remote_debugging`.** The platform
   vocabulary for an unreadable target, `ESRCH` on Linux and Windows, `ProcessLookupError` by name
@@ -139,9 +130,9 @@ gap exists on every platform, is not detectable from the reader's side, and is n
   remembered and a failed read followed by a fresh attach, against a counting stand-in for the
   attachment and against real subprocesses; `tests/benchmarks/test_bench_events_reader.py` for the
   gap the decision rests on, a held read measured against a fresh attach, which is where an
-  attachment rebuilt on every read would show; `tests/test_monitor.py` for both
-  arms of a poll, an unreadable target yielding `INVALID_PROCESS` with **no** warning and an
-  unrecognised failure yielding one with a traceback, since a test watching one arm passes with the
-  two swapped; `tests/monitoring/test_monitor.py` for the prune, a pid leaving the child listing
-  and a pid its policy gives up on each losing their attachment in the pass that drops their
-  cursors, and a failed child listing dropping neither.
+  attachment rebuilt on every read would show; `tests/test_monitor.py` for both arms of a poll, an
+  unreadable target yielding `INVALID_PROCESS` with **no** warning and an unrecognised failure
+  yielding one with a traceback, since a test watching one arm passes with the two swapped;
+  `tests/monitoring/test_monitor.py` for the prune, a pid leaving the child listing and a pid its
+  policy gives up on each losing their attachment in the pass that drops their cursors, and a
+  failed child listing dropping neither.
