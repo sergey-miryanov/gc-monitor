@@ -11,6 +11,7 @@ nothing else proves the adapter matches the API it adapts.
 import subprocess
 import sys
 import time
+from _remote_debugging import GCMonitor
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -375,6 +376,30 @@ class TestAgainstARealProcess:
         assert records, "a collecting target has rings to read"
         assert {r.gen for r in records} == {0, 1, 2}
         assert all(r.iid >= 0 for r in records)
+
+    def test_a_dead_target_raises_a_type_the_reader_translates(self) -> None:
+        """Evidence for the narrowed catch, gathered on each platform CI runs.
+
+        Windows reads through a process handle, macOS through a Mach task port
+        and Linux through ``process_vm_readv`` on the raw pid, so a dead target
+        reaches gcmon by three different routes. Anything outside this tuple
+        would reach the monitor as ``PollStatus.FAIL`` with a traceback, and a
+        target exiting is the ordinary end of a run.
+        """
+        with running_target() as target:
+            monitor = GCMonitor(target.pid, debug=True)
+            monitor.get_gc_stats(all_interpreters=True)
+            target.kill()
+
+            with pytest.raises(BaseException) as caught:
+                monitor.get_gc_stats(all_interpreters=True)
+
+        translated = (RuntimeError, ProcessLookupError, PermissionError)
+        cause = caught.value.__cause__
+        assert isinstance(caught.value, translated), (
+            f"a dead target raised {type(caught.value).__name__} "
+            f"(cause {type(cause).__name__ if cause else None}), which the reader does not translate"
+        )
 
     def test_a_target_that_exits_becomes_unavailable(self, remote_reader: RemoteEventsReader) -> None:
         with running_target() as target:
