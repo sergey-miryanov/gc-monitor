@@ -1,15 +1,6 @@
 """Reaching a process: one attachment per pid, held across many reads.
 
-Finding a target costs roughly two orders of magnitude more than reading it, so
-gcmon attaches once and reads many times. The pid becomes something gcmon
-*holds* rather than an argument it passes, and [ADR-0020] fixes the lifetime of
-what it holds.
-
-This is the only module in the package that imports a stateful handle from
-``_remote_debugging``, and the only one that names its exception types. Callers
-see :class:`TargetUnavailable` and nothing else about the platform underneath.
-
-[ADR-0020]: ../../docs/adr/0020-attach-to-a-process-once.md
+Read ADR-0020 for more.
 """
 
 from _remote_debugging import GCMonitor
@@ -25,21 +16,14 @@ class TargetUnavailable(Exception):
     """gcmon cannot read this process right now.
 
     It has not started yet, it has exited, gcmon may not look at it, or its GC
-    layout does not match the interpreter gcmon is running on. Every one of
-    those means the same thing to a wait policy, and ADR-0020 says why telling
-    them apart is not worth what it costs yet.
+    layout does not match the interpreter gcmon is running on. ADR-0020 says
+    why gcmon does not tell them apart.
     """
 
 
 @runtime_checkable
 class EventsReader(Protocol):
-    """Reads one process's GC records, and holds whatever that takes.
-
-    ``retain`` and ``forget`` are the pruning half. A reader is per-pid state,
-    so ADR-0017's rule applies to it: :class:`~gcmon.monitor.EventsMonitor`
-    owns it, prunes it in the one pass that prunes cursors and statistics, and
-    nothing prunes it anywhere else.
-    """
+    """Reads GC records per pid."""
 
     def read(self, pid: int) -> Sequence[TGCStatsInfo]:
         """Every record the target's rings currently hold.
@@ -58,12 +42,7 @@ class EventsReader(Protocol):
 
 
 class RemoteEventsReader(EventsReader):
-    """An :class:`EventsReader` backed by ``_remote_debugging.GCMonitor``.
-
-    Attaches lazily, on the first read of a pid, and holds the attachment until
-    a read fails or the monitor prunes it. Not safe to share between threads,
-    which is the same constraint the monitor it serves carries.
-    """
+    """An :class:`EventsReader` backed by ``_remote_debugging.GCMonitor``."""
 
     def __init__(self) -> None:
         self._monitors: dict[int, GCMonitor] = {}
@@ -78,8 +57,8 @@ class RemoteEventsReader(EventsReader):
         try:
             if monitor is None:
                 # debug=True selects the exception *type* CPython raises, not a
-                # log level; the free function this replaced hardcoded it, so
-                # gcmon catches and logs what it always did. ADR-0020.
+                # log level; the free get_gc_stats function hardcoded it, so
+                # gcmon catches and logs what it always did.
                 monitor = GCMonitor(pid, debug=True)
             records = monitor.get_gc_stats(all_interpreters=True)
         except (RuntimeError, OSError) as exc:

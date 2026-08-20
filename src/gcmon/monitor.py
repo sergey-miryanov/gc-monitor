@@ -69,9 +69,7 @@ class EventsMonitor:
         is_pid_enabled: Callable[[int], bool] | None = None,
     ) -> None:
         """
-        *reader* reads a process's records and holds whatever that takes. It has
-        no default: a caller that forgot to pass one would attach to whatever
-        process happens to hold the integer it used as a pid (ADR-0020).
+        *reader* reads a process's records.
 
         *wait_policy_factory* builds the per-pid policy that decides when a pid
         is finished.
