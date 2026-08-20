@@ -1,23 +1,24 @@
 """Benchmarks for reaching a monitored process.
 
-ADR-0020 attaches to a process once and reads it many times because finding a
-target costs roughly two orders of magnitude more than reading it. That gap is
-a cost and nothing else, so this is where a change that rebuilds the attachment
-on every read shows up. The two benchmarks are the two halves of the gap, and
-they are only worth reading against each other.
-
-Both drive the real ``_remote_debugging`` against a real subprocess. A read
+Benchmarks drive the real ``_remote_debugging`` against a real subprocess. A read
 copies the whole fixed-size ring whatever the target is doing, so the target's
-allocation rate does not move the measurement.
+allocation rate does not move the measurement. Read ADR-0020 for more details.
 """
 
 from __future__ import annotations
+
+from collections.abc import Sequence
 
 import pytest
 from pytest_codspeed import BenchmarkFixture
 
 from gcmon.events_reader import RemoteEventsReader
+from gcmon.protocol import TGCStatsInfo
 from tests.test_events_reader import running_target
+
+# Reads per measured call, enough that the work around the call does not set
+# the figure. Both benchmarks repeat the same count, so the pair stays a ratio.
+REPEATS = 50
 
 
 @pytest.mark.benchmark
@@ -31,7 +32,13 @@ def test_remote_reader_reads_a_held_attachment(benchmark: BenchmarkFixture) -> N
         reader = RemoteEventsReader()
         reader.read(target.pid)
 
-        records = benchmark(lambda: reader.read(target.pid))
+        def run() -> Sequence[TGCStatsInfo]:
+            records: Sequence[TGCStatsInfo] = ()
+            for _ in range(REPEATS):
+                records = reader.read(target.pid)
+            return records
+
+        records = benchmark(run)
 
     assert {r.gen for r in records} == {0, 1, 2}, "a real read yields a row per generation"
 
@@ -44,6 +51,13 @@ def test_remote_reader_attaches_and_reads(benchmark: BenchmarkFixture) -> None:
     CPython's attach cost rather than gcmon's, so a move in it is upstream news.
     """
     with running_target() as target:
-        records = benchmark(lambda: RemoteEventsReader().read(target.pid))
+
+        def run() -> Sequence[TGCStatsInfo]:
+            records: Sequence[TGCStatsInfo] = ()
+            for _ in range(REPEATS):
+                records = RemoteEventsReader().read(target.pid)
+            return records
+
+        records = benchmark(run)
 
     assert {r.gen for r in records} == {0, 1, 2}, "a real read yields a row per generation"
