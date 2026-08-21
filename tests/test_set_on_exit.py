@@ -1,10 +1,10 @@
-"""Tests for gcmon.utils.set_on_exit."""
+"""Tests for gcmon.support.set_on_exit."""
 
 import threading
 
 import pytest
 
-from gcmon.utils.set_on_exit import set_on_exit
+from gcmon.support.set_on_exit import set_on_exit
 
 
 class TestSetOnExit:

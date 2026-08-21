@@ -8,7 +8,7 @@ from .rss_sampler import RssSampler
 from .run_policy import Runner
 from .run_report import RunReport
 from .schedule import idle_to_next_position, position_of
-from .utils import set_on_exit
+from .support import set_on_exit
 
 __all__ = ["MonitorLoop"]
 

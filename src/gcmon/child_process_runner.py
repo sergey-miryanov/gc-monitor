@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Self, override
 
 from .control.control_server import set_control_env
+from .support.process_terminator import log_process_output, terminate_process
 from .target_process import TargetProcess
-from .utils.process_terminator import log_process_output, terminate_process
 
 __all__ = ["ChildProcess", "ChildProcessRunner"]
 

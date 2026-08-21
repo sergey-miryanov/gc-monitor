@@ -1,4 +1,4 @@
-"""Tests for gcmon.utils.replace_signals."""
+"""Tests for gcmon.support.replace_signals."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from collections.abc import Generator
 
 import pytest
 
-from gcmon.utils.replace_signals import replace_signals
+from gcmon.support.replace_signals import replace_signals
 
 
 @pytest.fixture

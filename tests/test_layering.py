@@ -33,8 +33,7 @@ ALLOWED: dict[str, frozenset[str]] = {
 """What each layer may import. The table lives here because it is a statement
 about the architecture, and this is where such a statement can fail."""
 
-LAYER_OF_MODULE: dict[str, str] = {
-    "utils": "support",
+STILL_FLAT: dict[str, str] = {
     "data": "model",
     "protocol": "model",
     "loss": "model",
@@ -42,10 +41,7 @@ LAYER_OF_MODULE: dict[str, str] = {
     "poll_status": "model",
     "schedule": "model",
     "run_report": "model",
-    "exporters": "exporters",
-    "stats": "stats",
     "stats_output": "stats",
-    "control": "control",
     "monitor": "monitoring",
     "monitor_loop": "monitoring",
     "events_reader": "monitoring",
@@ -54,15 +50,9 @@ LAYER_OF_MODULE: dict[str, str] = {
     "run_policy": "monitoring",
     "rss_sampler": "monitoring",
     "child_process_runner": "monitoring",
-    "pyperf": "pyperf",
-    "cli": "cli",
-    "commands": "cli",
-    "_env": "cli",
-    "__init__": "cli",
-    "__main__": "cli",
 }
-"""The layer of each module while the tree is flat. The directory replaces
-this table once the modules sit in one."""
+"""The modules still waiting for the directory that will answer for them.
+This table shrinks with each move and is gone once the tree is layered."""
 
 
 @dataclass(frozen=True)
@@ -79,8 +69,20 @@ class Import:
 
 
 def layer_of(module: str) -> str | None:
-    """The layer *module* belongs to, or None if the table does not place it."""
-    return LAYER_OF_MODULE.get(module.split(".")[0])
+    """The layer *module* belongs to.
+
+    The directory answers: a module under `stats/` is `stats`. Two rules make
+    that true without exceptions in the tree. `commands` is part of `cli`,
+    which is otherwise the package root, where `__init__.py` and `__main__.py`
+    have to live. A module still sitting at the root on its way to a layer is
+    named in `STILL_FLAT` until it moves.
+    """
+    head = module.split(".")[0]
+    if head in ALLOWED:
+        return head
+    if head == "commands":
+        return "cli"
+    return STILL_FLAT.get(head, "cli")
 
 
 def import_graph(root: Path) -> list[Import]:
@@ -169,11 +171,31 @@ class TestThePackageAsItStandsToday:
         assert any(edge.module == "monitor" and edge.imported.startswith("data") for edge in graph)
 
     def test_every_module_the_walk_sees_has_a_layer(self) -> None:
-        """A module the table does not place is skipped by ``violations``, so
-        an unplaced one would be guarded by nothing."""
+        """A module no rule places is skipped by ``violations``, so an
+        unplaced one would be guarded by nothing."""
         graph = import_graph(SRC)
         seen = {edge.module for edge in graph} | {edge.imported for edge in graph}
         assert [module for module in sorted(seen) if layer_of(module) is None] == []
+
+
+class TestTheLayerOfAModule:
+    """The directory answers, with the package root standing for `cli`."""
+
+    def test_a_module_in_a_layer_directory_belongs_to_that_layer(self) -> None:
+        assert layer_of("support.set_on_exit") == "support"
+        assert layer_of("exporters.exporter") == "exporters"
+
+    def test_the_subcommands_are_part_of_the_cli(self) -> None:
+        assert layer_of("commands.run_cmd") == "cli"
+
+    def test_a_module_at_the_package_root_is_cli(self) -> None:
+        assert layer_of("cli") == "cli"
+        assert layer_of("_env") == "cli"
+        assert layer_of("__init__") == "cli"
+
+    def test_a_module_still_at_the_root_keeps_its_layer_until_it_moves(self) -> None:
+        assert layer_of("monitor") == "monitoring"
+        assert layer_of("data") == "model"
 
 
 class TestAnImportThatCrossesTheWrongWay:

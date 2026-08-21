@@ -5,12 +5,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from gcmon.utils.process_terminator import log_process_output
+from gcmon.support.process_terminator import log_process_output
 
 
 @pytest.fixture(autouse=True)
 def logger_env(mock_logger: Mock) -> Generator[None]:
-    with patch("gcmon.utils.process_terminator._logger", mock_logger):
+    with patch("gcmon.support.process_terminator._logger", mock_logger):
         yield
 
 

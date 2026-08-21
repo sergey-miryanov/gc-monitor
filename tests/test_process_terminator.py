@@ -9,12 +9,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from gcmon.utils.process_terminator import _is_signal_exit_code, terminate_process
+from gcmon.support.process_terminator import _is_signal_exit_code, terminate_process
 
 
 @pytest.fixture
 def patched_logger(mock_logger: Mock) -> Generator[Mock]:
-    with patch("gcmon.utils.process_terminator._logger", mock_logger):
+    with patch("gcmon.support.process_terminator._logger", mock_logger):
         yield mock_logger
 
 
