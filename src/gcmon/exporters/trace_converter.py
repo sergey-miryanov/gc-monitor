@@ -2,7 +2,6 @@
 
 from collections.abc import Mapping, Sequence
 
-from ..model.data import duration_text, lost_collections, seen_text
 from ..model.protocol import (
     TGCStatsInfo,
     TGenLoss,
@@ -299,6 +298,59 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     )
 
     return events
+
+
+_DURATION_UNITS: tuple[tuple[int, str], ...] = (
+    (3_600_000_000_000, "h"),
+    (60_000_000_000, "m"),
+    (1_000_000_000, "s"),
+    (1_000_000, "ms"),
+    (1_000, "µs"),
+    (1, "ns"),
+)
+
+
+def duration_text(ns: int) -> str:
+    """*ns* broken into units, the way the Perfetto UI writes a duration.
+
+    ``3316458100`` comes out as ``3s 316ms 458µs 100ns``. Units that
+    contribute nothing drop out, and zero is ``0ns``.
+    """
+    if ns == 0:
+        return "0ns"
+
+    sign = "-" if ns < 0 else ""
+    rest = abs(ns)
+    parts: list[str] = []
+    for size, unit in _DURATION_UNITS:
+        value, rest = divmod(rest, size)
+        if value:
+            parts.append(f"{value}{unit}")
+
+    return sign + " ".join(parts)
+
+
+def seen_text(observed_count: int, lost_count: int) -> str:
+    """The share of an interval's records gcmon read.
+
+    ``87.0% (47 of 54)``. The ``--stats`` table's ``Cov`` spans a whole run;
+    this one spans a single poll interval.
+    """
+    total = observed_count + lost_count
+    if total == 0:
+        return "100.0% (0 of 0)"
+    return f"{100.0 * observed_count / total:.1f}% ({observed_count} of {total})"
+
+
+def lost_collections(lost_from: int, lost_count: int) -> str:
+    """The records an interval lost, as one string.
+
+    ``"11"`` for a single record, ``"2..383"`` for a range, both ends
+    included either way.
+    """
+    if lost_count == 1:
+        return str(lost_from)
+    return f"{lost_from}..{lost_from + lost_count - 1}"
 
 
 def _gen_loss_args(gen: TGenLoss) -> ArgGroup:
