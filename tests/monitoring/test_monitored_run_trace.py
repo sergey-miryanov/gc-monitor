@@ -74,7 +74,6 @@ from typing import Any, override
 from unittest.mock import patch
 
 import pytest
-from google.protobuf import text_format
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket, TrackEvent
 
 from gcmon.exporters.perfetto_exporter import PerfettoExporter
@@ -267,10 +266,7 @@ class MonitoredRun:
         return list(decoded.packet)
 
     def text(self) -> str:
-        return "".join(
-            f"--- packet {index} ---\n{text_format.MessageToString(packet)}"
-            for index, packet in enumerate(self.packets())
-        )
+        return "".join(f"--- packet {index} ---\n{packet}" for index, packet in enumerate(self.packets()))
 
     def pid_by_track(self) -> dict[int, int]:
         """Every descriptor carries the pid, on `ProcessDescriptor` or on

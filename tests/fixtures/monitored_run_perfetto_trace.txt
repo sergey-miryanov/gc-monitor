@@ -1692,7 +1692,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.0009772000000000001
+  double_counter_value: 0.00097720000000000012
 }
 --- packet 134 ---
 timestamp: 172256600
@@ -2678,7 +2678,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.09085610000000001
+  double_counter_value: 0.090856100000000009
 }
 --- packet 208 ---
 timestamp: 755971900
@@ -3968,7 +3968,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.09085610000000001
+  double_counter_value: 0.090856100000000009
 }
 --- packet 306 ---
 timestamp: 892971900
@@ -6926,7 +6926,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.2575467000000001
+  double_counter_value: 0.25754670000000007
 }
 --- packet 528 ---
 timestamp: 2098182000
@@ -7912,7 +7912,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.3355945000000001
+  double_counter_value: 0.33559450000000007
 }
 --- packet 602 ---
 timestamp: 2704523900
@@ -8216,7 +8216,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.3619668000000001
+  double_counter_value: 0.36196680000000009
 }
 --- packet 626 ---
 timestamp: 2883273400
@@ -8292,7 +8292,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.3677906000000001
+  double_counter_value: 0.36779060000000008
 }
 --- packet 632 ---
 timestamp: 2929526400
@@ -9280,7 +9280,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.3355945000000001
+  double_counter_value: 0.33559450000000007
 }
 --- packet 710 ---
 timestamp: 2841523900
@@ -9660,7 +9660,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.3796349000000001
+  double_counter_value: 0.37963490000000011
 }
 --- packet 740 ---
 timestamp: 3064300900
@@ -9736,7 +9736,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.3857068000000001
+  double_counter_value: 0.38570680000000013
 }
 --- packet 746 ---
 timestamp: 3106700400
@@ -10040,7 +10040,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.4085785000000001
+  double_counter_value: 0.40857850000000012
 }
 --- packet 770 ---
 timestamp: 3279303800
@@ -10116,7 +10116,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.4143599000000001
+  double_counter_value: 0.41435990000000011
 }
 --- packet 776 ---
 timestamp: 3322021100
@@ -10192,7 +10192,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.4205140000000001
+  double_counter_value: 0.42051400000000011
 }
 --- packet 782 ---
 timestamp: 3368542600
@@ -10268,7 +10268,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.4266511000000001
+  double_counter_value: 0.42665110000000012
 }
 --- packet 788 ---
 timestamp: 3412811400
@@ -10344,7 +10344,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.4323552000000001
+  double_counter_value: 0.43235520000000011
 }
 --- packet 794 ---
 timestamp: 3456333500
@@ -10420,7 +10420,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.4381314000000001
+  double_counter_value: 0.43813140000000012
 }
 --- packet 800 ---
 timestamp: 3499598800
@@ -10798,7 +10798,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.3796349000000001
+  double_counter_value: 0.37963490000000011
 }
 --- packet 826 ---
 timestamp: 3201300900
@@ -10874,7 +10874,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.3857068000000001
+  double_counter_value: 0.38570680000000013
 }
 --- packet 832 ---
 timestamp: 3243700400
@@ -11178,7 +11178,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.4085785000000001
+  double_counter_value: 0.40857850000000012
 }
 --- packet 856 ---
 timestamp: 3416303800
@@ -11254,7 +11254,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.4143599000000001
+  double_counter_value: 0.41435990000000011
 }
 --- packet 862 ---
 timestamp: 3459021100
@@ -11330,7 +11330,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.4205140000000001
+  double_counter_value: 0.42051400000000011
 }
 --- packet 868 ---
 timestamp: 3505542600
@@ -11406,7 +11406,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.4266511000000001
+  double_counter_value: 0.42665110000000012
 }
 --- packet 874 ---
 timestamp: 3549811400
@@ -11482,7 +11482,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.4323552000000001
+  double_counter_value: 0.43235520000000011
 }
 --- packet 880 ---
 timestamp: 3593333500
@@ -12164,7 +12164,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.4971353000000001
+  double_counter_value: 0.49713530000000011
 }
 --- packet 930 ---
 timestamp: 3969120400
@@ -12240,7 +12240,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.5031996000000001
+  double_counter_value: 0.50319960000000008
 }
 --- packet 936 ---
 timestamp: 4016088600
@@ -12316,7 +12316,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.5095578000000001
+  double_counter_value: 0.50955780000000006
 }
 --- packet 942 ---
 timestamp: 4060714200
@@ -12544,7 +12544,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.4381314000000001
+  double_counter_value: 0.43813140000000012
 }
 --- packet 960 ---
 timestamp: 3636598800
@@ -13304,7 +13304,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.4971353000000001
+  double_counter_value: 0.49713530000000011
 }
 --- packet 1020 ---
 timestamp: 4106120400
@@ -13380,7 +13380,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 24
-  double_counter_value: 0.5031996000000001
+  double_counter_value: 0.50319960000000008
 }
 --- packet 1026 ---
 timestamp: 4153088600
@@ -14366,7 +14366,7 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_COUNTER
   track_uuid: 6
-  double_counter_value: 0.5961704999999999
+  double_counter_value: 0.59617049999999994
 }
 --- packet 1100 ---
 timestamp: 4772349000

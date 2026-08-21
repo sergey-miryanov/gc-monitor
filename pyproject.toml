@@ -93,14 +93,6 @@ mypy_path = "./stubs"
 module = "perfetto.*"
 ignore_missing_imports = true
 
-# `google.protobuf.text_format` renders a decoded packet as the text a
-# fixture stores. Its shortest-repr floats are what keeps that fixture
-# readable as a diff; `str()` on the same message spells every one to 17
-# significant digits.
-[[tool.mypy.overrides]]
-module = "google.protobuf.*"
-ignore_missing_imports = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 tmp_path_retention_policy = "failed"
