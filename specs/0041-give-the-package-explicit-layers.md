@@ -53,23 +53,30 @@ The permitted edges, verified against the graph the package has today:
 |---|---|---|
 | support | the signal, termination and exit helpers | nothing in gcmon |
 | model | the record structs, the structural protocols, the phase table, units, the loss accumulator, the trace-event union, the poll status, the tick grid, the run report | support |
-| export | the exporters, encoders and converters | model, support |
+| exporters | the exporters, encoders and converters | model, support |
 | stats | the stats accumulator, the streaming aggregation, the stats table | model, support |
-| control | the parent-side server and child-side client | model, export, support |
-| monitoring | the monitor, the loop, the events reader, the process handles, the wait and run policies, the RSS sampler | model, export, stats, control, support |
-| integrations | the pyperf hook | everything below |
+| control | the parent-side server and child-side client | model, exporters, support |
+| monitoring | the monitor, the loop, the events reader, the process handles, the wait and run policies, the RSS sampler | model, exporters, stats, control, support |
+| pyperf | the pyperf hook | everything below |
 | cli | the entry point, the subcommands, the environment defaults | everything below |
 
-Two edges are worth stating because they look wrong and are not: `monitoring` imports `export`
-because the monitor writes through an exporter, and `control` imports `export` because the
-control server turns a child's message into an instant event. Both are downward.
+The layer is the directory, with one exception. `utils` becomes `support`, the only rename in
+this change; `exporters`, `control`, `commands` and `pyperf` keep their names, which is why two
+layers are named for a directory rather than for an abstraction over it; `model`, `stats` and
+`monitoring` are new. The exception is `cli`: it is the package root, where `__init__.py` and
+`__main__.py` have to live, plus `commands`. Making the root the top layer also makes the
+re-export shims of 4.3 legal without an exclusion rule, since a shim imports downward.
 
-`export` and `stats` have no edge between them in either direction. They are siblings, not a
+Two edges are worth stating because they look wrong and are not: `monitoring` imports
+`exporters` because the monitor writes through an exporter, and `control` imports `exporters`
+because the control server turns a child's message into an instant event. Both are downward.
+
+`exporters` and `stats` have no edge between them in either direction. They are siblings, not a
 sequence, which is why this is a partial order: a numeric rank would invent an ordering the
 code does not have and would make one of the two look subordinate.
 
-Four permitted edges are unused. Nothing in `model`, `export`, `stats` or `control` imports
-`support` today; only `monitoring`, `integrations` and `cli` do. The column states what a layer
+Four permitted edges are unused. Nothing in `model`, `exporters`, `stats` or `control` imports
+`support` today; only `monitoring`, `pyperf` and `cli` do. The column states what a layer
 may import, not what it does, so the test passes either way. Narrowing the column to the edges
 that exist would keep the termination and signal helpers out of the bottom four layers, and
 costs a rule to relax the first time one of those layers needs one.
@@ -135,7 +142,7 @@ interfaces. It forces a public/private split on all seven in one change, and nee
 and a second failure message against 4.2's one. Worth revisiting once the layers have held long
 enough to show where each surface belongs.
 
-**Open, to settle when picked up:** whether `integrations` is a layer or whether the pyperf hook
+**Open, to settle when picked up:** whether `pyperf` is a layer of its own or whether the hook
 simply sits at the CLI level. It is the only member and it imports from five layers below, which
 is the CLI's profile. Settled by whether a second integration ever appears.
 
@@ -162,15 +169,17 @@ is the CLI's profile. Settled by whether a second integration ever appears.
      first job is to record it.
   2. A deliberately added upward import (the record model importing the CLI) fails with both
      module names in the message.
-  3. A sideways import between `export` and `stats` fails, since they have no edge.
+  3. A sideways import between `exporters` and `stats` fails, since they have no edge.
   4. Regression guard: the full suite passes with only import lines changed, and `gcmon run`
      over a fixture produces byte-identical output on all five formats.
 
 ## 6. Out of scope
 
 - Splitting any module. [0039](0039-split-the-record-model-and-stats-by-concern.md) splits the
-  record model and the stats module by concern; this places the results. **0039 should land
-  first**, or the same files move twice.
+  record model and the stats module by concern; this places the results. **0041 lands first**:
+  the layering test then exists before 0039 splits anything, so its new modules are placed by a
+  rule that fails when they land wrong. The cost is that the record model and the stats module
+  move twice, and the ADR path lines naming them are amended twice.
 - Changing what any module does. Every violation this could surface is hypothetical: there are
   none today.
 - The `stats_output` dependency in the environment-defaults module, which imports it for the
