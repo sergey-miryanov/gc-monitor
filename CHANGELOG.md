@@ -4,12 +4,8 @@
 
 ### Breaking changes
 
-- `gcmon.utils` is gone: the signal, termination and exit helpers are `gcmon.support` now
-- Every deep import path moved under the layer it belongs to: `gcmon.data` to `gcmon.model.data`, `gcmon.stats` to `gcmon.stats.stats`, `gcmon.monitor` to `gcmon.monitoring.monitor`, and the rest. The old spellings are gone. Names imported from `gcmon` directly are unaffected, as is `gcmon.control.control_client`
+- The modules moved into layers, so every deep import path changed and the old ones are gone. `from gcmon import ...` still gives the same names
 
-### Internal
-
-- Stability, correctness and performance improvements
 
 ## Version 0.6.0 (2026-08-21)
 
