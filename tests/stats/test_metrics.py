@@ -36,10 +36,12 @@ class TestPauseMetric:
         assert ts_start == 1000
         assert ts_stop == 5000
 
-    def test_get_values_without_pause_ts(
+    def test_a_zero_length_pause_reads_as_zero(
         self,
         gc_stats_item_factory: Callable[..., GCStatsInfo],
     ) -> None:
+        """Every GC record carries `ts_start`, so `has_pause_ts` holds for all of
+        them and `PauseMetric` has no missing-field case its siblings have."""
         metric = PauseMetric()
         item = gc_stats_item_factory(ts_start=0, ts_stop=0)
         ts_start, ts_stop = metric.get_values(item)

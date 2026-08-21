@@ -265,6 +265,12 @@ class TestCombineFiles:
         with pytest.raises(ValueError, match="not supported"):
             combine_files([], tmp_path / "out.jsonl", input_format="chrome", output_format="jsonl")
 
+    def test_an_unknown_output_format_raises(self, tmp_path: Path) -> None:
+        """`cmd_combine` never reaches this: argparse `choices` refuses the word
+        first. A caller of `combine_files` does not go through argparse."""
+        with pytest.raises(ValueError, match="Unsupported output format"):
+            combine_files([], tmp_path / "out.bin", input_format="jsonl", output_format="protobuf")
+
     def test_normalize_chrome(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.json"
         out = tmp_path / "out.json"
