@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.data import GCStatsInfo
 from gcmon.exporters._buffered_exporter import BufferedTraceExporter
 from gcmon.exporters.chrome_trace_exporter import TraceExporter
 from gcmon.exporters.encoder import JsonEventEncoder
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.exporters.jsonl_exporter import JsonlExporter
 from gcmon.exporters.stdout_exporter import StdoutExporter
-from gcmon.trace_event import RSS_TID, BeginEvent, CounterEvent, EndEvent, ProcessMeta, ThreadMeta, loss_tid
+from gcmon.model.data import GCStatsInfo
+from gcmon.model.trace_event import RSS_TID, BeginEvent, CounterEvent, EndEvent, ProcessMeta, ThreadMeta, loss_tid
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_loss_item, create_mock_stats_item
 

@@ -6,7 +6,7 @@ from collections.abc import Set
 from pathlib import Path
 from typing import override
 
-from ..protocol import TGCStatsInfo, TInstantMsg, TLossMsg
+from ..model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 from .exporter import EventsExporter
 
 __all__ = ["CombinedTraceExporter", "derive_combined_paths"]

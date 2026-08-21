@@ -29,7 +29,7 @@ in the key.
 ## Decision
 
 **The ring is the unit statistics are keyed on and reported for.** `gcmon.stats` keys sampled
-metrics, loss and lifetime totals on `(pid, iid, gen)`, the key `gcmon.loss` uses for its
+metrics, loss and lifetime totals on `(pid, iid, gen)`, the key `gcmon.model.loss` uses for its
 accumulators and the one the exporters draw. gcmon folds when it reads a figure, so a ring's own
 number and a roll-up over rings both stay available.
 

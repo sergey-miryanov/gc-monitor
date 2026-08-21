@@ -13,7 +13,7 @@ from gcmon.exporters.encoder import (
     ProtobufEventEncoder,
     convert_trace_events_to_perfetto,  # noqa: F401  (used via monkeypatch.setattr)
 )
-from gcmon.trace_event import process_meta
+from gcmon.model.trace_event import process_meta
 
 
 class TestJsonEventEncoder:

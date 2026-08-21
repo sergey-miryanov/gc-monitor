@@ -13,7 +13,7 @@ import pytest
 from pytest_codspeed import BenchmarkFixture
 
 from gcmon.events_reader import RemoteEventsReader
-from gcmon.protocol import TGCStatsInfo
+from gcmon.model.protocol import TGCStatsInfo
 from tests.test_events_reader import running_target
 
 # Reads per measured call, enough that the work around the call does not set

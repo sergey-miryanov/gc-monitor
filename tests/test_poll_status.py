@@ -1,6 +1,6 @@
 import pytest
 
-from gcmon.poll_status import PollStatus
+from gcmon.model.poll_status import PollStatus
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Set
 
-from ..protocol import TGCStatsInfo, TInstantMsg, TLossMsg
+from ..model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 
 __all__ = ["EventsExporter"]
 

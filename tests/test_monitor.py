@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gcmon.events_reader import TargetUnavailable
+from gcmon.model.poll_status import PollStatus
+from gcmon.model.protocol import TGCStatsInfo
 from gcmon.monitor import EventsMonitor
-from gcmon.poll_status import PollStatus
-from gcmon.protocol import TGCStatsInfo
 from gcmon.stats import StreamingStats
 from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 

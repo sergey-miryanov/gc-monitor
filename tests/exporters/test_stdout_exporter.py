@@ -6,10 +6,10 @@ from typing import Any
 
 import pytest
 
-from gcmon.data import LossMsg
 from gcmon.exporters import StdoutExporter
-from gcmon.protocol import TGCStatsInfo
-from gcmon.trace_event import loss_tid
+from gcmon.model.data import LossMsg
+from gcmon.model.protocol import TGCStatsInfo
+from gcmon.model.trace_event import loss_tid
 from tests.conftest import DEFAULT_PID
 from tests.helpers import create_mock_loss_item, create_mock_stats_item
 

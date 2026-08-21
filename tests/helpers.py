@@ -6,10 +6,10 @@ from collections.abc import Callable, Mapping, Sequence, Set
 from pathlib import Path
 from typing import override
 
-from gcmon.data import GCStatsInfo, GenLoss, LossMsg
 from gcmon.events_reader import EventsReader
 from gcmon.exporters.exporter import EventsExporter
-from gcmon.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
+from gcmon.model.data import GCStatsInfo, GenLoss, LossMsg
+from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 
 _JsonValue = int | float | str
 ChromeTraceValue = _JsonValue | Mapping[str, _JsonValue]

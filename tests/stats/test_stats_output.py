@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.data import GCStatsInfo
-from gcmon.run_report import RunReport
+from gcmon.model.data import GCStatsInfo
+from gcmon.model.run_report import RunReport
 from gcmon.stats import Stats, StreamingStats
 from gcmon.stats_output import (
     STATS_OFF_WORDS,

@@ -57,7 +57,7 @@ carrying independent metadata at each end is not derivable from a complete event
 
 ## Implementation
 
-- `src/gcmon/trace_event.py` holds the begin and end event types and their factories.
+- `src/gcmon/model/trace_event.py` holds the begin and end event types and their factories.
 - `src/gcmon/exporters/trace_converter.py` emits the pairs.
 - `src/gcmon/exporters/chrome_trace_io.py` parses `"B"` / `"E"` on the way in, and
   normalizes timestamps across `"B"`, `"E"`, `"C"` and `"I"`.

@@ -6,8 +6,8 @@ import threading
 from pathlib import Path
 from typing import override
 
-from ..protocol import TGCStatsInfo, TInstantMsg, TLossMsg
-from ..trace_event import RSS_TID, TraceEvent, counter_event, instant_event, loss_tid, process_meta, thread_meta
+from ..model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
+from ..model.trace_event import RSS_TID, TraceEvent, counter_event, instant_event, loss_tid, process_meta, thread_meta
 from .encoder import EventEncoder
 from .exporter import EventsExporter
 from .trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format

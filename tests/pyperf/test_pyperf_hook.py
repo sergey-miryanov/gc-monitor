@@ -8,9 +8,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from gcmon.data import GCStatsInfo
 from gcmon.exporters.chrome_trace_io import read_jsonl
-from gcmon.protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
+from gcmon.model.data import GCStatsInfo
+from gcmon.model.protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
 from gcmon.pyperf.hook import (
     _get_env_pyperf_hook_control_timeout,
     _replay,

@@ -8,9 +8,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from gcmon.data import GCStatsInfo, InstantMsg
+from gcmon.model.data import GCStatsInfo, InstantMsg
+from gcmon.model.protocol import TGCStatsInfo, TMapping, to_mapping
 from gcmon.monitor import EventsMonitor
-from gcmon.protocol import TGCStatsInfo, TMapping, to_mapping
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import no_wait_policy

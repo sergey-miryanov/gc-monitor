@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 
 from gcmon.events_reader import RemoteEventsReader, TargetUnavailable
-from gcmon.protocol import TGCStatsInfo
+from gcmon.model.protocol import TGCStatsInfo
 from tests.helpers import create_mock_stats_item
 
 # A pid no process holds. Only used where the reader must fail before it

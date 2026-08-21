@@ -6,7 +6,6 @@ from pathlib import Path
 import msgspec
 import pytest
 
-from gcmon.data import GCStatsInfo, LossMsg
 from gcmon.exporters.chrome_trace_io import (
     _normalize_jsonl_timestamps,
     _normalize_trace_timestamps,
@@ -17,8 +16,9 @@ from gcmon.exporters.chrome_trace_io import (
     read_jsonl,
     write_jsonl,
 )
-from gcmon.protocol import has_incremental
-from gcmon.trace_event import (
+from gcmon.model.data import GCStatsInfo, LossMsg
+from gcmon.model.protocol import has_incremental
+from gcmon.model.trace_event import (
     EventArgs,
     TraceEvent,
     begin_event,

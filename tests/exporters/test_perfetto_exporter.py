@@ -10,11 +10,11 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
     TrackEvent,
 )
 
-from gcmon.data import GCStatsInfo
 from gcmon.exporters import PerfettoExporter
 from gcmon.exporters.perfetto_format import (
     TrackEventType,
 )
+from gcmon.model.data import GCStatsInfo
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory

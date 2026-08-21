@@ -2,10 +2,10 @@
 
 import json
 
-from gcmon.data import GCStatsInfo
 from gcmon.exporters import JsonlExporter
 from gcmon.exporters.chrome_trace_io import read_jsonl
-from gcmon.trace_event import loss_tid
+from gcmon.model.data import GCStatsInfo
+from gcmon.model.trace_event import loss_tid
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory, JsonlFileReader

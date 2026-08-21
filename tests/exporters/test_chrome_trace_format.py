@@ -6,14 +6,14 @@ import msgspec
 import pytest
 from msgspec import structs
 
-from gcmon.data import GCStatsInfo, GenLoss, LossMsg
 from gcmon.exporters.chrome_trace_format import (
     convert_item_to_trace_format,
     convert_to_trace_format,
 )
 from gcmon.exporters.trace_converter import convert_loss_to_trace_format
-from gcmon.protocol import TGCStatsInfo, TInstantMsg, TItem
-from gcmon.trace_event import (
+from gcmon.model.data import GCStatsInfo, GenLoss, LossMsg
+from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TItem
+from gcmon.model.trace_event import (
     BeginEvent,
     CounterEvent,
     EndEvent,

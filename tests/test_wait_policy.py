@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from gcmon.poll_status import PollStatus
+from gcmon.model.poll_status import PollStatus
 from gcmon.wait_policy import NoWaitPolicy, StartupTimeoutPolicy
 from gcmon.wait_policy import no_wait_policy as make_no_wait_policy
 

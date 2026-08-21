@@ -11,7 +11,7 @@ importer needs one name.
 
 from collections.abc import Sequence
 
-from ..trace_event import (
+from ..model.trace_event import (
     LOSS_TID_BASE,
     BeginEvent,
     CounterEvent,

@@ -3,7 +3,7 @@
 One BEGIN/END pair per pid on one shared track. See ADR-0011.
 """
 
-from ..trace_event import ProcessMeta, ThreadMeta, TraceEvent
+from ..model.trace_event import ProcessMeta, ThreadMeta, TraceEvent
 from .perfetto_builders import (
     _build_debug_annotation_int,
     _build_debug_annotation_string,

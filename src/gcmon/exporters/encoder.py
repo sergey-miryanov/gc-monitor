@@ -18,8 +18,8 @@ from typing import Protocol
 
 import msgspec
 
-from ..data import ts_to_us
-from ..trace_event import ProcessMeta, TraceEvent
+from ..model.data import ts_to_us
+from ..model.trace_event import ProcessMeta, TraceEvent
 from .perfetto_format import (
     PerfettoTrackState,
     TraceField,

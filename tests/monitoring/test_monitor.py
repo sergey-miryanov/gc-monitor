@@ -4,10 +4,10 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from gcmon.data import GCStatsInfo
 from gcmon.events_reader import TargetUnavailable
+from gcmon.model.data import GCStatsInfo
+from gcmon.model.protocol import TGCStatsInfo
 from gcmon.monitor import EventsMonitor, PollReport
-from gcmon.protocol import TGCStatsInfo
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import WaitPolicy, WaitPolicyFactory, no_wait_policy

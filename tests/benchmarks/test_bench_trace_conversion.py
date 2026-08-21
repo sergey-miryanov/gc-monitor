@@ -14,7 +14,7 @@ from gcmon.exporters.trace_converter import (
     convert_item_to_trace_format,
     convert_to_trace_format,
 )
-from gcmon.protocol import TGCStatsInfo, TInstantMsg
+from gcmon.model.protocol import TGCStatsInfo, TInstantMsg
 
 from .conftest import make_gc_event
 

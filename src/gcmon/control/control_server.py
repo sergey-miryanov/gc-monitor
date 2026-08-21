@@ -14,8 +14,8 @@ from typing import Self
 
 import msgspec
 
-from gcmon.data import instant_msg
 from gcmon.exporters.exporter import EventsExporter
+from gcmon.model.data import instant_msg
 
 logger = logging.getLogger("gcmon")
 

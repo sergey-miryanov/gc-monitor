@@ -1,22 +1,12 @@
-import msgspec
+"""The run report moved to :mod:`gcmon.model.run_report`.
 
-OVERRUN_SHARE = 0.1
-"""How much of a run has to go missing before gcmon calls it an overrun (ADR-0019)."""
+A shim for the deep path, which goes one release from now. Import
+``gcmon.model.run_report`` instead.
+"""
+
+from gcmon.model import run_report as _moved
 
 
-class RunReport(msgspec.Struct):
-    """What one run of the monitoring loop did with its schedule.
-
-    ``ticks_scheduled`` is how many ticks the rate asked for, ``ticks_run`` how
-    many ran. See ADR-0019.
-    """
-
-    ticks_run: int
-    ticks_scheduled: int
-
-    @property
-    def overran(self) -> bool:
-        if self.ticks_scheduled <= 0:
-            return False
-        missed = self.ticks_scheduled - self.ticks_run
-        return missed / self.ticks_scheduled > OVERRUN_SHARE
+def __getattr__(name: str) -> object:
+    """Answer with whatever ``gcmon.model.run_report`` holds under *name*."""
+    return getattr(_moved, name)

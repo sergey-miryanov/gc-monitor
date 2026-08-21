@@ -15,15 +15,15 @@ from collections.abc import Iterator, Sequence
 from typing import override
 from unittest.mock import patch
 
-from gcmon.data import GCStatsInfo
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.exporters.trace_converter import convert_to_trace_format
+from gcmon.model.data import GCStatsInfo
+from gcmon.model.poll_status import PollStatus
+from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TItem, TLossMsg
+from gcmon.model.trace_event import LOSS_TID_BASE, BeginEvent, EndEvent
 from gcmon.monitor import EventsMonitor
-from gcmon.poll_status import PollStatus
-from gcmon.protocol import TGCStatsInfo, TInstantMsg, TItem, TLossMsg
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
-from gcmon.trace_event import LOSS_TID_BASE, BeginEvent, EndEvent
 from gcmon.wait_policy import no_wait_policy
 from tests.helpers import FakeEventsReader, create_mock_stats_item
 

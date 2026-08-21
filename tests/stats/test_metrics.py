@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from gcmon.data import GCStatsInfo
+from gcmon.model.data import GCStatsInfo
 from gcmon.stats import (
     METRICS,
     ClearWeakrefsMetric,

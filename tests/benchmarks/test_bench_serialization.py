@@ -13,13 +13,13 @@ import msgspec
 import pytest
 from pytest_codspeed import BenchmarkFixture
 
-from gcmon.data import from_mapping
 from gcmon.exporters.chrome_trace_io import (
     convert_jsonl_to_trace_format,
     read_jsonl,
     write_jsonl,
 )
-from gcmon.protocol import TGCStatsInfo, TInstantMsg, to_mapping
+from gcmon.model.data import from_mapping
+from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, to_mapping
 
 from .conftest import make_gc_event, make_jsonl_record
 

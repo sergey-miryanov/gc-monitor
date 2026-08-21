@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from gcmon.data import GCStatsInfo
+from gcmon.model.data import GCStatsInfo
 from gcmon.stats import Stats, StreamingStats
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
 

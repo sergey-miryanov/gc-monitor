@@ -4,8 +4,8 @@ import math
 import os
 from pathlib import Path
 
-from .data import secs_to_ns
-from .schedule import MIN_RATE_NS
+from .model.data import secs_to_ns
+from .model.schedule import MIN_RATE_NS
 from .stats_output import TableFormat
 
 # Environment variable names for CLI options

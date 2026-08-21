@@ -9,8 +9,8 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TextIO, override
 
-from ..protocol import JsonlRecord, TGCStatsInfo, TInstantMsg, TLossMsg, to_mapping
-from ..trace_event import loss_tid
+from ..model.protocol import JsonlRecord, TGCStatsInfo, TInstantMsg, TLossMsg, to_mapping
+from ..model.trace_event import loss_tid
 from .exporter import EventsExporter
 
 __all__ = ["JsonlExporter"]

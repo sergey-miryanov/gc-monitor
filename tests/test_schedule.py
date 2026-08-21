@@ -6,7 +6,7 @@ one a tick ended on. See ADR-0019.
 
 import pytest
 
-from gcmon.schedule import MIN_IDLE_NS, idle_to_next_position, position_of
+from gcmon.model.schedule import MIN_IDLE_NS, idle_to_next_position, position_of
 
 
 class TestThePositionOfAnInstant:

@@ -2,8 +2,8 @@
 
 from collections.abc import Mapping, Sequence
 
-from ..data import duration_text, lost_collections, seen_text
-from ..protocol import (
+from ..model.data import duration_text, lost_collections, seen_text
+from ..model.protocol import (
     TGCStatsInfo,
     TGenLoss,
     TItem,
@@ -20,7 +20,7 @@ from ..protocol import (
     is_instant,
     is_loss,
 )
-from ..trace_event import (
+from ..model.trace_event import (
     ArgGroup,
     EventArgs,
     TraceEvent,

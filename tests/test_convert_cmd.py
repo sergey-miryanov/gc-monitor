@@ -10,7 +10,7 @@ import msgspec
 import pytest
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket
 
-from gcmon.trace_event import (
+from gcmon.model.trace_event import (
     BeginEvent,
     EndEvent,
     EventArgs,

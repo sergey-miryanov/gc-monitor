@@ -1,4 +1,4 @@
-from gcmon.data import InstantMsg
+from gcmon.model.data import InstantMsg
 
 
 def create_instant_msg(name: str = "start GC monitor", ts: int = 5_000_000) -> InstantMsg:

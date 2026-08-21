@@ -26,7 +26,7 @@ from gcmon.exporters import (
 from gcmon.exporters.perfetto_format import (
     TrackEventType,
 )
-from gcmon.protocol import TGCStatsInfo, TInstantMsg
+from gcmon.model.protocol import TGCStatsInfo, TInstantMsg
 from tests.data_helpers import create_instant_msg
 from tests.helpers import JsonlRecord, create_mock_stats_item
 

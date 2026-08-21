@@ -1,6 +1,6 @@
 import pytest
 
-from gcmon.run_report import RunReport
+from gcmon.model.run_report import RunReport
 
 
 class TestRunReportOverran:

@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from gcmon.data import GCStatsInfo, GenLoss, InstantMsg, LossMsg
-from gcmon.protocol import (
+from gcmon.model.data import GCStatsInfo, GenLoss, InstantMsg, LossMsg
+from gcmon.model.protocol import (
     has_clear_weakrefs,
     has_deduce_unreachable,
     has_delete_garbage,

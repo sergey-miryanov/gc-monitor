@@ -30,8 +30,8 @@ import pytest
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from gcmon.exporters.chrome_trace_io import combine_files, read_jsonl, write_jsonl
-from gcmon.protocol import TItem, is_loss
-from gcmon.trace_event import loss_tid
+from gcmon.model.protocol import TItem, is_loss
+from gcmon.model.trace_event import loss_tid
 from tests.exporters.loss_row import (
     IID,
     PID,

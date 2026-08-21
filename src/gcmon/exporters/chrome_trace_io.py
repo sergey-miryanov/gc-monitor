@@ -5,8 +5,8 @@ from pathlib import Path
 
 import msgspec
 
-from ..data import from_mapping
-from ..protocol import (
+from ..model.data import from_mapping
+from ..model.protocol import (
     JsonlRecord,
     TItem,
     TMapping,
@@ -23,7 +23,7 @@ from ..protocol import (
     is_loss,
     to_mapping,
 )
-from ..trace_event import (
+from ..model.trace_event import (
     BeginEvent,
     CounterEvent,
     EndEvent,

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gcmon.data import GCStatsInfo
+from gcmon.model.data import GCStatsInfo
 
 
 def make_gc_event(i: int, *, pid: int = 12345, iid: int = 0, gen: int = 0) -> GCStatsInfo:

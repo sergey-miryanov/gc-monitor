@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.data import GCStatsInfo, ts_to_us
 from gcmon.events_reader import TargetUnavailable
 from gcmon.exporters import TraceExporter
+from gcmon.model.data import GCStatsInfo, ts_to_us
+from gcmon.model.trace_event import loss_tid
 from gcmon.monitor import EventsMonitor
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
-from gcmon.trace_event import loss_tid
 from gcmon.wait_policy import no_wait_policy
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
@@ -555,7 +555,7 @@ class TestGCMonitorStreaming:
 
         reader.reads = side_effect
 
-        from gcmon.poll_status import PollStatus
+        from gcmon.model.poll_status import PollStatus
 
         assert monitor._poll(12345) == PollStatus.OK
         result = monitor._poll(12345)

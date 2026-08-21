@@ -11,9 +11,9 @@ from itertools import count
 
 import pytest
 
-from gcmon.data import GCStatsInfo
+from gcmon.model.data import GCStatsInfo
+from gcmon.model.poll_status import PollStatus
 from gcmon.monitor import EventsMonitor
-from gcmon.poll_status import PollStatus
 from gcmon.stats import StreamingStats
 from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 

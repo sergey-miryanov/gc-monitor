@@ -19,12 +19,12 @@ from pathlib import Path
 import pytest
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
-from gcmon.data import GCStatsInfo, LossMsg
 from gcmon.exporters.perfetto_builders import build_trace
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format
-from gcmon.trace_event import TraceEvent, process_meta, thread_meta
+from gcmon.model.data import GCStatsInfo, LossMsg
+from gcmon.model.trace_event import TraceEvent, process_meta, thread_meta
 from tests.helpers import create_mock_loss_item
 
 pytestmark = pytest.mark.fuzz

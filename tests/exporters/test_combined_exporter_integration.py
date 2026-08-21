@@ -14,9 +14,9 @@ from pathlib import Path
 
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
-from gcmon.data import GCStatsInfo
 from gcmon.exporters import PerfettoExporter, TraceExporter
 from gcmon.exporters.combined_exporter import CombinedTraceExporter
+from gcmon.model.data import GCStatsInfo
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item

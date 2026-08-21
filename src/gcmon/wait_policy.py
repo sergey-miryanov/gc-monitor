@@ -1,7 +1,7 @@
 import time
 from typing import Protocol, override, runtime_checkable
 
-from .poll_status import PollStatus
+from .model.poll_status import PollStatus
 
 
 @runtime_checkable

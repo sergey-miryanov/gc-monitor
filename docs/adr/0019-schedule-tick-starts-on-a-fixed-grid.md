@@ -107,8 +107,8 @@ joins the summary rather than the loop.
 
 - Two leaf modules carry what has to reach the option parser without dragging the loop behind it.
   `_env` and the parser both import `stats_output`, so importing `monitor_loop` there would pull the
-  monitor in behind every environment read. `src/gcmon/schedule.py` holds `MIN_IDLE_NS`,
-  `MIN_RATE_NS` and the grid arithmetic; `src/gcmon/run_report.py` holds the run report and
+  monitor in behind every environment read. `src/gcmon/model/schedule.py` holds `MIN_IDLE_NS`,
+  `MIN_RATE_NS` and the grid arithmetic; `src/gcmon/model/run_report.py` holds the run report and
   `OVERRUN_SHARE`, which crosses from the loop to the summary. The per-poll report sits in
   `src/gcmon/monitor.py`, beside what produces it, and needs neither.
 - `src/gcmon/monitor_loop.py` holds the two clock reads.

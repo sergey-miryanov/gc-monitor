@@ -66,8 +66,8 @@ from unittest.mock import patch
 
 import pytest
 
-from gcmon.data import GCStatsInfo
 from gcmon.exporters.chrome_trace_exporter import TraceExporter
+from gcmon.model.data import GCStatsInfo
 from gcmon.monitor import EventsMonitor
 from gcmon.monitor_loop import MonitorLoop
 from gcmon.run_policy import Runner

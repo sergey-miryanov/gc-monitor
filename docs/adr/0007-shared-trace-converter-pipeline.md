@@ -25,7 +25,7 @@ A single pipeline `TGCStatsInfo → list[TraceEvent]` lives in
 the naming strings.
 
 `TraceEvent`, the union of the begin, end, instant and counter events plus `ProcessMeta`
-and `ThreadMeta` in `src/gcmon/trace_event.py`, is the contract between the converter and
+and `ThreadMeta` in `src/gcmon/model/trace_event.py`, is the contract between the converter and
 the backends. Each backend consumes that list and does nothing but encode: Chrome to JSON,
 Perfetto to protobuf. Neither inspects `TGCStatsInfo` fields any more. Track UUID
 management stays where it was, and cmdline handling is untouched.
@@ -78,7 +78,7 @@ defensively if a `ThreadMeta` arrives first, but callers should not rely on that
 
 - `src/gcmon/exporters/trace_converter.py` converts one record, and a whole batch, to
   `TraceEvent`s.
-- `src/gcmon/trace_event.py` holds the `TraceEvent` union and its factories.
+- `src/gcmon/model/trace_event.py` holds the `TraceEvent` union and its factories.
 - `src/gcmon/exporters/perfetto_format.py` encodes those events, emitting a counter track's
   descriptor and its UUID together so the call site does not look the UUID up twice.
 - `src/gcmon/monitor.py` keeps the per-`(pid, iid, gen)` `collections` cursor and applies

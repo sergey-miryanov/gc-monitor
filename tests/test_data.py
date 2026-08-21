@@ -1,7 +1,7 @@
 import msgspec
 import pytest
 
-from gcmon.data import (
+from gcmon.model.data import (
     GCStatsInfo,
     GenLoss,
     InstantMsg,
@@ -11,7 +11,7 @@ from gcmon.data import (
     instant_msg,
     seen_text,
 )
-from gcmon.protocol import TMapping, has_deduce_unreachable, has_incremental, has_mark_alive, to_mapping
+from gcmon.model.protocol import TMapping, has_deduce_unreachable, has_incremental, has_mark_alive, to_mapping
 
 
 class TestGCStatsInfo:

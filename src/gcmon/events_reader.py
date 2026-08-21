@@ -7,7 +7,7 @@ from _remote_debugging import GCMonitor
 from collections.abc import Sequence, Set
 from typing import Protocol, override, runtime_checkable
 
-from .protocol import TGCStatsInfo
+from .model.protocol import TGCStatsInfo
 
 __all__ = ["EventsReader", "RemoteEventsReader", "TargetUnavailable"]
 

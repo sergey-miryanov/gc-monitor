@@ -20,11 +20,11 @@ from typing import override
 import msgspec.structs
 import pytest
 
-from gcmon.data import GCStatsInfo, secs_to_ns
 from gcmon.exporters.exporter import EventsExporter
-from gcmon.loss import RingAccumulator
+from gcmon.model.data import GCStatsInfo, secs_to_ns
+from gcmon.model.loss import RingAccumulator
+from gcmon.model.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.monitor import EventsMonitor
-from gcmon.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import no_wait_policy

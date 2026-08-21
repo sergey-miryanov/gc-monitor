@@ -34,13 +34,6 @@ ALLOWED: dict[str, frozenset[str]] = {
 about the architecture, and this is where such a statement can fail."""
 
 STILL_FLAT: dict[str, str] = {
-    "data": "model",
-    "protocol": "model",
-    "loss": "model",
-    "trace_event": "model",
-    "poll_status": "model",
-    "schedule": "model",
-    "run_report": "model",
     "stats_output": "stats",
     "monitor": "monitoring",
     "monitor_loop": "monitoring",
@@ -168,7 +161,7 @@ class TestThePackageAsItStandsToday:
         """A walk that found nothing would also report no violations."""
         graph = import_graph(SRC)
         assert len(graph) > 50
-        assert any(edge.module == "monitor" and edge.imported.startswith("data") for edge in graph)
+        assert any(edge.module == "monitor" and edge.imported.startswith("model.data") for edge in graph)
 
     def test_every_module_the_walk_sees_has_a_layer(self) -> None:
         """A module no rule places is skipped by ``violations``, so an
@@ -195,15 +188,19 @@ class TestTheLayerOfAModule:
 
     def test_a_module_still_at_the_root_keeps_its_layer_until_it_moves(self) -> None:
         assert layer_of("monitor") == "monitoring"
-        assert layer_of("data") == "model"
+        assert layer_of("stats_output") == "stats"
+
+    def test_a_shim_left_behind_by_a_move_is_cli_like_any_root_module(self) -> None:
+        """It re-exports from the layer it came from, which is downward."""
+        assert layer_of("data") == "cli"
 
 
 class TestAnImportThatCrossesTheWrongWay:
     """Cases 2 and 3, which the real tree cannot supply: it holds no violation."""
 
     def test_the_record_model_may_not_import_the_cli(self) -> None:
-        graph = [Import("data", "cli", 3)]
-        assert violations(graph, layer_of, ALLOWED) == ["data:3 imports cli: model may not import cli"]
+        graph = [Import("model.data", "cli", 3)]
+        assert violations(graph, layer_of, ALLOWED) == ["model.data:3 imports cli: model may not import cli"]
 
     def test_the_exporters_and_stats_are_siblings_in_both_directions(self) -> None:
         assert violations([Import("exporters.exporter", "stats", 7)], layer_of, ALLOWED) == [
@@ -214,7 +211,7 @@ class TestAnImportThatCrossesTheWrongWay:
         ]
 
     def test_an_import_that_goes_down_is_allowed(self) -> None:
-        assert violations([Import("monitor", "data", 11)], layer_of, ALLOWED) == []
+        assert violations([Import("monitor", "model.data", 11)], layer_of, ALLOWED) == []
 
     def test_an_import_inside_one_layer_is_allowed(self) -> None:
         assert violations([Import("exporters.exporter", "exporters.encoder", 4)], layer_of, ALLOWED) == []
