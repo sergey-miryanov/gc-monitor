@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 from ..model.schedule import MIN_RATE_NS
-from ..stats.stats_output import TableFormat
+from ..stats.views import TableFormat
 from ..support.time_units import secs_to_ns
 
 # Environment variable names for CLI options

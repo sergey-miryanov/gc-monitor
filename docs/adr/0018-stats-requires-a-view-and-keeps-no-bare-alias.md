@@ -126,7 +126,7 @@ because the failure mode is a long capture that prints no table at the end.
 The options builder turns it down instead, alongside `rate`, `duration` and
 `flush_threshold`, once logging exists.
 
-`StatsView` in `gcmon.stats.stats_output` holds the view, beside the `TableFormat` behind
+`StatsView` in `gcmon.stats.views` holds the view, beside the `TableFormat` behind
 `--table-format`, and each member's value is the word the operator types. The enum owns the
 vocabulary: it feeds argparse `choices`, and maps a typed word to a view, to `None` for the
 words in `STATS_OFF_WORDS`, or to `ValueError`. The usage line
@@ -135,7 +135,8 @@ naming `GCMON_STATS`. No table is `None` rather than a member: there is nothing 
 for it, and one member cannot carry four words.
 
 [CLI usage](../cli.md#--stats) lists the words the flag and the variable take;
-[Statistics](../statistics.md) reads what the two views print. `tests/stats/test_stats_output.py`
-locks in that the narrower view carries the wider one's cells unchanged, line for line where the
-ring labels fit under the `PID:IID` header, and cell for cell where they do not and the first
-column pads one wider.
+[Statistics](../statistics.md) reads what the two views print. `tests/stats/test_views.py` pins
+the vocabulary, every word the flag takes and every word it refuses.
+`tests/stats/test_stats_output.py` locks in that the narrower view carries the wider one's cells
+unchanged, line for line where the ring labels fit under the `PID:IID` header, and cell for cell
+where they do not and the first column pads one wider.

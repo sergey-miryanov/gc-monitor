@@ -14,8 +14,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gcmon.cli.commands.monitoring_options import MonitoringOptions
-from gcmon.stats.stats_output import TableFormat
 from gcmon.stats.streaming_stats import PauseTotals
+from gcmon.stats.views import TableFormat
 from tests.helpers import DefaultsValue
 
 

@@ -5,8 +5,8 @@ from unittest.mock import ANY, MagicMock
 import pytest
 
 from gcmon.monitoring.events_reader import RemoteEventsReader
-from gcmon.stats.stats_output import StatsView
 from gcmon.stats.streaming_stats import PauseTotals
+from gcmon.stats.views import StatsView
 
 
 class TestRunMonitoringLoop:
