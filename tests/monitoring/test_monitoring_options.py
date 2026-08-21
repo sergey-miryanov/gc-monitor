@@ -168,7 +168,7 @@ class TestTheStatsFlagCarriesTheView:
     """`--stats` requires a value, and it is one of two words."""
 
     def _parse(self, argv: list[str]) -> Namespace:
-        from gcmon.cli.entry import _create_parser
+        from gcmon.cli.main import _create_parser
 
         return _create_parser().parse_args(argv)
 
@@ -229,7 +229,7 @@ class TestTheStatsEnvironmentVariable:
     """
 
     def _options(self, argv: list[str]) -> MonitoringOptions | None:
-        from gcmon.cli.entry import _create_parser
+        from gcmon.cli.main import _create_parser
 
         # The parser reads the variable while it is being built, so it has to
         # be built after the test sets it.
@@ -300,7 +300,7 @@ class TestTheWordsThatTurnTheTableOff:
     """
 
     def _parse(self, argv: list[str]) -> Namespace:
-        from gcmon.cli.entry import _create_parser
+        from gcmon.cli.main import _create_parser
 
         return _create_parser().parse_args(argv)
 
@@ -313,7 +313,7 @@ class TestTheWordsThatTurnTheTableOff:
 
     @pytest.mark.parametrize("word", STATS_OFF_WORDS)
     def test_the_variable_takes_each_of_them(self, monkeypatch: pytest.MonkeyPatch, word: str) -> None:
-        from gcmon.cli.entry import _create_parser
+        from gcmon.cli.main import _create_parser
 
         monkeypatch.setenv("GCMON_STATS", word)
 
@@ -324,7 +324,7 @@ class TestTheWordsThatTurnTheTableOff:
 
     @pytest.mark.parametrize("value", ["Off", "OFF", " off", "off\n"])
     def test_the_variable_is_case_insensitive_and_stripped(self, monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-        from gcmon.cli.entry import _create_parser
+        from gcmon.cli.main import _create_parser
 
         monkeypatch.setenv("GCMON_STATS", value)
 
@@ -335,7 +335,7 @@ class TestTheWordsThatTurnTheTableOff:
 
     def test_the_flag_turns_off_what_the_variable_turned_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Why "no table" needs a spelling of its own."""
-        from gcmon.cli.entry import _create_parser
+        from gcmon.cli.main import _create_parser
 
         monkeypatch.setenv("GCMON_STATS", "full")
 

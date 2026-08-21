@@ -27,7 +27,7 @@ packages = [
 ]
 
 [tool.poetry.scripts]
-gcmon = "gcmon.cli:main"
+gcmon = "gcmon.cli.main:main"
 
 [tool.poetry.plugins."pyperf.hook"]
 gcmon = "gcmon.pyperf.hook:gcmon_hook"

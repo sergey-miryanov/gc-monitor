@@ -15,9 +15,9 @@ def gcmon_cli() -> list[str]:
 
 @pytest.fixture
 def cli_module() -> types.ModuleType:
-    from gcmon.cli import entry
+    from gcmon.cli import main
 
-    return entry
+    return main
 
 
 # =============================================================================
@@ -56,7 +56,7 @@ class TestSetupLogging:
 
 
 def test_main_combine_command(tmp_path: Path) -> None:
-    from gcmon import cli
+    from gcmon.cli import main as cli
     from gcmon.model.trace_event import process_meta
 
     input_file = tmp_path / "input.json"
