@@ -194,11 +194,9 @@ def get_monitoring_options(
         return None
     duration = args.duration
     output_format = args.format
-    # A bad `--format` dies in the parser, which leaves the environment as the
-    # only way an unknown word reaches here: argparse takes a string default as
-    # given rather than checking it against `choices`. Refusing it beats
-    # substituting one, which is what logging `Format: perfetto` for a run
-    # configured as something else would amount to (ADR-0018).
+    # argparse takes a string default as given rather than checking it against
+    # `choices`, so the environment is the one way an unknown word reaches here
+    # (ADR-0018).
     if output_format not in FORMATS:
         logger.error(
             "%s must be one of %s, got '%s'",

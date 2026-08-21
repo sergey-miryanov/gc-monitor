@@ -1,8 +1,8 @@
 """Pluggable encoder interface for trace event exporters.
 
 An ``EventEncoder`` translates a batch of ``TraceEvent`` objects into the
-bytes of a single on-disk format. ``ProtobufEventEncoder`` is the one
-implementation; a new output format arrives as a second one (ADR-0008).
+bytes of a single on-disk format. A new output format arrives as a second
+implementation (ADR-0008).
 """
 
 from __future__ import annotations

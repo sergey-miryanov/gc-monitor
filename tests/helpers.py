@@ -344,9 +344,8 @@ def assert_valid_jsonl_format(file_path: Path) -> list[JsonlRecord]:
 def assert_valid_perfetto_trace(file_path: Path) -> list[TracePacket]:
     """Validate that a file is a Perfetto trace, and return its packets.
 
-    Read back through Perfetto's own generated schema rather than through
-    gcmon's constants, so a wrong field number fails here rather than
-    producing a file only gcmon can read.
+    Read through Perfetto's own generated schema rather than gcmon's constants,
+    so a wrong field number fails here (ADR-0001).
 
     Args:
         file_path: Path to the ``.pftrace`` file to validate.

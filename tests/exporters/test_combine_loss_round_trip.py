@@ -67,11 +67,7 @@ def _capture(tmp_path: Path, name: str = "capture.jsonl") -> Path:
 
 @contextmanager
 def _combined(tmp_path: Path, source: Path, name: str = "combined") -> Iterator[TraceProcessor]:
-    """Combine *source* to Perfetto and load the result into the processor.
-
-    The processor is the instrument, not a second opinion: it is what an
-    operator's UI runs, and what resolves a row into slices and depths.
-    """
+    """Combine *source* to Perfetto and load the result into the processor."""
     out = tmp_path / f"{name}.pftrace"
     combine_files([source], out, output_format="perfetto")
 
@@ -85,8 +81,8 @@ def _combined(tmp_path: Path, source: Path, name: str = "combined") -> Iterator[
 def _loss_row(tp: TraceProcessor) -> list[Slice]:
     """Every slice on the loss track, as `(name, ts_start, ts_stop, depth)`.
 
-    Depth is the processor's, not ours. A span opened while another is still
-    open lands at depth 1 here and renders as a nested slice in the UI.
+    A span opened while another is still open lands at depth 1 here, and
+    renders as a nested slice in the UI.
     """
     return [
         (row.name, row.ts, row.ts + row.dur, row.depth)
@@ -98,10 +94,7 @@ def _loss_row(tp: TraceProcessor) -> list[Slice]:
 
 
 def _misplaced_ends(tp: TraceProcessor) -> int:
-    """The processor's own count of ends it could not place.
-
-    Zero on a crossing row, which is the whole reason `_loss_row` reads depth.
-    """
+    """Zero even on a crossing row, which is why `_loss_row` reads depth."""
     rows = list(tp.query("SELECT value FROM stats WHERE name = 'misplaced_end_event'"))
     return int(rows[0].value) if rows else 0
 

@@ -262,25 +262,19 @@ class MonitoredRun:
     reads: list[tuple[int, int]]
 
     def packets(self) -> list[TracePacket]:
-        """Every packet in the file, read back through Perfetto's schema."""
         decoded = Trace()
         decoded.ParseFromString(self.trace)
         return list(decoded.packet)
 
     def text(self) -> str:
-        """The pinned form: one stanza per packet, in file order."""
         return "".join(
             f"--- packet {index} ---\n{text_format.MessageToString(packet)}"
             for index, packet in enumerate(self.packets())
         )
 
     def pid_by_track(self) -> dict[int, int]:
-        """Track uuid to pid, read off the descriptors.
-
-        Every descriptor gcmon writes for a process or an interpreter carries
-        the pid, on `ProcessDescriptor` or on `ThreadDescriptor` alike, so this
-        needs no guess about which track parents which.
-        """
+        """Every descriptor carries the pid, on `ProcessDescriptor` or on
+        `ThreadDescriptor` alike, so this needs no walk up to a parent."""
         by_track: dict[int, int] = {}
         for packet in self.packets():
             if not packet.HasField("track_descriptor"):
@@ -293,7 +287,6 @@ class MonitoredRun:
         return by_track
 
     def slice_names(self) -> list[str]:
-        """Every named slice in the trace, in packet order."""
         return [
             packet.track_event.name
             for packet in self.packets()
@@ -301,7 +294,6 @@ class MonitoredRun:
         ]
 
     def track_uuid(self, name: str) -> int:
-        """The uuid of the one track called *name*."""
         uuids = [
             packet.track_descriptor.uuid
             for packet in self.packets()
@@ -311,7 +303,6 @@ class MonitoredRun:
         return int(uuids[0])
 
     def begins_on(self, uuid: int) -> list[str]:
-        """The names of the slices opened on track *uuid*, in packet order."""
         return [
             packet.track_event.name
             for packet in self.packets()

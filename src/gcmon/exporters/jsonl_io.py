@@ -45,14 +45,6 @@ def json_to_item(data: TMapping) -> tuple[int, TItem]:
 
 
 def read_jsonl(filename: Path) -> dict[int, list[TItem]]:
-    """Read one JSONL capture, one record per line.
-
-    A Chrome Trace file from an earlier release is named rather than parsed.
-    Its first character is the ``[`` of a JSON array, so msgspec would report a
-    malformed line 1 and the operator would read a format gcmon no longer
-    accepts as a corrupt capture. The check lives here rather than in
-    ``combine_files`` so that every caller gets it.
-    """
     items: dict[int, list[TItem]] = {}
     first = True
     with open(filename, encoding="utf-8") as f:

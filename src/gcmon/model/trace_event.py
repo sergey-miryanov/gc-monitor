@@ -1,8 +1,7 @@
 """The events every output format is built from, and the factories that build them.
 
-One converter produces these and every encoder reads them (ADR-0007). Their
-shape is the Chrome Trace Format's, which is where gcmon started; `ts` is
-nanoseconds throughout (ADR-0009).
+One converter fills these and every encoder reads them (ADR-0007). `ts` is
+nanoseconds (ADR-0009).
 """
 
 from typing import Literal

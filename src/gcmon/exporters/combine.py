@@ -39,10 +39,7 @@ def combine_files(
 ) -> None:
     """Merge JSONL captures into one JSONL capture or one Perfetto trace.
 
-    JSONL is the only input. The two paths differ in where they normalize:
-    ``jsonl`` zeroes each pid across the whole merge, since those items keep
-    their original record structure; ``perfetto`` zeroes each input file on its
-    own. ADR-0021 records why.
+    The two paths normalize over different scopes; ADR-0021 records why.
     """
     if output_format == "jsonl":
         all_items: dict[int, list[TItem]] = {}

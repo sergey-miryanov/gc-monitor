@@ -68,8 +68,6 @@ def get_env_output() -> Path:
     output_str = os.environ.get(ENV_OUTPUT)
     if output_str:
         return Path(output_str)
-    # Read the variable the way `get_env_format` reads it, or a value with
-    # whitespace round it resolves to one format and the other's default name.
     if get_env_format() == "jsonl":
         return Path("gcmon.jsonl")
     return Path("gcmon.pftrace")
@@ -149,10 +147,9 @@ def get_env_verbose() -> int:
 def get_env_format() -> str:
     """Get the output format from the environment.
 
-    The value is handed on as written, in lower case. ``get_monitoring_options``
-    refuses a word ``--format`` would refuse, once logging is configured, rather
-    than substituting a format nobody asked for (ADR-0018). A blank value reads
-    as unset.
+    The value is handed on as written. ``get_monitoring_options`` refuses a word
+    ``--format`` would refuse, once logging is configured (ADR-0018). A blank
+    value reads as unset.
 
     Returns:
         The GCMON_FORMAT value in lower case, or "perfetto" if it is unset or

@@ -34,8 +34,6 @@ from tests.helpers import (
 def gc_slices(path: Path) -> list[tuple[str, int, int]]:
     """`(name, ts_start, ts_stop)` per `GC ` slice in a combined trace.
 
-    Read back through Perfetto's schema rather than off the structs `combine`
-    mutated, so a claim about timestamps is measured on what an operator opens.
     An end event carries no name of its own, so the slices are paired on a
     stack per track, the way a trace processor pairs them.
     """
