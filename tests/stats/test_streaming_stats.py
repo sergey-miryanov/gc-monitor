@@ -6,7 +6,7 @@ import numpy as np
 
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.protocol import TGCStatsInfo
-from gcmon.stats import StreamingStats, get_quantile_value
+from gcmon.stats.stats import StreamingStats, get_quantile_value
 
 TOLERANCE = 1e-12
 

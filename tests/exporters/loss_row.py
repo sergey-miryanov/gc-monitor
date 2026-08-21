@@ -22,7 +22,7 @@ from gcmon.model.poll_status import PollStatus
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TItem, TLossMsg
 from gcmon.model.trace_event import LOSS_TID_BASE, BeginEvent, EndEvent
 from gcmon.monitor import EventsMonitor
-from gcmon.stats import StreamingStats
+from gcmon.stats.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import no_wait_policy
 from tests.helpers import FakeEventsReader, create_mock_stats_item

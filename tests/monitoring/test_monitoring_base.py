@@ -5,8 +5,8 @@ from unittest.mock import ANY, MagicMock
 import pytest
 
 from gcmon.events_reader import RemoteEventsReader
-from gcmon.stats import PauseTotals
-from gcmon.stats_output import StatsView
+from gcmon.stats.stats import PauseTotals
+from gcmon.stats.stats_output import StatsView
 
 
 class TestRunMonitoringLoop:
@@ -135,7 +135,7 @@ class TestRunMonitoringLoop:
         """A count at one level and the figure qualifying it at another is a
         `--log-level` away from a number with nothing to read it against."""
         from gcmon.commands.monitoring_base import run_monitoring_loop
-        from gcmon.stats_output import summary_lines
+        from gcmon.stats.stats_output import summary_lines
 
         stats = mock_monitoring_base_deps["StreamingStats"].return_value
         stats.count.return_value = 1234

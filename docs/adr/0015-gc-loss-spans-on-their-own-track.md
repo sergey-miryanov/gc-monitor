@@ -203,7 +203,7 @@ about to be overwritten, so the chain survives the ring wrapping.
   record type and restores span order for a capture read back from JSONL.
   `src/gcmon/exporters/perfetto_format.py` and `src/gcmon/exporters/perfetto_builders.py` write
   the track and the generation groups.
-- `src/gcmon/stats.py` records every gap.
+- `src/gcmon/stats/stats.py` records every gap.
 - `tests/test_loss.py` and `tests/test_loss_replay.py` check the arithmetic against synthetic
   sessions and a real capture replayed behind a simulated ring.
   `tests/exporters/test_combine_loss_round_trip.py` resolves the loss row as a stack, live and

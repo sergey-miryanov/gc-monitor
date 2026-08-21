@@ -112,7 +112,7 @@ joins the summary rather than the loop.
   `OVERRUN_SHARE`, which crosses from the loop to the summary. The per-poll report sits in
   `src/gcmon/monitor.py`, beside what produces it, and needs neither.
 - `src/gcmon/monitor_loop.py` holds the two clock reads.
-- `src/gcmon/stats_output.py` states the tick counts and selects the remedy; `src/gcmon/monitor.py`
+- `src/gcmon/stats/stats_output.py` states the tick counts and selects the remedy; `src/gcmon/monitor.py`
   carries the advisory that no longer prescribes one.
 - `src/gcmon/_env.py` parses one rate spelling for both `--rate` and `GCMON_RATE`;
   `src/gcmon/commands/monitoring_options.py` reports what it rejects and applies the same minimum to

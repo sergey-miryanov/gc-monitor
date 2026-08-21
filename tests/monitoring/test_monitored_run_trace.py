@@ -71,7 +71,7 @@ from gcmon.model.data import GCStatsInfo
 from gcmon.monitor import EventsMonitor
 from gcmon.monitor_loop import MonitorLoop
 from gcmon.run_policy import Runner
-from gcmon.stats import StreamingStats
+from gcmon.stats.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import no_wait_policy
 from tests.helpers import FakeEventsReader

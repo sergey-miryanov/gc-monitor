@@ -8,8 +8,8 @@ import pytest
 
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.run_report import RunReport
-from gcmon.stats import Stats, StreamingStats
-from gcmon.stats_output import (
+from gcmon.stats.stats import Stats, StreamingStats
+from gcmon.stats.stats_output import (
     STATS_OFF_WORDS,
     StatsView,
     TableFormat,
@@ -135,7 +135,7 @@ class TestPrintTable:
         assert "---" in captured.out
 
     def test_separator_phase_format(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from gcmon.stats_output import _SEP_PHASE
+        from gcmon.stats.stats_output import _SEP_PHASE
 
         rows = [
             ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000", "1.00", "1.00"],
@@ -148,7 +148,7 @@ class TestPrintTable:
         assert len(lines) >= 4
 
     def test_separator_blank_markdown(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from gcmon.stats_output import _SEP_GROUP
+        from gcmon.stats.stats_output import _SEP_GROUP
 
         rows = [
             ["12345", "0", "100", "1000.000", "10.000", "20.000", "30.000", "40.000", "50.000", "1.00", "1.00"],

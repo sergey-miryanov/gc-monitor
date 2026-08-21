@@ -25,7 +25,7 @@ from gcmon.model.data import GCStatsInfo, secs_to_ns
 from gcmon.model.loss import RingAccumulator
 from gcmon.model.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.monitor import EventsMonitor
-from gcmon.stats import StreamingStats
+from gcmon.stats.stats import StreamingStats
 from gcmon.target_process import ExternalProcess
 from gcmon.wait_policy import no_wait_policy
 from tests.helpers import FakeEventsReader, create_mock_stats_item

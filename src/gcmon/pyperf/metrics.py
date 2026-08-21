@@ -9,7 +9,7 @@ from __future__ import annotations
 import msgspec
 
 from ..model.data import dur_to_ms
-from ..stats import StreamingStats
+from ..stats.stats import StreamingStats
 
 __all__ = ["to_metrics"]
 

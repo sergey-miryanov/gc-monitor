@@ -15,7 +15,7 @@ from gcmon.commands.monitoring_options import (
     add_monitoring_options,
     get_monitoring_options,
 )
-from gcmon.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
+from gcmon.stats.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
 
 
 def _make_args(**overrides: object) -> Namespace:

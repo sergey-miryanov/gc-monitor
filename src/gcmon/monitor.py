@@ -19,7 +19,7 @@ from .model.loss import (
 )
 from .model.poll_status import PollStatus
 from .model.protocol import TGCStatsInfo
-from .stats import StreamingStats
+from .stats.stats import StreamingStats
 from .target_process import TargetProcess
 from .wait_policy import WaitPolicy, WaitPolicyFactory
 

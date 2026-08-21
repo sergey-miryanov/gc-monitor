@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from gcmon.model.data import GCStatsInfo
-from gcmon.stats import Stats, StreamingStats
+from gcmon.stats.stats import Stats, StreamingStats
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
 
 
@@ -78,7 +78,7 @@ def incremental_gc_stats_item(
 @pytest.fixture
 def stats_without_ddsketch() -> Stats:
     """Create a Stats instance with DDSketch disabled."""
-    with patch("gcmon.stats.HAS_DDSKETCH", False):
+    with patch("gcmon.stats.stats.HAS_DDSKETCH", False):
         s = Stats()
         assert not s.has_sketch
         return s

@@ -32,7 +32,7 @@ from gcmon._env import (
 )
 from gcmon.model.data import secs_to_ns
 from gcmon.model.schedule import MIN_RATE_NS
-from gcmon.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
+from gcmon.stats.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
 
 logger = logging.getLogger("gcmon")
 

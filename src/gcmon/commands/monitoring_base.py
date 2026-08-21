@@ -12,8 +12,8 @@ from gcmon.monitor import EventsMonitor
 from gcmon.monitor_loop import MonitorLoop
 from gcmon.rss_sampler import RssSampler
 from gcmon.run_policy import RunnerFactory
-from gcmon.stats import StreamingStats
-from gcmon.stats_output import print_stats, summary_lines
+from gcmon.stats.stats import StreamingStats
+from gcmon.stats.stats_output import print_stats, summary_lines
 from gcmon.support import replace_signals
 from gcmon.target_process import ProcessRunnerFactory
 from gcmon.wait_policy import WaitPolicyFactory

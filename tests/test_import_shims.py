@@ -19,6 +19,8 @@ MOVED: dict[str, tuple[str, str]] = {
     "gcmon.poll_status": ("gcmon.model.poll_status", "PollStatus"),
     "gcmon.schedule": ("gcmon.model.schedule", "position_of"),
     "gcmon.run_report": ("gcmon.model.run_report", "RunReport"),
+    "gcmon.stats": ("gcmon.stats.stats", "StreamingStats"),
+    "gcmon.stats_output": ("gcmon.stats.stats_output", "StatsView"),
 }
 """Each old path, the module it now lives in, and one name to ask both for."""
 

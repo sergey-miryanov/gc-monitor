@@ -34,7 +34,6 @@ ALLOWED: dict[str, frozenset[str]] = {
 about the architecture, and this is where such a statement can fail."""
 
 STILL_FLAT: dict[str, str] = {
-    "stats_output": "stats",
     "monitor": "monitoring",
     "monitor_loop": "monitoring",
     "events_reader": "monitoring",
@@ -188,7 +187,7 @@ class TestTheLayerOfAModule:
 
     def test_a_module_still_at_the_root_keeps_its_layer_until_it_moves(self) -> None:
         assert layer_of("monitor") == "monitoring"
-        assert layer_of("stats_output") == "stats"
+        assert layer_of("rss_sampler") == "monitoring"
 
     def test_a_shim_left_behind_by_a_move_is_cli_like_any_root_module(self) -> None:
         """It re-exports from the layer it came from, which is downward."""
