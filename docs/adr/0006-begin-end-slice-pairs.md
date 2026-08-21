@@ -40,11 +40,11 @@ carrying independent metadata at each end is not derivable from a complete event
 - This was the enabling step for [ADR-0007](0007-shared-trace-converter-pipeline.md): with
   both backends agreeing on the primitive, the sub-phase discovery logic and the naming
   strings collapsed into one shared converter.
-- A trace has roughly twice as many event records for the same spans. The files are larger;
-  the Perfetto UI renders begin/end pairs natively, so nothing downstream had to change.
+- A trace has roughly twice as many event records for the same spans. The files are larger.
+  The Perfetto UI renders begin/end pairs natively, and nothing downstream had to change.
 - A truncated or interrupted trace can end with an unmatched begin. The viewer tolerates
   this; a complete event could never be half-written.
-- Duration is a property of the pair, not of a record, so nothing converts one.
+- Duration is a property of the pair, not of a record. Nothing converts one.
 
 ## Alternatives considered
 

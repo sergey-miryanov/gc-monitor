@@ -88,8 +88,8 @@ the 0.1 s GC poll rate.
   error. `--rss` on a machine without `psutil` is ignored, with one info log.
 - **Perfetto-only.** An RSS sample is a no-op on the `EventsExporter` base and
   `BufferedTraceExporter` overrides it, so JSONL and stdout carry no RSS. Chrome traces
-  technically contained the counter event, since it flowed through the same buffered base,
-  but nobody validated it and the format is gone
+  technically contained the counter event, a side effect of the shared base that nobody
+  validated. The format is gone
   ([ADR-0021](0021-write-one-trace-format.md)). `RSS_CAPABLE_FORMATS` in the CLI layer
   names the one format that carries it.
 - Adding `"rss"` to the top-level set brings the accepted trade-off from ADR-0004 with it:

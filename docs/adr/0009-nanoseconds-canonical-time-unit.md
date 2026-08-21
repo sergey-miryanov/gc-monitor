@@ -28,8 +28,8 @@ verbatim. The converter no longer divides; `TGCStatsInfo` values flow through un
 
 **Conversion happens at the encoder, once, per format:**
 
-- `JsonEventEncoder` divided by 1000 when serializing, so the Chrome Trace Event output
-  stayed in microseconds, that format being a public spec. It went with the format
+- `JsonEventEncoder` divided by 1000 when serializing. The Chrome Trace Event format is a
+  public spec with microsecond timestamps. It went with the format
   ([ADR-0021](0021-write-one-trace-format.md)), and the conversion with it.
 - `ProtobufEventEncoder` writes `event.ts` directly. No conversion.
 

@@ -65,7 +65,7 @@ Exactly one of `-s`/`--script` or `-m`/`--module`.
 | `pid` (required) | `monitor` | Process ID to monitor | - |
 | `-s, --script <path>` | `run` | Python script path to run | - |
 | `-m, --module <name>` | `run` | Module name to run (like `python -m`) | - |
-| `-o, --output` | both | Output file path for trace data | `gcmon.pftrace`, `gcmon.jsonl` for `--format jsonl` |
+| `-o, --output` | both | Output file path for trace data | `gcmon.pftrace`, or `gcmon.jsonl` when `GCMON_FORMAT=jsonl` |
 | `-r, --rate` | both | Seconds between poll starts, as a plain decimal, `0.001` or more | `0.1` |
 | `-d, --duration` | both | Monitoring duration in seconds | Until interrupted / script exits |
 | `-v, --verbose` | both | Enable verbose output (`-v` for INFO, `-vv` for DEBUG) | `0` |
@@ -113,8 +113,7 @@ exception is `GCMON_STATS`, which stops the run.
 
 ## combine
 
-Combine JSONL captures into one trace, or into one JSONL capture. JSONL is the
-only input gcmon reads back.
+Combine JSONL captures into one trace, or into one JSONL capture.
 
 ```bash
 gcmon combine trace1.jsonl trace2.jsonl -o combined.pftrace

@@ -1,11 +1,11 @@
 # Trace Analysis with Perfetto SQL
 
-Perfetto's SQL panel opens gcmon's `.pftrace`, and
-PerfettoSQL is SQLite with extensions.
+Perfetto's SQL panel opens gcmon's `.pftrace`. PerfettoSQL is SQLite with
+extensions.
 
 [Output formats](formats.md#perfetto-output) lists what a capture holds. The
-trace processor puts gcmon's slice args under `debug.`, so a per-generation
-loss count is `debug.gen0.lost_count`.
+trace processor puts gcmon's slice args under `debug.`: a per-generation loss
+count is `debug.gen0.lost_count`.
 
 ## Accessing the SQL Interface
 
@@ -75,14 +75,11 @@ WHERE ct.name like '%rss%'
 ORDER BY p.start_ts, c.ts
 ```
 
-The pattern is `%rss%` rather than `rss%` so that a track name carrying
-leading whitespace still matches.
-
 ## Example: Querying Process Command Lines
 
-Requires the [`[cmdline]` extra](rss.md#the-cmdline-extra). gcmon writes the command line to
-[three places](formats.md#process-command-lines); two of them are reachable from
-SQL.
+Requires the [`[cmdline]` extra](rss.md#the-cmdline-extra). gcmon writes the
+command line to [three places](formats.md#process-command-lines); two of them
+are reachable from SQL.
 
 The process track's `description` holds the space-joined command line:
 
