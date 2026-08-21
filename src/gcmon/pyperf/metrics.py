@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import msgspec
 
-from ..model.data import dur_to_ms
 from ..stats.stats import StreamingStats
+from ..support.time_units import dur_to_ms
 
 __all__ = ["to_metrics"]
 

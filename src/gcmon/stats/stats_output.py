@@ -4,8 +4,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from ..model.data import dur_to_ms
 from ..model.run_report import RunReport
+from ..support.time_units import dur_to_ms
 from .stats import METRICS, PauseTotals, Stats, StreamingStats
 
 _SEP_GROUP: Any = object()

@@ -2,10 +2,10 @@ import threading
 import time
 from typing import Self
 
-from ..model.data import secs_to_ns
 from ..model.run_report import RunReport
 from ..model.schedule import idle_to_next_position, position_of
 from ..support import set_on_exit
+from ..support.time_units import secs_to_ns
 from .monitor import EventsMonitor
 from .rss_sampler import RssSampler
 from .run_policy import Runner

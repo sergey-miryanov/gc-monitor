@@ -4,9 +4,9 @@ import math
 import os
 from pathlib import Path
 
-from ..model.data import secs_to_ns
 from ..model.schedule import MIN_RATE_NS
 from ..stats.stats_output import TableFormat
+from ..support.time_units import secs_to_ns
 
 # Environment variable names for CLI options
 ENV_PREFIX = "GCMON"

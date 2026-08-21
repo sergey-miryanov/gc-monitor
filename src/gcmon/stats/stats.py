@@ -13,7 +13,6 @@ try:
 except ImportError:
     HAS_DDSKETCH = False
 
-from ..model.data import secs_to_ns
 from ..model.protocol import (
     TGCStatsInfo,
     has_clear_weakrefs,
@@ -26,6 +25,7 @@ from ..model.protocol import (
     has_mark_alive,
     has_pause_ts,
 )
+from ..support.time_units import secs_to_ns
 
 logger = logging.getLogger(__name__)
 

@@ -12,7 +12,8 @@ from collections.abc import Iterable, Sequence
 
 import msgspec
 
-from .data import GenLoss, secs_to_ns
+from ..support.time_units import secs_to_ns
+from .data import GenLoss
 from .protocol import TGCStatsInfo
 
 __all__ = [

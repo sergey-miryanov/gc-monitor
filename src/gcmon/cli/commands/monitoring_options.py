@@ -30,9 +30,9 @@ from gcmon.cli._env import (
     get_env_verbose,
     parse_rate,
 )
-from gcmon.model.data import secs_to_ns
 from gcmon.model.schedule import MIN_RATE_NS
 from gcmon.stats.stats_output import STATS_OFF_WORDS, StatsView, TableFormat
+from gcmon.support.time_units import secs_to_ns
 
 logger = logging.getLogger("gcmon")
 

@@ -96,18 +96,6 @@ def instant_msg(name: str, ts: int) -> InstantMsg:
     return InstantMsg("i", name, ts)
 
 
-def ts_to_us(ts_ns: int) -> int:
-    return int(ts_ns / 1_000)
-
-
-def dur_to_ms(dur_ns: float) -> float:
-    return dur_ns / 1_000_000
-
-
-def secs_to_ns(dur_s: float) -> int:
-    return round(dur_s * 1_000_000_000)
-
-
 _DURATION_UNITS: tuple[tuple[int, str], ...] = (
     (3_600_000_000_000, "h"),
     (60_000_000_000, "m"),

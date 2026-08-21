@@ -62,7 +62,8 @@ looking at bytes on disk.
 ## Implementation
 
 - `src/gcmon/model/trace_event.py` holds the four factories, each taking `ts_ns`.
-- `src/gcmon/model/data.py` holds the ns→µs conversion, now called only by the JSON encoder.
+- `src/gcmon/support/time_units.py` holds the ns→µs conversion, now called only by
+  the JSON encoder.
 - `src/gcmon/exporters/encoder.py` applies it as it serializes Chrome output.
 - `src/gcmon/exporters/perfetto_format.py` passes `event.ts` straight to the packet
   timestamp on every branch.
