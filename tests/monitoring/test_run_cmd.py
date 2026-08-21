@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gcmon.exporters.jsonl_io import read_jsonl
-from tests.helpers import assert_valid_chrome_trace_format
+from tests.helpers import assert_valid_perfetto_trace
 
 # =============================================================================
 # Unit Tests for cmd_run
@@ -245,11 +245,11 @@ class TestCmdRunUnit:
             "module_name": None,
             "script": None,
             "script_args": [],
-            "output": Path("test.json"),
+            "output": Path("test.pftrace"),
             "rate": 0.1,
             "duration": 0.05,
             "verbose": 1,
-            "format": "chrome",
+            "format": "perfetto",
             "flush_threshold": 100,
             "stats": None,
             "table_format": None,
@@ -358,7 +358,7 @@ class TestRunCommandScriptMode:
 
     def test_run_script_no_args(self, tmp_path: Path) -> None:
         """Test running a simple script with GC monitoring."""
-        output_file = tmp_path / "trace.json"
+        output_file = tmp_path / "trace.pftrace"
         script_file = tmp_path / "test_script.py"
         script_file.write_text(get_long_running_script("print('Hello')", "sys.exit(42)"))
 
@@ -368,22 +368,22 @@ class TestRunCommandScriptMode:
             assert result.returncode == 42
             assert "Hello" in result.stdout
 
-            assert_valid_chrome_trace_format(output_file)
+            assert_valid_perfetto_trace(output_file)
 
-    def test_run_script_with_args_chrome_trace_format(self, tmp_path: Path) -> None:
+    def test_run_script_with_args_perfetto_format(self, tmp_path: Path) -> None:
         """Test running a script with arguments."""
-        output_file = tmp_path / "trace.json"
+        output_file = tmp_path / "trace.pftrace"
         script_file = tmp_path / "test_script.py"
         script_file.write_text(get_long_running_script("print('Args: ', sys.argv[1:])"))
 
-        gc_args = ["-vvv", "--format", "chrome", "-o", str(output_file)]
+        gc_args = ["-vvv", "--format", "perfetto", "-o", str(output_file)]
         result = run_script(script_file, "arg1", "arg2", "--flag", gc_args=gc_args)
 
         with print_on_failure(result):
             assert result.returncode == 0
             assert "Args:  ['arg1', 'arg2', '--flag']" in result.stdout
 
-            assert_valid_chrome_trace_format(output_file)
+            assert_valid_perfetto_trace(output_file)
 
     def test_run_script_with_args_jsonl_format(self, tmp_path: Path) -> None:
         """Test running a script with JSONL format."""
@@ -418,42 +418,44 @@ class TestRunCommandScriptMode:
 
     def test_run_script_with_overlapping_args(self, tmp_path: Path) -> None:
         """Script args after -s are passed verbatim, even if they overlap with gcmon options."""
-        output_file = tmp_path / "trace.json"
+        output_file = tmp_path / "trace.pftrace"
         script_file = tmp_path / "test_script.py"
         script_file.write_text(get_long_running_script("print('Args: ', sys.argv[1:])"))
 
         # gcmon options BEFORE -s, script args AFTER (including overlapping --format, -v)
-        gc_args = ["-vvv", "--format", "chrome", "-o", str(output_file)]
+        gc_args = ["-vvv", "--format", "perfetto", "-o", str(output_file)]
         result = run_script(script_file, "--format", "json", "-v", "--format", "csv", gc_args=gc_args)
 
         with print_on_failure(result):
             assert result.returncode == 0
             assert "Args:  ['--format', 'json', '-v', '--format', 'csv']" in result.stdout
 
-            assert_valid_chrome_trace_format(output_file)
+            assert_valid_perfetto_trace(output_file)
 
 
 class TestRunCommandModuleMode:
     """Integration tests for run command in module mode."""
 
     def test_run_module_short(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "trace.json"
+        """The short `-m` form reaches the module. `timeit -n 1 pass` never
+        collects, and a Perfetto trace with nothing in it is no file at all, so
+        the trace itself is what the long-running test below checks."""
+        output_file = tmp_path / "trace.pftrace"
 
         result = run_module("timeit", "-n", "1", "pass", gc_args=["-vvv", "-o", str(output_file)])
 
         with print_on_failure(result):
             assert result.returncode == 0
-            assert_valid_chrome_trace_format(output_file)
 
-    def test_run_module_long_running_chrome_trace_format(self, tmp_path: Path) -> None:
-        output_file = tmp_path / "trace.json"
+    def test_run_module_long_running_perfetto_format(self, tmp_path: Path) -> None:
+        output_file = tmp_path / "trace.pftrace"
 
-        gc_args = ["-vvv", "--format", "chrome", "-o", str(output_file)]
+        gc_args = ["-vvv", "--format", "perfetto", "-o", str(output_file)]
         result = run_module("test", "test_gc", "-v", gc_args=gc_args)
 
         with print_on_failure(result):
             assert result.returncode == 0
-            assert_valid_chrome_trace_format(output_file)
+            assert_valid_perfetto_trace(output_file)
 
     def test_run_module_long_running_jsonl_format(self, tmp_path: Path) -> None:
         output_file = tmp_path / "trace.jsonl"
@@ -477,15 +479,15 @@ class TestRunCommandModuleMode:
 
     def test_run_module_with_overlapping_args(self, tmp_path: Path) -> None:
         """Script args after -m are passed verbatim, even if they overlap with gcmon options."""
-        output_file = tmp_path / "trace.json"
+        output_file = tmp_path / "trace.pftrace"
 
         # gcmon options BEFORE -m, script args AFTER (including overlapping --format, -v)
-        gc_args = ["-v", "--format", "chrome", "-o", str(output_file)]
+        gc_args = ["-v", "--format", "perfetto", "-o", str(output_file)]
         result = run_module("test", "test_gc", "-v", gc_args=gc_args)
 
         with print_on_failure(result):
             assert output_file.exists()
-            assert_valid_chrome_trace_format(output_file)
+            assert_valid_perfetto_trace(output_file)
 
 
 class TestRunCommandErrors:
@@ -493,7 +495,7 @@ class TestRunCommandErrors:
 
     def test_run_script_not_found(self, tmp_path: Path) -> None:
         """Test running non-existent script."""
-        output_file = tmp_path / "trace.json"
+        output_file = tmp_path / "trace.pftrace"
 
         result = run_script(Path("/nonexistent/script.py"), gc_args=["-vvv", "-o", str(output_file)])
 
@@ -505,7 +507,7 @@ class TestRunCommandErrors:
 
     def test_run_module_not_found(self, tmp_path: Path) -> None:
         """Test running non-existent module."""
-        output_file = tmp_path / "trace.json"
+        output_file = tmp_path / "trace.pftrace"
 
         result = run_module("nonexistent_module_xyz", gc_args=["-vvv", "-o", str(output_file)])
 
@@ -517,7 +519,7 @@ class TestRunCommandErrors:
 
     def test_run_script_syntax_error(self, tmp_path: Path) -> None:
         """Test running script with syntax error."""
-        output_file = tmp_path / "trace.json"
+        output_file = tmp_path / "trace.pftrace"
         script_file = tmp_path / "bad_script.py"
         script_file.write_text("invalid !!!")
 

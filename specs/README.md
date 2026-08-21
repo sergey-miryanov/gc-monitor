@@ -22,9 +22,7 @@ This file holds the open set and the order to take it in. The other two:
 | [0025](0025-control-server-accept-loop-survives-transient-errors.md) | Bug (**availability**) | XS | One transient accept error and the control server refuses every later connection, saying nothing |
 | [0026](0026-one-process-name-across-live-and-offline-paths.md) | Bug (correctness) | XS | A live capture names a process `Process 12345`; combined from JSONL, the same process comes out `12345` |
 | [0027](0027-thread-descriptor-tid-for-interpreter-zero.md) | Bug (reporting) | XS | The main interpreter's `thread.tid` is the pid, so a SQL query has to special-case interpreter zero to read ids |
-| [0028](0028-combined-exporter-reaches-into-sub-exporter-privates.md) | Feature (cleanup) | XS | `chrome+perfetto` works only by reading a private attribute, with the type checkers told not to look |
-| [0030](0030-exporter-hygiene-batch.md) | Feature (cleanup) | S | Six one-file hazards in the exporter package: rank dict, `getattr` probe, builtin shadow, two undocumented threading contracts, duplicated validation |
-| [0031](0031-readme-output-example-is-labelled-chrome-only.md) | Bug (cosmetic) | XS | The README heads its only trace example "Chrome Trace Output" and captions it as the Perfetto UI |
+| [0030](0030-exporter-hygiene-batch.md) | Feature (cleanup) | XS | Four one-file hazards in the exporter package: rank dict, builtin shadow, two undocumented threading contracts |
 | [0033](0033-loss-counter-track.md) | Feature (enhancement) | S | The loss row shows where gcmon went blind but not how much it missed; a bar losing 1 record looks like one losing 40 |
 | [0035](0035-derive-every-gc-sub-phase-from-one-table.md) | Feature (cleanup) | L | gcmon writes CPython's eight optional GC sub-phases out by hand in six places; adding the ninth means six edits, and nothing fails if you miss one |
 | [0036](0036-one-exporter-method-per-record-kind.md) | Feature (cleanup) | M | `EventsExporter` has grown one method per record kind, three of them no-ops, and the CLI keeps a hand-maintained list of which formats handle RSS at all |
@@ -37,7 +35,6 @@ This file holds the open set and the order to take it in. The other two:
 | [0051](0051-key-the-running-rings-by-pid.md) | Feature (efficiency) | S | Asking `StreamingStats` about one process walks every process's rings; `low_coverage` does it once per polled pid per tick, and on a healthy run it never stops |
 | [0052](0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md) | Bug (correctness) | S | A pid the OS reissues between two ticks is read through the attachment gcmon still holds, so an unrelated process's memory reaches the trace as plausible records; only Linux is exposed |
 | [0054](0054-macos-attachment-leaks-a-mach-task-port.md) | Bug (availability) | S | On macOS every attachment costs gcmon a Mach port name that nothing gives back; CPython's cleanup has a Windows arm and a Linux arm and no Apple one |
-| [0055](0055-drop-the-chrome-trace-output-format.md) | Feature (cleanup) | L | gcmon writes two trace formats and defaults to the weaker one: Chrome carries no command lines, no `Processes` track and microsecond timestamps, and keeping it costs a fan-out exporter, a `combine` matrix with a rejected cell and 1,800 lines of test |
 | [0056](0056-intern-the-strings-a-trace-repeats.md) | Feature (efficiency) | M | Over half of every trace is the same few dozen strings, written out again for every slice gcmon draws |
 
 Every row here has a file. A missing number either retired or never became one;
@@ -48,18 +45,15 @@ Every row here has a file. A missing number either retired or never became one;
 | Spec | Why here |
 |------|----------|
 | 0025 | The only outage, and the fix is one word |
-| 0055 | Subtracts: 0028 and 0031 retire with it rather than being implemented, and 0030 and 0036 each lose an item. Anything below it that touches the exporters is smaller afterwards |
 | 0026 | Smallest user-visible wrongness |
 | 0050 | Unblocked: 0049 landed, and taking this next edits the help text and the advisory once |
-| 0028 | XS, and it shrinks 0036 |
 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
-| 0031 | |
 | 0047 | XS, and the command that fails is the one the README opens with |
 | 0052 | Silent, and what it produces is indistinguishable from a real measurement |
 | 0030 | |
 | 0035 | 0039 landed, and the nine `Metric` classes it replaces are a module named for the table |
 | 0037 | Constrained: after 0026 |
-| 0036 | Constrained: after 0028 |
+| 0036 | |
 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edited |
 | 0042 | |
 | 0020 | |
@@ -81,9 +75,7 @@ cell means no recorded reason, so that row can move.
 
 | First | Then | Why |
 |-------|------|-----|
-| 0055 | 0028, 0031, 0036 | 0055 deletes the exporter 0028 fixes and the example 0031 complains about, and removes one of 0036's two problems. Taken second, each of the three is work thrown away |
 | 0026 | 0037 | 0037 assumes 0026's shared naming helper |
-| 0028 | 0036 | 0028 shrinks 0036 |
 | 0050 | 0040 | 0040 derives the option declarations from one table and would otherwise have to carry the alias 0050 introduces through a rewrite of the structure holding it |
 
 0042 depends on nothing else here; take it at any time.

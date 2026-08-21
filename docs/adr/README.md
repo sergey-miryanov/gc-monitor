@@ -59,7 +59,7 @@ new one when the decision itself changes. A rename inside a module is neither.
 | [0009](0009-nanoseconds-canonical-time-unit.md) | Store `TraceEvent.ts` in nanoseconds; convert at the encoder |
 | [0010](0010-process-identity-cmdline-and-start-marker.md) | Carry process cmdline in two places, and force the process track to render |
 | [0011](0011-process-lifetime-and-ordering.md) | Show process lifetimes on one shared track, ordered by first event |
-| [0012](0012-trace-output-formats.md) | Support Perfetto output in `combine`, and dual output only in live mode |
+| [0012](0012-trace-output-formats.md) | Support Perfetto output in `combine`, and dual output only in live mode (superseded by 0021) |
 | [0013](0013-rss-sampling.md) | Sample RSS in a standalone `RssSampler`, on a `tid = -1` sentinel track |
 | [0014](0014-perfetto-integration-test-strategy.md) | Validate traces against the real trace processor; deselect slow suites by marker |
 | [0015](0015-gc-loss-spans-on-their-own-track.md) | Draw reconstructed GC loss on a per-interpreter track, one span per poll interval |
@@ -68,12 +68,14 @@ new one when the decision itself changes. A rename inside a module is neither.
 | [0018](0018-stats-requires-a-view-and-keeps-no-bare-alias.md) | Require a value on `--stats`, and keep no bare alias |
 | [0019](0019-schedule-tick-starts-on-a-fixed-grid.md) | Schedule tick starts on a fixed grid, and skip the positions a slow tick misses |
 | [0020](0020-attach-to-a-process-once.md) | Attach to a process once, and let go the moment a read fails |
+| [0021](0021-write-one-trace-format.md) | Write one trace format, and read only JSONL back |
 
 ## Reading order
 
 ADRs 0001–0005 are about the Perfetto wire format and track layout, and build on each other in
-that order. 0006–0009 cover the internal event model shared by all backends. 0010–0013, 0015 and
-0016 and 0018 are individual features. 0014 explains how any of it is verified.
+that order. 0006–0009 cover the internal event model, which one encoder now reads. 0010–0013,
+0015 and 0016 and 0018 are individual features, and 0021 is what became of 0012. 0014 explains
+how any of it is verified.
 0017 and 0019 are about the monitoring loop rather than about what reaches a trace: 0017 divides
 per-pid state from the clock, and 0019 says what the loop does with that clock.
 

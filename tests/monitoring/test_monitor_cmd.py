@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.helpers import assert_valid_chrome_trace_format
+from tests.helpers import assert_valid_perfetto_trace
 from tests.monitoring.conftest import MonitorArgsFactory
 
 
@@ -116,15 +116,16 @@ class TestCliBasicRun:
         assert "Duration: 0.01s" in result.stderr
 
     def test_creates_valid_trace(self, run_monitor_self: Any, tmp_path: Path) -> None:
-        output_file = tmp_path / "test_trace.json"
+        output_file = tmp_path / "test_trace.pftrace"
         result = run_monitor_self(["-o", str(output_file), "-d", "0.5", "-r", "0.1"])
         assert result.returncode == 0
         assert output_file.exists()
-        assert len(assert_valid_chrome_trace_format(output_file)) >= 1
+        assert len(assert_valid_perfetto_trace(output_file)) >= 1
 
     def test_default_output_file(self, run_monitor_self: Any, tmp_path: Path) -> None:
         assert run_monitor_self(["-d", "0.3"], cwd=tmp_path).returncode == 0
-        assert (tmp_path / "gcmon.json").exists()
+        assert (tmp_path / "gcmon.pftrace").exists()
+        assert not (tmp_path / "gcmon.json").exists()
 
     def test_custom_rate(self, run_monitor_self: Any, tmp_path: Path) -> None:
         result = run_monitor_self(["-o", str(tmp_path / "test_trace.json"), "-d", "0.5", "-r", "0.05", "-v"])
@@ -153,10 +154,13 @@ class TestCliOutput:
         result = run_monitor(["-o", str(tmp_path / "test_trace.json"), "-d", "0.3"])
         assert "Monitoring PID" not in result.stderr
 
-    def test_json_structure(self, run_monitor: Any, tmp_path: Path) -> None:
-        output_file = tmp_path / "test_trace.json"
-        assert run_monitor(["-o", str(output_file), "-d", "0.3"]).returncode == 0
-        assert_valid_chrome_trace_format(output_file)
+    def test_trace_structure(self, run_monitor_self: Any, tmp_path: Path) -> None:
+        """Against the running gcmon rather than pid 12345: a Perfetto trace
+        with nothing in it is no file at all, so a run that read no records
+        would leave nothing to validate."""
+        output_file = tmp_path / "test_trace.pftrace"
+        assert run_monitor_self(["-o", str(output_file), "-d", "0.3"]).returncode == 0
+        assert_valid_perfetto_trace(output_file)
 
     def test_path_traversal_warning(self, run_monitor: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         output_file = tmp_path / "subdir" / "output.json"
@@ -195,88 +199,53 @@ class TestCliJsonlFormat:
         result = run_monitor(["--format", "jsonl", "-o", str(output_file), "-d", "0.1", "-v"])
         assert "Format: jsonl" in result.stderr
 
-    def test_cli_overrides_env(self, run_monitor: Any, tmp_path: Path) -> None:
-        output_file = tmp_path / "test.json"
+    def test_cli_overrides_env(self, run_monitor_self: Any, tmp_path: Path) -> None:
+        output_file = tmp_path / "test.pftrace"
         env = os.environ.copy()
         env["GCMON_FORMAT"] = "jsonl"
-        run_monitor(["--format", "chrome", "-o", str(output_file), "-d", "0.1"], env=env)
+        run_monitor_self(["--format", "perfetto", "-o", str(output_file), "-d", "0.3"], env=env)
         assert output_file.exists()
-        assert output_file.read_text().strip().startswith("[")
+        assert_valid_perfetto_trace(output_file)
 
 
-class TestCliChromePlusPerfettoFormat:
-    """End-to-end: ``--format chrome+perfetto`` writes both files in one
-    monitoring session. The ``-o`` argument is a base name; ``.json`` and
-    ``.pftrace`` extensions are appended automatically."""
+class TestTheDroppedFormatsAreRefusedByName:
+    """What an operator who scripted the old flag sees.
 
-    def test_basic(self, run_monitor_self: Any, tmp_path: Path) -> None:
-        base = tmp_path / "trace"
-        result = run_monitor_self(
-            [
-                "--format",
-                "chrome+perfetto",
-                "-o",
-                str(base),
-                "-d",
-                "0.5",
-                "-r",
-                "0.05",
-                "-v",
-            ],
-            timeout=15,
-        )
-        assert result.returncode == 0
-        assert "Format: chrome+perfetto" in result.stderr
+    Asserting the outcome and not the absence of a symbol: the run has to stop
+    at the argument, and the message has to name what is left, or the operator
+    is left guessing which word replaced theirs.
+    """
 
-        chrome_path = tmp_path / "trace.json"
-        perfetto_path = tmp_path / "trace.pftrace"
-        assert chrome_path.exists()
-        assert perfetto_path.exists()
-        assert chrome_path.stat().st_size > 0
-        assert perfetto_path.stat().st_size > 0
+    @pytest.mark.parametrize("fmt", ["chrome", "trace", "chrome+perfetto"])
+    def test_the_run_stops_at_the_argument(self, run_monitor: Any, tmp_path: Path, fmt: str) -> None:
+        result = run_monitor(["--format", fmt, "-d", "0.1"], cwd=tmp_path)
 
-        # The chrome file must be a valid Chrome Trace JSON array.
-        assert chrome_path.read_text().strip().startswith("[")
-        assert_valid_chrome_trace_format(chrome_path)
+        assert result.returncode == 2
+        assert fmt in result.stderr
+        for remaining in ("perfetto", "jsonl", "stdout"):
+            assert remaining in result.stderr
 
-    def test_default_base_name(self, run_monitor_self: Any, tmp_path: Path) -> None:
-        """Without ``-o``, both files land in the cwd as ``gcmon.json`` and
-        ``gcmon.pftrace``."""
-        result = run_monitor_self(
-            [
-                "--format",
-                "chrome+perfetto",
-                "-d",
-                "0.5",
-                "-r",
-                "0.05",
-            ],
-            cwd=tmp_path,
-            timeout=15,
-        )
-        assert result.returncode == 0
-        assert (tmp_path / "gcmon.json").exists()
-        assert (tmp_path / "gcmon.pftrace").exists()
+    @pytest.mark.parametrize("fmt", ["chrome", "trace", "chrome+perfetto"])
+    def test_nothing_is_written(self, run_monitor: Any, tmp_path: Path, fmt: str) -> None:
+        run_monitor(["--format", fmt, "-d", "0.1"], cwd=tmp_path)
 
-    def test_strips_json_extension_from_base(self, run_monitor_self: Any, tmp_path: Path) -> None:
-        """If ``-o`` ends in ``.json``, the chrome path is unchanged and the
-        perfetto path is derived with the ``.pftrace`` extension."""
-        result = run_monitor_self(
-            [
-                "--format",
-                "chrome+perfetto",
-                "-o",
-                str(tmp_path / "trace.json"),
-                "-d",
-                "0.5",
-                "-r",
-                "0.05",
-            ],
-            timeout=15,
-        )
-        assert result.returncode == 0
-        assert (tmp_path / "trace.json").exists()
-        assert (tmp_path / "trace.pftrace").exists()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_the_environment_stops_the_run_and_names_the_value(self, run_monitor: Any, tmp_path: Path) -> None:
+        """The asymmetry ADR-0018 settled for `--stats`. The parser takes a
+        string default as given rather than checking it against `choices`, so
+        this word reaches the validator, which refuses it instead of logging
+        `Format: perfetto` for a run configured as something else."""
+        env = os.environ.copy()
+        env["GCMON_FORMAT"] = "chrome"
+
+        result = run_monitor(["-d", "0.1"], cwd=tmp_path, env=env)
+
+        assert result.returncode != 0
+        assert "GCMON_FORMAT" in result.stderr
+        assert "chrome" in result.stderr
+        assert "Format: perfetto" not in result.stderr
+        assert list(tmp_path.iterdir()) == []
 
 
 # =============================================================================
@@ -287,18 +256,18 @@ class TestCliChromePlusPerfettoFormat:
 class TestCliEnvVars:
     """CLI integration with individual environment variables."""
 
-    def test_output(self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, tmp_path: Path) -> None:
-        output_file = tmp_path / "env_test_trace.json"
+    def test_output(self, monkeypatch: pytest.MonkeyPatch, run_monitor_self: Any, tmp_path: Path) -> None:
+        output_file = tmp_path / "env_test_trace.pftrace"
         monkeypatch.setenv("GCMON_OUTPUT", str(output_file))
-        assert run_monitor(["-d", "0.3"]).returncode == 0
+        assert run_monitor_self(["-d", "0.3"]).returncode == 0
         assert output_file.exists()
 
-    def test_output_cli_override(self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, tmp_path: Path) -> None:
-        monkeypatch.setenv("GCMON_OUTPUT", str(tmp_path / "env_trace.json"))
-        cli_file = tmp_path / "cli_trace.json"
-        assert run_monitor(["-o", str(cli_file), "-d", "0.3"]).returncode == 0
+    def test_output_cli_override(self, monkeypatch: pytest.MonkeyPatch, run_monitor_self: Any, tmp_path: Path) -> None:
+        monkeypatch.setenv("GCMON_OUTPUT", str(tmp_path / "env_trace.pftrace"))
+        cli_file = tmp_path / "cli_trace.pftrace"
+        assert run_monitor_self(["-o", str(cli_file), "-d", "0.3"]).returncode == 0
         assert cli_file.exists()
-        assert not (tmp_path / "env_trace.json").exists()
+        assert not (tmp_path / "env_trace.pftrace").exists()
 
     def test_rate(self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, tmp_path: Path) -> None:
         monkeypatch.setenv("GCMON_RATE", "0.05")
@@ -327,8 +296,8 @@ class TestCliEnvVars:
 
     def test_format_cli_override(self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, tmp_path: Path) -> None:
         monkeypatch.setenv("GCMON_FORMAT", "stdout")
-        result = run_monitor(["--format", "chrome", "-d", "0.3", "-v"])
-        assert "Format: chrome" in result.stderr
+        result = run_monitor(["--format", "perfetto", "-d", "0.3", "-v"])
+        assert "Format: perfetto" in result.stderr
 
     @pytest.mark.parametrize("value", ["1", "true", "yes", "on"])
     def test_verbose_truthy_values(self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, value: str) -> None:
@@ -341,14 +310,14 @@ class TestCliEnvVars:
         result = run_monitor(["-d", "0.3", "-v"])
         assert "Monitoring PID: 12345" in result.stderr
 
-    def test_multiple_vars(self, monkeypatch: pytest.MonkeyPatch, run_monitor: Any, tmp_path: Path) -> None:
-        output_file = tmp_path / "multi_env_test.json"
+    def test_multiple_vars(self, monkeypatch: pytest.MonkeyPatch, run_monitor_self: Any, tmp_path: Path) -> None:
+        output_file = tmp_path / "multi_env_test.pftrace"
         monkeypatch.setenv("GCMON_OUTPUT", str(output_file))
         monkeypatch.setenv("GCMON_RATE", "0.05")
         monkeypatch.setenv("GCMON_DURATION", "0.4")
         monkeypatch.setenv("GCMON_VERBOSE", "1")
-        monkeypatch.setenv("GCMON_FORMAT", "chrome")
-        result = run_monitor([])
+        monkeypatch.setenv("GCMON_FORMAT", "perfetto")
+        result = run_monitor_self([])
         assert output_file.exists()
         assert "Rate: 0.05" in result.stderr
         assert "Duration: 0.4" in result.stderr

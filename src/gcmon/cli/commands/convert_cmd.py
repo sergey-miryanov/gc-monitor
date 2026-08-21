@@ -23,11 +23,11 @@ def add_parser(parser_factory: ParserFactory) -> argparse.ArgumentParser:
     """
     parser = parser_factory(
         "combine",
-        help="Combine multiple trace files into one",
+        help="Combine multiple JSONL captures into one trace file",
         description=(
-            "Combine multiple Chrome Trace Format or JSONL files into a single "
-            "Chrome, JSONL, or Perfetto binary protobuf trace, with optional "
-            "per-PID timestamp normalization."
+            "Combine multiple JSONL captures into a single JSONL capture or "
+            "Perfetto binary protobuf trace, with optional per-PID timestamp "
+            "normalization."
         ),
     )
     parser.add_argument(
@@ -57,16 +57,10 @@ def add_parser(parser_factory: ParserFactory) -> argparse.ArgumentParser:
         help="Normalize timestamps per PID so each process timeline starts at 0",
     )
     parser.add_argument(
-        "--input-format",
-        choices=["jsonl", "chrome"],
-        default="chrome",
-        help="Input file format (default: chrome)",
-    )
-    parser.add_argument(
         "--output-format",
-        choices=["jsonl", "chrome", "perfetto"],
-        default="chrome",
-        help="Output file format: chrome (JSON), jsonl, or perfetto (binary protobuf) (default: chrome)",
+        choices=["perfetto", "jsonl"],
+        default="perfetto",
+        help="Output file format: perfetto (binary protobuf) or jsonl (default: perfetto)",
     )
     parser.set_defaults(func=cmd_combine)
     return parser
@@ -84,29 +78,18 @@ def cmd_combine(args: Namespace) -> int:
     input_paths: list[Path] = args.inputs
     output_path: Path = args.output
     normalize = args.normalize
-    input_format = args.input_format
     output_format = args.output_format
-
-    if input_format == "chrome" and output_format == "jsonl":
-        logger.error(
-            "Input format 'chrome' with output format 'jsonl' is not supported. "
-            "Use --output-format 'chrome' or 'perfetto' instead."
-        )
-        return 1
 
     logger.info("Combining %s file(s)...", len(input_paths))
     for input_path in input_paths:
         logger.info("  Input: %s", input_path)
     logger.info("  Output: %s", output_path)
-    logger.info("  Input format: %s", input_format)
     logger.info("  Output format: %s", output_format)
     if normalize:
         logger.info("  Normalizing timestamps: yes")
 
     try:
-        combine_files(
-            input_paths, output_path, normalize=normalize, input_format=input_format, output_format=output_format
-        )
+        combine_files(input_paths, output_path, normalize=normalize, output_format=output_format)
     except (FileNotFoundError, ValueError, json.JSONDecodeError) as e:
         logger.error("Error combining files: %s", e)
         return 1

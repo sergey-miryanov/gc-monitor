@@ -1,5 +1,5 @@
 from .cli._version import installed_version
-from .exporters import EventsExporter, JsonlExporter, StdoutExporter, TraceExporter
+from .exporters import EventsExporter, JsonlExporter, StdoutExporter
 from .monitoring.child_process_runner import ChildProcess, ChildProcessRunner
 from .monitoring.monitor import EventsMonitor
 
@@ -18,6 +18,5 @@ __all__ = [
     "EventsMonitor",
     "JsonlExporter",
     "StdoutExporter",
-    "TraceExporter",
     "__version__",
 ]

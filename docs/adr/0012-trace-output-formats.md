@@ -1,7 +1,12 @@
 # ADR-0012: Support Perfetto output in `combine`, and dual output only in live mode
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0021](0021-write-one-trace-format.md)
 - **Date:** 2026-06-25 (`chrome+perfetto` added 2026-06-27)
+
+> gcmon writes one trace format now. ADR-0021 carries forward the half of this record
+> that survives, meaning `combine --output-format perfetto`, the normalization split,
+> Perfetto not being an input, and `-o` used verbatim. Everything below is left as
+> written.
 
 ## Context
 

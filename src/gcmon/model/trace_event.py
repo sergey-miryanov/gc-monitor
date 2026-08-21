@@ -1,4 +1,9 @@
-"""Chrome Trace Format events, and the factories that build them."""
+"""The events every output format is built from, and the factories that build them.
+
+One converter produces these and every encoder reads them (ADR-0007). Their
+shape is the Chrome Trace Format's, which is where gcmon started; `ts` is
+nanoseconds throughout (ADR-0009).
+"""
 
 from typing import Literal
 
@@ -27,10 +32,10 @@ __all__ = [
     "thread_meta",
 ]
 
-# The Chrome format identifies a track by `(pid, tid)` alone, so a row that
-# belongs to no interpreter takes a tid no interpreter will claim. gcmon names
-# none of these rows with `thread_meta`, so Perfetto leaves them off its thread
-# list.
+# These numbers are what they are because the Chrome format, which this shape
+# came from, identified a track by `(pid, tid)` alone: a row belonging to no
+# interpreter had to take a tid no interpreter would claim. gcmon names none of
+# these rows with `thread_meta`, so Perfetto leaves them off its thread list.
 #
 # RSS belongs to the process, with no interpreter behind it.
 RSS_TID: int = -1

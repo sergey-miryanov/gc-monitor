@@ -1,15 +1,15 @@
-"""A whole monitored run, pinned to the byte.
+"""A whole monitored run, pinned packet by packet.
 
 Everything else in the suite checks one piece of a tick. `test_loss_replay`
 drives `EventsMonitor.poll` off the capture and never runs the loop;
 `test_monitor_loop` runs the loop against a `MagicMock` monitor that produces no
 trace. This file covers the seam between them: discovery, prune, poll order, the
-policy verdict, liveness, and the bytes that come out the other end.
+policy verdict, liveness, and the trace that comes out the other end.
 
 It runs the real `MonitorLoop` over the real `EventsMonitor` over the real
-Chrome exporter, feeds it the `SSL_CONTEXT_SIZE` capture through a scripted
-process tree and clock, and compares the trace to
-`tests/fixtures/monitored_run_chrome_trace.json` byte for byte.
+Perfetto exporter, feeds it the `SSL_CONTEXT_SIZE` capture through a scripted
+process tree and clock, and compares the decoded trace to
+`tests/fixtures/monitored_run_perfetto_trace.txt`.
 
 **This test exists to be broken deliberately.** A red run means the trace an
 operator opens is not the trace they opened yesterday. Read the diff, convince
@@ -20,7 +20,7 @@ yourself every changed line is one you meant, then regenerate the fixture with
 and commit it alongside the change that moved it. Never regenerate to clear a
 red run.
 
-Determinism comes down to four things.
+Determinism comes down to five things.
 
 *One clock, two consumers.* `monitor_loop` and `monitor` both do `import time`,
 so one patch of `time.monotonic_ns` feeds both. The loop reads once before the
@@ -45,19 +45,28 @@ recorded. The child replays the same collections `CHILD_SKEW_NS` later, so its
 ring lands on different instants and its loss windows fall elsewhere. Two pids
 with different per-pid state, not one counted twice.
 
-*The Chrome leg only.* Perfetto's process-lifetime sweep clips spans by the
-order liveness arrives in, which the loop's timing feeds. Chrome drops liveness
-on a base-class no-op and resolves no cmdline through psutil, so its bytes
-depend on the capture and the script alone.
+*Neither value the encoder would have invented is left to it.* `sequence_id`
+is passed in rather than derived from `id(self)`, and `cmdline_provider` is a
+stub answering `None`, so psutil is never asked what a pid this machine does
+not have was running. Track uuids count from 1 in allocation order, which the
+script above already fixes.
 
-The fixture is the encoder's own output, unmodified. That format is one JSON
-object per line, so the stored bytes are both the thing asserted and a per-event
-diff a human can read.
+*Liveness arrives in the order the script produced.* The `Processes` track
+clips one pid's span against another's, so its slices depend on the sequence of
+ticks and not only on their contents. That sequence is `_poll_order`, written
+down.
+
+The fixture is every `TracePacket` in the file, decoded through Perfetto's own
+generated schema and written out as text. Decoding reads each field back
+through a field number gcmon did not supply, which is the failure
+[ADR-0001](../../docs/adr/0001-hand-rolled-perfetto-protobuf-encoder.md) exists
+for and the one a round trip through gcmon's own constants cannot see. One
+stanza per packet, so the stored form is both the thing asserted and a
+per-packet diff a human can read.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,8 +74,10 @@ from typing import Any, override
 from unittest.mock import patch
 
 import pytest
+from google.protobuf import text_format
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket, TrackEvent
 
-from gcmon.exporters.chrome_trace_exporter import TraceExporter
+from gcmon.exporters.perfetto_exporter import PerfettoExporter
 from gcmon.model.data import GCStatsInfo
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.monitor_loop import MonitorLoop
@@ -77,7 +88,7 @@ from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import FakeEventsReader
 from tests.test_loss_replay import MS, READ_COST_NS, RING_SIZES, capture_records, ring_at
 
-FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "monitored_run_chrome_trace.json"
+FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "monitored_run_perfetto_trace.txt"
 
 TARGET_PID = 33328
 CHILD_PID = 33512
@@ -118,6 +129,20 @@ CHILD_GONE = frozenset({4})
 # flush points moved would be a different run, so the number is written down.
 FLUSH_THRESHOLD = 1000
 
+# Reaches every packet as `trusted_packet_sequence_id`. Left to the encoder it
+# is `id(self)` masked, which is an address, so it would put this process's
+# memory layout in the fixture.
+SEQUENCE_ID = 1
+
+
+def _no_cmdline(pid: int) -> list[str] | None:
+    """The cmdline provider for a run with no live process behind it.
+
+    The default reads psutil, which on this machine answers for whatever
+    happens to hold pid 33328, and on the next machine answers something else.
+    """
+    return None
+
 
 def _tree(tick: int) -> list[int]:
     """What `get_child_pids` answers on *tick*."""
@@ -147,7 +172,7 @@ def _script() -> tuple[list[int], list[tuple[int, int]]]:
     The pacing read (ADR-0019) lands one slot past the last pid's, which is
     where a real one falls: after every poll, before the wait. It stamps
     nothing, so its value reaches no event -- which is why adding it left the
-    fixture byte-identical.
+    fixture unmoved.
     """
     clock: list[int] = []
     reads: list[tuple[int, int]] = []
@@ -236,16 +261,68 @@ class MonitoredRun:
     clock_scripted: int
     reads: list[tuple[int, int]]
 
-    def events(self) -> list[dict[str, Any]]:
-        """The trace parsed back, for tests asking what is in it rather than
-        what it weighs. No substitute for the byte comparison; these only say
-        the fixture is worth having."""
-        parsed: list[dict[str, Any]] = json.loads(self.trace)
-        return parsed
+    def packets(self) -> list[TracePacket]:
+        """Every packet in the file, read back through Perfetto's schema."""
+        decoded = Trace()
+        decoded.ParseFromString(self.trace)
+        return list(decoded.packet)
+
+    def text(self) -> str:
+        """The pinned form: one stanza per packet, in file order."""
+        return "".join(
+            f"--- packet {index} ---\n{text_format.MessageToString(packet)}"
+            for index, packet in enumerate(self.packets())
+        )
+
+    def pid_by_track(self) -> dict[int, int]:
+        """Track uuid to pid, read off the descriptors.
+
+        Every descriptor gcmon writes for a process or an interpreter carries
+        the pid, on `ProcessDescriptor` or on `ThreadDescriptor` alike, so this
+        needs no guess about which track parents which.
+        """
+        by_track: dict[int, int] = {}
+        for packet in self.packets():
+            if not packet.HasField("track_descriptor"):
+                continue
+            descriptor = packet.track_descriptor
+            if descriptor.HasField("thread"):
+                by_track[descriptor.uuid] = descriptor.thread.pid
+            elif descriptor.HasField("process"):
+                by_track[descriptor.uuid] = descriptor.process.pid
+        return by_track
+
+    def slice_names(self) -> list[str]:
+        """Every named slice in the trace, in packet order."""
+        return [
+            packet.track_event.name
+            for packet in self.packets()
+            if packet.HasField("track_event") and packet.track_event.name
+        ]
+
+    def track_uuid(self, name: str) -> int:
+        """The uuid of the one track called *name*."""
+        uuids = [
+            packet.track_descriptor.uuid
+            for packet in self.packets()
+            if packet.HasField("track_descriptor") and packet.track_descriptor.name == name
+        ]
+        assert len(uuids) == 1, f"expected one {name!r} track, found {len(uuids)}"
+        return int(uuids[0])
+
+    def begins_on(self, uuid: int) -> list[str]:
+        """The names of the slices opened on track *uuid*, in packet order."""
+        return [
+            packet.track_event.name
+            for packet in self.packets()
+            if packet.HasField("track_event")
+            and packet.track_event.track_uuid == uuid
+            and packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+        ]
 
 
 def run_monitored(output: Path) -> MonitoredRun:
-    """Drive the real loop over the capture and return the Chrome bytes."""
+    """Drive the real loop over the capture and return the trace."""
     truth = {
         TARGET_PID: capture_records(),
         CHILD_PID: _shifted(capture_records(), CHILD_SKEW_NS),
@@ -271,7 +348,16 @@ def run_monitored(output: Path) -> MonitoredRun:
         records = truth[pid]
         return [slot for gen in sorted(records) for slot in ring_at(records[gen], gen, RING_SIZES[gen], ts_read_start)]
 
-    exporter = TraceExporter(output_path=output, flush_threshold=FLUSH_THRESHOLD)
+    # Built as a `PerfettoExporter` and not as a bare `ProtobufEventEncoder`:
+    # `add_process_liveness` is overridden here and nowhere else, so an encoder
+    # driven directly would drop every observation on the base class's no-op
+    # and finish with an empty `Processes` track.
+    exporter = PerfettoExporter(
+        output_path=output,
+        flush_threshold=FLUSH_THRESHOLD,
+        cmdline_provider=_no_cmdline,
+        sequence_id=SEQUENCE_ID,
+    )
     monitor = EventsMonitor(
         ExternalProcess(pid=TARGET_PID),
         exporter,
@@ -310,7 +396,7 @@ def run_monitored(output: Path) -> MonitoredRun:
 
 @pytest.fixture(scope="module")
 def run(tmp_path_factory: pytest.TempPathFactory) -> MonitoredRun:
-    return run_monitored(tmp_path_factory.mktemp("trace") / "gcmon.json")
+    return run_monitored(tmp_path_factory.mktemp("trace") / "gcmon.pftrace")
 
 
 class TestTheScriptIsWorthPinning:
@@ -330,15 +416,26 @@ class TestTheScriptIsWorthPinning:
         assert polled[-1] == {TARGET_PID, CHILD_PID}, "the child never comes back"
 
     def test_both_pids_reach_the_trace(self, run: MonitoredRun) -> None:
-        assert {event["pid"] for event in run.events()} == {TARGET_PID, CHILD_PID}
+        assert set(run.pid_by_track().values()) == {TARGET_PID, CHILD_PID}
 
     def test_the_run_loses_records_as_well_as_drawing_them(self, run: MonitoredRun) -> None:
         """A poll period the ring always survives would pin the export path
         and leave ADR-0015's loss arithmetic out of the fixture entirely."""
-        names = [event["name"] for event in run.events()]
+        names = run.slice_names()
 
         assert any(name.startswith("GC Pause(") for name in names)
         assert any(name.startswith("GC Loss(") for name in names)
+
+    def test_both_pids_get_a_span_on_the_processes_track(self, run: MonitoredRun) -> None:
+        """The minimap, and the reason this leg is the one worth pinning.
+
+        Liveness reaches the trace only through `add_process_liveness`, and
+        only the Perfetto exporter overrides it. A run whose spans went missing
+        here would still write every pause and every loss slice.
+        """
+        drawn = run.begins_on(run.track_uuid("Processes"))
+
+        assert sorted(drawn) == sorted([f"Process {TARGET_PID}", f"Process {CHILD_PID}"])
 
     def test_the_clock_was_spent_exactly(self, run: MonitoredRun) -> None:
         """One read to seed the grid, then per tick one to stamp it, two per
@@ -349,22 +446,21 @@ class TestTheScriptIsWorthPinning:
 
 
 class TestTheTracesAreIdentical:
-    def test_the_bytes_match_the_fixture(self, run: MonitoredRun) -> None:
+    def test_the_packets_match_the_fixture(self, run: MonitoredRun) -> None:
         """The guard. See the module docstring before regenerating."""
-        expected = FIXTURE.read_bytes()
+        expected = FIXTURE.read_text(encoding="utf-8")
 
-        # Line by line first: both encodings are one JSON object per line, so
-        # this is the assertion that prints a diff of the events that moved.
-        # The byte comparison after it is what the claim actually rests on --
-        # it also covers the line endings and the trailing newline, which
-        # `splitlines` throws away.
-        assert run.trace.decode().splitlines() == expected.decode().splitlines()
-        assert run.trace == expected
+        # Line by line first: the stored form is one field per line under a
+        # header naming the packet, so this is the assertion that prints a diff
+        # of what moved. The whole-text comparison after it covers the trailing
+        # newline, which `splitlines` throws away.
+        assert run.text().splitlines() == expected.splitlines()
+        assert run.text() == expected
 
     def test_a_second_run_produces_the_same_bytes(self, run: MonitoredRun, tmp_path: Path) -> None:
-        """No machine clock anywhere, which is what separates a fixture from a
-        record of one afternoon's timings."""
-        again = run_monitored(tmp_path / "again.json")
+        """No machine clock and no machine address anywhere, which is what
+        separates a fixture from a record of one afternoon's timings."""
+        again = run_monitored(tmp_path / "again.pftrace")
 
         assert again.trace == run.trace
 
@@ -381,11 +477,21 @@ class TestTheChildLeavingIsVisible:
 
     def _pauses(self, run: MonitoredRun, pid: int) -> list[tuple[int, int]]:
         """`(generation, collections)` per GC Pause slice drawn for *pid*."""
-        return [
-            (int(event["args"]["generation"]), int(event["args"]["collections"]))
-            for event in run.events()
-            if event.get("ph") == "B" and str(event["name"]).startswith("GC Pause(") and event["pid"] == pid
-        ]
+        by_track = run.pid_by_track()
+        drawn: list[tuple[int, int]] = []
+        for packet in run.packets():
+            if not packet.HasField("track_event"):
+                continue
+            event = packet.track_event
+            if event.type != TrackEvent.Type.TYPE_SLICE_BEGIN:
+                continue
+            if not event.name.startswith("GC Pause("):
+                continue
+            if by_track.get(event.track_uuid) != pid:
+                continue
+            annotations = {ann.name: ann.int_value for ann in event.debug_annotations}
+            drawn.append((annotations["generation"], annotations["collections"]))
+        return drawn
 
     def test_the_returning_child_re_exports_the_ring_it_left_with(self, run: MonitoredRun) -> None:
         drawn = self._pauses(run, CHILD_PID)
@@ -406,11 +512,12 @@ def _regenerate() -> None:
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
-        produced = run_monitored(Path(tmp) / "gcmon.json")
+        produced = run_monitored(Path(tmp) / "gcmon.pftrace")
 
+    text = produced.text()
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE.write_bytes(produced.trace)
-    print(f"wrote {FIXTURE} ({len(produced.trace)} bytes, {len(produced.events())} events)")
+    FIXTURE.write_text(text, encoding="utf-8", newline="\n")
+    print(f"wrote {FIXTURE} ({len(text)} chars, {len(produced.packets())} packets)")
 
 
 if __name__ == "__main__":

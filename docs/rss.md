@@ -3,7 +3,7 @@
 RSS (Resident Set Size) tracking samples the physical memory usage of each
 monitored process and emits it as a process-level counter track.
 
-Supported by the `chrome` and `perfetto` formats. The `jsonl` and `stdout`
+Supported by the `perfetto` format. The `jsonl` and `stdout`
 formats discard RSS samples; `--rss` logs a warning when combined with them.
 
 ## How to Use

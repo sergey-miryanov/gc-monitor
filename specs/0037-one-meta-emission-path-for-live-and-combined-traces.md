@@ -138,6 +138,5 @@ benefit. Out of scope, stated here so nobody "fixes" it as part of this.
 ## 7. Further notes
 
 0026, 0037 and [0036](0036-one-exporter-method-per-record-kind.md) all touch the exporter
-package and are independent. Order by size: 0026 (XS, one literal), then
-[0028](0028-combined-exporter-reaches-into-sub-exporter-privates.md) (XS), then this, then
-0036, each leaving less for the next.
+package and are independent. Order by size: 0026 (XS, one literal), then this, then 0036, each
+leaving less for the next.

@@ -86,11 +86,12 @@ the 0.1 s GC poll rate.
 - You can unit-test `RssSampler` without `psutil` and without a monitor loop.
 - Missing `psutil`, a dead process, or a permission error each produce no sample and no
   error. `--rss` on a machine without `psutil` is ignored, with one info log.
-- **Perfetto-only in practice.** An RSS sample is a no-op on the `EventsExporter` base and
+- **Perfetto-only.** An RSS sample is a no-op on the `EventsExporter` base and
   `BufferedTraceExporter` overrides it, so JSONL and stdout carry no RSS. Chrome traces
-  *technically* contain the counter event, since it flows through the same buffered base
-  into `JsonEventEncoder`, but that is a side effect of the shared base. Nobody validates
-  or tests it. Only the Perfetto path is a supported feature.
+  technically contained the counter event, since it flowed through the same buffered base,
+  but nobody validated it and the format is gone
+  ([ADR-0021](0021-write-one-trace-format.md)). `RSS_CAPABLE_FORMATS` in the CLI layer
+  names the one format that carries it.
 - Adding `"rss"` to the top-level set brings the accepted trade-off from ADR-0004 with it:
   its `sibling_order_rank` is dropped because its parent is OS-scoped.
 - The counter payload key is `"rss"` (`{"rss": rss_bytes}`). The event carries a

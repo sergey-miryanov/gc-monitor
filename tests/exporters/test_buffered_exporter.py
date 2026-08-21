@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 
 from gcmon.exporters._buffered_exporter import BufferedTraceExporter
-from gcmon.exporters.chrome_trace_exporter import TraceExporter
-from gcmon.exporters.encoder import JsonEventEncoder
+from gcmon.exporters.encoder import ProtobufEventEncoder
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.exporters.jsonl_exporter import JsonlExporter
 from gcmon.exporters.stdout_exporter import StdoutExporter
@@ -23,8 +22,8 @@ class TestBuildMetaGuard:
 
     def _make_exporter(self, tmp_path: Path) -> BufferedTraceExporter:
         return BufferedTraceExporter(
-            JsonEventEncoder(),
-            tmp_path / "test.json",
+            ProtobufEventEncoder(),
+            tmp_path / "test.pb",
             flush_threshold=1000,
         )
 
@@ -62,8 +61,8 @@ class TestBuildMetaGuard:
 class TestAddRssSample:
     def test_emits_counter_event_with_correct_shape(self, tmp_path: Path) -> None:
         exporter = BufferedTraceExporter(
-            JsonEventEncoder(),
-            tmp_path / "test.json",
+            ProtobufEventEncoder(),
+            tmp_path / "test.pb",
             flush_threshold=1000,
         )
         exporter.add_rss_sample(100, 4096, 1_000_000)
@@ -78,8 +77,8 @@ class TestAddRssSample:
 
     def test_multiple_pids_produce_separate_meta(self, tmp_path: Path) -> None:
         exporter = BufferedTraceExporter(
-            JsonEventEncoder(),
-            tmp_path / "test.json",
+            ProtobufEventEncoder(),
+            tmp_path / "test.pb",
             flush_threshold=1000,
         )
         exporter.add_rss_sample(100, 4096, 1_000_000)
@@ -104,13 +103,6 @@ class TestAddProcessLivenessIsPerfettoOnly:
         exporter.close()
         return path.read_bytes()
 
-    def test_chrome_output_is_unchanged(self, tmp_path: Path) -> None:
-        quiet = tmp_path / "quiet.json"
-        loud = tmp_path / "loud.json"
-        assert self._write(quiet, TraceExporter(quiet, flush_threshold=1000), with_liveness=False) == self._write(
-            loud, TraceExporter(loud, flush_threshold=1000), with_liveness=True
-        )
-
     def test_jsonl_output_is_unchanged(self, tmp_path: Path) -> None:
         quiet = tmp_path / "quiet.jsonl"
         loud = tmp_path / "loud.jsonl"
@@ -133,7 +125,7 @@ class TestAddProcessLivenessIsPerfettoOnly:
 
 class TestAddLossEvent:
     def _make_exporter(self, tmp_path: Path) -> BufferedTraceExporter:
-        return BufferedTraceExporter(JsonEventEncoder(), tmp_path / "test.json", flush_threshold=1000)
+        return BufferedTraceExporter(ProtobufEventEncoder(), tmp_path / "test.pb", flush_threshold=1000)
 
     def test_the_bar_is_the_window(self, tmp_path: Path) -> None:
         """The whole interval gcmon could not observe, not the 200 ns of GC

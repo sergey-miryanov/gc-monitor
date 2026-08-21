@@ -36,9 +36,14 @@ from gcmon.support.time_units import secs_to_ns
 
 logger = logging.getLogger("gcmon")
 
+# Every format `--format` takes, in the order the help lists them. The parser
+# and the GCMON_FORMAT refusal below read the same tuple, so a word one accepts
+# is a word the other accepts.
+FORMATS = ("perfetto", "jsonl", "stdout")
+
 # Formats whose exporters implement EventsExporter.add_rss_sample. The others
 # inherit the no-op base implementation and silently discard RSS samples.
-RSS_CAPABLE_FORMATS = ("chrome", "trace", "perfetto", "chrome+perfetto")
+RSS_CAPABLE_FORMATS = ("perfetto",)
 
 
 def _rate_argument(text: str) -> float:
@@ -65,7 +70,7 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         "--output",
         type=Path,
         default=get_env_output(),
-        help=f"Output file path (default: gcmon.json, gcmon.jsonl for jsonl format, or {ENV_OUTPUT} env var). Ignored for --format stdout",
+        help=f"Output file path (default: gcmon.pftrace, gcmon.jsonl for jsonl format, or {ENV_OUTPUT} env var). Ignored for --format stdout",
     )
     parser.add_argument(
         "-r",
@@ -90,13 +95,12 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--format",
-        choices=["chrome", "perfetto", "stdout", "jsonl", "chrome+perfetto"],
+        choices=FORMATS,
         default=get_env_format(),
         help=(
-            f"Output format: 'chrome' for Chrome DevTools, 'perfetto' for Perfetto binary protobuf, "
-            f"'chrome+perfetto' for both Chrome JSON and Perfetto binary outputs (the `-o` argument is a "
-            f"base name; `.json` and `.pftrace` extensions are appended), 'stdout' for one-line-per-event "
-            f"JSONL to stdout, 'jsonl' for JSONL file (default: chrome or {ENV_FORMAT} env var)"
+            f"Output format: 'perfetto' for Perfetto binary protobuf, 'jsonl' for JSONL file, "
+            f"'stdout' for one-line-per-event JSONL to stdout "
+            f"(default: perfetto or {ENV_FORMAT} env var)"
         ),
     )
     parser.add_argument(
@@ -134,8 +138,8 @@ def add_monitoring_options(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         default=get_env_rss(),
         help=(
-            f"Track RSS (Resident Set Size) of monitored process (supported for --format chrome, "
-            f"perfetto, chrome+perfetto; requires psutil; or {ENV_RSS}=1 env var)"
+            f"Track RSS (Resident Set Size) of monitored process (supported for --format perfetto; "
+            f"requires psutil; or {ENV_RSS}=1 env var)"
         ),
     )
     parser.add_argument(
@@ -190,6 +194,19 @@ def get_monitoring_options(
         return None
     duration = args.duration
     output_format = args.format
+    # A bad `--format` dies in the parser, which leaves the environment as the
+    # only way an unknown word reaches here: argparse takes a string default as
+    # given rather than checking it against `choices`. Refusing it beats
+    # substituting one, which is what logging `Format: perfetto` for a run
+    # configured as something else would amount to (ADR-0018).
+    if output_format not in FORMATS:
+        logger.error(
+            "%s must be one of %s, got '%s'",
+            ENV_FORMAT,
+            ", ".join(f"'{name}'" for name in FORMATS),
+            os.environ.get(ENV_FORMAT, ""),
+        )
+        return None
     flush_threshold = args.flush_threshold
     table_format = args.table_format
     rss_enabled = args.rss

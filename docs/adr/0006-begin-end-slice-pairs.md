@@ -27,7 +27,8 @@ The Chrome backend emits begin/end pairs. `ph: "X"` is not produced.
 - The event model's span types and their factories are begin/end pairs; the complete-event
   types they replaced are gone.
 - The converter emits a begin/end pair per span rather than a single complete event.
-- The Chrome trace reader parses `ph: "B"` and `ph: "E"`; `ph: "X"` parsing is removed.
+- The Chrome trace reader parsed `ph: "B"` and `ph: "E"`; `ph: "X"` parsing was removed.
+  That reader is gone with the format ([ADR-0021](0021-write-one-trace-format.md)).
 - Timestamp normalization covers `"B"`, `"E"`, `"C"` and `"I"` events.
 
 Begin/end is the shared primitive. Perfetto's model wins because it is the one that cannot
@@ -39,13 +40,11 @@ carrying independent metadata at each end is not derivable from a complete event
 - This was the enabling step for [ADR-0007](0007-shared-trace-converter-pipeline.md): with
   both backends agreeing on the primitive, the sub-phase discovery logic and the naming
   strings collapsed into one shared converter.
-- The Chrome output has roughly twice as many event records for the same spans. The files
-  are larger; `chrome://tracing` and the Perfetto UI both render begin/end pairs natively,
-  so nothing downstream had to change.
-- A truncated or interrupted Chrome trace can end with an unmatched `"B"`. Both viewers
-  tolerate this; a complete event could never be half-written.
-- The Chrome converter no longer converts a duration to microseconds. Duration is a
-  property of the pair, not of a record.
+- A trace has roughly twice as many event records for the same spans. The files are larger;
+  the Perfetto UI renders begin/end pairs natively, so nothing downstream had to change.
+- A truncated or interrupted trace can end with an unmatched begin. The viewer tolerates
+  this; a complete event could never be half-written.
+- Duration is a property of the pair, not of a record, so nothing converts one.
 
 ## Alternatives considered
 
@@ -59,6 +58,5 @@ carrying independent metadata at each end is not derivable from a complete event
 
 - `src/gcmon/model/trace_event.py` holds the begin and end event types and their factories.
 - `src/gcmon/exporters/trace_converter.py` emits the pairs.
-- `src/gcmon/exporters/combine.py` parses `"B"` / `"E"` on the way in, and
-  normalizes timestamps across `"B"`, `"E"`, `"C"` and `"I"`.
-- `tests/helpers.py` carries the begin/end assertions the suites share.
+- `src/gcmon/exporters/combine.py` normalizes timestamps across `"B"`, `"E"`, `"C"` and
+  `"I"`.

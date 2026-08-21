@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Callable, Mapping, Sequence, Set
+from collections.abc import Callable, Sequence, Set
 from pathlib import Path
 from typing import override
+
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket
 
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import GCStatsInfo, GenLoss, LossMsg
@@ -12,7 +14,6 @@ from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 from gcmon.monitoring.events_reader import EventsReader
 
 _JsonValue = int | float | str
-ChromeTraceValue = _JsonValue | Mapping[str, _JsonValue]
 JsonlRecord = dict[str, _JsonValue]
 DefaultsValue = Path | float | None | int | str | bool
 
@@ -21,20 +22,13 @@ DefaultsValue = Path | float | None | int | str | bool
 ReadFn = Callable[..., Sequence[TGCStatsInfo]]
 
 __all__ = [
-    "ChromeTraceValue",
     "DefaultsValue",
     "FakeEventsReader",
     "JsonlRecord",
     "MockExporter",
     "ReadFn",
-    "assert_is_begin",
-    "assert_is_counter",
-    "assert_is_end",
-    "assert_is_instant_event",
     "assert_is_instant_msg",
-    "assert_is_process_meta",
-    "assert_is_thread_meta",
-    "assert_valid_chrome_trace_format",
+    "assert_valid_perfetto_trace",
     "create_jsonl_record",
     "create_mock_incremental_item",
     "create_mock_loss_item",
@@ -347,112 +341,32 @@ def assert_valid_jsonl_format(file_path: Path) -> list[JsonlRecord]:
     return data
 
 
-def assert_valid_chrome_trace_format(file_path: Path) -> list[dict[str, ChromeTraceValue]]:
-    """Validate that a file contains valid Chrome Trace format (JSON array of objects).
+def assert_valid_perfetto_trace(file_path: Path) -> list[TracePacket]:
+    """Validate that a file is a Perfetto trace, and return its packets.
+
+    Read back through Perfetto's own generated schema rather than through
+    gcmon's constants, so a wrong field number fails here rather than
+    producing a file only gcmon can read.
 
     Args:
-        file_path: Path to the JSON file to validate.
+        file_path: Path to the ``.pftrace`` file to validate.
 
     Returns:
-        List of parsed event dictionaries.
+        Every ``TracePacket`` in the file, in file order.
 
     Raises:
-        AssertionError: If the file is not valid Chrome Trace format.
+        AssertionError: If the file is missing, empty, or carries no packets.
     """
     assert file_path.exists(), f"File {file_path} does not exist"
 
-    with open(file_path, encoding="utf-8") as f:
-        content = f.read()
+    content = file_path.read_bytes()
+    assert content, f"Perfetto trace {file_path} is empty"
 
-    # Check basic JSON array structure
-    content_stripped = content.strip()
-    assert content_stripped.startswith("["), f"Chrome Trace file should start with '[', got: {content_stripped[:20]}"
-    assert content_stripped.endswith("]"), f"Chrome Trace file should end with ']', got: {content_stripped[-20:]}"
-
-    # Parse and validate structure
-    data = json.loads(content)
-    assert isinstance(data, list), f"Chrome Trace file should contain a JSON array, got {type(data)}"
-
-    # Validate each item is a dict (JSON object)
-    for idx, item in enumerate(data):
-        assert isinstance(item, dict), f"Item {idx} in Chrome Trace file should be a dict, got {type(item)}"
-
-    return data
-
-
-def assert_is_begin(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
-    assert event["ph"] == "B"
-    for key, value in expected.items():
-        if key == "args":
-            assert isinstance(value, Mapping)
-            args = event["args"]
-            assert isinstance(args, Mapping)
-            for arg_key, arg_value in value.items():
-                assert args[arg_key] == arg_value
-        else:
-            assert event[key] == value
-
-
-def assert_is_end(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
-    assert event["ph"] == "E"
-    for key, value in expected.items():
-        if key == "args":
-            assert isinstance(value, Mapping)
-            args = event["args"]
-            assert isinstance(args, Mapping)
-            for arg_key, arg_value in value.items():
-                assert args[arg_key] == arg_value
-        else:
-            assert event[key] == value
-
-
-def assert_is_counter(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
-    assert event["ph"] == "C"
-    for key, value in expected.items():
-        if key == "args":
-            assert isinstance(value, Mapping)
-            args = event["args"]
-            assert isinstance(args, Mapping)
-            for arg_key, arg_value in value.items():
-                assert args[arg_key] == arg_value
-        else:
-            assert event[key] == value
-
-
-def assert_is_process_meta(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
-    assert event["ph"] == "M"
-    assert event["name"] == "process_name"
-    for key, value in expected.items():
-        if key == "args":
-            assert isinstance(value, Mapping)
-            args = event["args"]
-            assert isinstance(args, Mapping)
-            for arg_key, arg_value in value.items():
-                assert args[arg_key] == arg_value
-        else:
-            assert event[key] == value
-
-
-def assert_is_thread_meta(event: dict[str, ChromeTraceValue], **expected: ChromeTraceValue) -> None:
-    assert event["ph"] == "M"
-    assert event["name"] == "thread_name"
-    for key, value in expected.items():
-        if key == "args":
-            assert isinstance(value, Mapping)
-            args = event["args"]
-            assert isinstance(args, Mapping)
-            for arg_key, arg_value in value.items():
-                assert args[arg_key] == arg_value
-        else:
-            assert event[key] == value
-
-
-def assert_is_instant_event(event: dict[str, ChromeTraceValue], **expected: str | int) -> None:
-    assert event["ph"] == "I"
-    assert event["s"] == "p"
-
-    for key, value in expected.items():
-        assert event[key] == value
+    trace = Trace()
+    trace.ParseFromString(content)
+    packets = list(trace.packet)
+    assert packets, f"Perfetto trace {file_path} carries no packets"
+    return packets
 
 
 def assert_is_instant_msg(msg: JsonlRecord, **expected: str | int) -> None:

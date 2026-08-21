@@ -1,12 +1,8 @@
 """Pluggable encoder interface for trace event exporters.
 
 An ``EventEncoder`` translates a batch of ``TraceEvent`` objects into the
-bytes of a single on-disk format.
-
-Two implementations are provided:
-
-- ``JsonEventEncoder``  -- Chrome Trace Event JSON format.
-- ``ProtobufEventEncoder`` -- Perfetto binary protobuf format.
+bytes of a single on-disk format. ``ProtobufEventEncoder`` is the one
+implementation; a new output format arrives as a second one (ADR-0008).
 """
 
 from __future__ import annotations
@@ -16,10 +12,7 @@ from collections.abc import Callable, Sequence, Set
 from pathlib import Path
 from typing import Protocol
 
-import msgspec
-
 from ..model.trace_event import ProcessMeta, TraceEvent
-from ..support.time_units import ts_to_us
 from .perfetto_format import (
     PerfettoTrackState,
     TraceField,
@@ -32,7 +25,6 @@ logger = logging.getLogger("gcmon")
 
 __all__ = [
     "EventEncoder",
-    "JsonEventEncoder",
     "ProtobufEventEncoder",
     "convert_trace_events_to_perfetto",
 ]
@@ -49,47 +41,6 @@ class EventEncoder(Protocol):
 
     def close(self) -> None:
         """Finalize the output. May be a no-op for some encoders."""
-
-
-class JsonEventEncoder:
-    """Encoder for Chrome Trace Event JSON format."""
-
-    def __init__(self) -> None:
-        self._path: Path | None = None
-        self._has_written: bool = False
-
-    def open(self, path: Path) -> None:
-        self._path = path
-        self._has_written = False
-
-    def write_events(self, events: Sequence[TraceEvent]) -> None:
-        if not events:
-            return
-        assert self._path is not None, "open() must be called before write_events()"
-        with open(self._path, "ab") as f:
-            for e in events:
-                d = msgspec.to_builtins(e)
-                ts_ns = getattr(e, "ts", None)
-                if ts_ns is not None:
-                    d["ts"] = ts_to_us(ts_ns)
-                if e.ph == "C" and len(e.args) == 1:
-                    d["name"] = ""
-                encoded = msgspec.json.encode(d)
-                if not self._has_written:
-                    self._has_written = True
-                    f.write(b"[\n" + encoded)
-                else:
-                    f.write(b",\n" + encoded)
-            f.flush()
-
-    def close(self) -> None:
-        assert self._path is not None, "open() must be called before close()"
-        if not self._has_written:
-            with open(self._path, "wb") as f:
-                f.write(b"[]\n")
-        else:
-            with open(self._path, "ab") as f:
-                f.write(b"\n]\n")
 
 
 class ProtobufEventEncoder:

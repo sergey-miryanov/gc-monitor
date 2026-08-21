@@ -24,11 +24,11 @@ class MonitorArgsFactory:
 
     _defaults: ClassVar[dict[str, DefaultsValue]] = {
         "pid": 12345,
-        "output": Path("test.json"),
+        "output": Path("test.pftrace"),
         "rate": 0.1,
         "duration": 0.05,
         "verbose": 1,
-        "format": "chrome",
+        "format": "perfetto",
         "thread_id": 0,
         "flush_threshold": 100,
         "stats": None,
@@ -130,10 +130,10 @@ def monitoring_options() -> Callable[..., MonitoringOptions]:
 
     def _make(**overrides: Any) -> MonitoringOptions:
         defaults: dict[str, Any] = {
-            "output_path": Path("test.json"),
+            "output_path": Path("test.pftrace"),
             "rate": 0.1,
             "duration": 0.05,
-            "output_format": "chrome",
+            "output_format": "perfetto",
             "flush_threshold": 100,
             "duration_label": "until interrupted",
             "stats_view": None,

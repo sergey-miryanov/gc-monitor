@@ -11,7 +11,7 @@
 
 gcmon watches a running Python process's garbage collector from **outside** the
 process: no code changes, no callbacks, no in-process overhead. Export to
-Chrome Trace, Perfetto, or JSONL; query with PerfettoSQL.
+Perfetto or JSONL; query with PerfettoSQL.
 
 > **Requires CPython 3.15+** for the monitored process and the `gcmon` process,
 > built from the same source. See [Limitations](#limitations) for details.
@@ -43,13 +43,13 @@ integrate GC metrics into benchmarks.
 
 - **Real-time GC monitoring** - Track garbage collection events in running
   Python processes without in-process overhead
-- **Multiple export formats** - Chrome Trace Event, Perfetto binary protobuf,
-  JSONL file, and JSONL to stdout
+- **Multiple export formats** - Perfetto binary protobuf, JSONL file, and
+  JSONL to stdout
   ([formats](https://github.com/sergey-miryanov/gcmon/blob/main/docs/formats.md))
 - **CLI** - Monitor processes or run scripts with GC monitoring
   ([usage](https://github.com/sergey-miryanov/gcmon/blob/main/docs/cli.md))
-- **RSS tracking** - Track Resident Set Size of monitored processes in Chrome
-  and Perfetto traces
+- **RSS tracking** - Track Resident Set Size of monitored processes in a
+  Perfetto trace
   ([details](https://github.com/sergey-miryanov/gcmon/blob/main/docs/rss.md))
 - **Pyperf hook integration** - Seamlessly integrate with pyperf benchmarks
   ([pyperf hook](https://github.com/sergey-miryanov/gcmon/blob/main/docs/pyperf.md))
@@ -228,25 +228,25 @@ Each extra degrades gracefully when absent; no other trace data is affected.
 ## Quick Start
 
 ```bash
-# Monitor a running process by PID (default Chrome Trace format)
+# Monitor a running process by PID (default Perfetto format)
 gcmon 12345
 
 # Run a Python script with GC monitoring
 gcmon run -s my_script.py
 
 # Monitor with custom output and statistics output
-gcmon monitor 12345 -o trace.json --stats=total
+gcmon monitor 12345 -o trace.pftrace --stats=total
 
 # Perfetto binary output with RSS tracking
 gcmon 12345 --format perfetto -o trace.pftrace --rss
 
-# Combine multiple traces (e.g. different runs or builds) into a single file
-gcmon combine trace1.json trace2.json -o combined.json -n
+# Combine multiple JSONL captures (e.g. different runs or builds) into one trace
+gcmon combine trace1.jsonl trace2.jsonl -o combined.pftrace -n
 ```
 
-### Example: Chrome Trace Output
+### Example: Perfetto Trace Output
 
-<img src="https://raw.githubusercontent.com/sergey-miryanov/gcmon/main/docs/images/chrome-trace-example.png" alt="Chrome Trace Example" width="800">
+<img src="https://raw.githubusercontent.com/sergey-miryanov/gcmon/main/docs/images/chrome-trace-example.png" alt="Perfetto Trace Example" width="800">
 
 *GC monitoring data visualized in Perfetto UI:*
 - *GC Pause slices with sub-step breakdown, and per-gen `G{gen}` counter tracks*

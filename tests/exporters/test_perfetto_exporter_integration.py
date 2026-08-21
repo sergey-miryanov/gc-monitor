@@ -1,10 +1,7 @@
-"""Tests for Chrome and Perfetto trace exporters that drive the real
+"""Tests for the Perfetto trace exporter that drive the real
 ``perfetto.trace_processor`` binary against synthetic ``GCStatsInfo`` traces
 and assert on the SQL tables (``slice``, ``args``, ``track``,
 ``counter_track``) the trace processor exposes.
-
-Both Chrome JSON and Perfetto binary protobuf formats are exercised
-identically.
 """
 
 from __future__ import annotations
@@ -15,7 +12,7 @@ from pathlib import Path
 import pytest
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
-from gcmon.exporters import PerfettoExporter, TraceExporter
+from gcmon.exporters import PerfettoExporter
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
@@ -60,10 +57,8 @@ _EXPECTED_COUNTER_NAMES: frozenset[str] = frozenset(
     }
 )
 
-_ARG_PREFIX: dict[str, str] = {
-    "chrome": "args",
-    "perfetto": "debug",
-}
+# The namespace the trace processor puts a debug annotation under.
+_ARG_PREFIX: str = "debug"
 
 _FAKE_CMDLINE: tuple[str, ...] = ("python3", "-m", "fake_target")
 _FAKE_CMDLINE_JOINED: str = " ".join(_FAKE_CMDLINE)
@@ -120,22 +115,14 @@ def _process_filter_instant(pid: int) -> str:
 
 def _write_trace(
     tmp: Path,
-    fmt: str,
     cmdline_provider: Callable[[int], list[str] | None] = lambda _pid: None,
 ) -> Path:
-    path = tmp / ("trace.json" if fmt == "chrome" else "trace.pb")
-    exporter: TraceExporter | PerfettoExporter
-    if fmt == "chrome":
-        exporter = TraceExporter(
-            output_path=path,
-            flush_threshold=1000,
-        )
-    else:
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=1000,
-            cmdline_provider=cmdline_provider,
-        )
+    path = tmp / "trace.pb"
+    exporter = PerfettoExporter(
+        output_path=path,
+        flush_threshold=1000,
+        cmdline_provider=cmdline_provider,
+    )
     exporter.add_instant_event(
         DEFAULT_PID,
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 1_000_000),
@@ -187,22 +174,14 @@ def _write_trace(
 
 def _write_trace_no_instant(
     tmp: Path,
-    fmt: str,
     cmdline_provider: Callable[[int], list[str] | None] = lambda _pid: None,
 ) -> Path:
-    path = tmp / ("trace.json" if fmt == "chrome" else "trace.pb")
-    exporter: TraceExporter | PerfettoExporter
-    if fmt == "chrome":
-        exporter = TraceExporter(
-            output_path=path,
-            flush_threshold=1000,
-        )
-    else:
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=1000,
-            cmdline_provider=cmdline_provider,
-        )
+    path = tmp / "trace.pb"
+    exporter = PerfettoExporter(
+        output_path=path,
+        flush_threshold=1000,
+        cmdline_provider=cmdline_provider,
+    )
     exporter.add_event(
         DEFAULT_PID,
         create_mock_stats_item(
@@ -380,8 +359,8 @@ def liveness_only_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
 
 
 @pytest.fixture
-def trace_processor(tmp_path: Path, fmt: str) -> Iterator[TraceProcessor]:
-    path = _write_trace(tmp_path, fmt)
+def trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_trace(tmp_path)
     config = TraceProcessorConfig(load_timeout=300)
     tp = TraceProcessor(trace=str(path), config=config)
     try:
@@ -393,9 +372,8 @@ def trace_processor(tmp_path: Path, fmt: str) -> Iterator[TraceProcessor]:
 @pytest.fixture
 def trace_processor_with_cmdline(
     tmp_path: Path,
-    fmt: str,
 ) -> Iterator[TraceProcessor]:
-    path = _write_trace(tmp_path, fmt, cmdline_provider=_fake_cmdline_provider)
+    path = _write_trace(tmp_path, cmdline_provider=_fake_cmdline_provider)
     config = TraceProcessorConfig(load_timeout=300)
     tp = TraceProcessor(trace=str(path), config=config)
     try:
@@ -407,9 +385,8 @@ def trace_processor_with_cmdline(
 @pytest.fixture
 def trace_processor_no_instant(
     tmp_path: Path,
-    fmt: str,
 ) -> Iterator[TraceProcessor]:
-    path = _write_trace_no_instant(tmp_path, fmt)
+    path = _write_trace_no_instant(tmp_path)
     config = TraceProcessorConfig(load_timeout=300)
     tp = TraceProcessor(trace=str(path), config=config)
     try:
@@ -421,8 +398,7 @@ def trace_processor_no_instant(
 class TestSliceArgs:
     """The GC Pause slice carries all pause args visible to the trace processor."""
 
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
-    def test_pause_slice_exists(self, fmt: str, trace_processor: TraceProcessor) -> None:
+    def test_pause_slice_exists(self, trace_processor: TraceProcessor) -> None:
         rows = list(
             trace_processor.query(
                 f"SELECT s.name FROM slice s {_process_filter(DEFAULT_PID)} AND s.name = '{_PAUSE_NAME}'"
@@ -430,13 +406,11 @@ class TestSliceArgs:
         )
         assert len(rows) == 2, f"expected two '{_PAUSE_NAME}' slices, got {rows}"
 
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_pause_slice_has_all_expected_args(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
-        prefix = _ARG_PREFIX[fmt]
+        prefix = _ARG_PREFIX
         rows = {
             r.flat_key: r.int_value
             for r in trace_processor.query(
@@ -454,10 +428,8 @@ class TestSliceArgs:
             assert qualified in rows, f"missing arg {qualified}; got {sorted(rows)}"
             assert rows[qualified] == expected, f"{qualified}: expected {expected}, got {rows[qualified]}"
 
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_full_gen1_pause_slice_exists(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         rows = list(
@@ -467,10 +439,8 @@ class TestSliceArgs:
         )
         assert len(rows) == 1, f"expected exactly one 'GC Pause(1)' slice, got {rows}"
 
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_full_fields_pause_encodes_all_optional_fields(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         expected_sub_slices = [
@@ -489,13 +459,11 @@ class TestSliceArgs:
         missing = set(expected_sub_slices) - slice_names
         assert not missing, f"missing sub-slices: {missing}"
 
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_deduce_unreachable_slice_args_has_candidates(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
-        prefix = _ARG_PREFIX[fmt]
+        prefix = _ARG_PREFIX
         rows = {
             r.flat_key: r.int_value
             for r in trace_processor.query(
@@ -512,7 +480,7 @@ class TestSliceArgs:
             f"missing {prefix}.candidates on Deduce Unreachable(1); got {sorted(rows)}"
         )
 
-        prefix = _ARG_PREFIX[fmt]
+        prefix = _ARG_PREFIX
         pause_args = {
             r.flat_key: r.int_value
             for r in trace_processor.query(
@@ -544,10 +512,8 @@ class TestCounterTracks:
     lives on the pause slice's args). The set comparison is robust to
     multiple processes emitting the same counter-track names."""
 
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_counter_track_names_match_expected(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         rows = {r.name for r in trace_processor.query("SELECT name FROM counter_track")}
@@ -562,24 +528,15 @@ class TestCounterTracks:
             f"counter track names mismatch; missing: {missing or 'none'}; unexpected: {unexpected or 'none'}"
         )
 
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_uncollectable_counter_omitted_when_zero(
         self,
-        fmt: str,
         tmp_path: Path,
     ) -> None:
-        path = tmp_path / ("trace.json" if fmt == "chrome" else "trace.pb")
-        exporter: TraceExporter | PerfettoExporter
-        if fmt == "chrome":
-            exporter = TraceExporter(
-                output_path=path,
-                flush_threshold=1000,
-            )
-        else:
-            exporter = PerfettoExporter(
-                output_path=path,
-                flush_threshold=1000,
-            )
+        path = tmp_path / "trace.pb"
+        exporter = PerfettoExporter(
+            output_path=path,
+            flush_threshold=1000,
+        )
         exporter.add_event(
             DEFAULT_PID,
             create_mock_stats_item(
@@ -604,10 +561,8 @@ class TestCounterTracks:
         finally:
             tp.close()
 
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_duration_counter_track_present(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         names = {
@@ -620,10 +575,8 @@ class TestCounterTracks:
             assert f"G{gen} duration" in names, f"G{gen} duration counter should be present; got {names}"
         assert "duration" not in names, f"shared 'duration' counter should NOT be present; got {names}"
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_duration_counter_value_is_double(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         # The `counter` table stores both int and double values in a single
@@ -645,10 +598,8 @@ class TestCounterTracks:
             assert values, f"no counter values for G0 duration track {r.id}"
             assert any(abs(v.value - 0.005) < 1e-9 for v in values)
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_duration_counter_parented_to_gc_metrics_group(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         # Every per-gen `G{gen} duration` track should be parented to a
@@ -692,10 +643,8 @@ class TestCounterYAxisShareKey:
         reason="counter_track.y_axis_share_key not exposed in Perfetto 0.56.0",
         strict=False,
     )
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_y_axis_share_key_shared_across_generations(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """``G0 collected`` / ``G1 collected`` / ``G2 collected`` all
@@ -724,10 +673,8 @@ class TestCounterYAxisShareKey:
         reason="counter_track.y_axis_share_key not exposed in Perfetto 0.56.0",
         strict=False,
     )
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_heap_size_y_axis_share_key_is_null(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """The top-level ``heap_size`` track has no ``y_axis_share_key``:
@@ -749,15 +696,13 @@ class TestTrackDescriptors:
     expected ``Process <pid>`` name. (Chrome JSON does not produce a
     separate process track; the test is therefore Perfetto-only.)"""
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
-    def test_process_track_present(self, fmt: str, trace_processor: TraceProcessor) -> None:
+    def test_process_track_present(self, trace_processor: TraceProcessor) -> None:
         rows = sorted(r.name for r in trace_processor.query("SELECT name FROM track WHERE name LIKE 'Process %'"))
         assert rows == sorted([f"Process {DEFAULT_PID}", f"Process {_SECOND_PID}"]), (
             f"expected process tracks for both PIDs, got {rows}"
         )
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
-    def test_thread_tracks_present(self, fmt: str, trace_processor: TraceProcessor) -> None:
+    def test_thread_tracks_present(self, trace_processor: TraceProcessor) -> None:
         rows = {
             r.name
             for r in trace_processor.query(
@@ -773,26 +718,22 @@ class TestDiagnosticTrackSchema:
     populated. Run with ``pytest -m integration -k TestDiagnosticTrackSchema -s``
     to see the output."""
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
-    def test_dump_track_schema(self, fmt: str, trace_processor: TraceProcessor) -> None:
+    def test_dump_track_schema(self, trace_processor: TraceProcessor) -> None:
         rows = list(trace_processor.query("PRAGMA table_info(track)"))
         for r in rows:
             print(f"COLUMN name={r.name!r} type={r.type!r} notnull={r.notnull} pk={r.pk}")
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
-    def test_dump_track_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
+    def test_dump_track_table(self, trace_processor: TraceProcessor) -> None:
         rows = list(trace_processor.query("SELECT id, name, type, parent_id FROM track ORDER BY id"))
         for r in rows:
             print(f"TRACK id={r.id} name={r.name!r} type={r.type!r} parent_id={r.parent_id}")
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
-    def test_dump_process_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
+    def test_dump_process_table(self, trace_processor: TraceProcessor) -> None:
         rows = list(trace_processor.query("SELECT * FROM process"))
         for r in rows:
             print(f"PROCESS {dict(r.__dict__)}")
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
-    def test_dump_thread_table(self, fmt: str, trace_processor: TraceProcessor) -> None:
+    def test_dump_thread_table(self, trace_processor: TraceProcessor) -> None:
         rows = list(trace_processor.query("SELECT * FROM thread"))
         for r in rows:
             print(f"THREAD {dict(r.__dict__)}")
@@ -802,10 +743,8 @@ class TestInstantEvents:
     """The instant event emitted at monitor start is visible to the trace
     processor as a dur=0 slice."""
 
-    @pytest.mark.parametrize("fmt", ["chrome", "perfetto"])
     def test_instant_event_present(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         rows = list(
@@ -834,27 +773,21 @@ class TestCmdlineEncoding:
         )
         return rows[0].string_value if rows else None
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_cmdline_description_appears_for_known_pid(
         self,
-        fmt: str,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
         assert self._description(trace_processor_with_cmdline, DEFAULT_PID) == _FAKE_CMDLINE_JOINED
         assert self._description(trace_processor_with_cmdline, _SECOND_PID) == _FAKE_CMDLINE_JOINED
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_cmdline_absent_for_pid_outside_provider(
         self,
-        fmt: str,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
         assert self._description(trace_processor_with_cmdline, 1) is None
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_cmdline_none_for_unknown_pid(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         assert self._description(trace_processor, DEFAULT_PID) is None
@@ -870,10 +803,8 @@ class TestStartProcessMarker:
     emitted any ``InstantEvent`` for the pid.
     """
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_marker_emitted_with_user_instant(
         self,
-        fmt: str,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
         """The user-provided instant events (``GC monitor started``) and
@@ -892,10 +823,8 @@ class TestStartProcessMarker:
             f"expected one {_START_PROCESS_MARKER_NAME!r} marker per pid, got {markers}"
         )
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_marker_emitted_without_user_instant(
         self,
-        fmt: str,
         trace_processor_no_instant: TraceProcessor,
     ) -> None:
         """This is the regression case: the caller never calls
@@ -916,10 +845,8 @@ class TestStartProcessMarker:
             f"even without user instant events, got {markers}"
         )
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_marker_at_first_event_timestamp(
         self,
-        fmt: str,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
         """The marker is placed at the timestamp of the first non-meta
@@ -945,10 +872,8 @@ class TestProcessesTrack:
     non-counter non-meta event timestamps for that pid.
     """
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_track_present(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """The ``Processes`` track is present exactly once."""
@@ -957,10 +882,8 @@ class TestProcessesTrack:
             f"expected exactly one {_PROCESS_LIFETIME_TRACK_NAME!r} track, got {[r.name for r in rows]}"
         )
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_slice_per_pid(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """There is exactly one BEGIN+END pair per pid on the
@@ -999,10 +922,8 @@ class TestProcessesTrack:
             f"Process {_SECOND_PID}": (_TS_START - 2_000_000, default_start - 1),
         }
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_every_slice_records_its_real_span(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """Both slices carry the span gcmon observed, whether or not the
@@ -1028,10 +949,8 @@ class TestProcessesTrack:
             (f"Process {_SECOND_PID}", "debug.real_end_ts"): _TS_START + 5_000_000,
         }
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_no_misplaced_end_events(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """The trace processor discards nothing.
@@ -1042,10 +961,8 @@ class TestProcessesTrack:
         """
         assert _misplaced_end_events(trace_processor) == 0
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_slice_name_format(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """Every slice name on the ``Processes`` track matches the
@@ -1065,10 +982,8 @@ class TestProcessesTrack:
                 f"slice name {r.name!r} on the {_PROCESS_LIFETIME_TRACK_NAME!r} track must match 'Process <pid>'"
             )
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_begin_end_match_first_last_event(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """For each pid, the slice BEGIN is at the first non-meta event
@@ -1116,10 +1031,8 @@ class TestProcessesTrack:
                 f"slice begin ts mismatch for pid {pid}: got {slice_rows[0].ts}, expected {expected_first}"
             )
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_cmdline_arg_present(
         self,
-        fmt: str,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
         """Each ``Process <pid>`` slice on the ``Processes`` track
@@ -1457,10 +1370,8 @@ class TestProcessOrderingIntegration:
     Perfetto UI itself.
     """
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_root_descriptor_does_not_appear_as_a_track_row(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """The root descriptor (``uuid=0``) carries no ``name`` and no
@@ -1481,10 +1392,8 @@ class TestProcessOrderingIntegration:
             f"root track descriptor should not create a track row with unknown type; got ids {[r.id for r in rows]}"
         )
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_table_unchanged_after_ranking(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """The ``process`` SQL table must still contain one row per pid
@@ -1501,10 +1410,8 @@ class TestProcessOrderingIntegration:
             f"expected one process row per pid; got {[r.pid for r in rows]}"
         )
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_track_rows_still_present_after_ranking(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """Regression guard: the process track rows (one per pid) must
@@ -1525,10 +1432,8 @@ class TestProcessOrderingIntegration:
             ]
         ), f"expected process track rows for both pids; got {[r.name for r in rows]}"
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_track_order_matches_rank(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """The trace processor must order process tracks by
@@ -1563,10 +1468,8 @@ class TestProcessOrderingIntegration:
             f"expected _SECOND_PID (earlier first event) to have lower track id; got pid_to_id={pid_to_id}"
         )
 
-    @pytest.mark.parametrize("fmt", ["perfetto"])
     def test_process_table_start_ts_matches_first_event(
         self,
-        fmt: str,
         trace_processor: TraceProcessor,
     ) -> None:
         """The ``process.start_ts`` column in the trace processor's

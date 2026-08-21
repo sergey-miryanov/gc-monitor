@@ -1,17 +1,16 @@
 # Output formats
 
-gcmon writes traces in four formats, selected with `--format`: `chrome` (Chrome
-Trace Event), `perfetto` (Perfetto binary protobuf), `jsonl` (JSONL to file),
-and `stdout` (JSONL to stdout). See the [CLI reference](cli.md) for the flag.
+gcmon writes traces in three formats, selected with `--format`: `perfetto`
+(Perfetto binary protobuf), `jsonl` (JSONL to file), and `stdout` (JSONL to
+stdout). See the [CLI reference](cli.md) for the flag.
 
-## Chrome trace and Perfetto output
+## Perfetto output
 
-<img src="images/chrome-trace-example.png" alt="Chrome Trace Example" width="800">
+<img src="images/chrome-trace-example.png" alt="Perfetto Trace Example" width="800">
 
 *A gcmon capture in the Perfetto UI.*
 
-One converter feeds both formats, so they carry the same events on one track per
-interpreter:
+A trace carries these, on one track per interpreter:
 
 - **`GC Pause(gen)` slices**, one per GC run gcmon read, carrying that run's
   counters as args.
@@ -21,14 +20,12 @@ interpreter:
 - **Counter tracks** per generation, `G{gen}`, carrying `collected`,
   `candidates`, `duration` and `uncollectable`, with `heap_size` as a
   process-level counter beside them.
+- **Counter Y-axis sharing**: one metric shares an axis across generations, so
+  `G0 collected`, `G1 collected` and `G2 collected` line up.
 - **`GC Loss` track**: one row per interpreter, `GC Loss {iid}`, under that
   process's own track; see [GC Loss slices](#gc-loss-slices).
 - **`rss` counter** per PID under `--rss`, in bytes, sampled at `--rss-interval`
   (default 1s).
-
-Perfetto adds:
-- **Counter Y-axis sharing**: one metric shares an axis across generations, so
-  `G0 collected`, `G1 collected` and `G2 collected` line up.
 - **`Processes` track**: a minimap of the session, one slice per monitored
   process, so these join to pids one-to-one. Filter on the track name
   `Processes` in SQL. **Read a process's span from the `real_start_ts` and
@@ -119,9 +116,6 @@ They need the [`[cmdline]` extra](rss.md#the-cmdline-extra). Without it, or when
 the process has already exited, gcmon writes no command line and says nothing
 about it. The trace stays valid, and a `combine` run carries none at all.
 
-Command lines are **Perfetto-only**. The Chrome Trace format carries a
-`process_name` metadata event per PID and no command line.
-
 ## JSONL output
 
 With `--format jsonl` (writes to file) or `--format stdout` (writes to
@@ -151,7 +145,7 @@ terminal), each line is a JSON object holding one GC record:
 | `clear_weakrefs_count` | Weakrefs this run cleared | Custom build |
 
 > **Note:** fields marked **Custom build** need the instrumented CPython build,
-> as the [sub-step slices](#chrome-trace-and-perfetto-output) do.
+> as the [sub-step slices](#perfetto-output) do.
 
 ### Loss records
 

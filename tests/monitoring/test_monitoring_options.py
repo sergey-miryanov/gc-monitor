@@ -23,7 +23,7 @@ def _make_args(**overrides: object) -> Namespace:
         "output": Path("trace.json"),
         "rate": 0.1,
         "duration": 0.05,
-        "format": "chrome",
+        "format": "perfetto",
         "flush_threshold": 100,
         "stats": None,
         "table_format": TableFormat.PLAIN,
@@ -162,6 +162,67 @@ class TestRssFormatWarning:
         result = get_monitoring_options(args)
         assert result is not None
         assert "RSS tracking is not supported" not in caplog.text
+
+
+class TestTheFormatEnvironmentVariable:
+    """`GCMON_FORMAT` takes the words `--format` takes, and refuses the rest
+    rather than substituting one.
+
+    The same shape ADR-0018 settled for `--stats`. argparse takes a string
+    default as given rather than checking it against `choices`, so a word from
+    the environment reaches here; a word from the flag dies in the parser.
+    """
+
+    def _options(self, argv: list[str]) -> MonitoringOptions | None:
+        from gcmon.cli.main import _create_parser
+
+        # The parser reads the variable while it is being built, so it has to
+        # be built after the test sets it.
+        return get_monitoring_options(_create_parser().parse_args(argv))
+
+    @pytest.mark.parametrize("word", ["perfetto", "jsonl", "stdout"])
+    def test_each_word_is_taken(self, monkeypatch: pytest.MonkeyPatch, word: str) -> None:
+        monkeypatch.setenv("GCMON_FORMAT", word)
+
+        result = self._options(["monitor", "12345"])
+
+        assert result is not None
+        assert result.output_format == word
+
+    def test_unset_gives_perfetto(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GCMON_FORMAT", raising=False)
+
+        result = self._options(["monitor", "12345"])
+
+        assert result is not None
+        assert result.output_format == "perfetto"
+
+    @pytest.mark.parametrize("value", ["chrome", "trace", "chrome+perfetto", "pftrace"])
+    def test_a_word_the_flag_would_refuse_fails_the_run(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, value: str
+    ) -> None:
+        """`GCMON_FORMAT=chrome` from an older release stops the run at
+        startup rather than writing a format nobody asked for."""
+        caplog.set_level(logging.ERROR)
+        monkeypatch.setenv("GCMON_FORMAT", value)
+
+        assert self._options(["monitor", "12345"]) is None
+        assert "GCMON_FORMAT" in caplog.text
+        assert value in caplog.text
+        for remaining in ("perfetto", "jsonl", "stdout"):
+            assert remaining in caplog.text
+
+    def test_the_rejected_value_is_never_echoed_as_accepted(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Spec 0040's complaint, which this shape closes: the log used to
+        read `Format: perfetto` for a run configured as `chrome`."""
+        caplog.set_level(logging.INFO)
+        monkeypatch.setenv("GCMON_FORMAT", "chrome")
+
+        self._options(["monitor", "12345"])
+
+        assert "Format: perfetto" not in caplog.text
 
 
 class TestTheStatsFlagCarriesTheView:

@@ -2,9 +2,10 @@
 drive the real ``perfetto.trace_processor`` binary against combined traces
 produced via the CLI.
 
-Both ``chrome -> perfetto`` and ``jsonl -> perfetto`` are exercised, plus a
-full content-equivalence test that compares the SQL-visible rows from
-``chrome -> chrome`` and ``chrome -> perfetto`` for the same input.
+The structural checks say the trace has the tracks and slices it should.
+``TestTheTraceMatchesTheEventsItWasBuiltFrom`` is the stronger one: it reads
+the trace back through a decoder gcmon did not write and compares it against
+the ``list[TraceEvent]`` the same input produced.
 """
 
 from __future__ import annotations
@@ -12,13 +13,16 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import pytest
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
+from gcmon.exporters.jsonl_io import read_jsonl
+from gcmon.exporters.trace_converter import convert_to_trace_format
+from gcmon.model.trace_event import BeginEvent, EndEvent, TraceEvent
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item
 
 
@@ -92,8 +96,8 @@ _EXPECTED_PAUSE_ARGS: dict[str, int] = {
     "candidates": 40,
 }
 
-# Arg-key namespace: chrome path uses "args", perfetto uses "debug".
-_ARG_PREFIX: dict[str, str] = {"chrome": "args", "perfetto": "debug"}
+# The namespace the trace processor puts a debug annotation under.
+_ARG_PREFIX: str = "debug"
 
 
 def _multi_dimensional_records() -> list[dict[str, int | float]]:
@@ -229,13 +233,12 @@ def _run_combine(
     inputs: list[Path],
     output: Path,
     *,
-    input_format: str = "jsonl",
     output_format: str = "perfetto",
     extra_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [sys.executable, "-m", "gcmon", "combine"]
     cmd.extend(str(p) for p in inputs)
-    cmd += ["-o", str(output), "--input-format", input_format, "--output-format", output_format]
+    cmd += ["-o", str(output), "--output-format", output_format]
     if extra_args:
         cmd.extend(extra_args)
     return subprocess.run(cmd, capture_output=True, text=True)
@@ -260,7 +263,7 @@ def loaded_trace_processor(
 ) -> Iterator[TraceProcessor]:
     """Combine two JSONL files into a Perfetto trace and load it."""
     out = tmp_path / "combined.pftrace"
-    result = _run_combine(multi_pid_jsonl, out, input_format="jsonl", output_format="perfetto")
+    result = _run_combine(multi_pid_jsonl, out, output_format="perfetto")
     assert result.returncode == 0, (
         f"gcmon combine failed: rc={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
     )
@@ -288,15 +291,73 @@ def _row_set(rows: Iterable[_NameRow]) -> set[str]:
     return {r.name for r in rows}
 
 
+_Slice = tuple[str, int, tuple[tuple[str, object], ...]]
+
+
+def _slices_from_events(events: Sequence[TraceEvent]) -> list[_Slice]:
+    """Every slice the events describe: name, duration in nanoseconds, args.
+
+    Begin and end events arrive properly nested per `(pid, tid)` -- a sub-step
+    closes before the pause containing it -- so one stack per track pairs
+    them.
+    """
+    open_slices: dict[tuple[int, int], list[BeginEvent]] = {}
+    drawn: list[_Slice] = []
+    for event in events:
+        if isinstance(event, BeginEvent):
+            open_slices.setdefault((event.pid, event.tid), []).append(event)
+        elif isinstance(event, EndEvent):
+            begin = open_slices[(event.pid, event.tid)].pop()
+            assert begin.name == event.name, f"{event.name} ended a slice opened as {begin.name}"
+            drawn.append((begin.name, event.ts - begin.ts, tuple(sorted(begin.args.items()))))
+    unclosed = [b.name for stack in open_slices.values() for b in stack]
+    assert not unclosed, f"slices left open by the converter: {unclosed}"
+    return sorted(drawn)
+
+
+def _slices_from_trace(tp: TraceProcessor) -> list[_Slice]:
+    """The same shape, read out of the trace by the trace processor.
+
+    Two slice kinds are dropped, both of them the Perfetto converter's own and
+    neither of them built from a `TraceEvent`: the `Process {pid}` spans on the
+    `Processes` track, and the zero-duration `Start Process` marker that
+    carries the cmdline into the UI.
+    """
+    args_by_set: dict[int, dict[str, object]] = {}
+    for row in tp.query("SELECT arg_set_id, flat_key, int_value, string_value, real_value FROM args"):
+        if not row.flat_key.startswith(f"{_ARG_PREFIX}."):
+            continue
+        key = row.flat_key.removeprefix(f"{_ARG_PREFIX}.")
+        if key == "name":
+            continue
+        # An args row fills one value column and leaves the others NULL,
+        # which the stub's non-optional types do not describe.
+        value: Any = row.int_value
+        if value is None:
+            text: Any = row.string_value
+            value = text if text is not None else row.real_value
+        args_by_set.setdefault(row.arg_set_id, {})[key] = value
+
+    drawn: list[_Slice] = []
+    for row in tp.query(
+        "SELECT s.name, s.dur, s.arg_set_id, t.name AS track_name FROM slice s JOIN track t ON s.track_id = t.id"
+    ):
+        if row.track_name == "Processes" or row.name == "Start Process":
+            continue
+        args = args_by_set.get(row.arg_set_id, {})
+        drawn.append((row.name, row.dur, tuple(sorted(args.items()))))
+    return sorted(drawn)
+
+
 # ---------------------------------------------------------------------------
 # Test classes
 # ---------------------------------------------------------------------------
 
 
-class TestCombineChromeToPerfettoIntegration:
-    """`chrome -> perfetto` is structurally complete: every pid has a
-    TrackDescriptor, every iid has a thread track, and the counter tracks
-    exist for the right generations."""
+class TestCombinedTraceIsStructurallyComplete:
+    """A combined trace has every track it should: a TrackDescriptor per pid,
+    a thread track per iid, and the counter tracks for the right
+    generations."""
 
     def test_counter_tracks_present(
         self,
@@ -391,7 +452,7 @@ class TestCombineJsonlToPerfettoIntegration:
             )
         }
         for key, expected in _EXPECTED_PAUSE_ARGS.items():
-            qualified = f"{_ARG_PREFIX['perfetto']}.{key}"
+            qualified = f"{_ARG_PREFIX}.{key}"
             assert qualified in rows, f"missing arg {qualified}; got {sorted(rows)}"
             assert rows[qualified] == expected, f"{qualified}: expected {expected}, got {rows[qualified]}"
 
@@ -431,7 +492,6 @@ class TestCombineNormalizePerfettoIntegration:
         result = _run_combine(
             multi_pid_jsonl,
             out,
-            input_format="jsonl",
             output_format="perfetto",
             extra_args=["--normalize"],
         )
@@ -460,155 +520,40 @@ class TestCombineNormalizePerfettoIntegration:
             tp.close()
 
 
-class TestCombineChromePerfettoEquivalenceIntegration:
-    """The strongest verification: for the same input, `chrome -> chrome` and
-    `chrome -> perfetto` produce identical SQL-visible content (modulo the
-    `args.` vs `debug.` arg-key prefix). This is achieved by running the
-    `gcmon combine` CLI twice and comparing row sets in `perfetto.trace_processor`.
+class TestTheTraceMatchesTheEventsItWasBuiltFrom:
+    """The strongest check in the suite, and the reason it exists.
+
+    Everything else here compares a trace against expectations a human wrote
+    from the same code, so a wrong field number is invisible: the constant is
+    wrong on both sides. This one reads the `.pftrace` back through the trace
+    processor, a decoder gcmon did not write, and compares what it saw against
+    the `list[TraceEvent]` the same input produced. The events are the oracle,
+    so nothing about the check depends on there being a second output format
+    ([ADR-0001](../docs/adr/0001-hand-rolled-perfetto-protobuf-encoder.md)).
     """
 
-    def test_equivalence(
+    def test_every_slice_matches_the_events_behind_it(
         self,
         tmp_path: Path,
         multi_pid_jsonl: list[Path],
     ) -> None:
-        chrome_out = tmp_path / "combined.json"
-        perfetto_out = tmp_path / "combined.pftrace"
+        out = tmp_path / "combined.pftrace"
+        result = _run_combine(multi_pid_jsonl, out, output_format="perfetto")
+        assert result.returncode == 0, result.stderr
 
-        # Convert jsonl -> chrome by re-running combine with --output-format chrome.
-        # This requires the convert path to first parse JSONL to TraceEvents.
-        # We rely on gcmon.combine doing this directly (jsonl -> chrome is supported).
-        rc_chrome = _run_combine(
-            multi_pid_jsonl,
-            chrome_out,
-            input_format="jsonl",
-            output_format="chrome",
-        )
-        assert rc_chrome.returncode == 0, rc_chrome.stderr
+        events: list[TraceEvent] = []
+        for path in multi_pid_jsonl:
+            events.extend(convert_to_trace_format(read_jsonl(path)))
 
-        rc_perfetto = _run_combine(
-            multi_pid_jsonl,
-            perfetto_out,
-            input_format="jsonl",
-            output_format="perfetto",
-        )
-        assert rc_perfetto.returncode == 0, rc_perfetto.stderr
-
-        tp_chrome = TraceProcessor(
-            trace=str(chrome_out),
-            config=TraceProcessorConfig(load_timeout=300),
-        )
-        tp_perfetto = TraceProcessor(
-            trace=str(perfetto_out),
-            config=TraceProcessorConfig(load_timeout=300),
-        )
+        tp = TraceProcessor(trace=str(out), config=TraceProcessorConfig(load_timeout=300))
         try:
-            for query in [
-                # Track names: skip `Process <pid>` because chrome has no
-                # separate process-track descriptor (perfetto does). Also
-                # skip `GC Metrics`, a perfetto-only grouping track that
-                # holds the counter tracks (chrome has no equivalent
-                # grouping concept). And skip `Processes`, the shared
-                # top-level track that holds one lifetime slice per pid
-                # (chrome has no equivalent).
-                "SELECT name FROM track "
-                "WHERE name NOT LIKE 'Process %' "
-                "AND name != 'GC Metrics' "
-                "AND name != 'Processes' "
-                "ORDER BY name",
-                # Chrome JSON's trace processor prepends a space to counter
-                # track names whose event-level name is empty (e.g. the
-                # consolidated `heap_size` counter). Strip whitespace so the
-                # set comparison is format-agnostic.
-                "SELECT name FROM counter_track ORDER BY name",
-            ]:
-                rows_chrome = _row_set(tp_chrome.query(query))
-                rows_perfetto = _row_set(tp_perfetto.query(query))
-
-                # Normalize: extract the single string column and strip
-                # whitespace (the leading space in the chrome counter track
-                # name is a chrome-specific naming quirk).
-                def _normalize(rs: set[str]) -> set[str]:
-                    return {s.strip() for s in rs}
-
-                assert _normalize(rows_chrome) == _normalize(rows_perfetto), (
-                    f"row set mismatch for query:\n  {query}\n"
-                    f"only in chrome: {_normalize(rows_chrome) - _normalize(rows_perfetto)}\n"
-                    f"only in perfetto: {_normalize(rows_perfetto) - _normalize(rows_chrome)}"
-                )
-
-            # Slice-level dur comparison: both chrome (after us→ns
-            # conversion by the trace processor) and perfetto now store
-            # nanosecond durations, so the values are directly comparable.
-            # Thread names are excluded: chrome uses "<pid>:<tid>" while
-            # perfetto uses "Thread <tid>".
-            #
-            # The perfetto side also emits one synthetic "Start Process"
-            # dur=0 marker per pid (on the process track itself) to
-            # guarantee the cmdline description is visible in the UI;
-            # Chrome has no equivalent, so we filter it out here.
-            # The shared "Processes" track adds one dur-bearing
-            # `Process <pid>` slice per pid; chrome has no equivalent,
-            # so we filter those out too by joining on track name.
-            chrome_durs = sorted((r.name, r.dur) for r in tp_chrome.query("SELECT s.name, s.dur FROM slice s"))
-            perfetto_durs = sorted(
-                (r.name, r.dur)
-                for r in tp_perfetto.query(
-                    "SELECT s.name, s.dur, t.name AS track_name FROM slice s JOIN track t ON s.track_id = t.id"
-                )
-                if r.name != "Start Process" and r.track_name != "Processes"
-            )
-            assert [name for name, _ in chrome_durs] == [name for name, _ in perfetto_durs], (
-                f"slice name sets differ: {[n for n, _ in chrome_durs]} vs {[n for n, _ in perfetto_durs]}"
-            )
-            for (c_name, c_dur), (p_name, p_dur) in zip(chrome_durs, perfetto_durs, strict=True):
-                assert c_name == p_name
-                assert c_dur == p_dur, f"dur mismatch for {c_name}: chrome={c_dur}ns, perfetto={p_dur}ns"
-
-            # Arg values: same content modulo the args./debug. prefix.
-            # The perfetto trace processor exposes a number of synthetic args
-            # (sibling_order_rank, source, child_ordering, trace_id, track_uuid,
-            # is_root_in_scope) that are NOT emitted by our encoder. Filter
-            # both sides to only the data args we explicitly emit:
-            # - in chrome: keys with the "args." prefix
-            # - in perfetto: keys with the "debug." prefix
-            # The chrome `name` key (the slice name as an arg) is not
-            # emitted as a debug annotation and is also filtered.
-            # The last three are ours, not synthetic: they are the
-            # annotations on the Perfetto-only "Processes" track, which
-            # has no Chrome counterpart to compare against.
-            _EXCLUDED_PERFETTO = {
-                "sibling_order_rank",
-                "is_root_in_scope",
-                "source",
-                "child_ordering",
-                "trace_id",
-                "track_uuid",
-                "cmdline",
-                "real_start_ts",
-                "real_end_ts",
-            }
-            args_chrome = {
-                r.flat_key: r.int_value
-                for r in tp_chrome.query("SELECT flat_key, int_value FROM args")
-                if r.flat_key.startswith(f"{_ARG_PREFIX['chrome']}.")
-            }
-            args_perfetto = {
-                r.flat_key: r.int_value
-                for r in tp_perfetto.query("SELECT flat_key, int_value FROM args")
-                if r.flat_key.startswith(f"{_ARG_PREFIX['perfetto']}.")
-                and not r.flat_key.startswith(f"{_ARG_PREFIX['perfetto']}.name")
-                and r.flat_key.removeprefix(f"{_ARG_PREFIX['perfetto']}.") not in _EXCLUDED_PERFETTO
-            }
-            rewritten_chrome = {
-                k.replace(f"{_ARG_PREFIX['chrome']}.", f"{_ARG_PREFIX['perfetto']}.", 1): v
-                for k, v in args_chrome.items()
-            }
-            assert rewritten_chrome == args_perfetto, (
-                f"args mismatch after prefix-rewriting.\n"
-                f"only in chrome (rewritten): {set(rewritten_chrome) - set(args_perfetto)}\n"
-                f"only in perfetto: {set(args_perfetto) - set(rewritten_chrome)}"
-            )
+            read_back = _slices_from_trace(tp)
         finally:
-            tp_chrome.close()
-            tp_perfetto.close()
+            tp.close()
+        expected = _slices_from_events(events)
+
+        assert read_back == expected, (
+            "the trace processor read something other than the events the trace was built from\n"
+            f"only in the trace: {[s for s in read_back if s not in expected]}\n"
+            f"only in the events: {[s for s in expected if s not in read_back]}"
+        )

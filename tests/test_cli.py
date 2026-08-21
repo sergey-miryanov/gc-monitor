@@ -57,12 +57,12 @@ class TestSetupLogging:
 
 def test_main_combine_command(tmp_path: Path) -> None:
     from gcmon.cli import main as cli
-    from gcmon.model.trace_event import process_meta
+    from tests.helpers import create_jsonl_record
 
-    input_file = tmp_path / "input.json"
-    input_file.write_bytes(msgspec.json.encode([process_meta(pid=1, name="test")]))
+    input_file = tmp_path / "input.jsonl"
+    input_file.write_bytes(msgspec.json.encode(create_jsonl_record()) + b"\n")
 
-    assert cli.main(["combine", str(input_file), "-o", str(tmp_path / "output.json")]) == 0
+    assert cli.main(["combine", str(input_file), "-o", str(tmp_path / "output.pftrace")]) == 0
 
 
 # =============================================================================
@@ -97,7 +97,7 @@ class TestCliHelp:
                     "--rss-interval",
                 ],
             ),
-            ("combine", ["Combine multiple Chrome Trace Format or JSONL files", "inputs", "--output"]),
+            ("combine", ["Combine multiple JSONL captures", "inputs", "--output"]),
             (
                 "run",
                 [

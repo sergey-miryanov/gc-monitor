@@ -11,7 +11,7 @@ how to read the result.
 |---|---|
 | [monitoring.md](monitoring.md) | How gcmon collects the GC record stream every other page reads: the polling loop, why some collections never reach it, and what its counters recover |
 | [cli.md](cli.md) | Subcommands (`monitor`, `run`, `combine`), every option, and the environment variables that back them |
-| [formats.md](formats.md) | The four `--format` values, what a Chrome or Perfetto trace contains, and the JSONL event schema |
+| [formats.md](formats.md) | The three `--format` values, what a trace contains, and the JSONL event schema |
 | [statistics.md](statistics.md) | The `--stats` table, how to read it, and the `[stats]` extra |
 | [rss.md](rss.md) | RSS tracking, its sampling behaviour, and the `[cmdline]` extra |
 | [pyperf.md](pyperf.md) | The pyperf hook, the metrics it emits, and its environment variables |

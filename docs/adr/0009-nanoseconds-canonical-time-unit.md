@@ -28,8 +28,9 @@ verbatim. The converter no longer divides; `TGCStatsInfo` values flow through un
 
 **Conversion happens at the encoder, once, per format:**
 
-- `JsonEventEncoder` divides by 1000 when serializing, so the Chrome Trace Event output
-  stays in microseconds. That format is a public spec and does not change.
+- `JsonEventEncoder` divided by 1000 when serializing, so the Chrome Trace Event output
+  stayed in microseconds, that format being a public spec. It went with the format
+  ([ADR-0021](0021-write-one-trace-format.md)), and the conversion with it.
 - `ProtobufEventEncoder` writes `event.ts` directly. No conversion.
 
 The in-memory model uses the source's unit, and each encoder owns the unit its own wire
@@ -44,10 +45,10 @@ looking at bytes on disk.
 - **There is no migration path for existing `.pftrace` files.** Traces captured before this
   change are 1000× compressed and cannot be corrected after the fact, because the original
   precision is not recoverable from the file. Re-capture.
-- Chrome output loses sub-microsecond precision to the integer division. The format's
-  microsecond resolution is the source of that, not this change.
-- The standalone trace-writing helper was deleted; `combine` goes through
-  `JsonEventEncoder` too, so exactly one code path knows about the ns→µs division.
+- Chrome output lost sub-microsecond precision to the integer division. The format's
+  microsecond resolution was the source of that, not this change, and it is the last thing
+  in gcmon that rounded a timestamp at all.
+- Nothing converts a timestamp any more. Every encoder gcmon has writes nanoseconds.
 
 ## Alternatives considered
 
@@ -62,12 +63,9 @@ looking at bytes on disk.
 ## Implementation
 
 - `src/gcmon/model/trace_event.py` holds the four factories, each taking `ts_ns`.
-- `src/gcmon/support/time_units.py` holds the ns→µs conversion, now called only by
-  the JSON encoder.
-- `src/gcmon/exporters/encoder.py` applies it as it serializes Chrome output.
+- `src/gcmon/support/time_units.py` held the ns→µs conversion until its one caller went.
 - `src/gcmon/exporters/perfetto_format.py` passes `event.ts` straight to the packet
   timestamp on every branch.
-- Tests: `tests/test_time.py` for the conversion itself;
-  `tests/exporters/test_chrome_trace_format.py` for timestamps preserved in nanoseconds
-  through the model; the direct duration comparison in
+- Tests: `tests/exporters/test_trace_converter.py` for timestamps preserved in nanoseconds
+  through the model; the nanosecond duration comparison in
   `tests/test_convert_cmd_perfetto.py`.

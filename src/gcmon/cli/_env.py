@@ -63,7 +63,7 @@ def get_env_output() -> Path:
     """Get output path from environment variable.
 
     Returns:
-        Path from GCMON_OUTPUT env var, or default Path("gcmon.json").
+        Path from GCMON_OUTPUT env var, or default Path("gcmon.pftrace").
     """
     output_str = os.environ.get(ENV_OUTPUT)
     if output_str:
@@ -72,7 +72,7 @@ def get_env_output() -> Path:
     format_str = os.environ.get(ENV_FORMAT)
     if format_str and format_str.lower() == "jsonl":
         return Path("gcmon.jsonl")
-    return Path("gcmon.json")
+    return Path("gcmon.pftrace")
 
 
 def parse_rate(text: str) -> float:
@@ -147,17 +147,21 @@ def get_env_verbose() -> int:
 
 
 def get_env_format() -> str:
-    """Get output format from environment variable.
+    """Get the output format from the environment.
+
+    The value is handed on as written, in lower case. ``get_monitoring_options``
+    refuses a word ``--format`` would refuse, once logging is configured, rather
+    than substituting a format nobody asked for (ADR-0018). A blank value reads
+    as unset.
 
     Returns:
-        Format from GCMON_FORMAT env var, or default "chrome".
+        The GCMON_FORMAT value in lower case, or "perfetto" if it is unset or
+        blank.
     """
     format_str = os.environ.get(ENV_FORMAT)
-    if format_str:
-        format_lower = format_str.lower()
-        if format_lower in ("chrome", "perfetto", "stdout", "jsonl", "chrome+perfetto"):
-            return format_lower
-    return "chrome"
+    if format_str and format_str.strip():
+        return format_str.strip().lower()
+    return "perfetto"
 
 
 def get_env_thread_id() -> int:

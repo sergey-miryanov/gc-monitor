@@ -9,21 +9,10 @@ from unittest.mock import Mock
 import pytest
 
 from gcmon.exporters.encoder import (
-    JsonEventEncoder,
     ProtobufEventEncoder,
     convert_trace_events_to_perfetto,  # noqa: F401  (used via monkeypatch.setattr)
 )
 from gcmon.model.trace_event import process_meta
-
-
-class TestJsonEventEncoder:
-    def test_write_events_empty_no_file_created(self, tmp_path: Path) -> None:
-        enc = JsonEventEncoder()
-        path = tmp_path / "out.json"
-        enc.open(path)
-        enc.write_events([])
-        enc.close()
-        assert path.read_bytes() == b"[]\n"
 
 
 class TestProtobufEventEncoder:

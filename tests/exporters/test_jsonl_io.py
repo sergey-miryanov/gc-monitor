@@ -98,10 +98,15 @@ class TestReadJsonl:
         with pytest.raises(msgspec.DecodeError):
             read_jsonl(path)
 
-    def test_raises_on_non_dict_json(self, tmp_path: Path) -> None:
-        path = tmp_path / "bad.jsonl"
-        path.write_text("[1, 2, 3]\n", encoding="utf-8")
-        with pytest.raises(TypeError):
+    def test_a_file_opening_with_an_array_is_reported_as_a_chrome_trace(self, tmp_path: Path) -> None:
+        """The one shape a JSONL reader can name rather than choke on: a
+        Chrome trace from an earlier release opens with the `[` of a JSON
+        array. Any other file opening that way gets the same message, which
+        is the price of naming the one an operator is actually holding."""
+        path = tmp_path / "old.json"
+        path.write_text('[\n{"ph": "B"}\n]\n', encoding="utf-8")
+
+        with pytest.raises(ValueError, match="Chrome Trace"):
             read_jsonl(path)
 
 
@@ -309,9 +314,8 @@ class TestAnOldFormatLossRecord:
         with pytest.raises(msgspec.ValidationError):
             combine_files(
                 [self._write(tmp_path)],
-                tmp_path / "out.json",
-                input_format="jsonl",
-                output_format="chrome",
+                tmp_path / "out.pftrace",
+                output_format="perfetto",
             )
 
     def test_a_per_generation_record_is_refused_the_same_way(self) -> None:

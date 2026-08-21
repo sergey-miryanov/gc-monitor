@@ -27,8 +27,10 @@ a pid's meta events.
 
 **`EventEncoder`** (a `Protocol` in `encoder.py`) owns format-specific byte production
 through three methods: `open(path)`, `write_events(events)`, `close()`. Two implementations
-exist: `JsonEventEncoder` for Chrome Trace Event JSON and `ProtobufEventEncoder` for
-Perfetto binary.
+existed at the time: `JsonEventEncoder` for Chrome Trace Event JSON and
+`ProtobufEventEncoder` for Perfetto binary. Only the second is left
+([ADR-0021](0021-write-one-trace-format.md)); the protocol stays, because `combine` drives
+the encoder with no exporter around it.
 
 `TraceExporter` and `PerfettoExporter` become thin subclasses that construct the right
 encoder. Their public constructor signatures are unchanged.
@@ -47,8 +49,9 @@ The split settled three further questions:
   `psutil.Process(pid).cmdline()` call outside any lock to avoid serializing threads. It
   now runs inside `write_events`, which the base serializes. Accepted: the cost is paid at
   most once per pid, because of the point above.
-- **`JsonEventEncoder` writes `[]\n` on close only if nothing was ever written.** If any
-  `write_events` succeeded it writes `\n]\n` instead. Both paths produce a valid JSON array.
+- **`JsonEventEncoder` wrote `[]\n` on close only if nothing was ever written.** If any
+  `write_events` succeeded it wrote `\n]\n` instead. Both paths produced a valid JSON array.
+  `ProtobufEventEncoder` writes no file at all for a run with nothing in it.
 
 ## Consequences
 
@@ -79,10 +82,9 @@ The split settled three further questions:
 
 - `src/gcmon/exporters/_buffered_exporter.py` builds a pid's meta events with the
   check-and-emit inside one critical section under the state lock.
-- `src/gcmon/exporters/encoder.py` declares the `EventEncoder` protocol, both
-  implementations, and the cmdline registration each one runs.
+- `src/gcmon/exporters/encoder.py` declares the `EventEncoder` protocol, its one
+  implementation, and the cmdline registration that one runs.
 - Tests: `tests/exporters/test_exporter_thread_safety.py` fires two threads at a brand-new
   pid to pin the dedup race; the structural tests in
-  `tests/exporters/test_chrome_trace_exporter.py` and
   `tests/exporters/test_perfetto_exporter.py` decode the output; the stress suite runs at
   `--count 20`.

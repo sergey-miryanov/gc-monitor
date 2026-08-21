@@ -10,11 +10,11 @@ target ends or you press `Ctrl+C`. `-v` follows progress:
 
 ```bash
 $ gcmon 12345 -v
-[INFO] monitoring PID 12345 (chrome trace → gcmon.json)
+[INFO] monitoring PID 12345 (perfetto trace → gcmon.pftrace)
 [INFO] collected 42 GC events so far
 ...
 [INFO] stopping (Ctrl+C)
-[INFO] wrote 42 events to gcmon.json
+[INFO] wrote 42 events to gcmon.pftrace
 ```
 
 Open the output in [Perfetto UI](https://ui.perfetto.dev), whose SQL panel
@@ -26,15 +26,15 @@ queries the trace directly; see
 Monitor a running process by PID.
 
 ```bash
-# Until interrupted, Chrome format
+# Until interrupted, Perfetto format
 gcmon 12345
 gcmon monitor 12345
 
-gcmon 12345 -o gc_trace.json
+gcmon 12345 -o gc_trace.pftrace
 gcmon 12345 -d 30 -v
 
 # 100 polls a second
-gcmon 12345 --output trace.json --rate 0.01
+gcmon 12345 --output trace.pftrace --rate 0.01
 ```
 
 ## run
@@ -65,15 +65,15 @@ Exactly one of `-s`/`--script` or `-m`/`--module`.
 | `pid` (required) | `monitor` | Process ID to monitor | - |
 | `-s, --script <path>` | `run` | Python script path to run | - |
 | `-m, --module <name>` | `run` | Module name to run (like `python -m`) | - |
-| `-o, --output` | both | Output file path for trace data | `gcmon.json` (chrome), `gcmon.pftrace` (perfetto), `gcmon.jsonl` (JSONL) |
+| `-o, --output` | both | Output file path for trace data | `gcmon.pftrace`, `gcmon.jsonl` for `--format jsonl` |
 | `-r, --rate` | both | Seconds between poll starts, as a plain decimal, `0.001` or more | `0.1` |
 | `-d, --duration` | both | Monitoring duration in seconds | Until interrupted / script exits |
 | `-v, --verbose` | both | Enable verbose output (`-v` for INFO, `-vv` for DEBUG) | `0` |
-| `--format` | both | Output format: `chrome`, `perfetto`, `jsonl` or `stdout` (see [Output formats](formats.md)) | `chrome` |
+| `--format` | both | Output format: `perfetto`, `jsonl` or `stdout` (see [Output formats](formats.md)) | `perfetto` |
 | `--flush-threshold` | both | Number of events to buffer before flushing | `100` |
 | `--stats <view>` | both | Show a statistics table at end of monitoring. The value is required: `total`, `full`, or one of `no`/`off`/`false`/`0` (see [`--stats`](#--stats)) | No table |
 | `--table-format` | both | Table format: `plain` or `markdown`/`md` | `plain` |
-| `--rss` | both | Track the target's Resident Set Size. `chrome` and `perfetto` only, and needs the `[cmdline]` extra (see [RSS Tracking](rss.md)) | `False` |
+| `--rss` | both | Track the target's Resident Set Size. `perfetto` only, and needs the `[cmdline]` extra (see [RSS Tracking](rss.md)) | `False` |
 | `--rss-interval` | both | RSS sampling interval in seconds | `1.0` |
 
 ### `--stats`
@@ -100,11 +100,11 @@ exception is `GCMON_STATS`, which stops the run.
 
 | Variable | Equivalent flag | Description | Default |
 |----------|----------------|-------------|---------|
-| `GCMON_OUTPUT` | `-o, --output` | Output file path for trace data | `gcmon.json` (chrome), `gcmon.pftrace` (perfetto), `gcmon.jsonl` (JSONL) |
+| `GCMON_OUTPUT` | `-o, --output` | Output file path for trace data | `gcmon.pftrace`, `gcmon.jsonl` for `--format jsonl` |
 | `GCMON_RATE` | `-r, --rate` | Seconds between poll starts, as a plain decimal, `0.001` or more | `0.1` |
 | `GCMON_DURATION` | `-d, --duration` | Monitoring duration in seconds | Until interrupted / script exits |
 | `GCMON_VERBOSE` | `-v, --verbose` | Verbose level (integer or truthy value) | `0` |
-| `GCMON_FORMAT` | `--format` | Output format: `chrome`, `perfetto`, `jsonl`, or `stdout` | `chrome` |
+| `GCMON_FORMAT` | `--format` | Output format: `perfetto`, `jsonl`, or `stdout`. Any other value stops the run | `perfetto` |
 | `GCMON_FLUSH_THRESHOLD` | `--flush-threshold` | Number of events to buffer before flushing | `100` |
 | `GCMON_STATS` | `--stats` | Statistics table view, in the words [`--stats`](#--stats) takes. Blank reads as unset; any other value stops the run | No table |
 | `GCMON_TABLE_FORMAT` | `--table-format` | Table format: `plain`, `md`, or `markdown` | `plain` |
@@ -113,23 +113,23 @@ exception is `GCMON_STATS`, which stops the run.
 
 ## combine
 
-Combine trace files into one, converting the format on the way if you ask.
+Combine JSONL captures into one trace, or into one JSONL capture. JSONL is the
+only input gcmon reads back.
 
 ```bash
-gcmon combine trace1.json trace2.json -o combined.json
+gcmon combine trace1.jsonl trace2.jsonl -o combined.pftrace
 
 # `-n` starts every process at t=0
-gcmon combine trace1.json trace2.json -o combined.json -n
+gcmon combine trace1.jsonl trace2.jsonl -o combined.pftrace -n
 
-gcmon combine trace1.jsonl --input-format jsonl --output-format perfetto -o combined.pftrace
+gcmon combine trace1.jsonl --output-format jsonl -o combined.jsonl
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `inputs` (required) | One or more input trace files | - |
+| `inputs` (required) | One or more input JSONL captures | - |
 | `-o, --output` (required) | Output file path for the combined trace | - |
-| `--input-format` | Input format: `chrome` or `jsonl` | `chrome` |
-| `--output-format` | Output format: `chrome`, `jsonl`, or `perfetto` | `chrome` |
+| `--output-format` | Output format: `perfetto` or `jsonl` | `perfetto` |
 | `-n, --normalize` | Normalize timestamps per PID so each process timeline starts at 0 | `False` |
 
 ## --version

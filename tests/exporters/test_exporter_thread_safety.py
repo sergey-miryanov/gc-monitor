@@ -21,7 +21,6 @@ from gcmon.exporters import (
     JsonlExporter,
     PerfettoExporter,
     StdoutExporter,
-    TraceExporter,
 )
 from gcmon.exporters.perfetto_format import (
     TrackEventType,
@@ -48,10 +47,6 @@ class OutputCapture(Protocol):
     exporter-specific because the formats differ:
 
     * JSONL/Stdout  -- one record per line
-    * Chrome trace  -- "ph": "B" / "ph": "I" markers; we count by raw
-                       text scan to stay correct when the writer
-                       appends after ``close()`` (which leaves data
-                       outside the JSON array)
     * Perfetto      -- protobuf packets with TYPE_SLICE_BEGIN /
                        TYPE_INSTANT track events
     """
@@ -145,26 +140,6 @@ class JsonlFileCapture(OutputCapture):
         return sum(1 for e in self._lines() if e.get("type") == "i")
 
 
-class ChromeTraceFileCapture(OutputCapture):
-    """Captures Chrome Trace output. Uses raw-text counting for resilience."""
-
-    def __init__(self, path: Path) -> None:
-        self._path = path
-
-    def _text(self) -> str:
-        if not self._path.exists():
-            return ""
-        return self._path.read_text(encoding="utf-8")
-
-    @override
-    def count_completes(self) -> int:
-        return self._text().count('"ph":"B"')
-
-    @override
-    def count_instants(self) -> int:
-        return self._text().count('"ph":"I"')
-
-
 def _get_track_event(packet: TracePacket) -> TrackEvent | None:
     if packet.HasField("track_event"):
         return packet.track_event
@@ -251,15 +226,6 @@ class StdoutCapture(OutputCapture):
         return sum(1 for e in self._lines() if e.get("type") == "i")
 
 
-class _ChromeTraceExporterFactory:
-    name = "chrome"
-
-    def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:
-        path = tmp_path / f"out_{self.name}.dat"
-        exporter = TraceExporter(output_path=path, flush_threshold=threshold)
-        return exporter, ChromeTraceFileCapture(path)
-
-
 class _JsonlExporterFactory:
     name = "jsonl"
 
@@ -296,7 +262,6 @@ class _StdoutFactory:
 def _all_factories() -> list[ExporterFactory]:
     return [
         _JsonlExporterFactory(),
-        _ChromeTraceExporterFactory(),
         _PerfettoFactory(),
         _StdoutFactory(),
     ]
@@ -411,8 +376,8 @@ class TestExporterThreadSafety:
         only the first thread to acquire ``_lock`` after the cmdline
         fetch marks the PID and registers the cmdline; the second
         observes ``has_pid(pid) == True`` and skips registration.
-        Other exporters (JSONL/Chrome/Stdout) don't have per-PID
-        descriptors, so we only assert event count for them.
+        Other exporters (JSONL/Stdout) don't have per-PID descriptors,
+        so we only assert event count for them.
         """
         exporter, capture = exporter_factory.build(tmp_path, threshold=10)
         events_a = _make_gc_events(N_GC, 1_500_000_000)
@@ -594,40 +559,14 @@ class TestPerfettoExporterCmdlinePath:
 class TestMetaDedupRaceClosed:
     """The shared ``BufferedTraceExporter._build_meta`` is atomic under
     ``_lock`` -- the check-and-add of pid / tid happens inside the same
-    critical section. These tests fire two threads at a brand-new pid
-    and assert that the on-disk output contains exactly one
-    ``process_meta`` entry per exporter, proving the race window is
-    closed for both formats.
+    critical section. This fires two threads at a brand-new pid and
+    asserts that the file holds exactly one process descriptor, proving
+    the race window is closed.
 
-    The pre-refactor ``TraceExporter.add_event`` and
-    ``PerfettoExporter.add_event`` had a TOCTOU between
+    The pre-refactor ``PerfettoExporter.add_event`` had a TOCTOU between
     ``pid not in self._pids`` and ``self._pids.add(pid)`` that could
-    produce two ``process_name`` events / two process descriptors under
-    load.
+    produce two process descriptors under load.
     """
-
-    def test_chrome_two_threads_same_new_pid_produces_single_process_meta(self, tmp_path: Path) -> None:
-        path = tmp_path / "out_chrome.dat"
-        exporter = TraceExporter(output_path=path, flush_threshold=10)
-        events_a = _make_gc_events(N_GC, 1_500_000_000)
-        events_b = _make_gc_events(N_GC, 1_600_000_000)
-
-        def writer_a() -> None:
-            for ev in events_a:
-                exporter.add_event(MAIN_PID, ev)
-
-        def writer_b() -> None:
-            for ev in events_b:
-                exporter.add_event(MAIN_PID, ev)
-
-        captured = _run_two_threads([writer_a, writer_b])
-        exporter.close()
-        for exc in captured:
-            raise exc
-
-        text = path.read_text(encoding="utf-8")
-        proc_metas = text.count('"name":"process_name"')
-        assert proc_metas == 1, f"expected exactly 1 process_name event, got {proc_metas}"
 
     def test_perfetto_two_threads_same_new_pid_produces_single_descriptor(self, tmp_path: Path) -> None:
         path = tmp_path / "out_perfetto.pb"
@@ -655,26 +594,3 @@ class TestMetaDedupRaceClosed:
         capture = PerfettoFileCapture(path)
         proc_descs = capture.count_process_descriptors()
         assert proc_descs == 1, f"expected exactly 1 process descriptor, got {proc_descs}"
-
-    def test_chrome_one_thread_add_event_one_thread_add_instant_same_new_pid(self, tmp_path: Path) -> None:
-        path = tmp_path / "out_mixed.dat"
-        exporter = TraceExporter(output_path=path, flush_threshold=10)
-        gc_events = _make_gc_events(N_GC, 1_500_000_000)
-        inst_events = _make_instant_events(N_INSTANT, 2_000_000_000)
-
-        def writer_gc() -> None:
-            for ev in gc_events:
-                exporter.add_event(MAIN_PID, ev)
-
-        def writer_inst() -> None:
-            for ev in inst_events:
-                exporter.add_instant_event(MAIN_PID, ev)
-
-        captured = _run_two_threads([writer_gc, writer_inst])
-        exporter.close()
-        for exc in captured:
-            raise exc
-
-        text = path.read_text(encoding="utf-8")
-        proc_metas = text.count('"name":"process_name"')
-        assert proc_metas == 1, f"expected exactly 1 process_name event, got {proc_metas}"

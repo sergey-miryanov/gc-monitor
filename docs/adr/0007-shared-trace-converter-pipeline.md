@@ -51,10 +51,12 @@ defensively if a `ThreadMeta` arrives first, but callers should not rely on that
 ## Consequences
 
 - A new sub-phase or metric is added in one place, and both output formats get it.
-- The Chrome and Perfetto outputs of the same run are content-equivalent by construction.
-  That equivalence is now directly testable, and is asserted by the chrome↔perfetto tests
-  described in [ADR-0012](0012-trace-output-formats.md).
-- `chrome_trace_format.py` became a thin re-export module so existing importers keep working.
+- Every output format carries the same events by construction. While there were two, that
+  equivalence was asserted by comparing one against the other; with one format left, the
+  trace is asserted against the `list[TraceEvent]` it was built from
+  ([ADR-0021](0021-write-one-trace-format.md)).
+- `chrome_trace_format.py` became a thin re-export module so existing importers kept
+  working. It went with the format.
 - Records with `ts_start >= ts_stop` no longer reach any exporter, and the monitor's poll
   is the one place that drops them.
 - Adding an output format means writing an encoder, not a converter.

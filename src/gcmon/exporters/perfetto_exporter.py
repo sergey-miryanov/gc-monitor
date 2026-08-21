@@ -20,8 +20,9 @@ class PerfettoExporter(BufferedTraceExporter):
         output_path: Path,
         flush_threshold: int = 1000,
         cmdline_provider: Callable[[int], list[str] | None] | None = None,
+        sequence_id: int | None = None,
     ) -> None:
-        encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider)
+        encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider, sequence_id=sequence_id)
         super().__init__(
             encoder,
             output_path,

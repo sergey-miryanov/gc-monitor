@@ -47,9 +47,14 @@ deselected by `addopts = "-m 'not stress and not benchmark and not fuzz'"`:
   test. They earn a marker for cost, not flakiness; the trace processor starts once per
   trial, which is seconds rather than the milliseconds the default suite budgets for.
 
-**Tests are parametrized over Chrome JSON and Perfetto binary.** The trace processor
-normalizes both into the same SQL tables, so one set of queries validates both exporters,
-and a regression affecting one shows up as a parametrization failure.
+**The trace is asserted against the events it was built from.** While gcmon wrote two
+formats, the suites were parametrized over Chrome JSON and Perfetto binary, and each
+format's reading was the other's oracle. With one format left
+([ADR-0021](0021-write-one-trace-format.md)) the oracle is the `list[TraceEvent]` the
+trace was built from: the trace processor reads the `.pftrace` back through a decoder
+gcmon did not write, and slice names, nanosecond durations and arg values are compared
+against the events. That catches a wrong field number, which expectations written from
+gcmon's own constants cannot.
 
 **Trace processor instances are per-test, not session-scoped.** An instance loads one trace
 and cannot easily be reused for another. Per-test instances are sub-second on a warm binary
@@ -114,10 +119,12 @@ tests do not assert on it.
   `fuzz-test` jobs.
 - `tests/exporters/test_perfetto_emission_order_fuzz.py`, the only `fuzz`-marked file: it
   pins ADR-0011's emission-order claims, positive case and negative control both.
-- `tests/exporters/test_perfetto_exporter_integration.py` holds the trace-processor fixture,
-  the trace-writing helper, and the chrome/perfetto parametrization.
+- `tests/exporters/test_perfetto_exporter_integration.py` holds the trace-processor fixture
+  and the trace-writing helper.
 - `tests/test_convert_cmd_perfetto.py`, the same approach applied to the `combine` paths,
-  including the chrome↔perfetto content-equivalence test.
+  and the home of the trace-against-its-events oracle.
+- `tests/monitoring/test_monitored_run_trace.py` pins a whole run as decoded `TracePacket`
+  text, which reads every field back through Perfetto's own generated schema.
 - `tests/control/test_control_client_thread_safety.py` covers concurrent sends and the
   send/close race, both marked `stress`.
 - `tests/exporters/test_exporter_thread_safety.py` covers the meta-dedup race from

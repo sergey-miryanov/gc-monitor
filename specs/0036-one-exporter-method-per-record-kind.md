@@ -126,11 +126,6 @@ close is dropped silently; this makes JSONL agree.
 **4.6: `StdoutExporter` keeps its `_open_writer` override.** Carried from 0029. Three lines,
 and the one thing that genuinely differs between a file and an already-open stream.
 
-**4.7: `CombinedTraceExporter` shrinks to two forwarding methods plus liveness.** It is a
-fan-out and nothing else; a record kind can no longer be forwarded to one sub-exporter and
-missed on the other. Its private-attribute reach is [0028](0028-combined-exporter-reaches-into-sub-exporter-privates.md)
-and independent; 0028 is XS and should land first, as it always should have.
-
 ## 5. Seams and testing decisions
 
 - **Seam:** the on-disk file, through `tests/exporters/test_jsonl_exporter.py`,
@@ -166,8 +161,6 @@ and independent; 0028 is XS and should land first, as it always should have.
 ## 6. Out of scope
 
 - Any change to the JSONL schema, including the `ts` unit. Both are public and documented.
-- `output_path` on the ABC. That is [0028](0028-combined-exporter-reaches-into-sub-exporter-privates.md),
-  independent and smaller, and it should land first.
 - Making an unhandled record kind raise instead of dropping. ADR-0008 settled that deliberately
   and this spec does not reopen it.
 - Compression, rotation, or line-buffering policy for `--format stdout`. *(carried from 0029)*

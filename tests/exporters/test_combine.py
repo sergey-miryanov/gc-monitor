@@ -5,8 +5,9 @@ from pathlib import Path
 
 import msgspec
 import pytest
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TrackEvent
 
-from gcmon.exporters.combine import _normalize_trace_timestamps, _parse_events, combine_files
+from gcmon.exporters.combine import _normalize_trace_timestamps, combine_files
 from gcmon.exporters.jsonl_io import (
     convert_jsonl_to_trace_format,
     normalize_jsonl_timestamps,
@@ -19,10 +20,8 @@ from gcmon.model.trace_event import (
     TraceEvent,
     begin_event,
     counter_event,
-    end_event,
     loss_tid,
     process_meta,
-    thread_meta,
 )
 from tests.exporters.conftest import make_inc_jsonl_record
 from tests.helpers import (
@@ -32,109 +31,30 @@ from tests.helpers import (
 )
 
 
-class TestParseEvents:
-    def test_parses_complete_events(self) -> None:
-        events = [
-            process_meta(pid=1, name="test"),
-            thread_meta(pid=1, tid=1, name="t1"),
-        ]
-        content = msgspec.json.encode(events)
-        result = _parse_events(content)
-        assert len(result) == 2
-        assert result[0].ph == "M"
-        assert result[0].name == "process_name"
+def gc_slices(path: Path) -> list[tuple[str, int, int]]:
+    """`(name, ts_start, ts_stop)` per `GC ` slice in a combined trace.
 
-    def test_parses_counter_event(self) -> None:
-        event = counter_event(
-            pid=1,
-            tid=1,
-            name="G0",
-            ts_ns=1_000_000,
-            args={"collected": 10, "uncollectable": 1, "candidates": 5, "heap_size": 1000},
-        )
-        result = _parse_events(msgspec.json.encode([event]))
-        assert result[0].ph == "C"
+    Read back through Perfetto's schema rather than off the structs `combine`
+    mutated, so a claim about timestamps is measured on what an operator opens.
+    An end event carries no name of its own, so the slices are paired on a
+    stack per track, the way a trace processor pairs them.
+    """
+    trace = Trace()
+    trace.ParseFromString(path.read_bytes())
 
-    def test_parses_begin_and_end_events(self) -> None:
-        args: EventArgs = {
-            "generation": 0,
-            "iid": 1,
-            "collections": 1,
-            "heap_size": 100,
-            "collected": 10,
-            "uncollectable": 0,
-            "candidates": 5,
-        }
-        events = [
-            begin_event(pid=1, tid=1, name="GC Pause", cat="gc", ts_ns=1_000_000, args=args),
-            end_event(pid=1, tid=1, name="GC Pause", cat="gc", ts_ns=1_500_000),
-        ]
-        result = _parse_events(msgspec.json.encode(events))
-        assert result[0].ph == "B"
-        assert result[0].args["generation"] == 0
-        assert result[1].ph == "E"
-
-    def test_raises_on_invalid_json(self) -> None:
-        with pytest.raises(ValueError):
-            _parse_events("not json")
-
-    def test_raises_on_non_array(self) -> None:
-        with pytest.raises(ValueError, match="Expected JSON array"):
-            _parse_events('{"ph": "M"}')
-
-    def test_parses_begin_event_with_args(self) -> None:
-        event = begin_event(
-            pid=1,
-            tid=1,
-            name="Mark Alive",
-            cat="gc",
-            ts_ns=1_000_000,
-            args={"generation": 0, "iid": 1, "increment_size": 500, "alive_size": 300},
-        )
-        result = _parse_events(msgspec.json.encode([event]))
-        assert result[0].ph == "B"
-        assert result[0].args["increment_size"] == 500
-
-    def test_parses_bytes_input(self) -> None:
-        event = process_meta(pid=1, name="test")
-        result = _parse_events(msgspec.json.encode([event]))
-        assert result[0].name == "process_name"
-
-    def test_skips_non_dict_items(self) -> None:
-        event = process_meta(pid=1, name="test")
-        raw = msgspec.json.encode([event, "not a dict", 42])
-        result = _parse_events(raw)
-        assert len(result) == 1
-
-    def test_skips_unknown_ph(self) -> None:
-        raw = json.dumps(
-            [
-                {"ph": "R", "name": "resource", "ts": 100, "pid": 1, "tid": 1, "args": {}},
-            ]
-        )
-        result = _parse_events(raw)
-        assert len(result) == 0
-
-    def test_skips_unknown_meta_name(self) -> None:
-        raw = json.dumps(
-            [
-                {"name": "unknown_meta", "ph": "M", "pid": 1, "args": {"name": "x"}},
-            ]
-        )
-        result = _parse_events(raw)
-        assert len(result) == 0
-
-    def test_parses_instant_event(self) -> None:
-        raw = json.dumps(
-            [
-                {"ph": "I", "name": "marker", "ts": 5000, "pid": 1, "s": "p"},
-            ]
-        )
-        result = _parse_events(raw)
-        assert len(result) == 1
-        assert result[0].ph == "I"
-        assert result[0].name == "marker"
-        assert result[0].ts == 5000
+    open_slices: dict[int, list[tuple[str, int]]] = {}
+    drawn: list[tuple[str, int, int]] = []
+    for packet in trace.packet:
+        if not packet.HasField("track_event"):
+            continue
+        event = packet.track_event
+        if event.type == TrackEvent.Type.TYPE_SLICE_BEGIN:
+            open_slices.setdefault(event.track_uuid, []).append((event.name, packet.timestamp))
+        elif event.type == TrackEvent.Type.TYPE_SLICE_END:
+            name, ts_start = open_slices[event.track_uuid].pop()
+            if name.startswith("GC "):
+                drawn.append((name, ts_start, packet.timestamp))
+    return sorted(drawn, key=lambda slice_: slice_[1])
 
 
 class TestNormalizeTraceTimestamps:
@@ -229,103 +149,20 @@ class TestNormalizeTraceTimestamps:
 
 
 class TestCombineFiles:
-    def test_chrome_to_chrome(self, tmp_path: Path) -> None:
-        f1 = tmp_path / "a.json"
-        f2 = tmp_path / "b.json"
-        out = tmp_path / "out.json"
-        e1 = process_meta(pid=1, name="p1")
-        e2 = process_meta(pid=2, name="p2")
-        f1.write_bytes(msgspec.json.encode([e1]))
-        f2.write_bytes(msgspec.json.encode([e2]))
-
-        combine_files([f1, f2], out, input_format="chrome", output_format="chrome")
-        data = json.loads(out.read_text(encoding="utf-8"))
-        assert len(data) == 2
-
-    def test_jsonl_to_chrome(self, tmp_path: Path) -> None:
-        f1 = tmp_path / "a.jsonl"
-        out = tmp_path / "out.json"
-        f1.write_bytes(
-            msgspec.json.encode(create_jsonl_record()) + b"\n",
-        )
-        combine_files([f1], out, input_format="jsonl", output_format="chrome")
-        data = json.loads(out.read_text(encoding="utf-8"))
-        assert any(e["ph"] == "B" for e in data)
-
     def test_jsonl_to_jsonl(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.jsonl"
         out = tmp_path / "out.jsonl"
         r = create_jsonl_record(pid=1)
         f1.write_bytes(msgspec.json.encode(r) + b"\n")
-        combine_files([f1], out, input_format="jsonl", output_format="jsonl")
+        combine_files([f1], out, output_format="jsonl")
         lines = out.read_text(encoding="utf-8").strip().split("\n")
         assert json.loads(lines[0])["pid"] == 1
-
-    def test_chrome_to_jsonl_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ValueError, match="not supported"):
-            combine_files([], tmp_path / "out.jsonl", input_format="chrome", output_format="jsonl")
 
     def test_an_unknown_output_format_raises(self, tmp_path: Path) -> None:
         """`cmd_combine` never reaches this: argparse `choices` refuses the word
         first. A caller of `combine_files` does not go through argparse."""
         with pytest.raises(ValueError, match="Unsupported output format"):
-            combine_files([], tmp_path / "out.bin", input_format="jsonl", output_format="protobuf")
-
-    def test_normalize_chrome(self, tmp_path: Path) -> None:
-        f1 = tmp_path / "a.json"
-        out = tmp_path / "out.json"
-        args: EventArgs = {
-            "generation": 0,
-            "iid": 1,
-            "collections": 1,
-            "heap_size": 100,
-            "collected": 10,
-            "uncollectable": 0,
-            "candidates": 5,
-        }
-        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=5_000_000, args=args)
-        e2 = begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=3_000_000, args=args)
-        f1.write_bytes(msgspec.json.encode([e1, e2]))
-        combine_files([f1], out, normalize=True, input_format="chrome", output_format="chrome")
-        data = json.loads(out.read_text(encoding="utf-8"))
-        assert data[0]["ts"] == 2000
-        assert data[1]["ts"] == 0
-
-    def test_normalize_chrome_multiple_pids(self, tmp_path: Path) -> None:
-        f1 = tmp_path / "a.json"
-        out = tmp_path / "out.json"
-        args: EventArgs = {
-            "generation": 0,
-            "iid": 1,
-            "collections": 1,
-            "heap_size": 100,
-            "collected": 10,
-            "uncollectable": 0,
-            "candidates": 5,
-        }
-        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=10_000_000, args=args)
-        e2 = begin_event(pid=2, tid=1, name="e2", cat="c", ts_ns=5_000_000, args=args)
-        f1.write_bytes(msgspec.json.encode([e1, e2]))
-        combine_files([f1], out, normalize=True, input_format="chrome", output_format="chrome")
-        data = json.loads(out.read_text(encoding="utf-8"))
-        assert data[0]["ts"] == 0  # pid=1: 10000 - 10000
-        assert data[1]["ts"] == 0  # pid=2: 5000 - 5000
-
-    def test_jsonl_to_chrome_normalize(self, tmp_path: Path) -> None:
-        f1 = tmp_path / "a.jsonl"
-        out = tmp_path / "out.json"
-        r1 = create_jsonl_record(ts_start=10_000_000, ts_stop=11_000_000)
-        r2 = create_jsonl_record(ts_start=5_000_000, ts_stop=6_000_000)
-        lines = [
-            msgspec.json.encode(r1),
-            msgspec.json.encode(r2),
-        ]
-        f1.write_bytes(b"\n".join(lines) + b"\n")
-        combine_files([f1], out, normalize=True, input_format="jsonl", output_format="chrome")
-        data = json.loads(out.read_text(encoding="utf-8"))
-        pause_events = [e for e in data if e["ph"] == "B"]
-        assert pause_events[0]["ts"] > 0
-        assert pause_events[1]["ts"] == 0
+            combine_files([], tmp_path / "out.bin", output_format="protobuf")
 
     def test_jsonl_to_jsonl_normalize(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.jsonl"
@@ -337,7 +174,7 @@ class TestCombineFiles:
             msgspec.json.encode(r2),
         ]
         f1.write_bytes(b"\n".join(lines) + b"\n")
-        combine_files([f1], out, normalize=True, input_format="jsonl", output_format="jsonl")
+        combine_files([f1], out, normalize=True, output_format="jsonl")
         records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert records[0]["ts_start"] == 5_000_000
         assert records[1]["ts_start"] == 0
@@ -350,7 +187,7 @@ class TestCombineFiles:
             f.write_bytes(
                 msgspec.json.encode(create_jsonl_record(pid=pid)) + b"\n",
             )
-        combine_files([f1, f2], out, input_format="jsonl", output_format="jsonl")
+        combine_files([f1, f2], out, output_format="jsonl")
         records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert len(records) == 2
         assert {r["pid"] for r in records} == {1, 2}
@@ -365,31 +202,18 @@ class TestCombineFiles:
             f.write_bytes(
                 b"\n".join(msgspec.json.encode(r) for r in lines) + b"\n",
             )
-        combine_files([f1, f2], out, input_format="jsonl", output_format="jsonl")
+        combine_files([f1, f2], out, output_format="jsonl")
         records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert len(records) == 2
         assert records[0]["ts_start"] == 1000
         assert records[1]["ts_start"] == 3000
-
-    def test_jsonl_to_chrome_multiple_files(self, tmp_path: Path) -> None:
-        f1 = tmp_path / "a.jsonl"
-        f2 = tmp_path / "b.jsonl"
-        out = tmp_path / "out.json"
-        for f, pid in [(f1, 1), (f2, 2)]:
-            f.write_bytes(
-                msgspec.json.encode(create_jsonl_record(pid=pid)) + b"\n",
-            )
-        combine_files([f1, f2], out, input_format="jsonl", output_format="chrome")
-        data = json.loads(out.read_text(encoding="utf-8"))
-        process_metas = [e for e in data if e["name"] == "process_name"]
-        assert len(process_metas) == 2
 
     def test_jsonl_to_jsonl_with_incremental(self, tmp_path: Path) -> None:
         f1 = tmp_path / "a.jsonl"
         out = tmp_path / "out.jsonl"
         record = make_inc_jsonl_record(pid=1, ts_start=1000, ts_stop=5000)
         f1.write_bytes(msgspec.json.encode(record) + b"\n")
-        combine_files([f1], out, input_format="jsonl", output_format="jsonl")
+        combine_files([f1], out, output_format="jsonl")
         records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert records[0]["increment_size"] == 500
         assert records[0]["alive_size"] == 300
@@ -486,31 +310,23 @@ class TestJsonlLossRoundTrip:
 
     def test_combine_normalizes_from_a_loss_span(self, tmp_path: Path) -> None:
         """The same claim down the path an operator takes, and read back off
-        the trace rather than off the structs `combine` mutated in place."""
+        the trace rather than off the structs `combine` mutated in place.
+
+        A loss span is the earliest thing in this capture, so a normalization
+        that only looked at GC records would leave it at a negative timestamp
+        and zero the pause instead.
+        """
         source = tmp_path / "in.jsonl"
-        out = tmp_path / "out.json"
+        out = tmp_path / "out.pftrace"
         msg = self._msg(ts_start=3_000_000, ts_stop=5_000_000, lost_count=76)
         write_jsonl(source, {42: [msg, create_mock_stats_item(iid=1, ts_start=5_000_000, ts_stop=6_000_000)]})
 
-        combine_files([source], out, input_format="jsonl", output_format="chrome", normalize=True)
+        combine_files([source], out, output_format="perfetto", normalize=True)
 
-        events = json.loads(out.read_text(encoding="utf-8"))
-        assert [(e["name"], e["ph"], e["ts"]) for e in events if e["name"].startswith("GC ")] == [
-            ("GC Loss(0)", "B", 0),
-            ("GC Loss(0)", "E", 2_000),
-            ("GC Pause(0)", "B", 2_000),
-            ("GC Pause(0)", "E", 3_000),
+        assert gc_slices(out) == [
+            ("GC Loss(0)", 0, 2_000_000),
+            ("GC Pause(0)", 2_000_000, 3_000_000),
         ]
-
-    def test_combine_carries_loss_into_a_chrome_trace(self, tmp_path: Path) -> None:
-        source = tmp_path / "in.jsonl"
-        out = tmp_path / "out.json"
-        write_jsonl(source, {42: [create_mock_stats_item(iid=1), self._msg(lost_count=76)]})
-
-        combine_files([source], out, input_format="jsonl", output_format="chrome")
-
-        names = {e["name"] for e in json.loads(out.read_text(encoding="utf-8"))}
-        assert "GC Loss(0)" in names
 
     def test_combine_jsonl_to_jsonl_keeps_the_span(self, tmp_path: Path) -> None:
         source = tmp_path / "in.jsonl"
@@ -518,6 +334,6 @@ class TestJsonlLossRoundTrip:
         msg = self._msg(lost_count=76)
         write_jsonl(source, {42: [msg]})
 
-        combine_files([source], out, input_format="jsonl", output_format="jsonl")
+        combine_files([source], out, output_format="jsonl")
 
         assert read_jsonl(out) == {42: [msg]}

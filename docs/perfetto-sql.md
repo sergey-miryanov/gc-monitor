@@ -1,16 +1,15 @@
 # Trace Analysis with Perfetto SQL
 
-Perfetto's SQL panel opens gcmon's `.pftrace` and Chrome traces alike, and
+Perfetto's SQL panel opens gcmon's `.pftrace`, and
 PerfettoSQL is SQLite with extensions.
 
-[Output formats](formats.md#chrome-trace-and-perfetto-output) lists what each
-capture holds; a query over something Perfetto-only returns nothing from a
-Chrome trace. Slice args differ too: `debug.gen0.lost_count` in a `.pftrace`,
-`args.gen0.lost_count` in a Chrome trace.
+[Output formats](formats.md#perfetto-output) lists what a capture holds. The
+trace processor puts gcmon's slice args under `debug.`, so a per-generation
+loss count is `debug.gen0.lost_count`.
 
 ## Accessing the SQL Interface
 
-1. Open your `.pftrace` or `.json` file in
+1. Open your `.pftrace` file in
    [Perfetto UI](https://ui.perfetto.dev)
 2. Press `Ctrl+Space` (or `Cmd+Space` on Mac) to open the SQL query panel
 3. Enter your SQL query and press `Run`
@@ -76,15 +75,12 @@ WHERE ct.name like '%rss%'
 ORDER BY p.start_ts, c.ts
 ```
 
-The pattern is `%rss%` rather than `rss%` because a Chrome trace names that
-track ` rss`, with a leading space, and ` heap_size` likewise. On a Chrome trace
-`sec_from_start` comes back `NULL` as well, since `process.start_ts` needs the
-process descriptor that only Perfetto output carries.
+The pattern is `%rss%` rather than `rss%` so that a track name carrying
+leading whitespace still matches.
 
 ## Example: Querying Process Command Lines
 
-Perfetto output only, and requires the [`[cmdline]`
-extra](rss.md#the-cmdline-extra). gcmon writes the command line to
+Requires the [`[cmdline]` extra](rss.md#the-cmdline-extra). gcmon writes the command line to
 [three places](formats.md#process-command-lines); two of them are reachable from
 SQL.
 

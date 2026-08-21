@@ -45,16 +45,33 @@ def json_to_item(data: TMapping) -> tuple[int, TItem]:
 
 
 def read_jsonl(filename: Path) -> dict[int, list[TItem]]:
+    """Read one JSONL capture, one record per line.
+
+    A Chrome Trace file from an earlier release is named rather than parsed.
+    Its first character is the ``[`` of a JSON array, so msgspec would report a
+    malformed line 1 and the operator would read a format gcmon no longer
+    accepts as a corrupt capture. The check lives here rather than in
+    ``combine_files`` so that every caller gets it.
+    """
     items: dict[int, list[TItem]] = {}
+    first = True
     with open(filename, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if line:
-                pid, item = json_to_item(msgspec.json.decode(line))
-                if pid not in items:
-                    items[pid] = [item]
-                else:
-                    items[pid].append(item)
+            if not line:
+                continue
+            if first:
+                first = False
+                if line.startswith("["):
+                    raise ValueError(
+                        f"{filename} is a Chrome Trace file, which gcmon no longer reads. "
+                        "The Perfetto UI still opens it."
+                    )
+            pid, item = json_to_item(msgspec.json.decode(line))
+            if pid not in items:
+                items[pid] = [item]
+            else:
+                items[pid].append(item)
 
     return items
 

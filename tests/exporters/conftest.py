@@ -8,13 +8,13 @@ from typing import Protocol
 
 import pytest
 
-from gcmon.exporters import JsonlExporter, PerfettoExporter, TraceExporter
+from gcmon.exporters import JsonlExporter, PerfettoExporter
 from gcmon.model.data import GCStatsInfo
 from tests.helpers import JsonlRecord, create_jsonl_record
 
 
 class ExporterFactory(Protocol):
-    def __call__(self, threshold: int = 100) -> tuple[JsonlExporter | TraceExporter | PerfettoExporter, Path]: ...
+    def __call__(self, threshold: int = 100) -> tuple[JsonlExporter | PerfettoExporter, Path]: ...
 
 
 class JsonlFileReader(Protocol):
@@ -32,22 +32,6 @@ def jsonl_exporter(tmp_path: Path) -> ExporterFactory:
     def _make(threshold: int = 100) -> tuple[JsonlExporter, Path]:
         path = tmp_path / "test.jsonl"
         exporter = JsonlExporter(output_path=path, flush_threshold=threshold)
-        return exporter, path
-
-    return _make
-
-
-@pytest.fixture
-def trace_exporter(tmp_path: Path) -> ExporterFactory:
-    """Factory fixture for TraceExporter instances.
-
-    Usage:
-        exporter, path = trace_exporter(threshold=50)
-    """
-
-    def _make(threshold: int = 100) -> tuple[TraceExporter, Path]:
-        path = tmp_path / "trace.json"
-        exporter = TraceExporter(output_path=path, flush_threshold=threshold)
         return exporter, path
 
     return _make
