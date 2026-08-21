@@ -123,7 +123,7 @@ and are read together everywhere; separating them would be layout for its own sa
   would blunt the one tripwire this spec has.
 - Which package these modules end up in. That was 0041, which landed on 2026-08-21 and is
   retired: `model/` and `stats/` exist, so this splits inside the directory a module already
-  sits in. A piece that lands in the wrong layer fails `tests/test_layering.py`.
+  sits in. A piece that lands in the wrong layer fails `tests/architecture/test_layering.py`.
 - The phase table. [0035](0035-derive-every-gc-sub-phase-from-one-table.md) owns it and should
   land first.
 - `chrome_trace_io`, which has the same grab-bag shape (JSONL read, JSONL write, Chrome parse,

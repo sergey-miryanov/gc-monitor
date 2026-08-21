@@ -18,7 +18,7 @@ import pytest
 pytestmark = pytest.mark.architecture
 
 PACKAGE = "gcmon"
-SRC = Path(__file__).resolve().parent.parent / "src" / PACKAGE
+SRC = Path(__file__).resolve().parent.parent.parent / "src" / PACKAGE
 
 ALLOWED: dict[str, frozenset[str]] = {
     "support": frozenset(),
