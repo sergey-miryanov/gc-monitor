@@ -5,8 +5,8 @@
 
 ## Context
 
-gcmon wrote two trace formats for one run, and only one of them carried what an operator came for.
-The Chrome Trace Event format has no command lines
+gcmon wrote two trace formats for one run, and only one of them was worth opening. The Chrome
+Trace Event format has no command lines
 ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)), no `Processes` minimap and no
 per-process ordering ([ADR-0011](0011-process-lifetime-and-ordering.md)), no counter Y-axis sharing
 ([ADR-0005](0005-counter-y-axis-share-key.md)), and no `Start Process` marker. Its timestamps are
@@ -16,11 +16,10 @@ microseconds. Every event lost three digits to an integer division on the way ou
 It was also the default. `gcmon monitor 12345` wrote `gcmon.json`, and an operator found out what
 that file did not contain when they went looking for a command line in the UI.
 
-The encoder itself was forty lines. What it cost sat around it: a `chrome+perfetto` fan-out
-exporter reading a private attribute off each sub-exporter with the type checkers told not to look,
-a `combine` matrix with a cell that had to be rejected, an `RSS_CAPABLE_FORMATS` tuple naming three
-of its four entries after Chrome, and about 1,800 lines of test parametrized over a leg nobody
-opened.
+The encoder itself was forty lines. The cost sat around it: a `chrome+perfetto` fan-out exporter
+reading a private attribute off each sub-exporter with the type checkers told not to look, a
+`combine` matrix with a cell that had to be rejected, an `RSS_CAPABLE_FORMATS` tuple naming three
+of its four entries after Chrome, and about 1,800 lines of test parametrized over both.
 
 [ADR-0012](0012-trace-output-formats.md) is where the second format and the conversion matrix were
 decided. Half of what it settled is still right, and this record carries that half forward.
@@ -49,8 +48,8 @@ than letting msgspec report a malformed line 1, which reads as a corrupt capture
 - Normalization is **per input file** on the Perfetto path and **per pid across the whole merge**
   on the `jsonl` path. The JSONL items keep their original `TGCStatsInfo` / `TInstantMsg`
   structure, and per-pid zeroing across the merge is the established behaviour for them.
-  `--normalize`'s help names both halves. It named only the second while Chrome was the
-  default output.
+  `--normalize`'s help names both halves; it named only the second while Chrome was the default
+  output.
 - **Perfetto is not an input.** Reading one would need a protobuf decoder, which sits outside the
   encoder's remit ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)).
 - The CLI derives no file extension from `--output-format`; it uses the `-o` path verbatim. Only
@@ -58,9 +57,8 @@ than letting msgspec report a malformed line 1, which reads as a corrupt capture
 
 **`EventEncoder` stays a Protocol with one implementation.** ADR-0008 split the encoder from the
 exporter for two reasons, and only one of them was "two formats": the other is that `combine`
-drives `ProtobufEventEncoder` directly, with no exporter, no buffer and no lock. That is still
-true. The composition earns its keep, and a future output format arrives as a second
-`EventEncoder`.
+drives `ProtobufEventEncoder` with no exporter, no buffer and no lock. That is still true, so the
+split stays, and a new output format is a second `EventEncoder` implementation.
 
 ## Consequences
 
@@ -70,41 +68,41 @@ true. The composition earns its keep, and a future output format arrives as a se
   fails on the first run after upgrading. `combine` no longer takes `--input-format`.
   `gcmon.TraceExporter` leaves the public surface: an importer gets an `ImportError` at the
   import, not at the first call.
-- A `.json` file from an earlier release still opens in the Perfetto UI. What is gone is the
-  ability to produce another one, or to feed that one back through `combine`.
+- A `.json` file from an earlier release still opens in the Perfetto UI. You can no longer produce
+  another one, or feed that one back through `combine`.
 - **A JSONL capture is the only thing that converts.** That was already true in practice: ADR-0012
   rejected `chrome → jsonl` because the Chrome format had lost the `TGCStatsInfo` structure, and
   Perfetto was never an input. JSONL is now what an operator keeps if they want to convert later.
 - **A trace with nothing in it is no file at all.** The Chrome encoder wrote `[]` for a run that
   read no records; the Perfetto encoder writes nothing. Monitoring a pid that never collects now
   leaves no output file.
-- **Two of `combine`'s rough edges move from an opt-in path to the default one.** Per-file
-  normalization draws two captures of one pid from zero, and their slices overlap on that
-  pid's track. The encoder resolves a command line against whatever holds the pid on this
-  machine now, which for a reissued pid is an unrelated process. Both predate this record.
-  ADR-0012 rejected a custom cmdline provider for `combine` on the grounds that "historical
-  pids have no cmdline to find"; a reissued pid falsifies that, and the fix is one argument
-  at the call site.
+- **`combine` has two rough edges, and they sit on the default path now.** Per-file normalization
+  draws two captures of one pid from zero, and their slices overlap on that pid's track. The
+  encoder resolves a command line against whatever holds the pid on this machine now, which for a
+  reissued pid is an unrelated process. Both predate this record and both were reachable through
+  `--output-format perfetto` before. ADR-0012 rejected a custom cmdline provider for `combine` on
+  the grounds that "historical pids have no cmdline to find"; a reissued pid falsifies that, and
+  the fix is one argument at the call site.
 - `TraceEvent` keeps its Chrome-derived shape. It is ADR-0007's format-independent intermediate and
   the Perfetto converter's input, and reshaping it around Perfetto's own vocabulary is a separate
   change to the converter, the track state and the loss-slice builder.
-- Two tests lost their cheap instrument and had to be rebuilt on the trace processor: the whole-run
-  characterization, which pinned Chrome bytes because Chrome resolved no cmdline and dropped
-  liveness on a base-class no-op, and the loss-row round trip, which read the combined output as
-  JSON and resolved BEGIN/END as a stack. Both are stronger for it and both cost more to run.
+- Two tests run on the trace processor now. The whole-run characterization pinned Chrome bytes,
+  because Chrome resolved no cmdline and dropped liveness on a base-class no-op; the loss-row round
+  trip read the combined output as JSON and resolved BEGIN/END as a stack. Both read the trace
+  through a decoder gcmon did not write, and both cost a trace-processor load per test.
 
 ## Alternatives considered
 
-- **Keeping the words in the whitelist for one release, to make `--format chrome` exit 1
-  with a message.** Rejected: it buys a better error for anyone who scripted the flag at the cost
-  of a format name that exists in three files and produces nothing. The breaking-changes entries
+- **Keeping the words in the whitelist for one release, to make `--format chrome` exit 1 with a
+  message.** Rejected: it buys a better error for anyone who scripted the flag at the cost of a
+  format name that exists in three files and produces nothing. The breaking-changes entries
   are the notice, and argparse names the three formats that remain.
 - **Reducing `--input-format` to one choice rather than removing it.** Rejected: a flag with a
   single value is a question with one answer, and it would keep `combine --input-format chrome` a
   spelling argparse accepts.
 - **Converting an existing Chrome file to a Perfetto trace.** Rejected: it means keeping the Chrome
-  parser alive for one purpose, and the Perfetto UI already opens the file, the reason
-  anyone would convert it.
+  parser alive for one purpose, and the Perfetto UI already opens the file, the reason anyone
+  would convert it.
 - **Folding `ProtobufEventEncoder` back into `PerfettoExporter`.** Rejected: it would put
   `combine`'s Perfetto output back inside an exporter's lifecycle, which ADR-0008 rejected.
 - **Keeping `JsonEventEncoder` in `tests/` as the encoder's oracle.** Rejected: it keeps the format
