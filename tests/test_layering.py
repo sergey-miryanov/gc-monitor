@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.layering
+pytestmark = pytest.mark.architecture
 
 PACKAGE = "gcmon"
 SRC = Path(__file__).resolve().parent.parent / "src" / PACKAGE
