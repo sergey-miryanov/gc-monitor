@@ -1,18 +1,13 @@
+from .cli._version import installed_version
 from .exporters import EventsExporter, JsonlExporter, StdoutExporter, TraceExporter
 from .monitoring.child_process_runner import ChildProcess, ChildProcessRunner
 from .monitoring.monitor import EventsMonitor
 
 
 def __getattr__(name: str) -> str:
-    """Read ``__version__`` from the installed distribution's metadata, on first use."""
+    """Resolve ``__version__`` on first use, so importing the package does not read it."""
     if name == "__version__":
-        import importlib.metadata
-
-        try:
-            return importlib.metadata.version("gcmon")
-        except importlib.metadata.PackageNotFoundError:
-            # A source tree with no install: nothing to read a version from.
-            return "0.0.0+unknown"
+        return installed_version()
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

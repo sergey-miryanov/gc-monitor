@@ -6,6 +6,7 @@ import sys
 from collections.abc import Sequence
 from typing import Any
 
+from ._version import installed_version
 from .commands import (
     add_combine_parser,
     add_monitor_parser,
@@ -32,9 +33,7 @@ class _VersionAction(argparse.Action):
         values: str | Sequence[Any] | None,
         option_string: str | None = None,
     ) -> None:
-        from .. import __version__
-
-        sys.stdout.write(f"{__version__}\n")
+        sys.stdout.write(f"{installed_version()}\n")
         parser.exit()
 
 
