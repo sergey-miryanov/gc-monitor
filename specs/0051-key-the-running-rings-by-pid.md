@@ -3,7 +3,7 @@
 - **Status:** Not started
 - **Kind:** feature (efficiency)
 - **Effort:** S
-- **Origin:** [0039](0039-split-the-record-model-and-stats-by-concern.md) section 4.6, moved out
+- **Origin:** 0039 section 4.6, moved out
   2026-08-19; 0046 raised it and left it open ([RETIRED.md](RETIRED.md))
 - **Respects:** [ADR-0016](../docs/adr/0016-the-ring-is-the-statistics-unit.md) (the ring is the
   unit statistics are kept in), [ADR-0017](../docs/adr/0017-monitor-owns-the-pid-lifecycle.md)
@@ -152,12 +152,9 @@ interpreter as today. Everything else that walks the rings either sorts (`rings`
 
 ## 7. Further notes
 
-**Order it after [0039](0039-split-the-record-model-and-stats-by-concern.md)**, which moves
-`StreamingStats` into `gcmon/stats/`. Taken before 0039 it edits a module that is about to move;
-taken after, it edits the module in its final home. 0046 was ordered before 0039 for the opposite
-reason, that 0039 would otherwise move code 0046 was about to rewrite, and that argument does not
-carry here: this touches one class, not the split. The other half of the ordering has gone: 0048
-landed, and it is what made this cost visible.
+**Nothing orders this any longer.** 0039 landed on 2026-08-21 and `StreamingStats` is in
+`gcmon/stats/streaming_stats.py`, the module this edits. 0048 landed too, and it is what made
+this cost visible.
 
 **No ADR.** It changes how a ring is reached, not what a settled ring means, which is the reason
 0046 wrote none either.

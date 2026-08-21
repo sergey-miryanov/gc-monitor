@@ -29,7 +29,6 @@ This file holds the open set and the order to take it in. The other two:
 | [0035](0035-derive-every-gc-sub-phase-from-one-table.md) | Feature (cleanup) | L | gcmon writes CPython's eight optional GC sub-phases out by hand in six places; adding the ninth means six edits, and nothing fails if you miss one |
 | [0036](0036-one-exporter-method-per-record-kind.md) | Feature (cleanup) | M | `EventsExporter` has grown one method per record kind, three of them no-ops, and the CLI keeps a hand-maintained list of which formats handle RSS at all |
 | [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md) | Feature (cleanup) | M | Two implementations of "emit this pid's process and thread meta"; 0026 exists because they already drifted once |
-| [0039](0039-split-the-record-model-and-stats-by-concern.md) | Feature (cleanup) | S | The record model and the stats module carry three jobs each; `tests/stats/` already splits along a seam the source does not have |
 | [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature (cleanup) | M | gcmon declares every monitoring option three times, and echoes a rejected configuration to the log as though it had accepted it |
 | [0042](0042-name-the-process-session-for-its-role.md) | Feature (cleanup) | S | The monitored-process seam carries the name of a role it does not fill, and its two adapters do not have the same shape |
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug (correctness) | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
@@ -55,14 +54,13 @@ Every row here has a file. A missing number either retired or never became one;
 | 0047 | XS, and the command that fails is the one the README opens with |
 | 0052 | Silent, and what it produces is indistinguishable from a real measurement |
 | 0030 | |
-| 0035 | Taken before 0039 it deletes nine classes 0039 would otherwise move; neither order is forced |
+| 0035 | 0039 landed, and the nine `Metric` classes it replaces are a module named for the table |
 | 0037 | Constrained: after 0026 |
 | 0036 | Constrained: after 0028 |
-| 0039 | Constrained: before 0051. 0041 landed first, so it has a layer to name for each piece |
 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edited |
 | 0042 | |
 | 0020 | |
-| 0051 | Constrained: after 0039 |
+| 0051 | Unblocked: 0039 landed, and `StreamingStats` is in the module it will keep |
 
 Rows run in order, top to bottom. "Constrained" means the table below forces the position. A blank
 cell means no recorded reason, so that row can move.
@@ -82,7 +80,6 @@ cell means no recorded reason, so that row can move.
 |-------|------|-----|
 | 0026 | 0037 | 0037 assumes 0026's shared naming helper |
 | 0028 | 0036 | 0028 shrinks 0036 |
-| 0039 | 0051 | 0039 moves `StreamingStats`; taken first, 0051 edits the module in its final home rather than one about to move |
 | 0050 | 0040 | 0040 derives the option declarations from one table and would otherwise have to carry the alias 0050 introduces through a rewrite of the structure holding it |
 
 0042 depends on nothing else here; take it at any time.
