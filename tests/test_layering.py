@@ -32,6 +32,36 @@ ALLOWED: dict[str, frozenset[str]] = {
 """What each layer may import. The table lives here because it is a statement
 about the architecture, and this is where such a statement can fail."""
 
+ROOT_CLI = frozenset({"__init__", "__main__", "cli", "_env"})
+"""What the package root holds in its own right.
+
+The root cannot be a directory, so this is the one membership a path cannot
+answer, and enumerating it is what stops a new root module from being handed
+the CLI's permissions by default."""
+
+SHIMS = frozenset(
+    {
+        "data",
+        "protocol",
+        "loss",
+        "trace_event",
+        "poll_status",
+        "schedule",
+        "run_report",
+        "stats_output",
+        "monitor",
+        "monitor_loop",
+        "events_reader",
+        "target_process",
+        "wait_policy",
+        "run_policy",
+        "rss_sampler",
+        "child_process_runner",
+    }
+)
+"""The old paths kept alive for one release. Each re-exports from the layer it
+came from, which is downward, and this set goes when they do."""
+
 FOLDED: dict[str, str] = {"commands": "cli", "pyperf": "cli"}
 """Directories that are part of a layer named for somewhere else.
 
@@ -62,15 +92,18 @@ def layer_of(module: str) -> str | None:
     which is otherwise the package root, where `__init__.py` and `__main__.py`
     have to live, and `pyperf` is part of it too: both are entry points.
 
-    A directory that is not a layer places nothing, and `unplaced` is what
-    turns that into a failure.
+    Nothing else is placed. A directory that is not a layer and a module at
+    the root that is neither the CLI's nor a shim both come back None, and
+    `unplaced` is what turns that into a failure.
     """
     head = module.split(".")[0]
     if head in ALLOWED:
         return head
     if head in FOLDED:
         return FOLDED[head]
-    return None if "." in module else "cli"
+    if "." in module:
+        return None
+    return "cli" if head in ROOT_CLI or head in SHIMS else None
 
 
 def import_graph(root: Path) -> list[Import]:
@@ -207,6 +240,11 @@ class TestTheLayerOfAModule:
 
     def test_a_directory_that_is_not_a_layer_places_nothing(self) -> None:
         assert layer_of("newthing.module") is None
+
+    def test_a_new_module_at_the_root_places_nothing_either(self) -> None:
+        """Otherwise it inherits the CLI's permissions by sitting still, and
+        the directory that was supposed to decide never gets asked."""
+        assert layer_of("cache") is None
 
 
 class TestAnImportThatCrossesTheWrongWay:

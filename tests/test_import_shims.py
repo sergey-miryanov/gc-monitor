@@ -33,6 +33,7 @@ MOVED: dict[str, tuple[str, str]] = {
 """Each old path, the module it now lives in, and one name to ask both for."""
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.parametrize(("old", "new", "name"), [(old, new, name) for old, (new, name) in MOVED.items()])
 def test_the_old_path_answers_with_what_the_new_one_holds(old: str, new: str, name: str) -> None:
     """Not merely importable: the same object, so a caller that held on to a
@@ -40,6 +41,25 @@ def test_the_old_path_answers_with_what_the_new_one_holds(old: str, new: str, na
     assert getattr(importlib.import_module(old), name) is getattr(importlib.import_module(new), name)
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+@pytest.mark.parametrize(("old", "new", "name"), [(old, new, name) for old, (new, name) in MOVED.items()])
+def test_the_old_path_still_star_imports(old: str, new: str, name: str) -> None:
+    """A module-level ``__getattr__`` is consulted by ``from x import *`` only
+    through ``__all__``, so a shim without one imports cleanly and binds
+    nothing. The failure would land at the use site, not at the import."""
+    namespace: dict[str, object] = {}
+    exec(f"from {old} import *", namespace)
+    assert name in namespace
+
+
+def test_reaching_through_a_shim_says_it_is_going() -> None:
+    """A caller gets one release of notice, and can turn it into a failure of
+    their own with ``-W error::DeprecationWarning``."""
+    with pytest.warns(DeprecationWarning, match="one release"):
+        _ = importlib.import_module("gcmon.monitor").EventsMonitor
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_a_name_that_was_never_there_still_fails() -> None:
     """The shim forwards; it does not invent."""
     assert not hasattr(importlib.import_module("gcmon.data"), "no_such_name")
