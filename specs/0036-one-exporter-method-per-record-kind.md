@@ -113,7 +113,7 @@ longer needed.
 move onto `TraceEvent`.** `BufferedTraceExporter` buffers `TraceEvent`; `JsonlExporter` buffers
 `to_mapping(record)`, the raw record fields. Those are not two encodings of one thing. The
 JSONL schema is public, documented per-field in
-[docs/formats.md](../docs/formats.md#jsonl-output), and read back by `chrome_trace_io.read_jsonl`
+[docs/formats.md](../docs/formats.md#jsonl-output), and read back by `jsonl_io.read_jsonl`
 to drive `gcmon combine`. Routing JSONL through the `TraceEvent` model would rewrite every line
 of every JSONL file gcmon has produced and break the combine reader in the same commit.
 Rejected there, rejected here.

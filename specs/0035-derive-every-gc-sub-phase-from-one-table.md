@@ -61,7 +61,7 @@ reaches a trace.
 | `protocol.to_mapping` | seven `if has_*(item):` blocks assigning field by field |
 | `stats.METRICS` | nine `Metric` classes, each a name and a two-field getter |
 | `trace_converter.convert_item_to_trace_format` | eight near-identical begin/end blocks |
-| `chrome_trace_io._normalize_jsonl_timestamps` | eight `if has_*(item):` subtraction blocks |
+| `jsonl_io.normalize_jsonl_timestamps` | eight `if has_*(item):` subtraction blocks |
 
 `data.GCStatsInfo` stays as it is: it is the msgspec decode target and its fields are the
 JSONL schema, which is public and documented in
@@ -103,7 +103,7 @@ optional fields and keeps its explicit list of the mandatory ones. `stats.METRIC
 from it and the nine `Metric` classes go: each is a name and a two-field getter, which is
 what a row already is. `convert_item_to_trace_format` becomes a loop emitting a begin/end pair
 per present phase whose interval is non-empty, preserving today's `stop - start > 0` guard.
-`_normalize_jsonl_timestamps` walks the start and stop field names.
+`normalize_jsonl_timestamps` walks the start and stop field names.
 
 **4.4: The `has_*` guards and the per-phase `Protocol` classes go.** Once the table drives
 every consumer, nothing narrows to `TMarkAliveInfo` or its siblings; a single

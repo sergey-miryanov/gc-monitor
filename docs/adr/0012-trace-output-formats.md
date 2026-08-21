@@ -108,7 +108,7 @@ included. Its whitelist had omitted both, so `GCMON_FORMAT=perfetto` fell back t
 
 - `src/gcmon/cli/commands/convert_cmd.py` holds the `--output-format` choices and the
   `chrome → jsonl` rejection.
-- `src/gcmon/exporters/chrome_trace_io.py` combines the inputs: the `jsonl → jsonl` fast
+- `src/gcmon/exporters/combine.py` combines the inputs: the `jsonl → jsonl` fast
   path, per-file normalization in the load loop, and the `perfetto` branch.
 - `src/gcmon/exporters/combined_exporter.py` derives the two paths and forwards to both
   sub-exporters.

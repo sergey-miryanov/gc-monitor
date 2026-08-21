@@ -18,7 +18,7 @@ from typing import Any
 
 from ..control.control_client import ControlClient, connect_with_retry
 from ..control.control_server import _make_address
-from ..exporters.chrome_trace_io import read_jsonl
+from ..exporters.jsonl_io import read_jsonl
 from ..model.protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
 from ..stats.streaming_stats import StreamingStats
 from ..support.process_terminator import log_process_output, terminate_process

@@ -69,5 +69,5 @@ One correction, worth stating because the old spec asserted the opposite: REQ-4 
 `JsonlExporter` onto `BufferedTraceExporter` with a `JsonlEventEncoder`. That would have
 rewritten the JSONL schema and broken the combine reader in the same commit, since the schema is
 public, documented per-field in [docs/formats.md](../docs/formats.md#jsonl-output), and
-`chrome_trace_io.read_jsonl` reads it back to drive `gcmon combine`. 0029 shared the buffering
+`jsonl_io.read_jsonl` reads it back to drive `gcmon combine`. 0029 shared the buffering
 instead; 0036 carries that constraint now.

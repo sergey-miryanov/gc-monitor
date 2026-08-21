@@ -3,7 +3,7 @@
 import json
 
 from gcmon.exporters import JsonlExporter
-from gcmon.exporters.chrome_trace_io import read_jsonl
+from gcmon.exporters.jsonl_io import read_jsonl
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.trace_event import loss_tid
 from tests.conftest import DEFAULT_PID

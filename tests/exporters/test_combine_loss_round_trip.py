@@ -29,7 +29,8 @@ from typing import Any
 import pytest
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
-from gcmon.exporters.chrome_trace_io import combine_files, read_jsonl, write_jsonl
+from gcmon.exporters.combine import combine_files
+from gcmon.exporters.jsonl_io import read_jsonl, write_jsonl
 from gcmon.model.protocol import TItem, is_loss
 from gcmon.model.trace_event import loss_tid
 from tests.exporters.loss_row import (

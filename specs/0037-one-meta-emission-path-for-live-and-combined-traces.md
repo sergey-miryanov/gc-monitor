@@ -83,11 +83,11 @@ third consumer of the conversion pipeline appearing, at which point one shared p
 more than the encoder's independence.
 
 **4.3: Delete `chrome_trace_format.py`.** It is a re-export shim kept, per ADR-0007's
-consequences, "so existing importers keep working". The only importer inside `src/` is
-`chrome_trace_io`; the only one in `tests/` is
-`tests/exporters/test_chrome_trace_format.py`, which imports two names from it and a third from
-`trace_converter` directly, in the same file. Point both at `trace_converter` and delete the
-module. ADR-0007's consequence list gets a line saying the shim served its purpose and went.
+consequences, "so existing importers keep working". Nothing inside `src/` imports it; the only
+importer in `tests/` is `tests/exporters/test_chrome_trace_format.py`, which imports two names
+from it and a third from `trace_converter` directly, in the same file. Point it at
+`trace_converter` and delete the module. ADR-0007's consequence list gets a line
+saying the shim served its purpose and went.
 
 **4.4: Ordering is preserved, not unified.** The live path interleaves thread meta with events
 as each iid first appears; the batch path emits a pid's thread meta before that pid's events.
@@ -127,10 +127,11 @@ benefit. Out of scope, stated here so nobody "fixes" it as part of this.
   helper exists.
 - Routing `combine` through an `EventsExporter` (see section 4.2, rejected with the condition that
   would reopen it).
-- The two timestamp normalizers. `_normalize_trace_timestamps` works on `TraceEvent` and
-  `_normalize_jsonl_timestamps` on records; they exist because there are two representations,
-  not because of this duplication. [0035](0035-derive-every-gc-sub-phase-from-one-table.md)
-  turns the second into a table walk, which is most of the cost of the second one.
+- The two timestamp normalizers. `combine._normalize_trace_timestamps` works on `TraceEvent`
+  and `jsonl_io.normalize_jsonl_timestamps` on records; they exist because there are two
+  representations, not because of this duplication.
+  [0035](0035-derive-every-gc-sub-phase-from-one-table.md) turns the second into a table walk,
+  which is most of the cost of the second one.
 - Naming a process after its cmdline. ADR-0010 territory, and 0026 already excluded it.
 - Emission ordering (see section 4.4).
 

@@ -81,7 +81,7 @@ grep `src/` and `tests/` together. Mechanical, but it is a keyword-argument rena
 fail loudly rather than silently if a call site is missed.
 
 **Also considered and deliberately not batched here:** making
-`chrome_trace_io._normalize_trace_timestamps` return a new list instead of mutating in place.
+`combine._normalize_trace_timestamps` return a new list instead of mutating in place.
 The mutation is currently harmless (its only caller passes a list it just built from
 `_parse_events` or `convert_to_trace_format`, so nothing else holds a reference) and a
 non-mutating rewrite means constructing fresh structs for every event in a combine run. It

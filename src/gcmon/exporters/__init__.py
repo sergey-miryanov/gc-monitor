@@ -8,10 +8,11 @@ Provides various export formats for GC events:
 """
 
 from .chrome_trace_exporter import TraceExporter
-from .chrome_trace_io import combine_files, convert_jsonl_to_trace_format
+from .combine import combine_files
 from .exporter import EventsExporter
 from .exporter_factory import EventsExporterFactory
 from .jsonl_exporter import JsonlExporter
+from .jsonl_io import convert_jsonl_to_trace_format
 from .perfetto_exporter import PerfettoExporter
 from .stdout_exporter import StdoutExporter
 

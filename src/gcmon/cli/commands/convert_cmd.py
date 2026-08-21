@@ -7,7 +7,7 @@ from argparse import Namespace
 from pathlib import Path
 
 from gcmon.cli.commands.parser_factory import ParserFactory
-from gcmon.exporters.chrome_trace_io import combine_files
+from gcmon.exporters.combine import combine_files
 
 logger = logging.getLogger("gcmon")
 
