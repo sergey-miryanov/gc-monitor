@@ -1,36 +1,12 @@
-import time
-from collections.abc import Callable, Generator
-from typing import Any, Protocol, override, runtime_checkable
+"""The run policy moved to :mod:`gcmon.monitoring.run_policy`.
+
+A shim for the deep path, which goes one release from now. Import
+``gcmon.monitoring.run_policy`` instead.
+"""
+
+from gcmon.monitoring import run_policy as _moved
 
 
-@runtime_checkable
-class Runner(Protocol):
-    def run(self, stop: Callable[[], bool]) -> Generator[None, Any]: ...
-
-
-class InfinityRunner(Runner):
-    @override
-    def run(self, stop: Callable[[], bool]) -> Generator[None, Any]:
-        while not stop():
-            yield
-
-
-class DurationRunner(Runner):
-    def __init__(self, duration: float):
-        self._duration = duration
-
-    @override
-    def run(self, stop: Callable[[], bool]) -> Generator[None, Any]:
-        ts_start = time.monotonic()
-        while not stop():
-            yield
-            ts = time.monotonic()
-            if (ts - ts_start) > self._duration:
-                break
-
-
-def RunnerFactory(duration: float | None) -> Runner:
-    if duration is not None:
-        return DurationRunner(duration)
-
-    return InfinityRunner()
+def __getattr__(name: str) -> object:
+    """Answer with whatever ``gcmon.monitoring.run_policy`` holds under *name*."""
+    return getattr(_moved, name)

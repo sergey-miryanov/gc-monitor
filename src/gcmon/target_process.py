@@ -1,48 +1,12 @@
-from typing import Protocol, Self, override, runtime_checkable
+"""The process handles moved to :mod:`gcmon.monitoring.target_process`.
+
+A shim for the deep path, which goes one release from now. Import
+``gcmon.monitoring.target_process`` instead.
+"""
+
+from gcmon.monitoring import target_process as _moved
 
 
-@runtime_checkable
-class TargetProcess(Protocol):
-    @property
-    def pid(self) -> int: ...
-
-
-class ProcessRunnerFactory(Protocol):
-    def __call__(self, control_address: str) -> ProcessFactory: ...
-
-
-class ProcessFactory(Protocol):
-    def start(self) -> TargetProcess: ...
-    def __enter__(self) -> Self: ...
-    def __exit__(self, *args: object) -> None: ...
-
-    @property
-    def returncode(self) -> int | None: ...
-
-    def wait(self, timeout: float | None = None) -> None: ...
-
-
-class ExternalProcess(TargetProcess):
-    def __init__(self, pid: int):
-        self._pid = pid
-
-    @property
-    @override
-    def pid(self) -> int:
-        return self._pid
-
-    def start(self) -> ExternalProcess:
-        return self
-
-    @property
-    def returncode(self) -> int | None:
-        return None
-
-    def wait(self, timeout: float | None = None) -> None:
-        """No-op for external processes."""
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        pass
+def __getattr__(name: str) -> object:
+    """Answer with whatever ``gcmon.monitoring.target_process`` holds under *name*."""
+    return getattr(_moved, name)

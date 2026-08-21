@@ -21,6 +21,14 @@ MOVED: dict[str, tuple[str, str]] = {
     "gcmon.run_report": ("gcmon.model.run_report", "RunReport"),
     "gcmon.stats": ("gcmon.stats.stats", "StreamingStats"),
     "gcmon.stats_output": ("gcmon.stats.stats_output", "StatsView"),
+    "gcmon.monitor": ("gcmon.monitoring.monitor", "EventsMonitor"),
+    "gcmon.monitor_loop": ("gcmon.monitoring.monitor_loop", "MonitorLoop"),
+    "gcmon.events_reader": ("gcmon.monitoring.events_reader", "EventsReader"),
+    "gcmon.target_process": ("gcmon.monitoring.target_process", "ExternalProcess"),
+    "gcmon.wait_policy": ("gcmon.monitoring.wait_policy", "no_wait_policy"),
+    "gcmon.rss_sampler": ("gcmon.monitoring.rss_sampler", "RssSampler"),
+    "gcmon.run_policy": ("gcmon.monitoring.run_policy", "Runner"),
+    "gcmon.child_process_runner": ("gcmon.monitoring.child_process_runner", "ChildProcessRunner"),
 }
 """Each old path, the module it now lives in, and one name to ask both for."""
 

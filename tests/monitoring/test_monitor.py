@@ -4,13 +4,13 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from gcmon.events_reader import TargetUnavailable
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.protocol import TGCStatsInfo
-from gcmon.monitor import EventsMonitor, PollReport
+from gcmon.monitoring.events_reader import TargetUnavailable
+from gcmon.monitoring.monitor import EventsMonitor, PollReport
+from gcmon.monitoring.target_process import ExternalProcess
+from gcmon.monitoring.wait_policy import WaitPolicy, WaitPolicyFactory, no_wait_policy
 from gcmon.stats.stats import StreamingStats
-from gcmon.target_process import ExternalProcess
-from gcmon.wait_policy import WaitPolicy, WaitPolicyFactory, no_wait_policy
 from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 
 
@@ -35,7 +35,7 @@ def mock_stats_update(monitor: EventsMonitor) -> Generator[MagicMock]:
 
 class TestEventsMonitorExtra:
     def test_get_child_pids(self, monitor: EventsMonitor) -> None:
-        with patch("gcmon.monitor.get_child_pids", return_value=[999, 888]) as mock_get:
+        with patch("gcmon.monitoring.monitor.get_child_pids", return_value=[999, 888]) as mock_get:
             children = monitor._get_child_pids()
 
         mock_get.assert_called_once_with(12345, recursive=True)
@@ -44,7 +44,7 @@ class TestEventsMonitorExtra:
     def test_get_child_pids_exception_returns_none(self, monitor: EventsMonitor) -> None:
         """None rather than [], so the caller can tell a failed listing from
         a target with no children and skip pruning that tick."""
-        with patch("gcmon.monitor.get_child_pids", side_effect=Exception("boom")) as mock_get:
+        with patch("gcmon.monitoring.monitor.get_child_pids", side_effect=Exception("boom")) as mock_get:
             children = monitor._get_child_pids()
 
         mock_get.assert_called_once_with(12345, recursive=True)
@@ -233,7 +233,7 @@ def _drive(
     _reader_of(monitor).reads = read
 
     reports: list[PollReport] = []
-    with patch("gcmon.monitor.get_child_pids", side_effect=list(listings)):
+    with patch("gcmon.monitoring.monitor.get_child_pids", side_effect=list(listings)):
         for tick, _ in enumerate(listings, start=1):
             now_ns = tick * TICK_NS
             reports.append(monitor.tick(now_ns, stop))

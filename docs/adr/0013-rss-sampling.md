@@ -28,7 +28,7 @@ soft-optional dependency across the core.
 
 ## Decision
 
-**Sampling lives in its own class**, `RssSampler` in `src/gcmon/rss_sampler.py`. It holds
+**Sampling lives in its own class**, `RssSampler` in `src/gcmon/monitoring/rss_sampler.py`. It holds
 the exporter, the interval, and the last-sample time. Its only public method is
 `tick(now_ns, live_pids)`, and the timer check is internal. `MonitorLoop` gains one optional
 constructor argument and one line in the loop body. It knows nothing about `psutil`,
@@ -113,12 +113,12 @@ the 0.1 s GC poll rate.
 
 ## Implementation
 
-- `src/gcmon/rss_sampler.py` holds `RssSampler`, its `tick(now_ns, live_pids)` entry point,
+- `src/gcmon/monitoring/rss_sampler.py` holds `RssSampler`, its `tick(now_ns, live_pids)` entry point,
   the interval check, and the default sampler catching `NoSuchProcess` / `AccessDenied`.
 - `src/gcmon/exporters/_buffered_exporter.py` holds the `-1` sentinel, the `iid >= 0` guard
   that suppresses thread meta for it, and the exporter's RSS sample.
 - `src/gcmon/exporters/perfetto_format.py` carries `"rss"` in the top-level metric set.
-- `src/gcmon/monitor_loop.py` takes one stamping read per tick and hands the instant to the monitor
+- `src/gcmon/monitoring/monitor_loop.py` takes one stamping read per tick and hands the instant to the monitor
   and then to the sampler; the monitor collects the live pids and reports liveness
   ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)).
   `src/gcmon/commands/monitoring_base.py` constructs the sampler.

@@ -309,10 +309,10 @@ out of the span iteration.
   twice, covering the non-idempotent track descriptor too.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded so it goes
   out once.
-- The liveness path, monitor to accumulator: `src/gcmon/monitor_loop.py` takes one stamping
+- The liveness path, monitor to accumulator: `src/gcmon/monitoring/monitor_loop.py` takes one stamping
   `time.monotonic_ns()` per tick and hands it to the monitor, then unconverted to the RSS sampler
   ([ADR-0013](0013-rss-sampling.md)). A second read paces the loop and stamps nothing
-  ([ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md)). `src/gcmon/monitor.py` reports the
+  ([ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md)). `src/gcmon/monitoring/monitor.py` reports the
   live set at the end of a tick, after the poll phase and skipped on an empty set. The clock and
   the stop signal belong to the loop; everything per-pid belongs to the monitor
   ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)).

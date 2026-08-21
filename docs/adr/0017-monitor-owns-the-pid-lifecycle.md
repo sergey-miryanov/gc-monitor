@@ -62,9 +62,9 @@ empty. Reading it as empty drops every live child's cursor and re-exports its wh
 
 ## Implementation
 
-- `src/gcmon/monitor.py` holds the tick, the prune and `PollReport`.
-  `src/gcmon/monitor_loop.py` holds the clock, the stop event, the rate and the sampler call.
-  `src/gcmon/wait_policy.py` holds the no-wait factory, a function rather than the class object,
+- `src/gcmon/monitoring/monitor.py` holds the tick, the prune and `PollReport`.
+  `src/gcmon/monitoring/monitor_loop.py` holds the clock, the stop event, the rate and the sampler call.
+  `src/gcmon/monitoring/wait_policy.py` holds the no-wait factory, a function rather than the class object,
   which satisfies `WaitPolicyFactory` structurally but not to a type checker.
 - `tests/monitoring/test_monitor.py` drives ticks against a scripted child listing and asserts at
   the exporter. A pid that leaves and returns holding an unrelated counter emits records and no

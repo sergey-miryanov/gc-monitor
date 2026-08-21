@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.events_reader import TargetUnavailable
 from gcmon.exporters import TraceExporter
 from gcmon.model.data import GCStatsInfo, ts_to_us
 from gcmon.model.trace_event import loss_tid
-from gcmon.monitor import EventsMonitor
+from gcmon.monitoring.events_reader import TargetUnavailable
+from gcmon.monitoring.monitor import EventsMonitor
+from gcmon.monitoring.target_process import ExternalProcess
+from gcmon.monitoring.wait_policy import no_wait_policy
 from gcmon.stats.stats import StreamingStats
-from gcmon.target_process import ExternalProcess
-from gcmon.wait_policy import no_wait_policy
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory

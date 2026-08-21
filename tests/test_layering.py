@@ -27,24 +27,18 @@ ALLOWED: dict[str, frozenset[str]] = {
     "stats": frozenset({"model", "support"}),
     "control": frozenset({"model", "exporters", "support"}),
     "monitoring": frozenset({"model", "exporters", "stats", "control", "support"}),
-    "pyperf": frozenset({"model", "exporters", "stats", "control", "monitoring", "support"}),
-    "cli": frozenset({"model", "exporters", "stats", "control", "monitoring", "pyperf", "support"}),
+    "cli": frozenset({"model", "exporters", "stats", "control", "monitoring", "support"}),
 }
 """What each layer may import. The table lives here because it is a statement
 about the architecture, and this is where such a statement can fail."""
 
-STILL_FLAT: dict[str, str] = {
-    "monitor": "monitoring",
-    "monitor_loop": "monitoring",
-    "events_reader": "monitoring",
-    "target_process": "monitoring",
-    "wait_policy": "monitoring",
-    "run_policy": "monitoring",
-    "rss_sampler": "monitoring",
-    "child_process_runner": "monitoring",
-}
-"""The modules still waiting for the directory that will answer for them.
-This table shrinks with each move and is gone once the tree is layered."""
+FOLDED: dict[str, str] = {"commands": "cli", "pyperf": "cli"}
+"""Directories that are part of a layer named for somewhere else.
+
+The subcommands and the pyperf hook are both entry points into gcmon, and
+nothing below imports either, so they are `cli` rather than layers of their
+own. `pyperf` was left open until it had a second member to argue for it; it
+still has one."""
 
 
 @dataclass(frozen=True)
@@ -52,7 +46,7 @@ class Import:
     """One import from the package into itself, named as the walk sees it.
 
     ``module`` and ``imported`` are dotted paths relative to ``gcmon``, so
-    ``monitor`` and ``exporters.exporter`` rather than ``gcmon.monitor``.
+    ``monitor`` and ``exporters.exporter`` rather than ``gcmon.monitoring.monitor``.
     """
 
     module: str
@@ -66,15 +60,17 @@ def layer_of(module: str) -> str | None:
     The directory answers: a module under `stats/` is `stats`. Two rules make
     that true without exceptions in the tree. `commands` is part of `cli`,
     which is otherwise the package root, where `__init__.py` and `__main__.py`
-    have to live. A module still sitting at the root on its way to a layer is
-    named in `STILL_FLAT` until it moves.
+    have to live, and `pyperf` is part of it too: both are entry points.
+
+    A directory that is not a layer places nothing, and `unplaced` is what
+    turns that into a failure.
     """
     head = module.split(".")[0]
     if head in ALLOWED:
         return head
-    if head == "commands":
-        return "cli"
-    return STILL_FLAT.get(head, "cli")
+    if head in FOLDED:
+        return FOLDED[head]
+    return None if "." in module else "cli"
 
 
 def import_graph(root: Path) -> list[Import]:
@@ -150,6 +146,24 @@ def violations(
     return found
 
 
+def unplaced(root: Path, layer: Callable[[str], str | None]) -> list[str]:
+    """The modules under *root* that no rule places in a layer.
+
+    A module `violations` cannot place is one it silently passes over, so the
+    package growing a directory that is not a layer has to fail here instead.
+    """
+    return sorted(module for module in _modules(root) if layer(module) is None)
+
+
+def _modules(root: Path) -> list[str]:
+    """Every module under *root*, named the way the walk names them."""
+    return [
+        ".".join(path.relative_to(root).with_suffix("").parts)
+        for path in sorted(root.rglob("*.py"))
+        if "__pycache__" not in path.parts
+    ]
+
+
 class TestThePackageAsItStandsToday:
     """Case 1: the day-one state, which the test's first job is to record."""
 
@@ -160,14 +174,12 @@ class TestThePackageAsItStandsToday:
         """A walk that found nothing would also report no violations."""
         graph = import_graph(SRC)
         assert len(graph) > 50
-        assert any(edge.module == "monitor" and edge.imported.startswith("model.data") for edge in graph)
+        assert any(edge.module == "monitoring.monitor" and edge.imported.startswith("model.data") for edge in graph)
 
-    def test_every_module_the_walk_sees_has_a_layer(self) -> None:
-        """A module no rule places is skipped by ``violations``, so an
-        unplaced one would be guarded by nothing."""
-        graph = import_graph(SRC)
-        seen = {edge.module for edge in graph} | {edge.imported for edge in graph}
-        assert [module for module in sorted(seen) if layer_of(module) is None] == []
+    def test_every_module_has_a_layer(self) -> None:
+        """``violations`` skips what it cannot place, so a module in a
+        directory that is not a layer would be guarded by nothing."""
+        assert unplaced(SRC, layer_of) == []
 
 
 class TestTheLayerOfAModule:
@@ -185,13 +197,16 @@ class TestTheLayerOfAModule:
         assert layer_of("_env") == "cli"
         assert layer_of("__init__") == "cli"
 
-    def test_a_module_still_at_the_root_keeps_its_layer_until_it_moves(self) -> None:
-        assert layer_of("monitor") == "monitoring"
-        assert layer_of("rss_sampler") == "monitoring"
-
     def test_a_shim_left_behind_by_a_move_is_cli_like_any_root_module(self) -> None:
         """It re-exports from the layer it came from, which is downward."""
         assert layer_of("data") == "cli"
+
+    def test_the_pyperf_hook_is_an_entry_point_not_a_layer(self) -> None:
+        """One member, imported by nothing below: the CLI's profile."""
+        assert layer_of("pyperf.hook") == "cli"
+
+    def test_a_directory_that_is_not_a_layer_places_nothing(self) -> None:
+        assert layer_of("newthing.module") is None
 
 
 class TestAnImportThatCrossesTheWrongWay:
@@ -210,7 +225,7 @@ class TestAnImportThatCrossesTheWrongWay:
         ]
 
     def test_an_import_that_goes_down_is_allowed(self) -> None:
-        assert violations([Import("monitor", "model.data", 11)], layer_of, ALLOWED) == []
+        assert violations([Import("monitoring.monitor", "model.data", 11)], layer_of, ALLOWED) == []
 
     def test_an_import_inside_one_layer_is_allowed(self) -> None:
         assert violations([Import("exporters.exporter", "exporters.encoder", 4)], layer_of, ALLOWED) == []

@@ -1,6 +1,6 @@
-from .child_process_runner import ChildProcess, ChildProcessRunner
 from .exporters import EventsExporter, JsonlExporter, StdoutExporter, TraceExporter
-from .monitor import EventsMonitor
+from .monitoring.child_process_runner import ChildProcess, ChildProcessRunner
+from .monitoring.monitor import EventsMonitor
 
 
 def __getattr__(name: str) -> str:

@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gcmon.events_reader import TargetUnavailable
 from gcmon.model.poll_status import PollStatus
 from gcmon.model.protocol import TGCStatsInfo
-from gcmon.monitor import EventsMonitor
+from gcmon.monitoring.events_reader import TargetUnavailable
+from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.stats.stats import StreamingStats
 from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 
@@ -37,7 +37,7 @@ def mock_read(reader: FakeEventsReader) -> MagicMock:
 @pytest.fixture
 def mock_monotonic() -> Generator[MagicMock]:
     """Patch the clock used to measure read time, in nanoseconds."""
-    with patch("gcmon.monitor.time.monotonic_ns") as mock:
+    with patch("gcmon.monitoring.monitor.time.monotonic_ns") as mock:
         yield mock
 
 

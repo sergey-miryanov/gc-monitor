@@ -68,12 +68,12 @@ import pytest
 
 from gcmon.exporters.chrome_trace_exporter import TraceExporter
 from gcmon.model.data import GCStatsInfo
-from gcmon.monitor import EventsMonitor
-from gcmon.monitor_loop import MonitorLoop
-from gcmon.run_policy import Runner
+from gcmon.monitoring.monitor import EventsMonitor
+from gcmon.monitoring.monitor_loop import MonitorLoop
+from gcmon.monitoring.run_policy import Runner
+from gcmon.monitoring.target_process import ExternalProcess
+from gcmon.monitoring.wait_policy import no_wait_policy
 from gcmon.stats.stats import StreamingStats
-from gcmon.target_process import ExternalProcess
-from gcmon.wait_policy import no_wait_policy
 from tests.helpers import FakeEventsReader
 from tests.test_loss_replay import MS, READ_COST_NS, RING_SIZES, capture_records, ring_at
 
@@ -289,7 +289,7 @@ def run_monitored(output: Path) -> MonitoredRun:
     loop = MonitorLoop(monitor, FixedRunner(TICKS), rate=0.001)
 
     with (
-        patch("gcmon.monitor.get_child_pids", side_effect=one_listing),
+        patch("gcmon.monitoring.monitor.get_child_pids", side_effect=one_listing),
         # On the `time` module itself, not on either importer's namespace:
         # `monitor_loop` and `monitor` both reach it through `import time`, so
         # this one patch is what makes the tick instant and the read instants

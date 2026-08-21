@@ -110,9 +110,9 @@ joins the summary rather than the loop.
   monitor in behind every environment read. `src/gcmon/model/schedule.py` holds `MIN_IDLE_NS`,
   `MIN_RATE_NS` and the grid arithmetic; `src/gcmon/model/run_report.py` holds the run report and
   `OVERRUN_SHARE`, which crosses from the loop to the summary. The per-poll report sits in
-  `src/gcmon/monitor.py`, beside what produces it, and needs neither.
-- `src/gcmon/monitor_loop.py` holds the two clock reads.
-- `src/gcmon/stats/stats_output.py` states the tick counts and selects the remedy; `src/gcmon/monitor.py`
+  `src/gcmon/monitoring/monitor.py`, beside what produces it, and needs neither.
+- `src/gcmon/monitoring/monitor_loop.py` holds the two clock reads.
+- `src/gcmon/stats/stats_output.py` states the tick counts and selects the remedy; `src/gcmon/monitoring/monitor.py`
   carries the advisory that no longer prescribes one.
 - `src/gcmon/_env.py` parses one rate spelling for both `--rate` and `GCMON_RATE`;
   `src/gcmon/commands/monitoring_options.py` reports what it rejects and applies the same minimum to

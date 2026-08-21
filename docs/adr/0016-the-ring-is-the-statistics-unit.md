@@ -52,7 +52,7 @@ settles that pid's rings at either. The sample buffers go back, the slots go bac
 percentiles left behind cover each of those rings end to end. A target that spawns and exits
 keeps a row per process it ran without exhausting the bound.
 
-**`gcmon.monitor` decides who is alive, and `gcmon.stats.stats` takes that decision.** Whatever
+**`gcmon.monitoring.monitor` decides who is alive, and `gcmon.stats.stats` takes that decision.** Whatever
 arrives on a pid gcmon called dead is a new process, the same one or not. The statistics never
 infer liveness a second time from the target's counters, so the two sides cannot disagree about
 which process a figure describes.
@@ -77,7 +77,7 @@ lifetime counters, four numbers a generation against a thousand values a generat
 table.
 
 **The coverage advisory tests rings.** It names the least covered one, interpreter alongside pid
-and generation, and fires once per run, latched in `gcmon.monitor`: the remedy it suggests is
+and generation, and fires once per run, latched in `gcmon.monitoring.monitor`: the remedy it suggests is
 `--rate`, which no ring owns. Firing once is why it names the worst ring over the first, since a
 marginal figure would otherwise stand for the whole capture.
 
@@ -174,7 +174,7 @@ scope `Total` reports.
   so a ring's numbers settle together, and the epoch appears in one key rather than three.
 - `src/gcmon/stats/stats_output.py` builds the table's two levels and the footer notes, and owns the
   `PID:IID` spelling.
-- `src/gcmon/monitor.py` passes the iid it has in hand when recording loss, holds the advisory's
+- `src/gcmon/monitoring/monitor.py` passes the iid it has in hand when recording loss, holds the advisory's
   once-per-run latch, and settles a pid's rings where it drops that pid's monitor state.
 - `src/gcmon/pyperf/hook.py` keys loss per ring when replaying a capture from JSONL, so the
   offline path reconstructs what the live path recorded.

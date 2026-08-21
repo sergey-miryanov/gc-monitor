@@ -21,7 +21,7 @@ CPython 3.15 offers both shapes: a free function that attaches, reads and detach
 ## Decision
 
 **Attachment is state, so it has one owner and one prune.** It lives behind `EventsReader` in
-`gcmon.events_reader`, and the monitor drops it in the same pass that drops that pid's cursors and
+`gcmon.monitoring.events_reader`, and the monitor drops it in the same pass that drops that pid's cursors and
 streaming statistics. [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s rule extends to it
 unchanged: cursors and attachment share a lifetime, and nothing prunes either one anywhere else.
 
@@ -60,7 +60,7 @@ attach.**
   failing read notices the swap there. Anything leaning on that safety has to say which platform
   it is on.
 
-- **`gcmon.monitor` no longer names any exception type from `_remote_debugging`.** What an
+- **`gcmon.monitoring.monitor` no longer names any exception type from `_remote_debugging`.** What an
   unreadable target raises differs by platform, and again under `debug=True`;
   [Remote reads, per platform](../internals/remote-reads.md) has the whole table. That vocabulary
   stops at the reader, which translates it into `TargetUnavailable`. Test doubles say
@@ -100,17 +100,17 @@ attach.**
   puts back a per-poll probe of the target, which is the cost this decision exists to remove.
 
 - **Let the monitor widen its `except` clause instead of translating in the reader.** Two words
-  smaller, and it leaves `gcmon.monitor` owning the platform-specific error vocabulary the seam
+  smaller, and it leaves `gcmon.monitoring.monitor` owning the platform-specific error vocabulary the seam
   exists to contain. Returning an empty result instead of raising was also rejected: it loses
   the cause the debug log prints.
 
 ## Implementation
 
-- `src/gcmon/events_reader.py` holds `EventsReader`, `RemoteEventsReader` and `TargetUnavailable`,
+- `src/gcmon/monitoring/events_reader.py` holds `EventsReader`, `RemoteEventsReader` and `TargetUnavailable`,
   and is the only module in the package that imports a stateful handle from `_remote_debugging`.
   `get_child_pids` stays where it is: it is stateless, caches nothing, and answers a question about
   the process tree rather than about a ring.
-- `src/gcmon/monitor.py` takes the reader as a required keyword argument, calls it inside the
+- `src/gcmon/monitoring/monitor.py` takes the reader as a required keyword argument, calls it inside the
   `time.monotonic_ns` brackets that feed `Read Time`, and prunes it alongside the cursors.
   [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) fixes the read-start instant as the one that
   closes the previous poll's interval, so that bracket did not move.

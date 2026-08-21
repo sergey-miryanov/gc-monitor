@@ -6,17 +6,17 @@ from contextlib import ExitStack
 
 from gcmon.commands.monitoring_options import MonitoringOptions
 from gcmon.control.control_server import ControlServer
-from gcmon.events_reader import RemoteEventsReader
 from gcmon.exporters import EventsExporterFactory
-from gcmon.monitor import EventsMonitor
-from gcmon.monitor_loop import MonitorLoop
-from gcmon.rss_sampler import RssSampler
-from gcmon.run_policy import RunnerFactory
+from gcmon.monitoring.events_reader import RemoteEventsReader
+from gcmon.monitoring.monitor import EventsMonitor
+from gcmon.monitoring.monitor_loop import MonitorLoop
+from gcmon.monitoring.rss_sampler import RssSampler
+from gcmon.monitoring.run_policy import RunnerFactory
+from gcmon.monitoring.target_process import ProcessRunnerFactory
+from gcmon.monitoring.wait_policy import WaitPolicyFactory
 from gcmon.stats.stats import StreamingStats
 from gcmon.stats.stats_output import print_stats, summary_lines
 from gcmon.support import replace_signals
-from gcmon.target_process import ProcessRunnerFactory
-from gcmon.wait_policy import WaitPolicyFactory
 
 logger = logging.getLogger("gcmon")
 

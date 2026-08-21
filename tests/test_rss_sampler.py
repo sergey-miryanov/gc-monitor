@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gcmon.rss_sampler import RssSampler, _default_rss_sampler, _noop_rss_sampler
+from gcmon.monitoring.rss_sampler import RssSampler, _default_rss_sampler, _noop_rss_sampler
 
 SEC = 1_000_000_000
 """One second in nanoseconds, the unit `tick` now speaks."""

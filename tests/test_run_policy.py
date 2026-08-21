@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from gcmon.run_policy import DurationRunner, InfinityRunner, RunnerFactory
+from gcmon.monitoring.run_policy import DurationRunner, InfinityRunner, RunnerFactory
 
 
 @pytest.fixture

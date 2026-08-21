@@ -4,7 +4,7 @@ from unittest.mock import ANY, MagicMock
 
 import pytest
 
-from gcmon.events_reader import RemoteEventsReader
+from gcmon.monitoring.events_reader import RemoteEventsReader
 from gcmon.stats.stats import PauseTotals
 from gcmon.stats.stats_output import StatsView
 

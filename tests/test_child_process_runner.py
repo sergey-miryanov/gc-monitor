@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from gcmon.child_process_runner import ChildProcess, ChildProcessRunner, ProcessStdoutReader
+from gcmon.monitoring.child_process_runner import ChildProcess, ChildProcessRunner, ProcessStdoutReader
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def runner(tmp_path: Path) -> ChildProcessRunner:
 def mock_popen_and_reader(mock_popen: Mock) -> Generator[Mock]:
     with (
         patch("subprocess.Popen", return_value=mock_popen) as mock_popen_cls,
-        patch("gcmon.child_process_runner.ProcessStdoutReader"),
+        patch("gcmon.monitoring.child_process_runner.ProcessStdoutReader"),
     ):
         yield mock_popen_cls
 
@@ -52,7 +52,7 @@ def mock_popen_immediate_exit(mock_popen: Mock) -> Generator[None]:
 @pytest.fixture
 def mock_terminate_process() -> Generator[Mock]:
     with patch(
-        "gcmon.child_process_runner.terminate_process",
+        "gcmon.monitoring.child_process_runner.terminate_process",
         return_value=(b"stdout", b"stderr"),
     ) as mock_term:
         yield mock_term
@@ -60,7 +60,7 @@ def mock_terminate_process() -> Generator[Mock]:
 
 @pytest.fixture
 def mock_log_process_output() -> Generator[None]:
-    with patch("gcmon.child_process_runner.log_process_output"):
+    with patch("gcmon.monitoring.child_process_runner.log_process_output"):
         yield
 
 

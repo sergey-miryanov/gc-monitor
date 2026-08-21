@@ -81,7 +81,7 @@ defensively if a `ThreadMeta` arrives first, but callers should not rely on that
 - `src/gcmon/model/trace_event.py` holds the `TraceEvent` union and its factories.
 - `src/gcmon/exporters/perfetto_format.py` encodes those events, emitting a counter track's
   descriptor and its UUID together so the call site does not look the UUID up twice.
-- `src/gcmon/monitor.py` keeps the per-`(pid, iid, gen)` `collections` cursor and applies
+- `src/gcmon/monitoring/monitor.py` keeps the per-`(pid, iid, gen)` `collections` cursor and applies
   the `ts_start < ts_stop` validity guard before anything reaches the converter.
 - Tests: `tests/monitoring/test_monitor.py` covers the records the poll drops, and
   `tests/exporters/test_perfetto_format.py` the events that survive to conversion.

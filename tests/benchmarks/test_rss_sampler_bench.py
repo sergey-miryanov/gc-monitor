@@ -15,7 +15,7 @@ from collections.abc import Callable, Generator
 import pytest
 from pytest_codspeed import BenchmarkFixture
 
-from gcmon.rss_sampler import _default_rss_sampler, _noop_rss_sampler
+from gcmon.monitoring.rss_sampler import _default_rss_sampler, _noop_rss_sampler
 
 
 @pytest.fixture(scope="module")

@@ -18,8 +18,8 @@ from typing import Any
 
 import pytest
 
-from gcmon.events_reader import RemoteEventsReader, TargetUnavailable
 from gcmon.model.protocol import TGCStatsInfo
+from gcmon.monitoring.events_reader import RemoteEventsReader, TargetUnavailable
 from tests.helpers import create_mock_stats_item
 
 # A pid no process holds. Only used where the reader must fail before it
@@ -69,7 +69,7 @@ class _Attachment:
 @pytest.fixture
 def spy(monkeypatch: pytest.MonkeyPatch) -> SpyMonitor:
     spy = SpyMonitor()
-    monkeypatch.setattr("gcmon.events_reader.GCMonitor", spy)
+    monkeypatch.setattr("gcmon.monitoring.events_reader.GCMonitor", spy)
     return spy
 
 
@@ -427,7 +427,7 @@ class TestAgainstARealProcess:
             remote_reader.read(MISSING_PID)
 
     def test_the_reader_satisfies_its_own_protocol(self) -> None:
-        from gcmon.events_reader import EventsReader
+        from gcmon.monitoring.events_reader import EventsReader
 
         assert isinstance(RemoteEventsReader(), EventsReader)
 

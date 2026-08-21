@@ -13,7 +13,7 @@ import pytest
 
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.poll_status import PollStatus
-from gcmon.monitor import EventsMonitor
+from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.stats.stats import StreamingStats
 from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 
