@@ -17,7 +17,7 @@ from gcmon.pyperf.hook import (
     gcmon_hook,
 )
 from gcmon.pyperf.metrics import to_metrics
-from gcmon.stats.stats import StreamingStats
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import assert_valid_jsonl_format
 
 

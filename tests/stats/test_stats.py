@@ -7,7 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from gcmon.stats.stats import HAS_DDSKETCH, Stats, StreamingStats
+from gcmon.stats.stats import HAS_DDSKETCH, Stats
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import create_mock_stats_item
 
 

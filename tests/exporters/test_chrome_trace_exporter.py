@@ -12,7 +12,7 @@ from gcmon.monitoring.events_reader import TargetUnavailable
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
-from gcmon.stats.stats import StreamingStats
+from gcmon.stats.streaming_stats import StreamingStats
 from gcmon.support.time_units import ts_to_us
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg

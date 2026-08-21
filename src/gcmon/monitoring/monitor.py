@@ -18,7 +18,7 @@ from ..model.loss import (
 )
 from ..model.poll_status import PollStatus
 from ..model.protocol import TGCStatsInfo
-from ..stats.stats import StreamingStats
+from ..stats.streaming_stats import StreamingStats
 from .events_reader import EventsReader, TargetUnavailable
 from .target_process import TargetProcess
 from .wait_policy import WaitPolicy, WaitPolicyFactory

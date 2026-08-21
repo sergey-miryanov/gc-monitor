@@ -14,8 +14,8 @@ from gcmon.monitoring.rss_sampler import RssSampler
 from gcmon.monitoring.run_policy import RunnerFactory
 from gcmon.monitoring.target_process import ProcessRunnerFactory
 from gcmon.monitoring.wait_policy import WaitPolicyFactory
-from gcmon.stats.stats import StreamingStats
 from gcmon.stats.stats_output import print_stats, summary_lines
+from gcmon.stats.streaming_stats import StreamingStats
 from gcmon.support import replace_signals
 
 logger = logging.getLogger("gcmon")

@@ -8,7 +8,7 @@ import pytest
 
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.run_report import RunReport
-from gcmon.stats.stats import Stats, StreamingStats
+from gcmon.stats.stats import Stats
 from gcmon.stats.stats_output import (
     STATS_OFF_WORDS,
     StatsView,
@@ -18,6 +18,7 @@ from gcmon.stats.stats_output import (
     print_stats,
     summary_lines,
 )
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import create_mock_stats_item
 
 

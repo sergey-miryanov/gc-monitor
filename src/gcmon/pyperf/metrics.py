@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import msgspec
 
-from ..stats.stats import StreamingStats
+from ..stats.streaming_stats import StreamingStats
 from ..support.time_units import dur_to_ms
 
 __all__ = ["to_metrics"]

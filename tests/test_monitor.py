@@ -10,7 +10,7 @@ from gcmon.model.poll_status import PollStatus
 from gcmon.model.protocol import TGCStatsInfo
 from gcmon.monitoring.events_reader import TargetUnavailable
 from gcmon.monitoring.monitor import EventsMonitor
-from gcmon.stats.stats import StreamingStats
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 
 NO_RECORDS: list[TGCStatsInfo] = []

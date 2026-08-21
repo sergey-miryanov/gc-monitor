@@ -6,7 +6,9 @@ from typing import Any
 
 from ..model.run_report import RunReport
 from ..support.time_units import dur_to_ms
-from .stats import METRICS, PauseTotals, Stats, StreamingStats
+from .metrics import METRICS
+from .stats import Stats
+from .streaming_stats import PauseTotals, StreamingStats
 
 _SEP_GROUP: Any = object()
 _SEP_PHASE: Any = object()

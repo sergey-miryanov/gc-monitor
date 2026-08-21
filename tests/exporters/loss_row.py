@@ -24,7 +24,7 @@ from gcmon.model.trace_event import LOSS_TID_BASE, BeginEvent, EndEvent
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
-from gcmon.stats.stats import StreamingStats
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import FakeEventsReader, create_mock_stats_item
 
 PID = 12345

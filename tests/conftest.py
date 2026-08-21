@@ -13,7 +13,7 @@ from gcmon.model.protocol import TGCStatsInfo, TMapping, to_mapping
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
-from gcmon.stats.stats import StreamingStats
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.data_helpers import create_instant_msg
 from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 

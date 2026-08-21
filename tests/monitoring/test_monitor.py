@@ -10,7 +10,7 @@ from gcmon.monitoring.events_reader import TargetUnavailable
 from gcmon.monitoring.monitor import EventsMonitor, PollReport
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import WaitPolicy, WaitPolicyFactory, no_wait_policy
-from gcmon.stats.stats import StreamingStats
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
 
 

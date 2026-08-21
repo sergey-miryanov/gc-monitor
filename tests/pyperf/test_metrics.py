@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from gcmon.pyperf.metrics import to_metrics
-from gcmon.stats.stats import StreamingStats
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import create_mock_stats_item
 
 

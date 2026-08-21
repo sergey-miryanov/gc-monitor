@@ -13,7 +13,8 @@ import pytest
 from pytest_codspeed import BenchmarkFixture
 
 from gcmon.pyperf.metrics import to_metrics
-from gcmon.stats.stats import Stats, StreamingStats, get_quantile_value
+from gcmon.stats.stats import Stats, get_quantile_value
+from gcmon.stats.streaming_stats import StreamingStats
 
 from .conftest import make_gc_event
 

@@ -33,7 +33,7 @@ from gcmon.model.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
-from gcmon.stats.stats import StreamingStats
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.captures import SSL_CONTEXT_SIZE
 from tests.helpers import FakeEventsReader
 from tests.test_monitor_cursor import POLL_0

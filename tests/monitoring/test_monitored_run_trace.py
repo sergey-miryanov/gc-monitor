@@ -73,7 +73,7 @@ from gcmon.monitoring.monitor_loop import MonitorLoop
 from gcmon.monitoring.run_policy import Runner
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
-from gcmon.stats.stats import StreamingStats
+from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import FakeEventsReader
 from tests.test_loss_replay import MS, READ_COST_NS, RING_SIZES, capture_records, ring_at
 
