@@ -33,34 +33,11 @@ ALLOWED: dict[str, frozenset[str]] = {
 about the architecture, and this is where such a statement can fail."""
 
 ROOT_CLI = frozenset({"__init__", "__main__", "cli", "_env"})
-"""What the package root holds in its own right.
+"""What the package root holds, which is now the whole of it.
 
 The root cannot be a directory, so this is the one membership a path cannot
 answer, and enumerating it is what stops a new root module from being handed
 the CLI's permissions by default."""
-
-SHIMS = frozenset(
-    {
-        "data",
-        "protocol",
-        "loss",
-        "trace_event",
-        "poll_status",
-        "schedule",
-        "run_report",
-        "stats_output",
-        "monitor",
-        "monitor_loop",
-        "events_reader",
-        "target_process",
-        "wait_policy",
-        "run_policy",
-        "rss_sampler",
-        "child_process_runner",
-    }
-)
-"""The old paths kept alive for one release. Each re-exports from the layer it
-came from, which is downward, and this set goes when they do."""
 
 FOLDED: dict[str, str] = {"commands": "cli", "pyperf": "cli"}
 """Directories that are part of a layer named for somewhere else.
@@ -103,7 +80,7 @@ def layer_of(module: str) -> str | None:
         return FOLDED[head]
     if "." in module:
         return None
-    return "cli" if head in ROOT_CLI or head in SHIMS else None
+    return "cli" if head in ROOT_CLI else None
 
 
 def import_graph(root: Path) -> list[Import]:
@@ -230,16 +207,17 @@ class TestTheLayerOfAModule:
         assert layer_of("_env") == "cli"
         assert layer_of("__init__") == "cli"
 
-    def test_a_shim_left_behind_by_a_move_is_cli_like_any_root_module(self) -> None:
-        """It re-exports from the layer it came from, which is downward."""
-        assert layer_of("data") == "cli"
-
     def test_the_pyperf_hook_is_an_entry_point_not_a_layer(self) -> None:
         """One member, imported by nothing below: the CLI's profile."""
         assert layer_of("pyperf.hook") == "cli"
 
     def test_a_directory_that_is_not_a_layer_places_nothing(self) -> None:
         assert layer_of("newthing.module") is None
+
+    def test_a_module_that_moved_out_of_the_root_is_not_still_there(self) -> None:
+        """The old flat paths are gone rather than shimmed: `data` belongs to
+        `model` now, and nothing at the root answers for it."""
+        assert layer_of("data") is None
 
     def test_a_new_module_at_the_root_places_nothing_either(self) -> None:
         """Otherwise it inherits the CLI's permissions by sitting still, and

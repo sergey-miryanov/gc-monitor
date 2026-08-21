@@ -5,7 +5,7 @@
 ### Breaking changes
 
 - `gcmon.utils` is gone: the signal, termination and exit helpers are `gcmon.support` now
-- Every deep import path moved under the layer it belongs to: `gcmon.data` to `gcmon.model.data`, `gcmon.stats` to `gcmon.stats.stats`, `gcmon.monitor` to `gcmon.monitoring.monitor`, and the rest. The old spellings still work and warn; they go one release from now. Names imported from `gcmon` directly are unaffected
+- Every deep import path moved under the layer it belongs to: `gcmon.data` to `gcmon.model.data`, `gcmon.stats` to `gcmon.stats.stats`, `gcmon.monitor` to `gcmon.monitoring.monitor`, and the rest. The old spellings are gone. Names imported from `gcmon` directly are unaffected, as is `gcmon.control.control_client`
 
 ### Internal
 
