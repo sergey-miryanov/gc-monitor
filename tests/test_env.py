@@ -173,6 +173,18 @@ class TestEnvOutputSpecialCases:
         monkeypatch.delenv(env_module.ENV_OUTPUT, raising=False)
         assert env_module.get_env_output() == Path("gcmon.jsonl")
 
+    @pytest.mark.parametrize("value", [" jsonl ", "JSONL", "\tjsonl\n"])
+    def test_the_default_name_reads_the_variable_the_way_the_format_does(
+        self, monkeypatch: pytest.MonkeyPatch, env_module: types.ModuleType, value: str
+    ) -> None:
+        """One spelling, two answers, is how a run ends up writing JSONL into a
+        file called `gcmon.pftrace`."""
+        monkeypatch.setenv(env_module.ENV_FORMAT, value)
+        monkeypatch.delenv(env_module.ENV_OUTPUT, raising=False)
+
+        assert env_module.get_env_format() == "jsonl"
+        assert env_module.get_env_output() == Path("gcmon.jsonl")
+
 
 class TestEnvStats:
     """GCMON_STATS names a view, and this layer only reads it.

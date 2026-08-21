@@ -77,9 +77,7 @@ per-pause from the slice `args` table.
   without `heap_size`, and emits the consolidated `heap_size` event beside it.
 - `src/gcmon/exporters/perfetto_format.py` holds the top-level metric set and parents
   those tracks directly to the process track.
-- `src/gcmon/exporters/encoder.py` blanks the name of single-arg counter events in the
-  Chrome encoder, so Chrome does not derive a doubled track name.
-- Tests: `tests/exporters/test_chrome_trace_format.py` asserts `heap_size` is absent from
-  the per-generation args and shared across generations;
-  `tests/exporters/test_perfetto_exporter_integration.py` asserts exactly one `heap_size`
-  track and zero `G{N} heap_size` tracks.
+- Tests: `tests/exporters/test_perfetto_exporter_integration.py` asserts exactly one
+  `heap_size` track and zero `G{N} heap_size` tracks, and
+  `tests/test_convert_cmd_perfetto.py` pins the whole set of counter track names a
+  combined trace carries.

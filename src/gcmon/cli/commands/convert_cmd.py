@@ -54,7 +54,10 @@ def add_parser(parser_factory: ParserFactory) -> argparse.ArgumentParser:
         "-n",
         "--normalize",
         action="store_true",
-        help="Normalize timestamps per PID so each process timeline starts at 0",
+        help=(
+            "Normalize timestamps so each timeline starts at 0: per input file for "
+            "--output-format perfetto, per PID across the merge for jsonl"
+        ),
     )
     parser.add_argument(
         "--output-format",

@@ -114,7 +114,13 @@ Queries for the latter two are in
 
 They need the [`[cmdline]` extra](rss.md#the-cmdline-extra). Without it, or when
 the process has already exited, gcmon writes no command line and says nothing
-about it. The trace stays valid, and a `combine` run carries none at all.
+about it. The trace stays valid.
+
+**A `combine` run reads the command line of whatever holds that pid now**, which
+is usually nothing, so a combined trace usually carries none. Where the operating
+system has reissued a pid to an unrelated process, the command line written is
+that process's. Read one on a combined trace as the pid's current occupant, not
+as the process the capture came from.
 
 ## JSONL output
 

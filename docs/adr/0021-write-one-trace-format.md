@@ -49,7 +49,9 @@ than letting msgspec report a malformed line 1, which reads as a corrupt capture
 
 - Normalization is **per input file** on the Perfetto path and **per pid across the whole merge**
   on the `jsonl` path. The JSONL items keep their original `TGCStatsInfo` / `TInstantMsg`
-  structure, and per-pid zeroing across the merge is the established behaviour for them.
+  structure, and per-pid zeroing across the merge is the established behaviour for them. The
+  split is what `--normalize` means now that the Perfetto path is the default one, so the flag's
+  help names both halves rather than only the second.
 - **Perfetto is not an input.** Reading one would need a protobuf decoder, which sits outside the
   encoder's remit ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)).
 - The CLI derives no file extension from `--output-format`; it uses the `-o` path verbatim. Only
@@ -77,6 +79,13 @@ true, so the composition still earns its keep, and a future output format still 
 - **A trace with nothing in it is no file at all.** The Chrome encoder wrote `[]` for a run that
   read no records; the Perfetto encoder writes nothing. Monitoring a pid that never collects now
   leaves no output file.
+- **Two of `combine`'s rough edges become the default path rather than an opt-in one.** Per-file
+  normalization draws two captures of one pid from zero, so their slices overlap on that pid's
+  track; and the encoder resolves a command line against whatever holds the pid on this machine
+  now, which for a reissued pid is an unrelated process. Both predate this record and both were
+  reachable through `--output-format perfetto` before. ADR-0012 rejected a custom cmdline
+  provider for `combine` on the grounds that "historical pids have no cmdline to find"; a pid the
+  operating system has reissued falsifies that, and the fix is one argument at the call site.
 - `TraceEvent` keeps its Chrome-derived shape. It is ADR-0007's format-independent intermediate and
   the Perfetto converter's input, and reshaping it around Perfetto's own vocabulary is a separate
   change to the converter, the track state and the loss-slice builder.

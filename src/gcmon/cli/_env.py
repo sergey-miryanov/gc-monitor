@@ -68,9 +68,9 @@ def get_env_output() -> Path:
     output_str = os.environ.get(ENV_OUTPUT)
     if output_str:
         return Path(output_str)
-    # Check format for default filename
-    format_str = os.environ.get(ENV_FORMAT)
-    if format_str and format_str.lower() == "jsonl":
+    # Read the variable the way `get_env_format` reads it, or a value with
+    # whitespace round it resolves to one format and the other's default name.
+    if get_env_format() == "jsonl":
         return Path("gcmon.jsonl")
     return Path("gcmon.pftrace")
 
