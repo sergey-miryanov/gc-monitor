@@ -31,7 +31,6 @@ This file holds the open set and the order to take it in. The other two:
 | [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md) | Feature (cleanup) | M | Two implementations of "emit this pid's process and thread meta"; 0026 exists because they already drifted once |
 | [0039](0039-split-the-record-model-and-stats-by-concern.md) | Feature (cleanup) | S | The record model and the stats module carry three jobs each; `tests/stats/` already splits along a seam the source does not have |
 | [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature (cleanup) | M | gcmon declares every monitoring option three times, and echoes a rejected configuration to the log as though it had accepted it |
-| [0041](0041-give-the-package-explicit-layers.md) | Feature (cleanup) | L | The package's five layers are invisible and unchecked; the dependency direction is clean today and nothing keeps it that way |
 | [0042](0042-name-the-process-session-for-its-role.md) | Feature (cleanup) | S | The monitored-process seam carries the name of a role it does not fill, and its two adapters do not have the same shape |
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug (correctness) | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
 | [0047](0047-the-no-subcommand-form-has-never-worked.md) | Bug (reporting) | XS | `gcmon 12345`, the form the README opens with, exits 2; the branch in `main` that would dispatch it is unreachable |
@@ -59,12 +58,11 @@ Every row here has a file. A missing number either retired or never became one;
 | 0035 | Constrained: before 0039 |
 | 0037 | Constrained: after 0026 |
 | 0036 | Constrained: after 0028 |
-| 0039 | Constrained: after 0035, before 0041 |
+| 0039 | Constrained: after 0035. 0041 landed first, so its splits happen inside `model/` and `stats/` |
 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edited |
 | 0042 | |
 | 0020 | |
 | 0051 | Constrained: after 0039 |
-| 0041 | Last on purpose: its section 7 argues against doing it between two changes that move code |
 
 Rows run in order, top to bottom. "Constrained" means the table below forces the position. A blank
 cell means no recorded reason, so that row can move.
@@ -85,7 +83,6 @@ cell means no recorded reason, so that row can move.
 | 0026 | 0037 | 0037 assumes 0026's shared naming helper |
 | 0028 | 0036 | 0028 shrinks 0036 |
 | 0035 | 0039 | 0039 would otherwise move nine classes 0035 deletes |
-| 0039 | 0041 | Or the same files move twice |
 | 0039 | 0051 | 0039 moves `StreamingStats`; taken first, 0051 edits the module in its final home rather than one about to move |
 | 0050 | 0040 | 0040 derives the option declarations from one table and would otherwise have to carry the alias 0050 introduces through a rewrite of the structure holding it |
 

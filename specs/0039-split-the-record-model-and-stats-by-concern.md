@@ -121,9 +121,9 @@ and are read together everywhere; separating them would be layout for its own sa
   [0051](0051-key-the-running-rings-by-pid.md) now. Section 5 promises a move with no test body
   edited, and the re-key rewrites six assertions that read the flat shape, so carrying it here
   would blunt the one tripwire this spec has.
-- Which package these modules end up in. This splits by concern; placing the results into
-  layers is [0041](0041-give-the-package-explicit-layers.md), which should land after and which
-  this makes tractable.
+- Which package these modules end up in. That was 0041, which landed on 2026-08-21 and is
+  retired: `model/` and `stats/` exist, so this splits inside the directory a module already
+  sits in. A piece that lands in the wrong layer fails `tests/test_layering.py`.
 - The phase table. [0035](0035-derive-every-gc-sub-phase-from-one-table.md) owns it and should
   land first.
 - `chrome_trace_io`, which has the same grab-bag shape (JSONL read, JSONL write, Chrome parse,
@@ -137,5 +137,6 @@ and are read together everywhere; separating them would be layout for its own sa
 
 ## 7. Further notes
 
-Sequence matters more than usual here: 0035 → 0039 → 0041. Doing 0039 first means moving nine
-`Metric` classes that 0035 deletes; doing 0041 first means moving files twice.
+Sequence matters more than usual here: 0035 → 0039, with 0041 already landed. Doing this before
+0035 means moving nine `Metric` classes that 0035 deletes. 0041 going first cost these files one
+extra move, which is spent.
