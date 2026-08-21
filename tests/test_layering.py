@@ -32,20 +32,20 @@ ALLOWED: dict[str, frozenset[str]] = {
 """What each layer may import. The table lives here because it is a statement
 about the architecture, and this is where such a statement can fail."""
 
-ROOT_CLI = frozenset({"__init__", "__main__", "cli", "_env"})
-"""What the package root holds, which is now the whole of it.
+ROOT_CLI = frozenset({"__init__", "__main__"})
+"""The two modules that cannot live anywhere else.
 
-The root cannot be a directory, so this is the one membership a path cannot
-answer, and enumerating it is what stops a new root module from being handed
-the CLI's permissions by default."""
+One defines the package and the other is what `python -m gcmon` runs, and both
+belong to `cli` by direction. The root cannot be a directory, so this is the
+one membership a path cannot answer; enumerating it is what stops a new root
+module from being handed the CLI's permissions by default."""
 
-FOLDED: dict[str, str] = {"commands": "cli", "pyperf": "cli"}
-"""Directories that are part of a layer named for somewhere else.
+FOLDED: dict[str, str] = {"pyperf": "cli"}
+"""A directory that is part of a layer named for somewhere else.
 
-The subcommands and the pyperf hook are both entry points into gcmon, and
-nothing below imports either, so they are `cli` rather than layers of their
-own. `pyperf` was left open until it had a second member to argue for it; it
-still has one."""
+The pyperf hook is an entry point into gcmon exactly as the console script is,
+and nothing below imports it, so it is `cli` rather than a layer of its own. It
+was left open until a second member could argue for one; it still has none."""
 
 
 @dataclass(frozen=True)
@@ -200,12 +200,11 @@ class TestTheLayerOfAModule:
         assert layer_of("exporters.exporter") == "exporters"
 
     def test_the_subcommands_are_part_of_the_cli(self) -> None:
-        assert layer_of("commands.run_cmd") == "cli"
+        assert layer_of("cli.commands.run_cmd") == "cli"
 
-    def test_a_module_at_the_package_root_is_cli(self) -> None:
-        assert layer_of("cli") == "cli"
-        assert layer_of("_env") == "cli"
+    def test_the_two_modules_the_root_must_hold_are_cli(self) -> None:
         assert layer_of("__init__") == "cli"
+        assert layer_of("__main__") == "cli"
 
     def test_the_pyperf_hook_is_an_entry_point_not_a_layer(self) -> None:
         """One member, imported by nothing below: the CLI's profile."""

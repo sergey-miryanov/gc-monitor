@@ -106,14 +106,14 @@ included. Its whitelist had omitted both, so `GCMON_FORMAT=perfetto` fell back t
 
 ## Implementation
 
-- `src/gcmon/commands/convert_cmd.py` holds the `--output-format` choices and the
+- `src/gcmon/cli/commands/convert_cmd.py` holds the `--output-format` choices and the
   `chrome → jsonl` rejection.
 - `src/gcmon/exporters/chrome_trace_io.py` combines the inputs: the `jsonl → jsonl` fast
   path, per-file normalization in the load loop, and the `perfetto` branch.
 - `src/gcmon/exporters/combined_exporter.py` derives the two paths and forwards to both
   sub-exporters.
 - `src/gcmon/exporters/exporter_factory.py` handles the `chrome+perfetto` case.
-- `src/gcmon/_env.py` holds the `GCMON_FORMAT` whitelist.
+- `src/gcmon/cli/_env.py` holds the `GCMON_FORMAT` whitelist.
 - Tests: `tests/test_convert_cmd_perfetto.py` is trace-processor driven and carries the
   chrome↔perfetto content-equivalence assertions;
   `tests/exporters/test_combined_exporter.py` and `test_combined_exporter_integration.py`

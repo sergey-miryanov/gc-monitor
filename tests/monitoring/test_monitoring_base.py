@@ -33,7 +33,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         result = run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
 
@@ -49,7 +49,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         mock_monitoring_base_deps["RunnerFactory"].side_effect = RuntimeError("test error")
 
@@ -65,7 +65,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         mock_monitoring_base_deps["MonitorLoop"].return_value.run.side_effect = RuntimeError("runtime error")
 
@@ -80,7 +80,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         runner = mock_factory.return_value
         runner.returncode = 42
@@ -96,7 +96,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         mock_monitoring_base_deps["StreamingStats"].return_value.count.return_value = 0
 
@@ -114,7 +114,7 @@ class TestRunMonitoringLoop:
     ) -> None:
         """The command logs whatever `summary_lines` builds. What it builds is
         `tests/stats/test_stats_output.py`'s; that it reaches the log is here."""
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         stats = mock_monitoring_base_deps["StreamingStats"].return_value
         stats.count.return_value = 1234
@@ -134,7 +134,7 @@ class TestRunMonitoringLoop:
     ) -> None:
         """A count at one level and the figure qualifying it at another is a
         `--log-level` away from a number with nothing to read it against."""
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
         from gcmon.stats.stats_output import summary_lines
 
         stats = mock_monitoring_base_deps["StreamingStats"].return_value
@@ -156,7 +156,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         mock_monitoring_base_deps["StreamingStats"].return_value.count.return_value = 0
 
@@ -174,7 +174,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
 
@@ -190,7 +190,7 @@ class TestRunMonitoringLoop:
     ) -> None:
         """Only the command knows the table is coming, so it tells the summary
         not to send the reader looking for it."""
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         stats = mock_monitoring_base_deps["StreamingStats"].return_value
         stats.count.return_value = 1234
@@ -208,7 +208,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
 
@@ -221,7 +221,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         runner = mock_factory.return_value
 
@@ -237,7 +237,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         mock_control_instance = mock_monitoring_base_deps["ControlServer"].return_value
 
@@ -254,7 +254,7 @@ class TestRunMonitoringLoop:
         monitoring_options: MagicMock,
         mock_monitoring_base_deps: dict[str, MagicMock],
     ) -> None:
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         mock_control_instance = mock_monitoring_base_deps["ControlServer"].return_value
 
@@ -282,7 +282,7 @@ class TestRunMonitoringLoop:
         """Pins what the fixture patches: every test above relies on the monitor
         being a mock, and a patch aimed at a name the command path no longer
         imports would leave a real one in its place without failing anything."""
-        from gcmon.commands.monitoring_base import run_monitoring_loop
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 
         monitor_cls = mock_monitoring_base_deps["EventsMonitor"]
         process = mock_factory.return_value.start.return_value

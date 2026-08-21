@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from gcmon.commands.monitoring_options import MonitoringOptions
+from gcmon.cli.commands.monitoring_options import MonitoringOptions
 from gcmon.stats.stats import PauseTotals
 from gcmon.stats.stats_output import TableFormat
 from tests.helpers import DefaultsValue
@@ -75,7 +75,7 @@ def mock_thread() -> MagicMock:
 
 @pytest.fixture
 def gcmon_cmd() -> list[str]:
-    return [sys.executable, "-m", "gcmon.cli"]
+    return [sys.executable, "-m", "gcmon"]
 
 
 @pytest.fixture
@@ -167,7 +167,7 @@ def mock_monitoring_base_deps() -> Generator[dict[str, MagicMock]]:
     with ExitStack() as stack:
         deps: dict[str, Any] = {}
         for name in patch_targets:
-            deps[name] = stack.enter_context(patch(f"gcmon.commands.monitoring_base.{name}"))
+            deps[name] = stack.enter_context(patch(f"gcmon.cli.commands.monitoring_base.{name}"))
         mock_control_instance = MagicMock()
         mock_control_instance.address = "/tmp/test-address"
         deps["ControlServer"].return_value = mock_control_instance

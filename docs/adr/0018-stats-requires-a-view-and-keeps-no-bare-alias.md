@@ -120,8 +120,8 @@ because the failure mode is a long capture that prints no table at the end.
 
 ## Implementation
 
-`gcmon.commands.monitoring_options` declares `--stats` and refuses a bad `GCMON_STATS`;
-`gcmon._env` reads the raw value. The refusal does not sit with the reading, because every
+`gcmon.cli.commands.monitoring_options` declares `--stats` and refuses a bad `GCMON_STATS`;
+`gcmon.cli._env` reads the raw value. The refusal does not sit with the reading, because every
 `get_env_*` runs while the parser is being built, before logging is configured.
 The options builder turns it down instead, alongside `rate`, `duration` and
 `flush_threshold`, once logging exists.

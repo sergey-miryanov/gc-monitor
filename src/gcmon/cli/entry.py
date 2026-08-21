@@ -32,7 +32,7 @@ class _VersionAction(argparse.Action):
         values: str | Sequence[Any] | None,
         option_string: str | None = None,
     ) -> None:
-        from . import __version__
+        from .. import __version__
 
         sys.stdout.write(f"{__version__}\n")
         parser.exit()

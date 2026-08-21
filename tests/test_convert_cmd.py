@@ -116,7 +116,7 @@ def run_combine() -> Combiner:
     def _run(
         inputs: list[Path], output: Path | None = None, extra_args: list[str] | None = None
     ) -> subprocess.CompletedProcess[str]:
-        cmd = [sys.executable, "-m", "gcmon.cli", "combine"]
+        cmd = [sys.executable, "-m", "gcmon", "combine"]
         cmd.extend(str(f) for f in inputs)
         if output:
             cmd += ["-o", str(output)]
@@ -182,7 +182,7 @@ def assert_perfetto_has_track_descriptor_and_event(path: Path) -> None:
 
 
 def test_cmd_combine_basic(tmp_path: Path) -> None:
-    from gcmon.commands import convert_cmd
+    from gcmon.cli.commands import convert_cmd
 
     input_file = tmp_path / "input.json"
     input_file.write_bytes(msgspec.json.encode(make_event_pair("test", ts=100)))
@@ -200,7 +200,7 @@ def test_cmd_combine_basic(tmp_path: Path) -> None:
 
 
 def test_cmd_combine_basic_perfetto(tmp_path: Path) -> None:
-    from gcmon.commands import convert_cmd
+    from gcmon.cli.commands import convert_cmd
 
     input_file = tmp_path / "input.json"
     input_file.write_bytes(msgspec.json.encode(make_event_pair("test", ts=100)))
@@ -224,7 +224,7 @@ def test_cmd_combine_basic_perfetto(tmp_path: Path) -> None:
 def test_cmd_combine_file_not_found(
     caplog: pytest.LogCaptureFixture, tmp_path: Path, output_format: str, output_name: str
 ) -> None:
-    from gcmon.commands import convert_cmd
+    from gcmon.cli.commands import convert_cmd
 
     args = Namespace(
         inputs=[tmp_path / "nonexistent.json"],
@@ -248,7 +248,7 @@ def test_cmd_combine_file_not_found(
 def test_cmd_combine_invalid_json(
     caplog: pytest.LogCaptureFixture, tmp_path: Path, output_format: str, output_name: str
 ) -> None:
-    from gcmon.commands import convert_cmd
+    from gcmon.cli.commands import convert_cmd
 
     input_file = tmp_path / "invalid.json"
     input_file.write_text("not valid json")
@@ -686,7 +686,7 @@ class TestCliCombineJsonlToJsonl:
         cmd = [
             sys.executable,
             "-m",
-            "gcmon.cli",
+            "gcmon",
             "combine",
             str(f1),
             "-o",
@@ -715,7 +715,7 @@ class TestCliCombineJsonlToJsonl:
         cmd = [
             sys.executable,
             "-m",
-            "gcmon.cli",
+            "gcmon",
             "combine",
             str(f1),
             str(f2),
@@ -751,7 +751,7 @@ class TestCliCombineJsonlToJsonl:
         cmd = [
             sys.executable,
             "-m",
-            "gcmon.cli",
+            "gcmon",
             "combine",
             str(f1),
             "-o",

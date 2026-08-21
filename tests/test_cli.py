@@ -10,14 +10,14 @@ import pytest
 
 @pytest.fixture
 def gcmon_cli() -> list[str]:
-    return [sys.executable, "-m", "gcmon.cli"]
+    return [sys.executable, "-m", "gcmon"]
 
 
 @pytest.fixture
 def cli_module() -> types.ModuleType:
-    from gcmon import cli
+    from gcmon.cli import entry
 
-    return cli
+    return entry
 
 
 # =============================================================================

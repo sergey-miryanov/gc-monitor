@@ -151,7 +151,7 @@ def make_monitor(
 @pytest.fixture
 def env_module() -> types.ModuleType:
     """Provide the _env module for testing."""
-    from gcmon import _env
+    from gcmon.cli import _env
 
     return _env
 

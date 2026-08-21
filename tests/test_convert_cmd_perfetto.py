@@ -233,7 +233,7 @@ def _run_combine(
     output_format: str = "perfetto",
     extra_args: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    cmd = [sys.executable, "-m", "gcmon.cli", "combine"]
+    cmd = [sys.executable, "-m", "gcmon", "combine"]
     cmd.extend(str(p) for p in inputs)
     cmd += ["-o", str(output), "--input-format", input_format, "--output-format", output_format]
     if extra_args:
