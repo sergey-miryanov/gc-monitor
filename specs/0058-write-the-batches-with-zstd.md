@@ -5,7 +5,7 @@
 - **Kind:** feature (efficiency)
 - **Effort:** S
 - **Origin:** raised 2026-08-22, out of the alternative
-  [ADR-0022](../docs/adr/0022-compress-each-batch-of-packets.md) rejected and told the next person
+  [ADR-0022](../docs/adr/0022-compress-each-batch-of-packets.md) postponed and told the next person
   to take again. Perfetto v58.2 shipped the field this needs, and the measurements below were
   taken against a v58.2 trace processor
 - **Respects:** [ADR-0001](../docs/adr/0001-hand-rolled-perfetto-protobuf-encoder.md) (hand-rolled
@@ -20,8 +20,8 @@
 
 ## 1. Problem statement
 
-A gcmon trace is 12% to 14% larger than it has to be, and gcmon spends about three times the CPU
-it has to spend producing it. One change fixes both.
+A gcmon trace is 12% to 14% larger than the same events compress to, and gcmon spends about three
+times the CPU producing it. The codec accounts for both.
 
 Measured on the two large captures in this repo, cut into the 250-packet batches the encoder
 flushes in, with CPU as a multiple of what deflate 6 costs on the same run:
@@ -33,20 +33,20 @@ flushes in, with CPU as a multiple of what deflate 6 costs on the same run:
 | zstd 9 | 10.53x | 7.46x | 1.3-1.7x |
 | zstd 19 | 11.45x | 8.09x | 68-84x |
 
-zstd at its default level beats deflate 6 on size and on CPU at the same time, against a deflate
-this interpreter links zlib-ng for. On a stock zlib the gap is wider still.
+zstd at its default level beats deflate 6 on both axes, and that deflate is zlib-ng, the fast one.
+On a stock zlib the gap is wider.
 
-The operator-facing half is the size. The CPU half matters because compression runs on the flush,
-while the target is working: it is the one cost ADR-0022 could not settle by arithmetic.
+An operator sees the size. The CPU matters because compression runs on the flush, while the target
+is working.
 
 ## 2. Solution
 
-The same trace, smaller again, written with less CPU than it costs today. Same slices, names,
-categories, args, counters, tracks, SQL keys and file extension. Nothing to run before opening it
-and no flag to remember, exactly as ADR-0022 left it.
+gcmon writes the same trace, smaller again and for less CPU than it spends today: the same slices,
+names, categories, args, counters, tracks, SQL keys and file extension, with nothing to run before
+opening it and no flag to remember, exactly as ADR-0022 left it.
 
-One thing changes for an operator: **the trace stops opening in a Perfetto older than v58**. A
-reader that does not know the field skips it and shows an empty timeline rather than an error.
+**An operator on a Perfetto older than v58 can no longer read the trace.** That reader does not
+refuse the file: it skips the field it does not know and shows an empty timeline.
 
 ## 3. User stories
 
@@ -86,9 +86,8 @@ buys 2% to 3% over level 3; level 19 is two orders of magnitude slower and canno
 **Rejected: carrying the level over from deflate.** 6 is a sensible deflate level and an arbitrary
 zstd one.
 
-**Rejected: a flag to choose the codec or the level.** ADR-0021's ground, restated by ADR-0022: a
-question with one real answer is not a question, and a second encoding has to be kept alive in
-order to be tested.
+**Rejected: a flag to choose the codec or the level.** ADR-0021 and ADR-0022 refused a flag on the
+same ground: there is one value anyone would set, and the rest have to be kept working and tested.
 
 ### 4.3 The reader keeps both branches
 
@@ -96,23 +95,23 @@ order to be tested.
 a capture taken before this change still reads, and so does a file mixing the two. gcmon writes
 one.
 
-### 4.4 What an older reader does, and what is done about it
+### 4.4 What an older reader does, and what to do about it
 
-A pre-v58 trace processor does not refuse the file. Field 133 is a field it does not know, so it
-skips it, loads a trace with no packets and reports no error: the trace opens, shows nothing, and
-only a human looking at an empty timeline notices. That is ADR-0001's failure mode, and this spec
-walks into it deliberately.
+A pre-v58 trace processor does not refuse the file. It does not know field 133, so it skips it,
+loads a trace with no packets and reports no error: the trace opens, shows nothing, and only a
+human looking at an empty timeline notices. ADR-0001 exists to keep that failure mode out. Take it
+here in exchange for the size and the CPU.
 
-The mitigation is documentation, because nothing else reaches an operator's own copy of Perfetto:
-a `### Breaking changes` line naming the minimum version, and the minimum beside the word
+Nothing gcmon writes reaches an operator's own copy of Perfetto. The mitigation is documentation: a
+`### Breaking changes` line naming the minimum version, and the same minimum beside the word
 `compressed` where `docs/formats.md` names the format.
 
 **Rejected: writing both fields, so that an old reader takes 50 and a new one takes 133.** A reader
 that knows both expands both and draws every slice twice. Perfetto's advice to set both codecs is
 about a service choosing one, not about a file carrying two.
 
-**Rejected: keeping deflate behind a flag for old readers.** Section 4.2, and it would keep two
-encodings alive to be tested.
+**Rejected: keeping deflate behind a flag for old readers.** Section 4.2's ground, and both
+encodings would have to be kept working.
 
 ### 4.5 The gate, and why this is Blocked rather than Not started
 
@@ -141,7 +140,7 @@ CI leg.
 - **New seam needed:** none. `tests/exporters/test_perfetto_compression.py` already owns the
   behaviours that exist because a batch is compressed, and each of its cases carries over.
 - **What makes a good test here:** assert the name, category, arg and counter a slice resolves to,
-  and assert structurally that the batch is on field 133. **Never assert a size or a ratio**, for
+  and assert that the batch sits on field 133. **Never assert a size or a ratio**, for
   the reason ADR-0022 gives.
 - **Prior art:** `tests/exporters/test_perfetto_compression.py` for all of it, and
   `tests/exporters/test_perfetto_proto.py` for the descriptor check.
@@ -150,14 +149,13 @@ CI leg.
      them yields the packets. The existing cases move from field 50 to field 133.
   2. A run flushed over at least two batches resolves every slice name, category, arg and counter
      through the trace processor.
-  3. A file truncated mid-batch opens and yields the batches that completed. The kill window is a
-     property of the batch boundary rather than of the codec, so it has to survive the codec
-     change.
+  3. A file truncated mid-batch opens and yields the batches that completed. The kill window
+     belongs to the batch boundary, not the codec, so it has to survive the change.
   4. The liveness-only `close()` path produces a valid file.
   5. `TracePacketField.ZSTD_COMPRESSED_PACKETS` matches the generated descriptor.
-  6. **A trace written with field 50 still reads.** The one new case: it guards the reader branch
-     section 4.3 keeps, and nothing else in the suite will produce a deflate trace once the encoder
-     stops writing one.
+  6. **A trace written with field 50 still reads.** The one new case. It guards the branch section
+     4.3 keeps: once the encoder stops writing deflate, nothing else in the suite produces a
+     deflate trace.
 
 ## 6. Out of scope
 
@@ -166,27 +164,26 @@ CI leg.
 - **A flag, for the codec or for the level.** Section 4.2.
 - **Changing the batch boundary.** ADR-0022 settled it on the truncation property, which this does
   not touch.
-- **Compressing JSONL captures.** As 0057 left it: a reader change where this is a writer change.
+- **Compressing JSONL captures.** As 0057 left it: it would change what a reader has to do, where
+  this changes only the writer.
 - **Making a truncated trace announce itself.** Still the known gap ADR-0022 records.
 - **Telling an operator at runtime that their Perfetto is too old.** gcmon does not know what will
-  open the file. Section 4.4 is documentation for that reason.
+  open the file. That leaves documentation, section 4.4.
 
 ## 7. Further notes
 
 **ADR.** Amend [ADR-0022](../docs/adr/0022-compress-each-batch-of-packets.md) rather than write a
-new record. Its decision is the shape, meaning one compressed packet per batch on the flush
-boundary with no flag, and that shape is untouched; the codec and the field number are two lines of
-it, and it already carries the zstd argument as the alternative to take again. Two records for how
-a batch reaches the file would be worse than one that moved. The amendment turns the
-rejected-alternative bullet into the decision, and leaves deflate behind as what the reader still
-accepts.
+new record. Its decision is the shape: one compressed packet per batch, on the flush boundary, with
+no flag. This change leaves that shape alone and rewrites two lines of it, the codec and the field
+number. The amendment turns the zstd alternative into the decision and leaves deflate behind as
+what the reader still accepts.
 
 **CHANGELOG.** One line under `### Features` for the size, and one under `### Breaking changes`
 naming the minimum Perfetto version. The second is the whole of what section 4.4 can do.
 
 **Re-measure on the way past.** Section 1 was measured on one machine, against zlib-ng. What has
-to hold before this lands is the ordering, meaning zstd 3 beating deflate 6 on both axes, and not
-the figures themselves.
+to hold before this lands is the ordering, zstd 3 beating deflate 6 on both axes, and not the
+figures themselves.
 
 **0056 is measured against deflate.** Its section 1 was re-measured against a compressed baseline
 when 0057 landed. If this lands first, that baseline moves again, by the 12% to 14% above.
