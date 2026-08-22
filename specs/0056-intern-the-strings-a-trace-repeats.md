@@ -1,7 +1,7 @@
 # 0056: Intern the strings a trace repeats
 
-- **Status:** Blocked ([0057](0057-compress-the-packets-a-trace-writes.md), which supersedes
-  section 1: re-open and re-measure against a compressed baseline)
+- **Status:** Not started (section 1 is measured against a trace gcmon no longer writes;
+  re-measure against the compressed baseline before ranking this)
 - **Kind:** feature (efficiency)
 - **Effort:** M
 - **Origin:** raised 2026-08-22, against the interning alternative
@@ -19,12 +19,18 @@ A gcmon trace is mostly text it has already written. Every slice carries its nam
 the name of each of its debug annotations spelled out in full, and a run that reads a hundred
 thousand records writes the same few dozen strings a hundred thousand times over.
 
-What an operator gets is a file about twice the size it needs to be: slower to copy off the host
-the target runs on, slower to attach to an issue, slower for the UI to load.
+**The size claim below is measured against a file gcmon no longer writes.**
+[ADR-0022](../docs/adr/0022-compress-each-batch-of-packets.md) deflates every batch, and deflate
+already collapses a repeated string. Interning a compressed trace took the pyperformance capture
+from 19.1 MB to 17.7 MB, 6% rather than 48%, and between 6% and 13% across the three large
+captures. Two claims survive that and are not measured: interning halves the bytes the writer
+produces, and halves the strings the trace processor resolves at load. Both are about what the
+writer and the reader do rather than about the file, so compression touches neither. Measure those
+two before ranking this spec.
 
-Scanned at the wire level over the four `.pftrace` files in this repo, counting the bytes spent on
-`TrackEvent.name`, `TrackEvent.categories` and `DebugAnnotation.name` including their tags and
-lengths:
+What follows is the repetition itself, which is unchanged. Scanned at the wire level over the four
+`.pftrace` files in this repo, counting the bytes spent on `TrackEvent.name`,
+`TrackEvent.categories` and `DebugAnnotation.name` including their tags and lengths:
 
 | trace | size | spent on those strings | distinct strings |
 | :-- | --: | --: | --: |
