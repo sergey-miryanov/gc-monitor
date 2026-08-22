@@ -74,17 +74,18 @@ to be tested. Both hold here.
   reports itself corrupt.
 - **One gzip member per flush.** Reads correctly whole and fails identically when truncated.
   Rejected: it costs the "it is just a gzip file" simplicity and buys nothing.
-- **Zstd, which is the one to revisit.** Python 3.15 ships `compression.zstd`, and it compresses
-  these traces better than deflate. Perfetto has designed the counterpart field,
-  `TracePacket.zstd_compressed_packets`, and documents its readers as decompressing it
-  transparently from v58 on. None of that has shipped. The newest published `trace_processor`
-  prebuilt is v57.2, which is both what the `perfetto` package pins and the newest it offers, and
-  the field is in neither public copy of the schema, so its number cannot be checked against a
-  generated descriptor the way ADR-0001 requires. v57.2 refuses zstd in both placements it could
-  take: `Unknown trace type provided (ERR:fmt)` for a whole file of it, and `Failed to decompress
-  (error code: 2)` for zstd bytes inside `compressed_packets`, which is deflate by definition.
-  Until a v58 trace processor is downloadable, a zstd trace is one neither CI nor an operator can
-  open. Take this again when it is.
+- **Zstd, which is the one to revisit.** Perfetto v58 added `TracePacket.zstd_compressed_packets`,
+  field 133, and a v58.2 trace processor reads it: the same run written to field 133 and to field
+  50 resolves the same slices, and level 9 is about a third smaller than deflate at level 6.
+  Rejected on what a *reader that predates it* does. A pre-v58 trace processor does not refuse the
+  file. Field 133 is a field it does not know, so it skips it, loads a trace with no packets in it
+  and reports no error: the trace opens, shows nothing, and only a human looking at an empty
+  timeline notices. That is the failure mode
+  [ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md) exists to keep out, and there is no
+  file that degrades gracefully, since writing both fields would double every slice on a reader
+  that knows each. Deflate is read by both. **Take this again when the `perfetto` package ships a
+  v58 trace processor**, which also gives the field number a generated descriptor to be checked
+  against; the package is on v57.2 today, so CI would read every trace it wrote as empty.
 - **A `--compress` or `--compress-level` flag.** Rejected on ADR-0021's ground, above.
 - **A minimum size below which a batch is written plain.** A one-packet batch comes out slightly
   larger than it went in, and a batch of ten is already well under half. Rejected: the branch
