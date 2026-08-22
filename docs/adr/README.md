@@ -74,9 +74,9 @@ new one when the decision itself changes. A rename inside a module is neither.
 ## Reading order
 
 ADRs 0001–0005 are about the Perfetto wire format and track layout, and build on each other in
-that order. 0022 is about how those packets reach the file. 0006–0009 cover the internal event model, which one encoder now reads. 0010–0013,
-0015 and 0016 and 0018 are individual features, and 0021 is what became of 0012. 0014 explains
-how any of it is verified.
+that order, and 0022 is about how those packets reach the file. 0006–0009 cover the internal event
+model, which one encoder now reads. 0010–0013, 0015 and 0016 and 0018 are individual features, and
+0021 is what became of 0012. 0014 explains how any of it is verified.
 0017 and 0019 are about the monitoring loop rather than about what reaches a trace: 0017 divides
 per-pid state from the clock, and 0019 says what the loop does with that clock.
 

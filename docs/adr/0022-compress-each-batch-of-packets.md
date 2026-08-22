@@ -25,6 +25,9 @@ descriptor, under [ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md).
 The file keeps its extension, its magic and its identity. An operator cannot tell a compressed
 trace from a plain one without a hex editor. There is nothing to run before opening it.
 
+The wrapper carries that one field and no `trusted_packet_sequence_id`. ADR-0001's rule is about
+the packets a batch holds, each of which still carries one, and it was amended to say so.
+
 A file may hold both compressed and plain packets, and a reader accepts the mixture. gcmon does
 not write one; the format allows it, and a later change is not boxed in.
 

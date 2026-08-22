@@ -61,10 +61,13 @@ Three rules make this safe:
   are `int` subclasses, so they pass anywhere an `int` is expected at zero runtime cost. A
   future upstream renumbering is one edit per field, in one file.
 - **Timestamps live on `TracePacket.timestamp` (field 8), never inside `TrackEvent`.**
-- **Every `TracePacket` carries `trusted_packet_sequence_id` (field 10, uint32).**
-  Perfetto drops packets without it, since it needs the sequence for incremental state
-  tracking. The value is generated as `id(self) & 0x7FFFFFFF`, which is unique per
-  encoder instance and needs no external source of entropy.
+- **Every `TracePacket` carrying trace data carries `trusted_packet_sequence_id`
+  (field 10, uint32).** Perfetto drops packets without it, since it needs the sequence
+  for incremental state tracking. The value is generated as `id(self) & 0x7FFFFFFF`,
+  which is unique per encoder instance and needs no external source of entropy. The
+  packet [ADR-0022](0022-compress-each-batch-of-packets.md) wraps a batch in is the one
+  exception: it carries `compressed_packets` and nothing else, and the sequence id sits
+  on each of the packets it holds.
 
 **Future maintainers must not import message classes from the `perfetto` package into the
 encoder.** A line such as `from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import
