@@ -48,6 +48,15 @@ _BATCHES: int = _EVENTS + 1
 _KILLED_EVENTS: int = 6
 _SURVIVING_BATCHES: int = 4
 
+# What the trace processor would raise if it noticed a gcmon trace was
+# short: the two track-event counters everything gcmon draws goes through,
+# and the one packet-loss counter that is not tied to another data source.
+_LOSS_STATS: tuple[str, ...] = (
+    "track_event_parser_errors",
+    "track_event_tokenizer_errors",
+    "clock_sync_failure_undeferrable_packet_loss",
+)
+
 
 def _write_trace(path: Path) -> Path:
     """A run flushed once per event, so its trace spans several batches.
@@ -276,15 +285,24 @@ class TestAKilledRun:
         """Recorded, not endorsed. A short file looks complete on this
         encoding and on the plain one alike; fixing that is not this change,
         and this test is here so the next person finds it already known.
+
+        The three counters are the ones that could speak for a gcmon trace,
+        named rather than swept up by severity: a query over every non-info
+        stat would redden on an unrelated counter from some future trace
+        processor, and read as though truncation had started being reported.
+        Each is asked for by name, so one that is renamed upstream comes back
+        as a missing row rather than as a silent pass.
         """
         killed = _kill(_write_pauses(tmp_path / "whole.pftrace", _KILLED_EVENTS), _SURVIVING_BATCHES)
 
         tp = TraceProcessor(trace=str(killed), config=TraceProcessorConfig(load_timeout=300))
         try:
-            raised = [
-                str(row.name) for row in tp.query("SELECT name FROM stats WHERE value > 0 AND severity != 'info'")
-            ]
+            named = ", ".join(f"'{name}'" for name in _LOSS_STATS)
+            raised = {
+                str(row.name): int(row.value)
+                for row in tp.query(f"SELECT name, value FROM stats WHERE name IN ({named})")
+            }
         finally:
             tp.close()
 
-        assert raised == []
+        assert raised == dict.fromkeys(_LOSS_STATS, 0)
