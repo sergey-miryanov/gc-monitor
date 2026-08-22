@@ -22,6 +22,8 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket
 from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from gcmon.exporters import PerfettoExporter
+from gcmon.exporters.perfetto_proto import TraceField
+from gcmon.exporters.protobuf_encoder import encode_bytes_field
 from tests.helpers import (
     assert_valid_perfetto_trace,
     create_mock_loss_item,
@@ -40,6 +42,11 @@ _COLLECTED: int = 17
 # plus the one ``close()`` writes.
 _EVENTS: int = 3
 _BATCHES: int = _EVENTS + 1
+
+# A killed run: six collections, each its own batch, cut halfway through
+# the fifth. Four batches completed, and the fifth and the closeout did not.
+_KILLED_EVENTS: int = 6
+_SURVIVING_BATCHES: int = 4
 
 
 def _write_trace(path: Path) -> Path:
@@ -171,3 +178,113 @@ class TestTheTraceStillMeansWhatItMeant:
 
         assert rows
         assert {row.value for row in rows} == {float(_COLLECTED)}
+
+
+def _write_pauses(path: Path, count: int) -> Path:
+    """A run of *count* collections, flushed one per batch."""
+    exporter = PerfettoExporter(
+        output_path=path,
+        flush_threshold=1,
+        cmdline_provider=lambda _pid: None,
+    )
+    for i in range(count):
+        exporter.add_event(
+            _PID,
+            create_mock_stats_item(
+                ts_start=1_000_000 * (i + 1),
+                ts_stop=1_000_000 * (i + 1) + 100_000,
+                collected=_COLLECTED,
+            ),
+        )
+    exporter.close()
+    return path
+
+
+def _framed(path: Path) -> list[bytes]:
+    """The file cut back into the batches it was written in.
+
+    Each wrapper is re-framed the way the encoder framed it, and the pieces
+    are checked against the file, so an offset taken from them is the offset
+    the writer actually wrote at.
+    """
+    raw = path.read_bytes()
+    pieces = [
+        encode_bytes_field(
+            TraceField.PACKET,
+            TracePacket(compressed_packets=wrapper.compressed_packets).SerializeToString(),
+        )
+        for wrapper in _wrappers(path)
+    ]
+    assert b"".join(pieces) == raw
+    return pieces
+
+
+def _kill(path: Path, after: int) -> Path:
+    """Cut *path* halfway through the batch following the first *after*, the
+    way a killed run leaves a file that was mid-write."""
+    pieces = _framed(path)
+    cut = sum(len(piece) for piece in pieces[:after]) + len(pieces[after]) // 2
+    killed = path.with_name("killed.pftrace")
+    killed.write_bytes(path.read_bytes()[:cut])
+    return killed
+
+
+def _pause_timestamps(path: Path) -> list[int]:
+    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
+    try:
+        return [int(row.ts) for row in tp.query(f"SELECT ts FROM slice WHERE name = '{_PAUSE_NAME}' ORDER BY ts")]
+    finally:
+        tp.close()
+
+
+class TestAKilledRun:
+    """Why the wrapper, and not a gzipped file.
+
+    A truncated ``.gz`` is refused outright and recovers nothing, so a run
+    that did not finish would be worth nothing. These pin what
+    ``compressed_packets`` buys instead: the file opens, and the kill window
+    is one batch.
+    """
+
+    def test_a_truncated_trace_opens_and_yields_the_batches_that_completed(self, tmp_path: Path) -> None:
+        whole = _write_pauses(tmp_path / "whole.pftrace", _KILLED_EVENTS)
+        killed = _kill(whole, _SURVIVING_BATCHES)
+
+        assert _pause_timestamps(killed) == _pause_timestamps(whole)[:_SURVIVING_BATCHES]
+
+    def test_the_slices_that_survived_still_carry_their_args(self, tmp_path: Path) -> None:
+        """Recovered is not the same as readable: a batch that completed has
+        to resolve the way it would have in a file that was never cut."""
+        killed = _kill(_write_pauses(tmp_path / "whole.pftrace", _KILLED_EVENTS), _SURVIVING_BATCHES)
+
+        tp = TraceProcessor(trace=str(killed), config=TraceProcessorConfig(load_timeout=300))
+        try:
+            rows = list(
+                tp.query(
+                    "SELECT s.category AS category, a.int_value AS collected FROM slice s "
+                    "JOIN args a ON s.arg_set_id = a.arg_set_id "
+                    f"WHERE s.name = '{_PAUSE_NAME}' AND a.key = 'debug.collected'"
+                )
+            )
+        finally:
+            tp.close()
+
+        assert len(rows) == _SURVIVING_BATCHES
+        assert {(str(row.category), int(row.collected)) for row in rows} == {(_PAUSE_CATEGORY, _COLLECTED)}
+
+    def test_a_truncated_trace_says_nothing_about_what_it_lost(self, tmp_path: Path) -> None:
+        """Recorded, not endorsed. A short file looks complete on this
+        encoding and on the plain one alike; fixing that is not this change,
+        and this test is here so the next person finds it already known.
+        """
+        killed = _kill(_write_pauses(tmp_path / "whole.pftrace", _KILLED_EVENTS), _SURVIVING_BATCHES)
+
+        tp = TraceProcessor(trace=str(killed), config=TraceProcessorConfig(load_timeout=300))
+        try:
+            raised = [
+                str(row.name) for row in tp.query("SELECT name FROM stats WHERE value > 0 AND severity != 'info'")
+            ]
+        finally:
+            tp.close()
+
+        assert raised == []
