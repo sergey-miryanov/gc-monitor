@@ -107,6 +107,22 @@ class ProtobufEventEncoder:
         for pid in pids:
             self._track_state.update_process_lifetime(pid, ts_ns)
 
+    def _write_batch(self, descriptors: Sequence[bytes], packets: Sequence[bytes]) -> None:
+        """Append one batch to the trace, descriptors first.
+
+        The order is the parameter order: a track's descriptor has to
+        reach the file before the events on it (ADR-0008). The file is
+        reopened and flushed per batch rather than held open for the run,
+        so a run that is killed keeps every batch that completed.
+        """
+        assert self._path is not None, "open() must be called before writing"
+        mode = "wb" if not self._has_written else "ab"
+        self._has_written = True
+        with open(self._path, mode) as f:
+            for entry in (*descriptors, *packets):
+                f.write(encode_bytes_field(TraceField.PACKET, entry))
+            f.flush()
+
     def write_events(self, events: Sequence[TraceEvent]) -> None:
         if not events:
             return
@@ -121,14 +137,7 @@ class ProtobufEventEncoder:
         )
         if not descriptors and not packets:
             return
-        mode = "wb" if not self._has_written else "ab"
-        self._has_written = True
-        with open(self._path, mode) as f:
-            for entry in descriptors:
-                f.write(encode_bytes_field(TraceField.PACKET, entry))
-            for entry in packets:
-                f.write(encode_bytes_field(TraceField.PACKET, entry))
-            f.flush()
+        self._write_batch(descriptors, packets)
 
     def close(self) -> None:
         """Emit the ``Processes`` track and finish the file.
@@ -144,9 +153,4 @@ class ProtobufEventEncoder:
         packets = finalize_perfetto_packets(self._track_state, self._sequence_id)
         if not packets:
             return
-        mode = "wb" if not self._has_written else "ab"
-        self._has_written = True
-        with open(self._path, mode) as f:
-            for entry in packets:
-                f.write(encode_bytes_field(TraceField.PACKET, entry))
-            f.flush()
+        self._write_batch((), packets)
