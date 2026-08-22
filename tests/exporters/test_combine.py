@@ -23,6 +23,7 @@ from gcmon.model.trace_event import (
     loss_tid,
     process_meta,
 )
+from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import make_inc_jsonl_record
 from tests.helpers import (
     create_jsonl_record,
@@ -53,6 +54,17 @@ def gc_slices(path: Path) -> list[tuple[str, int, int]]:
             if name.startswith("GC "):
                 drawn.append((name, ts_start, packet.timestamp))
     return sorted(drawn, key=lambda slice_: slice_[1])
+
+
+def instant_events(path: Path) -> list[tuple[str, int]]:
+    """`(name, ts)` per zero-duration marker in a combined trace."""
+    trace = Trace()
+    trace.ParseFromString(path.read_bytes())
+    return [
+        (packet.track_event.name, packet.timestamp)
+        for packet in trace.packet
+        if packet.HasField("track_event") and packet.track_event.type == TrackEvent.Type.TYPE_INSTANT
+    ]
 
 
 class TestNormalizeTraceTimestamps:
@@ -215,6 +227,21 @@ class TestCombineFiles:
         records = [json.loads(line) for line in out.read_text(encoding="utf-8").strip().split("\n") if line]
         assert records[0]["increment_size"] == 500
         assert records[0]["alive_size"] == 300
+
+    def test_an_instant_record_reaches_the_trace(self, tmp_path: Path) -> None:
+        """A monitored run writes one of these at startup, so a capture
+        converted a month later has to still carry it. The third record kind
+        `combine` handles, beside GC records and loss windows."""
+        source = tmp_path / "in.jsonl"
+        out = tmp_path / "out.pftrace"
+        write_jsonl(
+            source,
+            {42: [create_instant_msg(name="GC monitor started", ts=1_400_000_000), create_mock_stats_item(iid=0)]},
+        )
+
+        combine_files([source], out, output_format="perfetto")
+
+        assert ("GC monitor started", 1_400_000_000) in instant_events(out)
 
 
 class TestJsonlLossRoundTrip:
