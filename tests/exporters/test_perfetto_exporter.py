@@ -5,7 +5,6 @@ from collections.abc import Set as AbstractSet
 from pathlib import Path
 
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
-    Trace,
     TracePacket,
     TrackEvent,
 )
@@ -18,7 +17,7 @@ from gcmon.model.data import GCStatsInfo
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory
-from tests.helpers import create_mock_incremental_item, create_mock_stats_item
+from tests.helpers import create_mock_incremental_item, create_mock_stats_item, perfetto_packets
 
 # Name of the synthetic marker emitted on the process track so the
 # cmdline description is always visible in the Perfetto UI. Must match
@@ -32,13 +31,7 @@ _OTHER_QUIET_PID: int = 13579
 
 
 def _read_trace_packets(path: Path) -> list[TracePacket]:
-    with open(path, "rb") as f:
-        data = f.read()
-    if not data:
-        return []
-    trace = Trace()
-    trace.ParseFromString(data)
-    return list(trace.packet)
+    return perfetto_packets(path.read_bytes())
 
 
 def _get_track_event(packet: TracePacket) -> TrackEvent | None:

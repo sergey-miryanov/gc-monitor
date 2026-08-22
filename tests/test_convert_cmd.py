@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Protocol
 
 import pytest
-from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket, TrackEvent
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import TracePacket, TrackEvent
 
-from tests.helpers import JsonlRecord, create_jsonl_record
+from tests.helpers import JsonlRecord, create_jsonl_record, perfetto_packets
 
 
 class Combiner(Protocol):
@@ -92,18 +92,12 @@ def combine_output(tmp_path: Path) -> Path:
 # =============================================================================
 
 
-def _packets(trace_bytes: bytes) -> list[TracePacket]:
-    trace = Trace()
-    trace.ParseFromString(trace_bytes)
-    return list(trace.packet)
-
-
 def assert_valid_perfetto_format(path: Path) -> list[TracePacket]:
     assert path.exists(), f"File {path} does not exist"
     file_bytes = path.read_bytes()
     assert len(file_bytes) > 0, f"File {path} is empty"
 
-    packets = _packets(file_bytes)
+    packets = perfetto_packets(file_bytes)
     assert len(packets) > 0, f"no Trace.PACKET fields in {path}"
 
     for pkt in packets:
@@ -115,7 +109,7 @@ def assert_perfetto_has_track_descriptor_and_event(path: Path) -> None:
     file_bytes = path.read_bytes()
     has_descriptor = False
     has_track_event = False
-    for pkt in _packets(file_bytes):
+    for pkt in perfetto_packets(file_bytes):
         if pkt.HasField("track_descriptor"):
             has_descriptor = True
         if pkt.HasField("track_event"):
@@ -132,7 +126,7 @@ def pause_timestamps(path: Path) -> list[int]:
     """
     return [
         pkt.timestamp
-        for pkt in _packets(path.read_bytes())
+        for pkt in perfetto_packets(path.read_bytes())
         if pkt.HasField("track_event")
         and pkt.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
         and pkt.track_event.name.startswith("GC Pause")

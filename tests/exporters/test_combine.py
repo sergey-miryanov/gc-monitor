@@ -5,7 +5,7 @@ from pathlib import Path
 
 import msgspec
 import pytest
-from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TrackEvent
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import TrackEvent
 
 from gcmon.exporters.combine import _normalize_trace_timestamps, combine_files
 from gcmon.exporters.jsonl_io import (
@@ -26,6 +26,7 @@ from gcmon.model.trace_event import (
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import make_inc_jsonl_record
 from tests.helpers import (
+    assert_valid_perfetto_trace,
     create_jsonl_record,
     create_mock_loss_item,
     create_mock_stats_item,
@@ -38,12 +39,9 @@ def gc_slices(path: Path) -> list[tuple[str, int, int]]:
     An end event carries no name of its own, so the slices are paired on a
     stack per track, the way a trace processor pairs them.
     """
-    trace = Trace()
-    trace.ParseFromString(path.read_bytes())
-
     open_slices: dict[int, list[tuple[str, int]]] = {}
     drawn: list[tuple[str, int, int]] = []
-    for packet in trace.packet:
+    for packet in assert_valid_perfetto_trace(path):
         if not packet.HasField("track_event"):
             continue
         event = packet.track_event
@@ -58,11 +56,9 @@ def gc_slices(path: Path) -> list[tuple[str, int, int]]:
 
 def instant_events(path: Path) -> list[tuple[str, int]]:
     """`(name, ts)` per zero-duration marker in a combined trace."""
-    trace = Trace()
-    trace.ParseFromString(path.read_bytes())
     return [
         (packet.track_event.name, packet.timestamp)
-        for packet in trace.packet
+        for packet in assert_valid_perfetto_trace(path)
         if packet.HasField("track_event") and packet.track_event.type == TrackEvent.Type.TYPE_INSTANT
     ]
 

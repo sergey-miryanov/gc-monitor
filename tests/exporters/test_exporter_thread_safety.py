@@ -11,7 +11,6 @@ from typing import Protocol, override
 
 import pytest
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
-    Trace,
     TracePacket,
     TrackEvent,
 )
@@ -27,7 +26,7 @@ from gcmon.exporters.perfetto_format import (
 )
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg
 from tests.data_helpers import create_instant_msg
-from tests.helpers import JsonlRecord, create_mock_stats_item
+from tests.helpers import JsonlRecord, create_mock_stats_item, perfetto_packets
 
 N_GC = 100
 N_INSTANT = 100
@@ -155,12 +154,7 @@ class PerfettoFileCapture(OutputCapture):
     def _packets(self) -> list[TracePacket]:
         if not self._path.exists():
             return []
-        data = self._path.read_bytes()
-        if not data:
-            return []
-        trace = Trace()
-        trace.ParseFromString(data)
-        return list(trace.packet)
+        return perfetto_packets(self._path.read_bytes())
 
     def _count_event_type(self, event_type: int) -> int:
         n = 0

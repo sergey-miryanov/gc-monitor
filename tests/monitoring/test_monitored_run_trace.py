@@ -74,7 +74,7 @@ from typing import Any, override
 from unittest.mock import patch
 
 import pytest
-from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket, TrackEvent
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import TracePacket, TrackEvent
 
 from gcmon.exporters.perfetto_exporter import PerfettoExporter
 from gcmon.model.data import GCStatsInfo
@@ -84,7 +84,7 @@ from gcmon.monitoring.run_policy import Runner
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
 from gcmon.stats.streaming_stats import StreamingStats
-from tests.helpers import FakeEventsReader
+from tests.helpers import FakeEventsReader, perfetto_packets
 from tests.test_loss_replay import MS, READ_COST_NS, RING_SIZES, capture_records, ring_at
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "monitored_run_perfetto_trace.txt"
@@ -261,9 +261,7 @@ class MonitoredRun:
     reads: list[tuple[int, int]]
 
     def packets(self) -> list[TracePacket]:
-        decoded = Trace()
-        decoded.ParseFromString(self.trace)
-        return list(decoded.packet)
+        return perfetto_packets(self.trace)
 
     def text(self) -> str:
         return "".join(f"--- packet {index} ---\n{packet}" for index, packet in enumerate(self.packets()))

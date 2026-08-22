@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+import zlib
 from collections.abc import Callable, Sequence, Set
 from pathlib import Path
 from typing import override
@@ -33,6 +34,7 @@ __all__ = [
     "create_mock_incremental_item",
     "create_mock_loss_item",
     "create_mock_stats_item",
+    "perfetto_packets",
 ]
 
 
@@ -341,11 +343,28 @@ def assert_valid_jsonl_format(file_path: Path) -> list[JsonlRecord]:
     return data
 
 
+def perfetto_packets(content: bytes) -> list[TracePacket]:
+    """Every ``TracePacket`` in a serialized trace, in file order.
+
+    A packet gcmon wrote is deflated inside ``compressed_packets``, and the
+    format allows a file to mix those with plain ones, so each wrapper is
+    inflated and flattened where it stood. Read through Perfetto's own
+    generated schema rather than gcmon's constants, so a wrong field number
+    fails here (ADR-0001).
+    """
+    trace = Trace()
+    trace.ParseFromString(content)
+    packets: list[TracePacket] = []
+    for packet in trace.packet:
+        if packet.HasField("compressed_packets"):
+            packets.extend(perfetto_packets(zlib.decompress(packet.compressed_packets)))
+        else:
+            packets.append(packet)
+    return packets
+
+
 def assert_valid_perfetto_trace(file_path: Path) -> list[TracePacket]:
     """Validate that a file is a Perfetto trace, and return its packets.
-
-    Read through Perfetto's own generated schema rather than gcmon's constants,
-    so a wrong field number fails here (ADR-0001).
 
     Args:
         file_path: Path to the ``.pftrace`` file to validate.
@@ -361,9 +380,7 @@ def assert_valid_perfetto_trace(file_path: Path) -> list[TracePacket]:
     content = file_path.read_bytes()
     assert content, f"Perfetto trace {file_path} is empty"
 
-    trace = Trace()
-    trace.ParseFromString(content)
-    packets = list(trace.packet)
+    packets = perfetto_packets(content)
     assert packets, f"Perfetto trace {file_path} carries no packets"
     return packets
 
