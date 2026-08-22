@@ -116,11 +116,8 @@ class ProtobufEventEncoder:
         """Append one batch to the trace as a single deflated packet.
 
         The order is the parameter order: a track's descriptor has to
-        reach the file before the events on it (ADR-0008).
-
-        The compression boundary is the flush boundary (ADR-0022).
-        Nothing is held back between calls: what a caller asked to
-        persist is on disk when this returns.
+        reach the file before the events on it (ADR-0008). The
+        compression boundary is the flush boundary (ADR-0022).
         """
         assert self._path is not None, "open() must be called before writing"
         batch = b"".join(encode_bytes_field(TraceField.PACKET, entry) for entry in (*descriptors, *packets))

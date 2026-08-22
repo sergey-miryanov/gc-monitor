@@ -346,11 +346,10 @@ def assert_valid_jsonl_format(file_path: Path) -> list[JsonlRecord]:
 def perfetto_packets(content: bytes) -> list[TracePacket]:
     """Every ``TracePacket`` in a serialized trace, in file order.
 
-    A packet gcmon wrote is deflated inside ``compressed_packets``, and the
-    format allows a file to mix those with plain ones, so each wrapper is
-    inflated and flattened where it stood. Read through Perfetto's own
-    generated schema rather than gcmon's constants, so a wrong field number
-    fails here (ADR-0001).
+    A packet gcmon wrote is deflated inside ``compressed_packets``, and a file
+    may mix those with plain ones. Read through Perfetto's own generated schema
+    rather than gcmon's constants, so a wrong field number fails here
+    (ADR-0001).
     """
     trace = Trace()
     trace.ParseFromString(content)

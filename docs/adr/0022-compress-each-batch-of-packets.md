@@ -12,24 +12,23 @@ loads all of it.
 
 Deflate on the same bytes, at the batch granularity gcmon already writes in, takes a capture to
 between a sixth and a ninth of its size. Nothing about the trace has to change to get that. The
-Perfetto format carries a compressed form and the trace processor reads it; gcmon wrote the
-uncompressed one because nobody had asked the question.
+Perfetto format carries a compressed form and the trace processor reads it.
 
 ## Decision
 
-**The wrapper is `TracePacket.compressed_packets`, field 50.** It carries a deflated sequence of
-serialized `TracePacket` entries, which is what the encoder already builds for a plain trace.
-The field number joins `perfetto_proto` as a named `IntEnum` member checked against the generated
-descriptor, under [ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md).
+**The wrapper is `TracePacket.compressed_packets`, field 50.** It carries the deflated sequence of
+serialized `TracePacket` entries the encoder already builds for a plain trace. The field number
+joins `perfetto_proto` as a named `IntEnum` member checked against the generated descriptor, under
+[ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md).
 
 The file keeps its extension, its magic and its identity. An operator cannot tell a compressed
 trace from a plain one without a hex editor. There is nothing to run before opening it.
 
-The wrapper carries that one field and no `trusted_packet_sequence_id`. ADR-0001's rule is about
-the packets a batch holds, each of which still carries one, and it was amended to say so.
+The wrapper carries that one field and no `trusted_packet_sequence_id`; ADR-0001's rule is scoped
+to the packets a batch holds.
 
-A file may hold both compressed and plain packets, and a reader accepts the mixture. gcmon does
-not write one; the format allows it, and a later change is not boxed in.
+A file may hold both compressed and plain packets, and a reader accepts the mixture. gcmon writes
+only the compressed form.
 
 **One compressed packet per batch.** The compression boundary is the flush boundary. No state is
 held across flushes, and no bytes a caller asked to persist are left unwritten when the write
@@ -51,7 +50,7 @@ to be tested. Both hold here.
   this and is one batch now.
 - **A truncated trace still says nothing about what it lost.** The `stats` table on a short file
   reports no error row and no data-loss counter, on this encoding and on the plain one alike.
-  This record does not fix that. It is written down so the next person to look finds it known.
+  This record does not fix it.
 - **The trace stops being byte-reproducible across machines.** Deflate output depends on the zlib
   build, and the three CI legs do not agree on bytes for the same input. Two runs on one machine
   still produce identical files. **No test may pin compressed bytes, or assert a size or a
@@ -60,9 +59,8 @@ to be tested. Both hold here.
   packets.
 - **The trace stops being greppable.** `strings gcmon.pftrace` says nothing after this. It was
   never a documented property.
-- A test that hands a path to the trace processor is unaffected: compression is invisible above
-  the file. A test that parses a trace itself reads through the suite's one reader, which
-  inflates a wrapper and flattens it where it stood.
+- Compression is invisible above the file, so a test that hands a path to the trace processor is
+  unaffected. One reader inflates a wrapper for the tests that parse a trace themselves.
 - `perfetto` stays a development dependency. The deflate is stdlib `zlib`.
 
 ## Alternatives considered
@@ -74,25 +72,15 @@ to be tested. Both hold here.
   reports itself corrupt.
 - **One gzip member per flush.** Reads correctly whole and fails identically when truncated.
   Rejected: it costs the "it is just a gzip file" simplicity and buys nothing.
-- **Zstd, which is the one to revisit, at level 3.** Perfetto v58 added
-  `TracePacket.zstd_compressed_packets`, field 133, and a v58.2 trace processor reads it: the same
-  run written to field 133 and to field 50 resolves the same slices. Measured on this repo's two
-  large captures, zstd at its default level 3 beats deflate 6 on both axes at once, compressing
-  12% to 14% better for about two thirds of the CPU, against a deflate that this interpreter links
-  zlib-ng for. Level 9 buys a further 2% to 3% for roughly triple the CPU of level 3 and more than
-  deflate 6 spends, and level 19 is two orders of magnitude slower than either. **The level to
-  take is 3**, not the 6 that suits deflate.
-  Rejected on what a *reader that predates it* does. A pre-v58 trace processor does not refuse the
-  file. Field 133 is a field it does not know, so it skips it, loads a trace with no packets in it
-  and reports no error: the trace opens, shows nothing, and only a human looking at an empty
-  timeline notices. That is the failure mode
-  [ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md) exists to keep out, and there is no
-  file that degrades gracefully, since writing both fields would double every slice on a reader
-  that knows each. Deflate is read by both.
-  [Spec 0058](../../specs/0058-write-the-batches-with-zstd.md) specifies the switch and the one
-  thing it waits on, the `perfetto` package shipping a v58 trace processor: that is also what
-  gives the field number a generated descriptor to be checked against, and until it lands CI
-  would read every trace written this way as empty.
+- **Zstd.** Perfetto v58 added `TracePacket.zstd_compressed_packets`, field 133, and it
+  compresses a trace better than deflate for less CPU. Rejected on what a reader that predates it
+  does: field 133 is a field a pre-v58 trace processor does not know, so it skips it, loads a
+  trace with no packets and reports no error. The trace opens, shows nothing, and only a human
+  looking at an empty timeline notices, which is the failure mode
+  [ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md) exists to keep out. No file degrades
+  gracefully either: writing both fields draws every slice twice on a reader that knows each.
+  Deflate is read by both. [Spec 0058](../../specs/0058-write-the-batches-with-zstd.md) carries
+  the switch and what it waits on.
 - **A `--compress` or `--compress-level` flag.** Rejected on ADR-0021's ground, above.
 - **A minimum size below which a batch is written plain.** A one-packet batch comes out slightly
   larger than it went in, and a batch of ten is already well under half. Rejected: the branch

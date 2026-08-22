@@ -5,10 +5,8 @@ wrapper without saying so. These are the tests that look at the wrapper itself,
 and the ones that ask the trace processor whether the trace still says what it
 said before.
 
-Nothing here asserts a size or a ratio. zlib-ng and stock zlib disagree on the
-bytes they produce for the same input, so a bound tight enough to catch
-"compression stopped working" is a bound loose enough to be red on somebody's
-laptop. ``TestTheWrapper`` catches that failure without a number.
+Nothing here asserts a size or a ratio; ADR-0022 says why. ``TestTheWrapper``
+catches that failure without a number.
 """
 
 from __future__ import annotations
@@ -247,13 +245,8 @@ def _pause_timestamps(path: Path) -> list[int]:
 
 
 class TestAKilledRun:
-    """Why the wrapper, and not a gzipped file.
-
-    A truncated ``.gz`` is refused outright and recovers nothing, so a run
-    that did not finish would be worth nothing. These pin what
-    ``compressed_packets`` buys instead: the file opens, and the kill window
-    is one batch.
-    """
+    """Why the wrapper and not a gzipped file (ADR-0022): the file opens, and
+    the kill window is one batch."""
 
     def test_a_truncated_trace_opens_and_yields_the_batches_that_completed(self, tmp_path: Path) -> None:
         whole = _write_pauses(tmp_path / "whole.pftrace", _KILLED_EVENTS)
@@ -282,16 +275,14 @@ class TestAKilledRun:
         assert {(str(row.category), int(row.collected)) for row in rows} == {(_PAUSE_CATEGORY, _COLLECTED)}
 
     def test_a_truncated_trace_says_nothing_about_what_it_lost(self, tmp_path: Path) -> None:
-        """Recorded, not endorsed. A short file looks complete on this
-        encoding and on the plain one alike; fixing that is not this change,
-        and this test is here so the next person finds it already known.
+        """Recorded, not endorsed: a short file looks complete on this
+        encoding and on the plain one alike, and ADR-0022 says so too.
 
-        The three counters are the ones that could speak for a gcmon trace,
-        named rather than swept up by severity: a query over every non-info
-        stat would redden on an unrelated counter from some future trace
-        processor, and read as though truncation had started being reported.
-        Each is asked for by name, so one that is renamed upstream comes back
-        as a missing row rather than as a silent pass.
+        The counters are named rather than swept up by severity. A query over
+        every non-info stat would redden on an unrelated counter from a future
+        trace processor and read as though truncation had started being
+        reported, and asking by name turns a rename upstream into a missing
+        row rather than a silent pass.
         """
         killed = _kill(_write_pauses(tmp_path / "whole.pftrace", _KILLED_EVENTS), _SURVIVING_BATCHES)
 

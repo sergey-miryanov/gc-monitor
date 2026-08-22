@@ -2,8 +2,7 @@
 
 Converting a batch, deflating it and appending it to the trace is what a
 monitored process pays for being observed, and it runs on the flush, while the
-target is still working. Compression put deflate on that path; this series is
-what says whether the cost stays where it was measured.
+target is still working.
 
 Conversion is benchmarked on its own in ``test_bench_trace_conversion``, so a
 move here that does not show up there is the write itself.

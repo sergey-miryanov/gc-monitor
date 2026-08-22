@@ -20,18 +20,18 @@
 
 ## 1. Problem statement
 
-A gcmon trace is 12% to 14% larger than it has to be, and gcmon spends about half again the CPU it
-has to spend producing it. Both at once: the codec it writes with is not on the frontier any more.
+A gcmon trace is 12% to 14% larger than it has to be, and gcmon spends about three times the CPU
+it has to spend producing it. One change fixes both.
 
 Measured on the two large captures in this repo, cut into the 250-packet batches the encoder
-flushes in:
+flushes in, with CPU as a multiple of what deflate 6 costs on the same run:
 
-| codec | `loss_pauses` | `cyclotron` | throughput | p99 per batch |
-| :-- | --: | --: | --: | --: |
-| deflate 6, what gcmon writes | 8.94x | 6.50x | 171-235 MB/s | 0.13-0.19 ms |
-| zstd 3 | 10.22x | 7.30x | 515-845 MB/s | 0.05-0.06 ms |
-| zstd 9 | 10.53x | 7.46x | 128-137 MB/s | 0.20-0.33 ms |
-| zstd 19 | 11.45x | 8.09x | 2.5-2.8 MB/s | 10.65-18.16 ms |
+| codec | `loss_pauses` | `cyclotron` | CPU |
+| :-- | --: | --: | --: |
+| deflate 6, what gcmon writes | 8.94x | 6.50x | 1.0x |
+| zstd 3 | 10.22x | 7.30x | 0.28-0.33x |
+| zstd 9 | 10.53x | 7.46x | 1.3-1.7x |
+| zstd 19 | 11.45x | 8.09x | 68-84x |
 
 zstd at its default level beats deflate 6 on size and on CPU at the same time, against a deflate
 this interpreter links zlib-ng for. On a stock zlib the gap is wider still.
@@ -45,9 +45,8 @@ The same trace, smaller again, written with less CPU than it costs today. Same s
 categories, args, counters, tracks, SQL keys and file extension. Nothing to run before opening it
 and no flag to remember, exactly as ADR-0022 left it.
 
-One thing changes for an operator, and it is why this is a spec rather than a two-line edit: **the
-trace stops opening in a Perfetto older than v58**. Not with an error. A reader that does not know
-the field skips it and shows an empty timeline.
+One thing changes for an operator: **the trace stops opening in a Perfetto older than v58**. A
+reader that does not know the field skips it and shows an empty timeline rather than an error.
 
 ## 3. User stories
 
@@ -185,9 +184,9 @@ accepts.
 **CHANGELOG.** One line under `### Features` for the size, and one under `### Breaking changes`
 naming the minimum Perfetto version. The second is the whole of what section 4.4 can do.
 
-**Re-measure on the way past.** The numbers in section 1 were taken on one machine, against
-zlib-ng. The ratios travel; the throughputs do not. What has to hold before this lands is the
-ordering, meaning zstd 3 beating deflate 6 on both axes, and not the figures themselves.
+**Re-measure on the way past.** Section 1 was measured on one machine, against zlib-ng. What has
+to hold before this lands is the ordering, meaning zstd 3 beating deflate 6 on both axes, and not
+the figures themselves.
 
 **0056 is measured against deflate.** Its section 1 was re-measured against a compressed baseline
 when 0057 landed. If this lands first, that baseline moves again, by the 12% to 14% above.
