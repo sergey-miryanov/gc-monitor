@@ -1,6 +1,7 @@
 # 0056: Intern the strings a trace repeats
 
-- **Status:** Not started
+- **Status:** Blocked ([0057](0057-compress-the-packets-a-trace-writes.md), which supersedes
+  section 1: re-open and re-measure against a compressed baseline)
 - **Kind:** feature (efficiency)
 - **Effort:** M
 - **Origin:** raised 2026-08-22, against the interning alternative
@@ -237,12 +238,13 @@ found during it.
 
 ## 7. Further notes
 
-**ADR.** Write ADR-0022 for the interning decisions: the three classes and the excluded fourth, the
-flag discipline, and the two silent failure modes. Amend ADR-0001's rejected `name_iid` bullet to
+**ADR.** Write ADR-0023 for the interning decisions -- 0055 took ADR-0021 and 0057 takes ADR-0022
+-- covering the three classes and the excluded fourth, the flag discipline, and the two silent
+failure modes. Amend ADR-0001's rejected `name_iid` bullet to
 point at it, saying the alternative was reversed on the shape of what gcmon writes rather than on
 new information about Perfetto. ADR-0001 stays `Accepted`; its decision, a hand-rolled encoder with
 `perfetto` out of the runtime tree, is untouched. Its "three rules make this safe" list gains
-nothing, since the fourth rule belongs to ADR-0022.
+nothing, since the fourth rule belongs to ADR-0023.
 
 **CONTEXT.md** already carries **Intern id**, added 2026-08-22, with **Interpreter** pointing at it.
 
