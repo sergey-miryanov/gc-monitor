@@ -74,9 +74,14 @@ to be tested. Both hold here.
   reports itself corrupt.
 - **One gzip member per flush.** Reads correctly whole and fails identically when truncated.
   Rejected: it costs the "it is just a gzip file" simplicity and buys nothing.
-- **Zstd, which is the one to revisit.** Perfetto v58 added `TracePacket.zstd_compressed_packets`,
-  field 133, and a v58.2 trace processor reads it: the same run written to field 133 and to field
-  50 resolves the same slices, and level 9 is about a third smaller than deflate at level 6.
+- **Zstd, which is the one to revisit, at level 3.** Perfetto v58 added
+  `TracePacket.zstd_compressed_packets`, field 133, and a v58.2 trace processor reads it: the same
+  run written to field 133 and to field 50 resolves the same slices. Measured on this repo's two
+  large captures, zstd at its default level 3 beats deflate 6 on both axes at once, compressing
+  12% to 14% better for about two thirds of the CPU, against a deflate that this interpreter links
+  zlib-ng for. Level 9 buys a further 2% to 3% for roughly triple the CPU of level 3 and more than
+  deflate 6 spends, and level 19 is two orders of magnitude slower than either. **The level to
+  take is 3**, not the 6 that suits deflate.
   Rejected on what a *reader that predates it* does. A pre-v58 trace processor does not refuse the
   file. Field 133 is a field it does not know, so it skips it, loads a trace with no packets in it
   and reports no error: the trace opens, shows nothing, and only a human looking at an empty
