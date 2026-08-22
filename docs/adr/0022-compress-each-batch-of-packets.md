@@ -75,9 +75,11 @@ to be tested. Both hold here.
 - **One gzip member per flush.** Reads correctly whole and fails identically when truncated.
   Rejected: it costs the "it is just a gzip file" simplicity and buys nothing.
 - **Zstd.** Python 3.15 ships `compression.zstd`, and it compresses these traces better than
-  deflate. The trace processor refuses the result with `Unknown trace type provided (ERR:fmt)`;
-  Perfetto has no zstd trace type. Recorded because the stdlib module is new and the next person
-  will reach for it.
+  deflate. Perfetto reads it in neither place it could go. A whole file of it is refused with
+  `Unknown trace type provided (ERR:fmt)`, and zstd bytes inside `compressed_packets` are refused
+  with `Failed to decompress (error code: 2)`: that field is deflate by definition, and the trace
+  processor ships no zstd decoder to try instead. Recorded because the stdlib module is new and
+  the next person will reach for it.
 - **A `--compress` or `--compress-level` flag.** Rejected on ADR-0021's ground, above.
 - **A minimum size below which a batch is written plain.** A one-packet batch comes out slightly
   larger than it went in, and a batch of ten is already well under half. Rejected: the branch
