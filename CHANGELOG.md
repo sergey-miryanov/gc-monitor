@@ -5,14 +5,15 @@
 ### Breaking changes
 
 - The modules moved into layers, so every deep import path changed and the old ones are gone. `from gcmon import ...` still gives the same names
-- `--format` takes `perfetto`, `jsonl` or `stdout`; `chrome`, `trace` and `chrome+perfetto` are refused. A `.json` capture from an earlier release still opens in the Perfetto UI
+- `--format chrome`, `--format trace` and `--format chrome+perfetto` are parse errors: the flag takes `perfetto`, `jsonl` or `stdout`. A `.json` capture from an earlier release still opens in the Perfetto UI
 - The default output is `gcmon.pftrace`, where it was `gcmon.json`. `--format jsonl` still defaults to `gcmon.jsonl`
 - `GCMON_FORMAT` refuses a word `--format` would refuse and stops the run, where it used to fall back to the default without saying so
-- `gcmon combine` reads JSONL only: `--input-format` is gone, `--output-format` takes `perfetto` or `jsonl` and defaults to `perfetto`. Handed a `.json` from an earlier release it says so by name
-- `gcmon.TraceExporter` is gone from the public surface
+- A run that read no records writes no file, where it used to write an empty `gcmon.json`
+- `gcmon combine` reads JSONL only: `--input-format` is gone, `--output-format` takes `perfetto` or `jsonl` and defaults to `perfetto`. Handed a `.json` from an earlier release, it names the Chrome format instead of reporting malformed JSON
 
 ### Internal
 
+- `gcmon.TraceExporter` is gone from the public surface
 - Stability, correctness and performance improvements
 
 
