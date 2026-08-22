@@ -56,6 +56,12 @@ _Avoid_: sample, entry, datapoint
 One thing gcmon wrote into a trace. A record becomes one or more events.
 _Avoid_: record (for the trace side), slice (that is one shape of event)
 
+**Batch**:
+The events one flush writes, compressed into a single packet in the trace. It
+is the unit a killed run loses: whole batches reach the file, and the one being
+written when the run died does not.
+_Avoid_: chunk, block, flush (that is the act, not what it wrote)
+
 **Trace**:
 The file gcmon writes for a viewer: events drawn on tracks, opened in the
 Perfetto UI. One run writes one, live or through `combine`. **Tracefile** and

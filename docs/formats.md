@@ -6,6 +6,8 @@ stdout). See the [CLI reference](cli.md) for the flag.
 
 ## Perfetto output
 
+A Perfetto trace is compressed, and needs nothing done to it before opening.
+
 <img src="images/chrome-trace-example.png" alt="Perfetto Trace Example" width="800">
 
 *A gcmon capture in the Perfetto UI.*

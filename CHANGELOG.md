@@ -11,6 +11,10 @@
 - A run that read no records writes no file, where it used to write an empty `gcmon.json`
 - `gcmon combine` reads JSONL only: `--input-format` is gone, `--output-format` takes `perfetto` or `jsonl` and defaults to `perfetto`. Handed a `.json` from an earlier release, it names the Chrome format instead of reporting malformed JSON
 
+### Features
+
+- A Perfetto trace is roughly eight times smaller. It opens the same way, and there is nothing to run first
+
 ### Internal
 
 - `gcmon.TraceExporter` is gone from the public surface

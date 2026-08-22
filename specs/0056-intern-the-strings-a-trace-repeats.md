@@ -238,7 +238,7 @@ found during it.
 
 ## 7. Further notes
 
-**ADR.** Write ADR-0023 for the interning decisions -- 0055 took ADR-0021 and 0057 takes ADR-0022
+**ADR.** Write ADR-0023 for the interning decisions -- 0055 took ADR-0021 and 0057 took ADR-0022
 -- covering the three classes and the excluded fourth, the flag discipline, and the two silent
 failure modes. Amend ADR-0001's rejected `name_iid` bullet to
 point at it, saying the alternative was reversed on the shape of what gcmon writes rather than on

@@ -69,11 +69,12 @@ new one when the decision itself changes. A rename inside a module is neither.
 | [0019](0019-schedule-tick-starts-on-a-fixed-grid.md) | Schedule tick starts on a fixed grid, and skip the positions a slow tick misses |
 | [0020](0020-attach-to-a-process-once.md) | Attach to a process once, and let go the moment a read fails |
 | [0021](0021-write-one-trace-format.md) | Write one trace format, and read only JSONL back |
+| [0022](0022-compress-each-batch-of-packets.md) | Compress each batch into one `TracePacket.compressed_packets` field |
 
 ## Reading order
 
 ADRs 0001–0005 are about the Perfetto wire format and track layout, and build on each other in
-that order. 0006–0009 cover the internal event model, which one encoder now reads. 0010–0013,
+that order. 0022 is about how those packets reach the file. 0006–0009 cover the internal event model, which one encoder now reads. 0010–0013,
 0015 and 0016 and 0018 are individual features, and 0021 is what became of 0012. 0014 explains
 how any of it is verified.
 0017 and 0019 are about the monitoring loop rather than about what reaches a trace: 0017 divides
