@@ -88,9 +88,11 @@ to be tested. Both hold here.
   timeline notices. That is the failure mode
   [ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md) exists to keep out, and there is no
   file that degrades gracefully, since writing both fields would double every slice on a reader
-  that knows each. Deflate is read by both. **Take this again when the `perfetto` package ships a
-  v58 trace processor**, which also gives the field number a generated descriptor to be checked
-  against; the package is on v57.2 today, so CI would read every trace it wrote as empty.
+  that knows each. Deflate is read by both.
+  [Spec 0058](../../specs/0058-write-the-batches-with-zstd.md) specifies the switch and the one
+  thing it waits on, the `perfetto` package shipping a v58 trace processor: that is also what
+  gives the field number a generated descriptor to be checked against, and until it lands CI
+  would read every trace written this way as empty.
 - **A `--compress` or `--compress-level` flag.** Rejected on ADR-0021's ground, above.
 - **A minimum size below which a batch is written plain.** A one-packet batch comes out slightly
   larger than it went in, and a batch of ten is already well under half. Rejected: the branch

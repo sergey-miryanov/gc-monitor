@@ -36,6 +36,7 @@ This file holds the open set and the order to take it in. The other two:
 | [0052](0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md) | Bug (correctness) | S | A pid the OS reissues between two ticks is read through the attachment gcmon still holds, so an unrelated process's memory reaches the trace as plausible records; only Linux is exposed |
 | [0054](0054-macos-attachment-leaks-a-mach-task-port.md) | Bug (availability) | S | On macOS every attachment costs gcmon a Mach port name that nothing gives back; CPython's cleanup has a Windows arm and a Linux arm and no Apple one |
 | [0056](0056-intern-the-strings-a-trace-repeats.md) | Feature (efficiency) | M | **Needs re-measuring.** Over half of the bytes the writer produces is the same few dozen strings, written out again for every slice gcmon draws. On the compressed file 0057 left behind, interning them is worth 6-13%, not the half its section 1 claims |
+| [0058](0058-write-the-batches-with-zstd.md) | Feature (efficiency) | S | **Blocked on a perfetto release.** zstd at its default level writes a trace 12-14% smaller than the deflate gcmon writes, and writes it faster; the field landed in Perfetto v58 and the Python package is still on v57.2 |
 
 Every row here has a file. A missing number either retired or never became one;
 [RETIRED.md](RETIRED.md) says which.
@@ -73,6 +74,10 @@ cell means no recorded reason, so that row can move.
 - **0056** is sized against an uncompressed trace, which 0057 stopped gcmon writing. Its section 1
   has to be re-measured on a compressed baseline before anyone can rank it. The work itself is
   still M; what changed is what it buys.
+- **0058** waits on the `perfetto` package shipping a v58 trace processor. Until it does, the
+  field number has no generated descriptor to be checked against and CI would read every trace it
+  wrote as empty. Its section 4.5 says what to watch for, and taking it moves 0056's baseline
+  again.
 
 **The only ordering constraints:**
 
