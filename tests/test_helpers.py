@@ -3,9 +3,6 @@
 Only ``perfetto_packets`` is covered: it is the one helper carrying logic of
 its own rather than a factory or an assertion, and every Perfetto test in the
 suite reads its traces through it.
-
-The traces here are built through Perfetto's generated schema, so nothing in
-this module knows a gcmon field number.
 """
 
 from __future__ import annotations

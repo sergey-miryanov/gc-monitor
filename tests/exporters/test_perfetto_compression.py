@@ -1,12 +1,9 @@
 """What a compressed trace carries, and what it must still mean.
 
 Every other Perfetto test reads through ``perfetto_packets``, which inflates a
-wrapper without saying so. These are the tests that look at the wrapper itself,
-and the ones that ask the trace processor whether the trace still says what it
-said before.
+wrapper without saying so. These are the tests that look at the wrapper itself.
 
-Nothing here asserts a size or a ratio; ADR-0022 says why. ``TestTheWrapper``
-catches that failure without a number.
+Nothing here asserts a size or a ratio; ADR-0022 says why.
 """
 
 from __future__ import annotations
@@ -121,8 +118,7 @@ class TestTheWrapper:
         assert [p.HasField("compressed_packets") for p in _wrappers(path)] == [True] * _BATCHES
 
     def test_one_wrapper_per_batch(self, tmp_path: Path) -> None:
-        """The compression boundary is the flush boundary: each flush and the
-        closeout ``close()`` writes leave one wrapper behind."""
+        """Each flush, and the closeout ``close()`` writes, leaves one behind."""
         path = _write_trace(tmp_path / "batched.pftrace")
 
         assert len(_wrappers(path)) == _BATCHES
@@ -208,12 +204,8 @@ def _write_pauses(path: Path, count: int) -> Path:
 
 
 def _framed(path: Path) -> list[bytes]:
-    """The file cut back into the batches it was written in.
-
-    Each wrapper is re-framed the way the encoder framed it, and the pieces
-    are checked against the file, so an offset taken from them is the offset
-    the writer actually wrote at.
-    """
+    """The file cut back into the batches it was written in, so that an offset
+    taken from them is one the writer wrote at."""
     raw = path.read_bytes()
     pieces = [
         encode_bytes_field(
@@ -276,13 +268,12 @@ class TestAKilledRun:
 
     def test_a_truncated_trace_says_nothing_about_what_it_lost(self, tmp_path: Path) -> None:
         """Recorded, not endorsed: a short file looks complete on this
-        encoding and on the plain one alike, and ADR-0022 says so too.
+        encoding and on the plain one alike (ADR-0022).
 
-        The counters are named rather than swept up by severity. A query over
-        every non-info stat would redden on an unrelated counter from a future
-        trace processor and read as though truncation had started being
-        reported, and asking by name turns a rename upstream into a missing
-        row rather than a silent pass.
+        Asking for each counter by name turns a rename upstream into a
+        missing row. A query over every non-info stat would redden on an
+        unrelated counter and read as though truncation had started being
+        reported.
         """
         killed = _kill(_write_pauses(tmp_path / "whole.pftrace", _KILLED_EVENTS), _SURVIVING_BATCHES)
 

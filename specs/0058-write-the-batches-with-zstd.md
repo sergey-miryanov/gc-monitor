@@ -104,8 +104,8 @@ only a human looking at an empty timeline notices. That is ADR-0001's failure mo
 walks into it deliberately.
 
 The mitigation is documentation, because nothing else reaches an operator's own copy of Perfetto:
-a `### Breaking changes` line naming the minimum version, and a sentence in `docs/formats.md`
-beside the one saying a trace needs nothing done to it before opening.
+a `### Breaking changes` line naming the minimum version, and the minimum beside the word
+`compressed` where `docs/formats.md` names the format.
 
 **Rejected: writing both fields, so that an old reader takes 50 and a new one takes 133.** A reader
 that knows both expands both and draws every slice twice. Perfetto's advice to set both codecs is

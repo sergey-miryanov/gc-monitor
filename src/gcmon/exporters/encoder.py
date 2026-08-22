@@ -26,7 +26,6 @@ from .protobuf_encoder import encode_bytes_field
 logger = logging.getLogger("gcmon")
 
 _COMPRESSION_LEVEL = 6
-"""Deflate level a batch is written at. ADR-0022 weighs the alternatives."""
 
 __all__ = [
     "EventEncoder",
@@ -113,12 +112,7 @@ class ProtobufEventEncoder:
             self._track_state.update_process_lifetime(pid, ts_ns)
 
     def _write_batch(self, descriptors: Sequence[bytes], packets: Sequence[bytes]) -> None:
-        """Append one batch to the trace as a single deflated packet.
-
-        The order is the parameter order: a track's descriptor has to
-        reach the file before the events on it (ADR-0008). The
-        compression boundary is the flush boundary (ADR-0022).
-        """
+        """Append one batch to the trace as a single deflated packet."""
         assert self._path is not None, "open() must be called before writing"
         batch = b"".join(encode_bytes_field(TraceField.PACKET, entry) for entry in (*descriptors, *packets))
         wrapper = encode_bytes_field(TracePacketField.COMPRESSED_PACKETS, zlib.compress(batch, _COMPRESSION_LEVEL))
