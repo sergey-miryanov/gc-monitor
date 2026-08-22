@@ -1,0 +1,173 @@
+"""What a compressed trace carries, and what it must still mean.
+
+Every other Perfetto test reads through ``perfetto_packets``, which inflates a
+wrapper without saying so. These are the tests that look at the wrapper itself,
+and the ones that ask the trace processor whether the trace still says what it
+said before.
+
+Nothing here asserts a size or a ratio. zlib-ng and stock zlib disagree on the
+bytes they produce for the same input, so a bound tight enough to catch
+"compression stopped working" is a bound loose enough to be red on somebody's
+laptop. ``TestTheWrapper`` catches that failure without a number.
+"""
+
+from __future__ import annotations
+
+import zlib
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket
+from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
+
+from gcmon.exporters import PerfettoExporter
+from tests.helpers import (
+    assert_valid_perfetto_trace,
+    create_mock_loss_item,
+    create_mock_stats_item,
+    perfetto_packets,
+)
+
+_PID: int = 4242
+_PAUSE_NAME: str = "GC Pause(0)"
+_LOSS_CATEGORY: str = "gc.loss"
+_PAUSE_CATEGORY: str = "gc.pause(gen=0)"
+_COUNTER_NAME: str = "G0 collected"
+_COLLECTED: int = 17
+
+# One event per flush, so a run of three writes a trace of three batches
+# plus the one ``close()`` writes.
+_EVENTS: int = 3
+_BATCHES: int = _EVENTS + 1
+
+
+def _write_trace(path: Path) -> Path:
+    """A run flushed once per event, so its trace spans several batches.
+
+    The last batch is a loss record rather than a collection, so the two kinds
+    of slice gcmon draws are split across different wrappers.
+    """
+    exporter = PerfettoExporter(
+        output_path=path,
+        flush_threshold=1,
+        cmdline_provider=lambda _pid: None,
+    )
+    for i in range(_EVENTS - 1):
+        exporter.add_event(
+            _PID,
+            create_mock_stats_item(
+                ts_start=1_000_000 * (i + 1),
+                ts_stop=1_000_000 * (i + 1) + 500_000,
+                collected=_COLLECTED,
+            ),
+        )
+    exporter.add_loss_event(_PID, create_mock_loss_item(ts_start=9_000_000, ts_stop=10_000_000))
+    exporter.close()
+    return path
+
+
+def _write_liveness_only_trace(path: Path) -> Path:
+    """A run whose target answered every poll and never collected: the only
+    path ``finalize_perfetto_packets`` owns alone."""
+    exporter = PerfettoExporter(
+        output_path=path,
+        flush_threshold=100,
+        cmdline_provider=lambda _pid: None,
+    )
+    exporter.add_process_liveness({_PID}, 1_000_000)
+    exporter.add_process_liveness({_PID}, 5_000_000)
+    exporter.close()
+    return path
+
+
+def _wrappers(path: Path) -> list[TracePacket]:
+    """The packets as the file carries them, left closed."""
+    trace = Trace()
+    trace.ParseFromString(path.read_bytes())
+    return list(trace.packet)
+
+
+@pytest.fixture
+def trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_trace(tmp_path / "batched.pftrace")
+    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
+    try:
+        yield tp
+    finally:
+        tp.close()
+
+
+class TestTheWrapper:
+    """The whole guard between "compressed" and "silently not compressed"."""
+
+    def test_every_packet_in_the_file_is_a_wrapper(self, tmp_path: Path) -> None:
+        path = _write_trace(tmp_path / "batched.pftrace")
+
+        assert [p.HasField("compressed_packets") for p in _wrappers(path)] == [True] * _BATCHES
+
+    def test_one_wrapper_per_batch(self, tmp_path: Path) -> None:
+        """The compression boundary is the flush boundary: each flush and the
+        closeout ``close()`` writes leave one wrapper behind."""
+        path = _write_trace(tmp_path / "batched.pftrace")
+
+        assert len(_wrappers(path)) == _BATCHES
+
+    def test_inflating_the_wrappers_yields_the_packets(self, tmp_path: Path) -> None:
+        path = _write_trace(tmp_path / "batched.pftrace")
+
+        inflated: list[TracePacket] = []
+        for wrapper in _wrappers(path):
+            inflated.extend(perfetto_packets(zlib.decompress(wrapper.compressed_packets)))
+
+        assert inflated == assert_valid_perfetto_trace(path)
+
+    def test_a_run_that_never_collected_is_compressed_too(self, tmp_path: Path) -> None:
+        path = _write_liveness_only_trace(tmp_path / "liveness_only.pftrace")
+
+        assert [p.HasField("compressed_packets") for p in _wrappers(path)] == [True]
+        assert assert_valid_perfetto_trace(path)
+
+
+class TestTheTraceStillMeansWhatItMeant:
+    """A trace split over several batches reads as one trace."""
+
+    def test_the_slice_names_resolve(self, trace_processor: TraceProcessor) -> None:
+        names = {row.name for row in trace_processor.query("SELECT name FROM slice")}
+
+        assert _PAUSE_NAME in names
+
+    def test_the_categories_resolve(self, trace_processor: TraceProcessor) -> None:
+        categories = {
+            str(row.category) for row in trace_processor.query("SELECT category FROM slice WHERE category IS NOT NULL")
+        }
+
+        assert categories == {_LOSS_CATEGORY, _PAUSE_CATEGORY}
+
+    def test_the_slice_args_resolve(self, trace_processor: TraceProcessor) -> None:
+        rows = list(
+            trace_processor.query(
+                "SELECT a.int_value AS value FROM slice s "
+                "JOIN args a ON s.arg_set_id = a.arg_set_id "
+                f"WHERE s.name = '{_PAUSE_NAME}' AND a.key = 'debug.collected'"
+            )
+        )
+
+        assert {row.value for row in rows} == {_COLLECTED}
+
+    def test_the_counter_tracks_resolve(self, trace_processor: TraceProcessor) -> None:
+        names = {row.name for row in trace_processor.query("SELECT name FROM counter_track")}
+
+        assert _COUNTER_NAME in names
+
+    def test_the_counter_values_resolve(self, trace_processor: TraceProcessor) -> None:
+        rows = list(
+            trace_processor.query(
+                "SELECT c.value AS value FROM counter c "
+                "JOIN counter_track t ON c.track_id = t.id "
+                f"WHERE t.name = '{_COUNTER_NAME}'"
+            )
+        )
+
+        assert rows
+        assert {row.value for row in rows} == {float(_COLLECTED)}

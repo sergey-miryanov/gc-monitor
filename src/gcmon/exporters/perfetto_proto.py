@@ -29,6 +29,7 @@ class TracePacketField(IntEnum):
     TIMESTAMP = 8
     SEQUENCE_ID = 10
     TRACK_EVENT = 11
+    COMPRESSED_PACKETS = 50
     TRACK_DESCRIPTOR = 60
 
 

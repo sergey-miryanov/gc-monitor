@@ -44,6 +44,7 @@ class TestPerfettoProtoConstants:
         assert desc.fields_by_name["timestamp"].number == TracePacketField.TIMESTAMP
         assert desc.fields_by_name["trusted_packet_sequence_id"].number == TracePacketField.SEQUENCE_ID
         assert desc.fields_by_name["track_event"].number == TracePacketField.TRACK_EVENT
+        assert desc.fields_by_name["compressed_packets"].number == TracePacketField.COMPRESSED_PACKETS
         assert desc.fields_by_name["track_descriptor"].number == TracePacketField.TRACK_DESCRIPTOR
 
     def test_track_descriptor_field(self) -> None:
