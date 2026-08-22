@@ -74,12 +74,17 @@ to be tested. Both hold here.
   reports itself corrupt.
 - **One gzip member per flush.** Reads correctly whole and fails identically when truncated.
   Rejected: it costs the "it is just a gzip file" simplicity and buys nothing.
-- **Zstd.** Python 3.15 ships `compression.zstd`, and it compresses these traces better than
-  deflate. Perfetto reads it in neither place it could go. A whole file of it is refused with
-  `Unknown trace type provided (ERR:fmt)`, and zstd bytes inside `compressed_packets` are refused
-  with `Failed to decompress (error code: 2)`: that field is deflate by definition, and the trace
-  processor ships no zstd decoder to try instead. Recorded because the stdlib module is new and
-  the next person will reach for it.
+- **Zstd, which is the one to revisit.** Python 3.15 ships `compression.zstd`, and it compresses
+  these traces better than deflate. Perfetto has designed the counterpart field,
+  `TracePacket.zstd_compressed_packets`, and documents its readers as decompressing it
+  transparently from v58 on. None of that has shipped. The newest published `trace_processor`
+  prebuilt is v57.2, which is both what the `perfetto` package pins and the newest it offers, and
+  the field is in neither public copy of the schema, so its number cannot be checked against a
+  generated descriptor the way ADR-0001 requires. v57.2 refuses zstd in both placements it could
+  take: `Unknown trace type provided (ERR:fmt)` for a whole file of it, and `Failed to decompress
+  (error code: 2)` for zstd bytes inside `compressed_packets`, which is deflate by definition.
+  Until a v58 trace processor is downloadable, a zstd trace is one neither CI nor an operator can
+  open. Take this again when it is.
 - **A `--compress` or `--compress-level` flag.** Rejected on ADR-0021's ground, above.
 - **A minimum size below which a batch is written plain.** A one-packet batch comes out slightly
   larger than it went in, and a batch of ten is already well under half. Rejected: the branch
