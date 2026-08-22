@@ -191,7 +191,7 @@ and points each at the other.
 ### 4.7 Rejected: compress the packets instead
 
 `TracePacket.compressed_packets` (field 50) with stdlib `zlib` would beat 43% on data this
-repetitive and costs one wrapper rather than a state machine. It buys the file size and nothing
+repetitive and costs one compressed batch rather than a state machine. It buys the file size and nothing
 else: it adds a deflate pass to a writer that runs beside the process being monitored, and it leaves
 the reader inflating a trace whose strings are still repeated. Interning takes bytes out of the
 writer, the file and the reader at once. The two are not exclusive, and compression stays available
@@ -249,8 +249,8 @@ found during it.
 failure modes. Amend ADR-0001's rejected `name_iid` bullet to
 point at it, saying the alternative was reversed on the shape of what gcmon writes rather than on
 new information about Perfetto. ADR-0001 stays `Accepted`; its decision, a hand-rolled encoder with
-`perfetto` out of the runtime tree, is untouched. Its "three rules make this safe" list gains
-nothing, since the fourth rule belongs to ADR-0023.
+`perfetto` out of the runtime tree, is untouched. Its "rules make this safe" list gains nothing:
+ADR-0022 took the fourth, and the rule about interning belongs to ADR-0023.
 
 **CONTEXT.md** already carries **Intern id**, added 2026-08-22, with **Interpreter** pointing at it.
 

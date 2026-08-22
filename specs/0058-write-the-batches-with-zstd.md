@@ -75,7 +75,7 @@ field number is checked against the generated descriptor.
 
 The payload is what field 50 carries today: a serialized sequence of `TracePacket` entries, the
 whole batch, compressed. Only the codec and the field number change. The batch boundary, the one
-wrapper per flush, the absence of a flag, and the file's extension and identity are ADR-0022's and
+compressed batch per flush, the absence of a flag, and the file's extension are ADR-0022's and
 stay.
 
 ### 4.2 Level 3, which is zstd's default
@@ -141,13 +141,13 @@ CI leg.
 - **New seam needed:** none. `tests/exporters/test_perfetto_compression.py` already owns the
   behaviours that exist because a batch is compressed, and each of its cases carries over.
 - **What makes a good test here:** assert the name, category, arg and counter a slice resolves to,
-  and assert structurally that the wrapper is on field 133. **Never assert a size or a ratio**, for
+  and assert structurally that the batch is on field 133. **Never assert a size or a ratio**, for
   the reason ADR-0022 gives.
 - **Prior art:** `tests/exporters/test_perfetto_compression.py` for all of it, and
   `tests/exporters/test_perfetto_proto.py` for the descriptor check.
 - **Cases:**
-  1. Every top-level packet is a `ZSTD_COMPRESSED_PACKETS` wrapper, one per batch, and inflating
-     them yields the packets. The existing wrapper cases move from field 50 to field 133.
+  1. Every top-level packet is a `ZSTD_COMPRESSED_PACKETS` batch, one per flush, and inflating
+     them yields the packets. The existing cases move from field 50 to field 133.
   2. A run flushed over at least two batches resolves every slice name, category, arg and counter
      through the trace processor.
   3. A file truncated mid-batch opens and yields the batches that completed. The kill window is a

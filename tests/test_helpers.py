@@ -23,9 +23,9 @@ def _plain(timestamps: list[int]) -> bytes:
 
 
 def _compressed(timestamps: list[int]) -> bytes:
-    """The same packets, deflated into one ``compressed_packets`` wrapper."""
-    wrapper = TracePacket(compressed_packets=zlib.compress(_plain(timestamps)))
-    content: bytes = Trace(packet=[wrapper]).SerializeToString()
+    """The same packets, deflated into one compressed batch."""
+    batch = TracePacket(compressed_packets=zlib.compress(_plain(timestamps)))
+    content: bytes = Trace(packet=[batch]).SerializeToString()
     return content
 
 
@@ -38,14 +38,14 @@ class TestPerfettoPackets:
 
         assert perfetto_packets(_compressed(timestamps)) == perfetto_packets(_plain(timestamps))
 
-    def test_a_wrapper_is_flattened_where_it_stood(self) -> None:
+    def test_a_compressed_batch_is_flattened_where_it_stood(self) -> None:
         """The format allows a file to mix the two encodings, so order is by
         position in the file and not by encoding."""
         content = _plain([1]) + _compressed([2, 3]) + _plain([4])
 
         assert [p.timestamp for p in perfetto_packets(content)] == [1, 2, 3, 4]
 
-    def test_several_wrappers_read_in_file_order(self) -> None:
+    def test_several_batches_read_in_file_order(self) -> None:
         """What a run flushed over more than one batch leaves behind."""
         content = _compressed([1, 2]) + _compressed([3, 4])
 

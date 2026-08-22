@@ -1,7 +1,7 @@
 """What a compressed trace carries, and what it must still mean.
 
 Every other Perfetto test reads through ``perfetto_packets``, which inflates a
-wrapper without saying so. These are the tests that look at the wrapper itself.
+batch without saying so. These are the tests that look at the compressed batch itself.
 
 Nothing here asserts a size or a ratio; ADR-0022 says why.
 """
@@ -57,7 +57,7 @@ def _write_trace(path: Path) -> Path:
     """A run flushed once per event, so its trace spans several batches.
 
     The last batch is a loss record rather than a collection, so the two kinds
-    of slice gcmon draws are split across different wrappers.
+    of slice gcmon draws are split across different batches.
     """
     exporter = PerfettoExporter(
         output_path=path,
@@ -92,7 +92,7 @@ def _write_liveness_only_trace(path: Path) -> Path:
     return path
 
 
-def _wrappers(path: Path) -> list[TracePacket]:
+def _compressed_batches(path: Path) -> list[TracePacket]:
     """The packets as the file carries them, left closed."""
     trace = Trace()
     trace.ParseFromString(path.read_bytes())
@@ -109,33 +109,33 @@ def trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
         tp.close()
 
 
-class TestTheWrapper:
+class TestTheCompressedBatch:
     """The whole guard between "compressed" and "silently not compressed"."""
 
-    def test_every_packet_in_the_file_is_a_wrapper(self, tmp_path: Path) -> None:
+    def test_every_packet_in_the_file_is_a_compressed_batch(self, tmp_path: Path) -> None:
         path = _write_trace(tmp_path / "batched.pftrace")
 
-        assert [p.HasField("compressed_packets") for p in _wrappers(path)] == [True] * _BATCHES
+        assert [p.HasField("compressed_packets") for p in _compressed_batches(path)] == [True] * _BATCHES
 
-    def test_one_wrapper_per_batch(self, tmp_path: Path) -> None:
+    def test_one_compressed_batch_per_flush(self, tmp_path: Path) -> None:
         """Each flush, and the closeout ``close()`` writes, leaves one behind."""
         path = _write_trace(tmp_path / "batched.pftrace")
 
-        assert len(_wrappers(path)) == _BATCHES
+        assert len(_compressed_batches(path)) == _BATCHES
 
-    def test_inflating_the_wrappers_yields_the_packets(self, tmp_path: Path) -> None:
+    def test_inflating_the_batches_yields_the_packets(self, tmp_path: Path) -> None:
         path = _write_trace(tmp_path / "batched.pftrace")
 
         inflated: list[TracePacket] = []
-        for wrapper in _wrappers(path):
-            inflated.extend(perfetto_packets(zlib.decompress(wrapper.compressed_packets)))
+        for batch in _compressed_batches(path):
+            inflated.extend(perfetto_packets(zlib.decompress(batch.compressed_packets)))
 
         assert inflated == assert_valid_perfetto_trace(path)
 
     def test_a_run_that_never_collected_is_compressed_too(self, tmp_path: Path) -> None:
         path = _write_liveness_only_trace(tmp_path / "liveness_only.pftrace")
 
-        assert [p.HasField("compressed_packets") for p in _wrappers(path)] == [True]
+        assert [p.HasField("compressed_packets") for p in _compressed_batches(path)] == [True]
         assert assert_valid_perfetto_trace(path)
 
 
@@ -210,9 +210,9 @@ def _framed(path: Path) -> list[bytes]:
     pieces = [
         encode_bytes_field(
             TraceField.PACKET,
-            TracePacket(compressed_packets=wrapper.compressed_packets).SerializeToString(),
+            TracePacket(compressed_packets=batch.compressed_packets).SerializeToString(),
         )
-        for wrapper in _wrappers(path)
+        for batch in _compressed_batches(path)
     ]
     assert b"".join(pieces) == raw
     return pieces
@@ -237,7 +237,7 @@ def _pause_timestamps(path: Path) -> list[int]:
 
 
 class TestAKilledRun:
-    """Why the wrapper and not a gzipped file (ADR-0022): the file opens, and
+    """Why a compressed batch and not a gzipped file (ADR-0022): the file opens, and
     the kill window is one batch."""
 
     def test_a_truncated_trace_opens_and_yields_the_batches_that_completed(self, tmp_path: Path) -> None:

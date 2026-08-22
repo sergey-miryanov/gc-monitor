@@ -115,11 +115,11 @@ class ProtobufEventEncoder:
         """Append one batch to the trace as a single deflated packet."""
         assert self._path is not None, "open() must be called before writing"
         batch = b"".join(encode_bytes_field(TraceField.PACKET, entry) for entry in (*descriptors, *packets))
-        wrapper = encode_bytes_field(TracePacketField.COMPRESSED_PACKETS, zlib.compress(batch, _COMPRESSION_LEVEL))
+        compressed = encode_bytes_field(TracePacketField.COMPRESSED_PACKETS, zlib.compress(batch, _COMPRESSION_LEVEL))
         mode = "wb" if not self._has_written else "ab"
         self._has_written = True
         with open(self._path, mode) as f:
-            f.write(encode_bytes_field(TraceField.PACKET, wrapper))
+            f.write(encode_bytes_field(TraceField.PACKET, compressed))
             f.flush()
 
     def write_events(self, events: Sequence[TraceEvent]) -> None:

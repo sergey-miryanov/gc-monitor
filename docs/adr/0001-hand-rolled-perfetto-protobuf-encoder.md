@@ -54,20 +54,20 @@ the layer. Two subjects that `perfetto_format.py` implements are large enough to
 own files anyway: `test_perfetto_ordering.py` and `test_perfetto_counter_tracks.py`.
 Helpers shared by more than one of them live in `tests/exporters/perfetto_helpers.py`.
 
-Three rules make this safe:
+Four rules make this safe:
 
 - **Every protobuf field number is a named `IntEnum` member**, one enum class per proto
   message, with the ordering and event-type value enums alongside them. `IntEnum` members
   are `int` subclasses, so they pass anywhere an `int` is expected at zero runtime cost. A
   future upstream renumbering is one edit per field, in one file.
 - **Timestamps live on `TracePacket.timestamp` (field 8), never inside `TrackEvent`.**
-- **Every `TracePacket` that carries trace data has `trusted_packet_sequence_id`
-  (field 10, uint32).** Perfetto drops packets without it, since it needs the sequence
+- **Every track descriptor and track event carries `trusted_packet_sequence_id`
+  (field 10, uint32).** Perfetto drops a packet without it, since it needs the sequence
   for incremental state tracking. The value is generated as `id(self) & 0x7FFFFFFF`,
-  which is unique per encoder instance and needs no external source of entropy. The
-  wrapper [ADR-0022](0022-compress-each-batch-of-packets.md) puts around a batch is the
-  one exception: it carries `compressed_packets` and nothing else, and the sequence id
-  sits on each packet inside it.
+  which is unique per encoder instance and needs no external source of entropy.
+- **A compressed batch carries no `trusted_packet_sequence_id`.** It is the third kind of
+  `TracePacket`, a chunk of bytes rather than trace data, and the ids sit on the packets
+  inside it ([ADR-0022](0022-compress-each-batch-of-packets.md)).
 
 **Future maintainers must not import message classes from the `perfetto` package into the
 encoder.** A line such as `from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import

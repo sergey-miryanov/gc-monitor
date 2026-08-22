@@ -13,7 +13,7 @@
 
 ### Features
 
-- A Perfetto trace is roughly eight times smaller. It opens the same way, and there is nothing to run first
+- A Perfetto trace is compressed: the same events in a file six to nine times smaller. It opens the same way, and there is nothing to run first
 
 ### Internal
 
