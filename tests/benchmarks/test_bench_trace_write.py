@@ -1,0 +1,56 @@
+"""Benchmark for the encoder's write path.
+
+Converting a batch, deflating it and appending it to the trace is what a
+monitored process pays for being observed, and it runs on the flush, while the
+target is still working. Compression put deflate on that path; this series is
+what says whether the cost stays where it was measured.
+
+Conversion is benchmarked on its own in ``test_bench_trace_conversion``, so a
+move here that does not show up there is the write itself.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from pytest_codspeed import BenchmarkFixture
+
+from gcmon.exporters.encoder import ProtobufEventEncoder
+from gcmon.exporters.trace_converter import convert_item_to_trace_format
+from gcmon.model.trace_event import TraceEvent, process_meta, thread_meta
+
+from .conftest import make_gc_event
+
+PID = 12345
+EVENTS_PER_BATCH = 100
+BATCHES = 10
+
+
+def _batches() -> list[list[TraceEvent]]:
+    """One run's worth of flushes, converted the way the buffer hands them
+    over: the process and thread descriptors reach the first batch only."""
+    meta: list[TraceEvent] = [process_meta(PID, f"Process {PID}"), thread_meta(PID, 0, "Thread 0")]
+    batches: list[list[TraceEvent]] = []
+    for batch in range(BATCHES):
+        events: list[TraceEvent] = list(meta) if batch == 0 else []
+        for i in range(EVENTS_PER_BATCH):
+            events.extend(convert_item_to_trace_format(PID, make_gc_event(batch * EVENTS_PER_BATCH + i, gen=i % 3)))
+        batches.append(events)
+    return batches
+
+
+@pytest.mark.benchmark
+def test_write_a_run_of_batches(benchmark: BenchmarkFixture, tmp_path: Path) -> None:
+    batches = _batches()
+    path = tmp_path / "bench.pftrace"
+
+    def run() -> int:
+        encoder = ProtobufEventEncoder(cmdline_provider=lambda _pid: None, sequence_id=1)
+        encoder.open(path)
+        for events in batches:
+            encoder.write_events(events)
+        encoder.close()
+        return path.stat().st_size
+
+    assert benchmark(run) > 0
