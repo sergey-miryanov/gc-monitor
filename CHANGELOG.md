@@ -18,7 +18,7 @@
 
 - A Perfetto trace is compressed: the same events in a file six to nine times smaller. It opens the same way, and there is nothing to run first
 - `ControlClient.instant_msg` takes a `ts`, so an instant captured in a hot path can be sent after it and still land where it happened
-- The pyperf hook marks where each benchmark ran: a `gcmon:<benchmark>:<n>:begin` and `:end` pair of instants per measured region, so a trace tells the benchmark apart from the interpreter starting up around it
+- The pyperf hook marks where each benchmark ran: a `gcmon:<benchmark>:<n>:<i>:begin` and `:end` pair of instants per measured region, numbered across the worker process and again within the measurement phase, so a trace tells the benchmark apart from the interpreter starting up around it and the warmups apart from the values
 
 ### Bugfixes
 

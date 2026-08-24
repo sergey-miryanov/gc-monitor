@@ -137,10 +137,10 @@ records that a freshly discovered child's first GC event can predate gcmon
 ever polling it, and the trace processor sorts by timestamp, breaking ties by
 position only where timestamps are equal.
 
-**The mark is a point, not a span.** Two instants, `gcmon:<bench>:<n>:begin`
-and `gcmon:<bench>:<n>:end`, carried by the existing `InstantMsg`, which
-`JsonlExporter.add_instant_event` already writes and the trace converter
-already draws.
+**The mark is a point, not a span.** Two instants,
+`gcmon:<bench>:<n>:<i>:begin` and `gcmon:<bench>:<n>:<i>:end`, carried by the
+existing `InstantMsg`, which `JsonlExporter.add_instant_event` already writes
+and the trace converter already draws.
 
 ADR-0006 would make a duration a begin/end slice pair, and that is the better
 shape: it pairs in the model rather than in a string, and a reader finds a
@@ -165,9 +165,11 @@ two in step.
 builds one hook per `_compute_values` call and both teardowns read the same
 `metadata['name']`, so an instance-scoped counter would emit
 `gcmon:bm_base64:1:begin` twice in one process, meaning different things. A
-module-level counter also recovers what the hook cannot be told: `--warmups`
-and `--values` are on the worker's command line, so `--warmups=1 --values=3`
-says mark 1 is a warmup and marks 2 through 4 are values.
+The hook also counts its own regions, and `<i>` restarting is where one
+measurement phase ended and the next began. That is what the process-wide
+count cannot say, since it runs straight through both. Which phase is the
+warmups still comes from the command line: `--warmups=1 --values=3` says the
+first phase holds the warmup and the second holds the three values.
 
 **No monitor is a refusal, not a warning.** `GCMonitorHook.__init__` connects
 eagerly and raises `pyperf._hooks.HookError`, which
@@ -304,9 +306,10 @@ when this lands.
   costs the benchmark the GIL; see section 4.
 - **Making the hook work outside `gcmon run`.** Spawning a monitor when none
   is listening is the design being removed.
-- **Distinguishing warmup marks from value marks in the mark itself.**
-  `is_warmup` is a local in `_compute_values` and never reaches a hook. The
-  command line answers it; see section 4.
+- **Labelling a mark a warmup or a value.** `is_warmup` is a local in
+  `_compute_values` and never reaches a hook, so no mark can carry the word.
+  `<i>` says where the phases divide and the command line says which is which;
+  see section 4.
 
 ## 7. Further notes
 

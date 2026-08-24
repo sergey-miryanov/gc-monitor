@@ -33,18 +33,21 @@ importing, calibrating, and pyperf's bookkeeping between values.
   reaches that monitor through `GCMON_CONTROL_ADDRESS`.
 - **A benchmark's extent is two instants, not a gate.** The hook writes a
   begin and an end mark per measured region, under a grammar reserved to
-  gcmon: `gcmon:<benchmark>:<n>:begin` and `:end`. Everything outside a region
-  stays in the trace.
+  gcmon: `gcmon:<benchmark>:<n>:<i>:begin` and `:end`. Everything outside a
+  region stays in the trace.
 - **Marks are captured in the region and sent after it.** The hook reads a
   clock at each end and holds the pair; `ControlClient.instant_msg` takes the
   captured timestamp, so the send can happen at teardown, which is the first
   moment pyperf names the benchmark. No I/O of gcmon's runs between the two
   reads.
-- **`<n>` counts regions in the worker process.** Two hook instances in one
-  worker are handed the same benchmark name, so a counter scoped to the
-  instance would write one mark name twice meaning two different things.
-- **No monitor is a refusal.** Building a hook connects, and raises pyperf's
-  own `HookError` where nothing answers, which pyperf catches to print one
+- **A region is numbered twice, once per process and once per phase.** `<n>`
+  counts across the worker, because two hook instances in one worker are
+  handed the same benchmark name and an instance-scoped count alone would put
+  one mark name on two different regions. `<i>` counts within the hook, and
+  where it restarts is where pyperf began a new measurement phase, which `<n>`
+  on its own cannot say.
+- **No monitor is a refusal.** The constructor connects, and raises pyperf's
+  own `HookError` when nothing is listening, which pyperf catches to print one
   message and exit. Failing on the first worker costs a second; the
   alternative costs a suite, because a control client with nowhere to send
   makes every send a silent no-op.

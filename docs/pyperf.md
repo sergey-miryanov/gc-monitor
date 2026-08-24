@@ -58,15 +58,18 @@ waits before it gives up.
 Two instants per measured region, on the worker's own process:
 
 ```
-gcmon:<benchmark>:<n>:begin
-gcmon:<benchmark>:<n>:end
+gcmon:<benchmark>:<n>:<i>:begin
+gcmon:<benchmark>:<n>:<i>:end
 ```
 
 `<benchmark>` is pyperf's name for it, with anything outside `[A-Za-z0-9_-]`
-replaced by `_`. `<n>` counts regions within one worker process, so a worker
-that runs warmups and then values numbers them in the order they ran: under
-`--warmups=1 --values=3`, region 1 is the warmup and regions 2 through 4 are
-the values.
+replaced by `_`.
+
+`<n>` counts regions across the whole worker process, in the order they ran.
+`<i>` counts them within one measurement phase and restarts at 1 when pyperf
+begins the next, which is what separates the warmups from the values: under
+`--warmups=1 --values=3` a worker writes `<n>` 1 through 4, with `<i>` going
+1, then 1, 2, 3. Where `<i>` restarts is the phase boundary.
 
 The `gcmon:` prefix is reserved, so `name LIKE 'gcmon:%'` selects marks and
 nothing else. See [Perfetto SQL](perfetto-sql.md) for querying a trace.

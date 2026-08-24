@@ -1,10 +1,4 @@
-"""Pyperf hook that marks where each benchmark ran.
-
-The hook writes a begin and an end mark per measured region into the trace a
-monitor is already keeping, and does nothing else: it spawns no process,
-writes no file and computes no statistics. ``gcmon run`` over the whole suite
-is what it annotates.
-"""
+"""Pyperf hook that marks where each benchmark ran."""
 
 import logging
 import os
@@ -22,16 +16,10 @@ ENV_PYPERF_HOOK_CONTROL_TIMEOUT = "GCMON_PYPERF_HOOK_CONTROL_TIMEOUT"
 logger = logging.getLogger("gcmon")
 
 _regions = 0
-"""Regions counted per process, not per hook.
-
-A worker builds one hook for its warmups and another for its values, and both
-are handed the same benchmark name, so an instance-scoped counter would emit
-one mark name twice meaning two different things.
-"""
+"""Regions counted across the process, not within one hook."""
 
 
 def _next_region() -> int:
-    """The next region number in this process."""
     global _regions
     _regions += 1
     return _regions
@@ -48,10 +36,9 @@ NO_MONITOR = (
 def _hook_error() -> type[Exception]:
     """The exception pyperf's loader catches to print one line and exit 1.
 
-    ``pyperf.__all__`` does not carry ``HookError``, so this reaches into a
-    private module and settles for failing the run some other way if that
-    module ever moves. Importing it here rather than at module scope also
-    keeps pyperf off the path a working hook takes.
+    ``pyperf.__all__`` does not carry ``HookError``. Reaching into the private
+    module is the only way to it, and a move of that module leaves the run
+    failing on ``RuntimeError`` instead.
     """
     try:
         from pyperf._hooks import HookError
@@ -77,68 +64,49 @@ def _get_env_pyperf_hook_control_timeout() -> float:
 
 
 class GCMonitorHook:
-    """Pyperf hook that marks the benchmark in a running monitor's trace.
-
-    The monitor is the operator's, started over the whole suite, and the hook
-    reaches it through the control address that monitor set in the
-    environment.
-
-    Building one connects, and refuses the run where nothing answers.
-
-    Usage:
-        # Entry point registration in pyproject.toml
-        [project.entry-points."pyperf.hook"]
-        gcmon = "gcmon.pyperf.hook:gcmon_hook"
-
-        # Then use in CLI
-        gcmon run -o suite.pftrace -m pyperf run --hook=gcmon ...
-    """
+    """Pyperf hook that marks the benchmark in a running monitor's trace."""
 
     def __init__(self) -> None:
-        self._marked: list[tuple[int, int, int]] = []
-        self._running: tuple[int, int] | None = None
+        self._marks: list[tuple[int, int, int, int]] = []
+        self._phase_regions = 0
+        self._enter_ts: int | None = None
         self._control_client = ControlClient(
             connection_factory=partial(
                 connect_with_retry,
                 timeout=_get_env_pyperf_hook_control_timeout(),
             ),
         )
-        # Eagerly, before a benchmark is running and outside anything pyperf
-        # times. Refusing here costs a second; the alternative costs a suite,
-        # because a client with nowhere to send makes every send a no-op.
+        # Before a benchmark is running, and outside anything pyperf times.
         if self._control_client._ensure_connected() is None:
             raise _hook_error()(NO_MONITOR)
 
     def __enter__(self) -> GCMonitorHook:
         """Open a region, immediately before the benchmark runs."""
-        self._running = (_next_region(), time.monotonic_ns())
+        self._enter_ts = time.monotonic_ns()
         return self
 
     def __exit__(self, *args: object) -> None:
-        """Close it, immediately after.
+        """Close it, immediately after."""
+        enter_ts = self._enter_ts
+        if enter_ts is None:
+            return
 
-        The pair is held rather than sent: the benchmark name arrives at
-        teardown, and nothing crosses a process boundary until then.
-        """
-        if self._running is not None:
-            region, began = self._running
-            self._running = None
-            self._marked.append((region, began, time.monotonic_ns()))
+        self._enter_ts = None
+        self._phase_regions += 1
+        self._marks.append((_next_region(), self._phase_regions, enter_ts, time.monotonic_ns()))
 
     def _send_marks(self, bench_name: str) -> None:
-        """Land every region that finished, now that they can be named."""
-        for region, began, ended in self._marked:
-            self._control_client.instant_msg(format_mark(bench_name, region, Side.BEGIN), ts=began)
-            self._control_client.instant_msg(format_mark(bench_name, region, Side.END), ts=ended)
-        self._marked.clear()
+        """Land every region that finished."""
+        for region, phase_region, enter_ts, exit_ts in self._marks:
+            self._control_client.instant_msg(format_mark(bench_name, region, phase_region, Side.BEGIN), ts=enter_ts)
+            self._control_client.instant_msg(format_mark(bench_name, region, phase_region, Side.END), ts=exit_ts)
+        self._marks.clear()
 
     def teardown(self, metadata: dict[str, Any]) -> None:
         """Land the marks.
 
-        Pyperf calls this once the hook is done with a process, and it is the
-        first point at which ``metadata['name']`` names the benchmark. The
-        dict is read and not written: a benchmark's own numbers are pyperf's,
-        and gcmon's are in the trace.
+        Pyperf calls this once it is done with a process, and it is the first
+        point at which ``metadata['name']`` names the benchmark.
         """
         self._send_marks(metadata.get("name", ""))
         self._control_client.close()
@@ -151,12 +119,7 @@ def gcmon_hook() -> GCMonitorHook:
 
 
 def _setup_logging() -> None:
-    """Configure the `gcmon` logger for the pyperf hook entry point.
-
-    Attaches a stderr handler if the logger has none and takes its level
-    from ``GCMON_PYPERF_HOOK_VERBOSE``. Only the entry point calls this, so
-    a test that builds a ``GCMonitorHook`` leaves global logging alone.
-    """
+    """Configure the `gcmon` logger for the pyperf hook entry point."""
     level = logging.DEBUG if _get_env_pyperf_hook_verbose() else logging.WARNING
     logger.setLevel(level)
 

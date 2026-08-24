@@ -65,7 +65,7 @@ _Avoid_: record (for the trace side), slice (that is one shape of event)
 **Mark**:
 One instant a workload wrote into a trace to say where it was, as against an
 **event**, which is what gcmon wrote from a record. Its name carries the
-grammar `gcmon:<workload>:<n>:begin` or `:end`, reserved so a reader can
+grammar `gcmon:<workload>:<n>:<i>:begin` or `:end`, reserved so a reader can
 select marks and nothing else.
 _Avoid_: annotation, marker, label, event (that is gcmon's side)
 

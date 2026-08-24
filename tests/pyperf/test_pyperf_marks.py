@@ -141,6 +141,56 @@ class TestRegionNumbering:
         regions = [m.mark.region for m in sink.wait_for(4)]
         assert regions[2] == regions[0] + 1, "the second instance restarted the count and reused a mark name"
 
+    def test_each_hook_counts_its_own_regions_from_one(self, sink: Sink) -> None:
+        """Where the phase count restarts is where pyperf started a new phase.
+
+        A worker builds one hook for its warmups and another for its values,
+        and the process-wide number cannot say where one ended.
+        """
+        warmups = gcmon_hook()
+        with warmups:
+            pass
+        warmups.teardown({"name": "bm_base64"})
+
+        values = gcmon_hook()
+        for _ in range(3):
+            with values:
+                pass
+        values.teardown({"name": "bm_base64"})
+
+        # Each hook has its own connection, and the server reads one message
+        # per connection per pass, so arrival order interleaves the two. A
+        # reader sorts by timestamp (ADR-0011) and so does this.
+        marks = sorted(sink.wait_for(8), key=lambda m: m.ts)
+
+        assert [m.mark.phase_region for m in marks] == [1, 1, 1, 1, 2, 2, 3, 3]
+
+        # Absolute values depend on what the process counted before this.
+        regions = [m.mark.region for m in marks]
+        opened = regions[0]
+        assert regions == [opened + n // 2 for n in range(8)]
+
+    def test_a_region_that_never_closed_takes_no_number(self, sink: Sink) -> None:
+        """The number is taken at the close, so a region that produced no
+        marks spends none and the landed regions have no gaps."""
+        first = gcmon_hook()
+        with first:
+            pass
+        first.teardown({"name": "bm_base64"})
+        started_at = sink.wait_for(2)[0].mark.region
+
+        abandoned = gcmon_hook()
+        abandoned.__enter__()
+        abandoned.teardown({"name": "bm_base64"})
+
+        third = gcmon_hook()
+        with third:
+            pass
+        third.teardown({"name": "bm_base64"})
+
+        regions = [m.mark.region for m in sink.wait_for(4)]
+        assert regions[2] == started_at + 1
+
     def test_regions_of_one_instance_are_numbered_in_order(self, sink: Sink) -> None:
         hook = gcmon_hook()
         for _ in range(3):
