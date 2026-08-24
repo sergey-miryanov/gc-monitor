@@ -58,6 +58,14 @@ def run_monitoring_loop(
             )
 
             stack.enter_context(monitor)
+            # Closed here rather than by the context above, which unwinds last.
+            # Stopping the monitor closes the exporter, and the control server
+            # is still draining what its clients sent: a pyperf worker lands
+            # every mark it took at teardown, so whatever arrives after the
+            # exporter shuts is dropped without a word. Closing the server
+            # first drains it into an exporter that is still open. Idempotent,
+            # so the context manager's own close is then a no-op.
+            stack.callback(control_server.close)
 
             run_policy = RunnerFactory(options.duration)
 

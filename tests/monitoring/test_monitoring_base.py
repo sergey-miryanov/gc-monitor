@@ -247,6 +247,34 @@ class TestRunMonitoringLoop:
         mock_control_instance.__enter__.assert_called_once()
         mock_control_instance.__exit__.assert_called_once()
 
+    def test_the_control_server_drains_before_the_exporter_closes(
+        self,
+        mock_factory: MagicMock,
+        mock_wait_policy_factory: MagicMock,
+        monitoring_options: MagicMock,
+        mock_monitoring_base_deps: dict[str, MagicMock],
+    ) -> None:
+        """Whatever a client sent last has to reach an exporter still open.
+
+        A pyperf worker holds its marks and lands them all at teardown, so the
+        control server can still be draining when the run ends. Stopping the
+        monitor closes the exporter, and a drain after that is dropped without
+        a word.
+        """
+        from gcmon.cli.commands.monitoring_base import run_monitoring_loop
+
+        order: list[str] = []
+        control = mock_monitoring_base_deps["ControlServer"].return_value
+        control.close.side_effect = lambda: order.append("control server closed")
+        monitor = mock_monitoring_base_deps["EventsMonitor"].return_value
+        monitor.__exit__.side_effect = lambda *args: order.append("monitor stopped")
+
+        run_monitoring_loop(mock_factory, mock_wait_policy_factory, monitoring_options())
+
+        assert order[:2] == ["control server closed", "monitor stopped"], (
+            f"the exporter closes before the control plane has drained: {order}"
+        )
+
     def test_enabled_uses_control_server(
         self,
         mock_factory: MagicMock,

@@ -20,6 +20,10 @@
 - `ControlClient.instant_msg` takes a `ts`, so an instant captured in a hot path can be sent after it and still land where it happened
 - The pyperf hook marks where each benchmark ran: a `gcmon:<benchmark>:<n>:begin` and `:end` pair of instants per measured region, so a trace tells the benchmark apart from the interpreter starting up around it
 
+### Bugfixes
+
+- An instant sent close to the end of a run reaches the trace. The control plane was drained after the exporter had already closed, so whatever a client sent last was dropped without a word
+
 ### Internal
 
 - `gcmon.TraceExporter` is gone from the public surface
