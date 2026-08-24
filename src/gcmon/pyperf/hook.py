@@ -6,7 +6,6 @@ writes no file and computes no statistics. ``gcmon run`` over the whole suite
 is what it annotates.
 """
 
-import itertools
 import logging
 import os
 import time
@@ -25,13 +24,20 @@ ENV_PYPERF_HOOK_CONTROL_TIMEOUT = "GCMON_PYPERF_HOOK_CONTROL_TIMEOUT"
 
 logger = logging.getLogger("gcmon")
 
-_regions = itertools.count(1)
+_regions = 0
 """Regions counted per process, not per hook.
 
 A worker builds one hook for its warmups and another for its values, and both
 are handed the same benchmark name, so an instance-scoped counter would emit
 one mark name twice meaning two different things.
 """
+
+
+def _next_region() -> int:
+    """The next region number in this process."""
+    global _regions
+    _regions += 1
+    return _regions
 
 
 NO_MONITOR = (
@@ -149,7 +155,7 @@ class GCMonitorHook:
 
     def __enter__(self) -> GCMonitorHook:
         """Open a region, immediately before the benchmark runs."""
-        self._running = (next(_regions), time.monotonic_ns())
+        self._running = (_next_region(), time.monotonic_ns())
         return self
 
     def __exit__(self, *args: object) -> None:
