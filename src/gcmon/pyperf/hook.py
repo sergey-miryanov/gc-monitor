@@ -4,6 +4,7 @@ The hook spawns a ``gcmon monitor`` subprocess writing JSONL, and folds
 the lines it wrote into pyperf's metadata once the benchmark ends.
 """
 
+import itertools
 import logging
 import os
 import re
@@ -11,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
 from functools import partial
 from pathlib import Path
@@ -19,6 +21,7 @@ from typing import Any
 from ..control.control_client import ControlClient, connect_with_retry
 from ..control.control_server import _make_address
 from ..exporters.jsonl_io import read_jsonl
+from ..model.marks import BEGIN, END, format_mark
 from ..model.protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
 from ..stats.streaming_stats import StreamingStats
 from ..support.process_terminator import log_process_output, terminate_process
@@ -33,6 +36,14 @@ ENV_PYPERF_HOOK_VERBOSE = "GCMON_PYPERF_HOOK_VERBOSE"
 ENV_PYPERF_HOOK_CONTROL_TIMEOUT = "GCMON_PYPERF_HOOK_CONTROL_TIMEOUT"
 
 logger = logging.getLogger("gcmon")
+
+_regions = itertools.count(1)
+"""Regions counted per process, not per hook.
+
+A worker builds one hook for its warmups and another for its values, and both
+are handed the same benchmark name, so an instance-scoped counter would emit
+one mark name twice meaning two different things.
+"""
 
 
 def _get_env_pyperf_hook_verbose() -> bool:
@@ -131,6 +142,8 @@ class GCMonitorHook:
         self._temp_files: list[Path] = []
         self._temp_dir = temp_dir
         self._pid: int = pid or os.getpid()
+        self._marked: list[tuple[int, int, int]] = []
+        self._running: tuple[int, int] | None = None
         self._control_name = f"pyperf-hook-{self._pid}"
         self._control_address = _make_address(self._control_name)
 
@@ -194,26 +207,44 @@ class GCMonitorHook:
             self._process = None
 
     def __enter__(self) -> GCMonitorHook:
-        """Tell the monitor to start, immediately before the benchmark runs."""
+        """Open a region, immediately before the benchmark runs."""
         self._control_client.start_monitoring()
+        self._running = (next(_regions), time.monotonic_ns())
         return self
 
     def __exit__(self, *args: object) -> None:
-        """Tell it to stop, immediately after."""
+        """Close it, immediately after.
+
+        The pair is held rather than sent: the benchmark name arrives at
+        teardown, and nothing crosses a process boundary until then.
+        """
+        if self._running is not None:
+            region, began = self._running
+            self._running = None
+            self._marked.append((region, began, time.monotonic_ns()))
         self._control_client.stop_monitoring()
 
-    def teardown(self, metadata: dict[str, Any]) -> None:
-        """Combine the temp JSONL files and hand pyperf the statistics.
+    def _send_marks(self, bench_name: str) -> None:
+        """Land every region that finished, now that they can be named."""
+        for region, began, ended in self._marked:
+            self._control_client.instant_msg(format_mark(bench_name, region, BEGIN), ts=began)
+            self._control_client.instant_msg(format_mark(bench_name, region, END), ts=ended)
+        self._marked.clear()
 
-        Pyperf calls this once the hook is done with a process.
+    def teardown(self, metadata: dict[str, Any]) -> None:
+        """Land the marks, then combine the temp JSONL files and hand pyperf the statistics.
+
+        Pyperf calls this once the hook is done with a process, and it is the
+        first point at which ``metadata['name']`` names the benchmark.
         """
+        bench_name = re.sub(r"[^a-zA-Z0-9_-]", "_", metadata.get("name", ""))
+        self._send_marks(bench_name)
         self._control_client.close()
         self._close_monitor()
 
         if not self._temp_files:
             return
 
-        bench_name = re.sub(r"[^a-zA-Z0-9_-]", "_", metadata.get("name", ""))
         output_path = _get_env_pyperf_hook_output(bench_name, self._pid)
 
         try:

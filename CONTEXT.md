@@ -62,6 +62,13 @@ _Avoid_: sample, entry, datapoint
 One thing gcmon wrote into a trace. A record becomes one or more events.
 _Avoid_: record (for the trace side), slice (that is one shape of event)
 
+**Mark**:
+One instant a workload wrote into a trace to say where it was, as against an
+**event**, which is what gcmon wrote from a record. Its name carries the
+grammar `gcmon:<workload>:<n>:begin` or `:end`, reserved so a reader can
+select marks and nothing else.
+_Avoid_: annotation, marker, label, event (that is gcmon's side)
+
 **Batch**:
 The events one flush writes, compressed into a single packet in the trace. It
 is the unit a killed run loses: whole batches reach the file, and the one
