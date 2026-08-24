@@ -32,6 +32,21 @@ class TestTheLiteralShape:
         assert format_mark(bench, 1, BEGIN) == f"gcmon:{expected}:1:begin"
 
 
+class TestTheWriterNeverBeatsTheReader:
+    """Whatever `format_mark` emits, `parse_mark` reads back.
+
+    The two live in one module so they cannot drift; this is the property that
+    says so, and an empty benchmark name is the case that used to break it.
+    """
+
+    @pytest.mark.parametrize("bench", ["", ":", "::", "   ", "éé", "...", "bm_ok", "a" * 200])
+    def test_any_name_produces_a_mark_that_parses(self, bench: str) -> None:
+        assert parse_mark(format_mark(bench, 1, BEGIN)) is not None
+
+    def test_an_unnamed_workload_keeps_a_field(self) -> None:
+        assert format_mark("", 7, END) == "gcmon:_:7:end"
+
+
 class TestParsingSomethingElse:
     @pytest.mark.parametrize(
         "name",

@@ -34,9 +34,11 @@ def sanitize(bench: str) -> str:
     """*bench* with everything a field cannot hold replaced.
 
     The separator goes with it, which is what keeps the grammar unambiguous
-    whatever a workload calls itself.
+    whatever a workload calls itself. An empty name becomes ``_`` rather than
+    an empty field, so a formatted mark always parses: a writer that emits a
+    name its own reader refuses is the failure this module exists to prevent.
     """
-    return _NOT_IN_A_NAME.sub("_", bench)
+    return _NOT_IN_A_NAME.sub("_", bench) or "_"
 
 
 def format_mark(bench: str, region: int, side: TSide) -> str:
