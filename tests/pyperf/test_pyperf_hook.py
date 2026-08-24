@@ -16,8 +16,7 @@ from gcmon.pyperf.hook import (
     _replay,
     gcmon_hook,
 )
-from gcmon.pyperf.metrics import to_metrics
-from gcmon.stats.streaming_stats import StreamingStats
+from gcmon.stats.streaming_stats import PauseTotals, StreamingStats
 from tests.helpers import assert_valid_jsonl_format
 
 
@@ -119,16 +118,19 @@ def _parse_jsonl(tmp_path: Path, *lines: dict[str, Any]) -> dict[int, list[TItem
     return read_jsonl(path)
 
 
-def _teardown_metadata(tmp_path: Path, name: str, *lines: dict[str, Any]) -> dict[str, Any]:
-    """Everything the hook publishes for one capture, via the real teardown."""
-    hook = gcmon_hook(temp_dir=tmp_path, pid=12345)
-    temp_file = tmp_path / f"gcmon_12345_{name}.jsonl"
-    hook._temp_files = [temp_file]
-    _write_jsonl(temp_file, *lines)
+def _replayed(tmp_path: Path, *lines: dict[str, Any]) -> StreamingStats:
+    """Everything one capture says, folded the way `_replay` folds it."""
+    stats = StreamingStats()
+    _replay(stats, _parse_jsonl(tmp_path, *lines))
+    return stats
 
-    metadata: dict[str, Any] = {}
-    hook.teardown(metadata)
-    return metadata
+
+def _gen0(stats: StreamingStats) -> PauseTotals:
+    return stats.pause_totals_by_gen()[0]
+
+
+def _exact_total(stats: StreamingStats) -> int:
+    return sum(totals.exact_count for totals in stats.pause_totals_by_gen().values())
 
 
 class _RecordingStats(StreamingStats):
@@ -290,25 +292,21 @@ class TestGCMonitorHookExit:
 class TestGCMonitorHookTeardown:
     """Test GCMonitorHook teardown method."""
 
-    def test_teardown_reads_json_and_adds_metadata(
+    def test_teardown_adds_no_key_to_the_metadata(
         self,
         tmp_path: Path,
         mock_env_output: None,
     ) -> None:
-        """teardown reads JSONL files and adds metrics to metadata."""
+        """A capture full of records still leaves pyperf's metadata alone."""
         hook = gcmon_hook(temp_dir=tmp_path, pid=12345)
         temp_file = tmp_path / "gcmon_12345_0.jsonl"
         hook._temp_files = [temp_file]
         _write_jsonl(temp_file, _make_jsonl_event())
 
-        metadata: dict[str, object] = {}
+        metadata: dict[str, object] = {"name": "bm_base64", "loops": 4}
         hook.teardown(metadata)
 
-        # Verify metadata was added
-        assert "gc_pause_gen_0_p99" in metadata
-        assert isinstance(metadata["gc_pause_gen_0_p99"], (int, float))
-        assert metadata["gc_pause_gen_0_p99"] > 0
-        assert "gc_heap_size_p99" in metadata
+        assert metadata == {"name": "bm_base64", "loops": 4}
 
     def test_teardown_handles_missing_file(
         self,
@@ -320,7 +318,6 @@ class TestGCMonitorHookTeardown:
         metadata: dict[str, object] = {}
         hook.teardown(metadata)
 
-        # Should not add any keys if file doesn't exist
         assert metadata == {}
 
     def test_teardown_cleans_up_temp_files(
@@ -401,10 +398,7 @@ class TestGCMonitorHookTeardown:
         metadata: dict[str, Any] = {"name": "test_benchmark"}
         hook.teardown(metadata)
 
-        # Verify combined metrics
-        assert "gc_pause_gen_0_p99" in metadata
-        assert isinstance(metadata["gc_pause_gen_0_p99"], (int, float))
-        assert "gc_heap_size_p99" in metadata
+        assert metadata == {"name": "test_benchmark"}
 
         # Verify combined trace file was created in tmp_path
         combined_file = tmp_path / "out.jsonl"
@@ -419,11 +413,11 @@ class TestGCMonitorHookTeardown:
         assert not temp_file_1.exists()
 
 
-class TestTeardownReplaysLossAndCumulativeCounters:
+class TestReplayFoldsLossAndCumulativeCounters:
     """What the monitor folded live has to come back off the file.
 
-    The hook meets a session only as JSONL, so a loss record it skips is a
-    session that publishes full coverage and a sampled sum labelled exact.
+    A reader meets a session only as JSONL, so a loss record it skips is a
+    session that reports full coverage and a sampled sum labelled exact.
     The cumulative counters need no record of their own: ``collections`` and
     ``duration`` on every GC record are the target's own cumulative totals.
     """
@@ -437,66 +431,49 @@ class TestTeardownReplaysLossAndCumulativeCounters:
             _make_jsonl_event(collections=8, ts_start=1_020_000_000, ts_stop=1_025_000_000, duration=0.020),
         ]
 
-    def metadata(self, tmp_path: Path, *lines: dict[str, Any]) -> dict[str, Any]:
-        hook = gcmon_hook(temp_dir=tmp_path, pid=12345)
-        temp_file = tmp_path / "gcmon_12345_0.jsonl"
-        hook._temp_files = [temp_file]
-        _write_jsonl(temp_file, *lines)
+    def test_the_count_covers_what_the_poll_missed(self, tmp_path: Path) -> None:
+        stats = _replayed(tmp_path, *self.observed(), self.LOST)
 
-        metadata: dict[str, Any] = {}
-        hook.teardown(metadata)
-        return metadata
+        assert _gen0(stats).exact_count == 4
+        assert _exact_total(stats) == 4
 
-    def test_the_count_covers_what_the_poll_missed(self, tmp_path: Path, mock_env_output: None) -> None:
-        metadata = self.metadata(tmp_path, *self.observed(), self.LOST)
+    def test_the_sum_covers_the_pause_nobody_saw(self, tmp_path: Path) -> None:
+        stats = _replayed(tmp_path, *self.observed(), self.LOST)
 
-        assert metadata["gc_pause_gen_0_count"] == 4
-        assert metadata["gc_pause_count"] == 4
+        assert _gen0(stats).exact_pause_ns == pytest.approx(17_000_000)
 
-    def test_the_sum_covers_the_pause_nobody_saw(self, tmp_path: Path, mock_env_output: None) -> None:
-        metadata = self.metadata(tmp_path, *self.observed(), self.LOST)
+    def test_coverage_reports_the_share_that_was_read(self, tmp_path: Path) -> None:
+        stats = _replayed(tmp_path, *self.observed(), self.LOST)
 
-        assert metadata["gc_pause_gen_0_sum"] == pytest.approx(17.0)
+        assert _gen0(stats).coverage == pytest.approx(0.5)
 
-    def test_coverage_reports_the_share_that_was_read(self, tmp_path: Path, mock_env_output: None) -> None:
-        metadata = self.metadata(tmp_path, *self.observed(), self.LOST)
+    def test_a_session_that_lost_nothing_reports_full_coverage(self, tmp_path: Path) -> None:
+        totals = _gen0(_replayed(tmp_path, *self.observed()))
 
-        assert metadata["gc_pause_gen_0_coverage"] == pytest.approx(0.5)
+        assert totals.coverage == 1.0
+        assert totals.exact_count == 2
+        assert totals.exact_pause_ns == pytest.approx(10_000_000)
 
-    def test_a_session_that_lost_nothing_reports_full_coverage(self, tmp_path: Path, mock_env_output: None) -> None:
-        metadata = self.metadata(tmp_path, *self.observed())
-
-        assert metadata["gc_pause_gen_0_coverage"] == 1.0
-        assert metadata["gc_pause_gen_0_count"] == 2
-        assert metadata["gc_pause_gen_0_sum"] == pytest.approx(10.0)
-
-    def test_the_counters_come_from_the_newest_record_of_the_ring(self, tmp_path: Path, mock_env_output: None) -> None:
+    def test_the_counters_come_from_the_newest_record_of_the_ring(self, tmp_path: Path) -> None:
         """The whole history the target reports, not the monitored part."""
-        metadata = self.metadata(tmp_path, *self.observed(), self.LOST)
+        counters = _replayed(tmp_path, *self.observed(), self.LOST).cumulative_totals_by_gen()[0]
 
-        assert metadata["gc_pause_gen_0_lifetime_count"] == 8
-        assert metadata["gc_pause_gen_0_lifetime_sum"] == pytest.approx(20.0)
+        assert counters.collections == 8
+        assert counters.pause_ns == pytest.approx(20_000_000)
 
-    def test_records_out_of_order_do_not_walk_the_counters_backwards(
-        self, tmp_path: Path, mock_env_output: None
-    ) -> None:
+    def test_records_out_of_order_do_not_walk_the_counters_backwards(self, tmp_path: Path) -> None:
         """Cumulative totals only ever grow, so the highest counter wins
         however the lines happen to be ordered."""
         newest, oldest = self.observed()[1], self.observed()[0]
 
-        metadata = self.metadata(tmp_path, newest, oldest)
+        stats = _replayed(tmp_path, newest, oldest)
 
-        assert metadata["gc_pause_gen_0_lifetime_count"] == 8
+        assert stats.cumulative_totals_by_gen()[0].collections == 8
 
-    def test_the_advisory_reads_the_whole_sample_not_a_file_prefix(
-        self,
-        tmp_path: Path,
-        mock_env_output: None,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Loss is summed and applied after the records, so a run that ends
-        well covered does not warn on the strength of a loss line that
-        happened to be written before most of them."""
+    def test_the_loss_applies_to_the_whole_sample_not_a_file_prefix(self, tmp_path: Path) -> None:
+        """Loss is summed and applied once the whole sample is folded, so a
+        run that ends well covered is not dragged down by a loss line that
+        happened to be written before most of the records."""
         records = [
             _make_jsonl_event(
                 collections=n,
@@ -506,10 +483,9 @@ class TestTeardownReplaysLossAndCumulativeCounters:
             for n in range(1, 21)
         ]
 
-        metadata = self.metadata(tmp_path, _make_jsonl_loss(lost_count=1, lost_pause_ns=5_000_000), *records)
+        stats = _replayed(tmp_path, _make_jsonl_loss(lost_count=1, lost_pause_ns=5_000_000), *records)
 
-        assert metadata["gc_pause_gen_0_coverage"] > 0.9
-        assert "of collections observed" not in caplog.text
+        assert _gen0(stats).coverage > 0.9
 
 
 class TestLossIsNeverReplayedAsACollection:
@@ -579,7 +555,7 @@ class TestLossIsNeverReplayedAsACollection:
 
         assert as_written.updated == reversed_order.updated
         assert as_written.losses == reversed_order.losses
-        assert to_metrics(as_written) == to_metrics(reversed_order)
+        assert as_written.pause_totals_by_gen() == reversed_order.pause_totals_by_gen()
 
     def test_a_capture_of_nothing_but_loss_replays_and_still_counts_it(self, tmp_path: Path) -> None:
         """Nothing was sampled, so there is no pause to describe, but the
@@ -593,32 +569,19 @@ class TestLossIsNeverReplayedAsACollection:
         assert stats.pause_totals(12345, 0, 0).lost_count == 2
         assert stats.pause_totals_by_gen()[0].exact_count == 2
         assert stats.pause_totals_by_gen()[0].coverage == 0.0
-        assert to_metrics(stats)["pause_count"] == 2
+        assert _exact_total(stats) == 2
 
-    def test_a_loss_only_capture_publishes_nothing_rather_than_zeroes(
-        self,
-        tmp_path: Path,
-        mock_env_output: None,
-    ) -> None:
-        """`teardown` gates on having sampled something, so a session that
-        read no record at all stays out of the benchmark's metadata."""
-        assert _teardown_metadata(tmp_path, "loss-only", self.LOST) == {}
-
-    def test_loss_before_the_records_gives_the_same_metrics_as_loss_after(
-        self,
-        tmp_path: Path,
-        mock_env_output: None,
-    ) -> None:
+    def test_loss_before_the_records_folds_the_same_as_loss_after(self, tmp_path: Path) -> None:
         """Loss is summed and applied once the whole sample is folded, so
         where its record sits in the file cannot move a number."""
         records = self.capture()[:-1]
 
-        after = _teardown_metadata(tmp_path, "after", *records, self.LOST)
-        before = _teardown_metadata(tmp_path, "before", self.LOST, *records)
+        after = _replayed(tmp_path, *records, self.LOST)
+        before = _replayed(tmp_path, self.LOST, *records)
 
-        assert before == after
-        assert after["gc_pause_gen_0_coverage"] == pytest.approx(0.5)
-        assert after["gc_pause_gen_0_sum"] == pytest.approx(17.0)
+        assert before.pause_totals_by_gen() == after.pause_totals_by_gen()
+        assert _gen0(after).coverage == pytest.approx(0.5)
+        assert _gen0(after).exact_pause_ns == pytest.approx(17_000_000)
 
 
 class TestReplayKeepsTheInterpretersApart:
@@ -659,51 +622,6 @@ class TestReplayKeepsTheInterpretersApart:
         totals = self._replayed(tmp_path).pause_totals_by_gen()[0]
 
         assert (totals.sampled_count, totals.lost_count) == (2, 9)
-
-
-class TestAggregateGcStats:
-    """Test the metric projection over a replayed session."""
-
-    def test_empty_no_metadata(self) -> None:
-        assert to_metrics(StreamingStats()) == {"pause_count": 0}
-
-    def test_single_event_single_pid(self) -> None:
-        ss = StreamingStats()
-        ss.update(100, _make_event())
-        result = to_metrics(ss)
-        assert result["pause_gen_0_p99"] > 0
-        assert result["heap_size_p99"] == 20000
-
-    def test_multiple_events_all_gen0(self) -> None:
-        ss = StreamingStats()
-        for i in range(3):
-            ss.update(
-                100,
-                _make_event(
-                    iid=i,
-                    ts_start=1_000_000_000 + i * 100_000_000,
-                    ts_stop=1_005_000_000 + i * 100_000_000,
-                    heap_size=20000 + i * 5000,
-                ),
-            )
-        result = to_metrics(ss)
-        assert "pause_gen_0_p99" in result
-        assert "pause_gen_1_p99" not in result
-        assert "pause_gen_2_p99" not in result
-
-    def test_multiple_pids_heap_p99(self) -> None:
-        ss = StreamingStats()
-        for pid in [100, 200, 300]:
-            ss.update(pid, _make_event(heap_size=pid * 100))
-        assert to_metrics(ss)["heap_size_p99"] == 29800
-
-    def test_per_generation_p99(self) -> None:
-        ss = StreamingStats()
-        for gen in range(3):
-            ss.update(100, _make_event(gen=gen, iid=gen, ts_stop=1_005_000_000 + gen * 5_000_000))
-        result = to_metrics(ss)
-        for gen in range(3):
-            assert f"pause_gen_{gen}_p99" in result
 
 
 class TestGcMonitorHookFactory:
@@ -797,8 +715,7 @@ class TestGCMonitorHookSharedOutput:
         combined_data = assert_valid_jsonl_format(shared_output)
         assert len(combined_data) >= 1  # at least 1 event
 
-        # Verify metadata from second run
-        assert "gc_pause_gen_0_p99" in metadata2
+        assert metadata2 == {"name": "benchmark_run2"}
 
         # Cleanup temp files
         temp_file_1.unlink(missing_ok=True)
@@ -836,7 +753,7 @@ class TestGCMonitorHookBenchNameSubstitution:
             assert expected_output.exists()
             data = assert_valid_jsonl_format(expected_output)
             assert len(data) > 0
-            assert "gc_pause_gen_0_p99" in metadata
+            assert not any(key.startswith("gc_") for key in metadata)
             expected_output.unlink(missing_ok=True)
             temp_file.unlink(missing_ok=True)
 
@@ -887,8 +804,7 @@ class TestGCMonitorHookBenchNameSubstitution:
                 data = assert_valid_jsonl_format(expected_output)
                 assert len(data) > 0
 
-                # Verify metadata was populated correctly
-                assert "gc_pause_gen_0_p99" in metadata
+                assert not any(key.startswith("gc_") for key in metadata)
 
                 # Cleanup temp file
                 temp_file.unlink(missing_ok=True)
@@ -950,8 +866,7 @@ class TestGCMonitorHookBenchNameSubstitution:
             data = assert_valid_jsonl_format(expected_output)
             assert len(data) >= 1  # Event from second run
 
-            # Verify second run metadata was populated
-            assert "gc_pause_gen_0_p99" in metadata2
+            assert not any(key.startswith("gc_") for key in metadata2)
 
             # Cleanup
             expected_output.unlink(missing_ok=True)

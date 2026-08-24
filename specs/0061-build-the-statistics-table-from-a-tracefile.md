@@ -92,7 +92,8 @@ test in section 5 is what would validate the replacement.
 **The reader returns `dict[int, list[TItem]]`,** the type `read_jsonl` already
 returns. `_replay`, today a private function in `pyperf/hook.py`, moves to a
 module both can import and becomes the single path from records to a
-`StreamingStats`. JSONL, the pyperf hook and a tracefile then reach the table
+`StreamingStats`. Spec 0064 left it without a caller there: the hook marks the
+benchmark and computes nothing. JSONL and a tracefile then reach the table
 through the same code, and the zero-duration rule in `streaming_stats._record`
 is applied once rather than reimplemented.
 

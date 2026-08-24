@@ -1,7 +1,9 @@
-"""Pyperf hook that runs gcmon against the benchmark process.
+"""Pyperf hook that marks where each benchmark ran.
 
-The hook spawns a ``gcmon monitor`` subprocess writing JSONL, and folds
-the lines it wrote into pyperf's metadata once the benchmark ends.
+The hook spawns a ``gcmon monitor`` subprocess writing JSONL, and writes a
+begin and an end mark per measured region into the trace it keeps. The
+statistics over those records are read from the capture afterwards, by
+whatever reads captures.
 """
 
 import itertools
@@ -20,12 +22,10 @@ from typing import Any
 
 from ..control.control_client import ControlClient, connect_with_retry
 from ..control.control_server import _make_address
-from ..exporters.jsonl_io import read_jsonl
 from ..model.marks import BEGIN, END, format_mark
 from ..model.protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
 from ..stats.streaming_stats import StreamingStats
 from ..support.process_terminator import log_process_output, terminate_process
-from .metrics import to_metrics
 
 GRACEFUL_TIMEOUT = 5.0
 FORCE_TIMEOUT = 2.0
@@ -125,8 +125,9 @@ class GCMonitorHook:
 
     The hook spawns a `gcmon` CLI process that reads the benchmark
     process's memory directly. That process writes one JSONL file per run
-    under a temp directory; the hook concatenates them and puts the
-    statistics it reads back into pyperf's metadata.
+    under a temp directory, and the hook concatenates them. Nothing of the
+    hook's reaches pyperf's metadata: it marks the region and the numbers are
+    read off the capture.
 
     Usage:
         # Entry point registration in pyproject.toml
@@ -232,10 +233,12 @@ class GCMonitorHook:
         self._marked.clear()
 
     def teardown(self, metadata: dict[str, Any]) -> None:
-        """Land the marks, then combine the temp JSONL files and hand pyperf the statistics.
+        """Land the marks and combine the temp JSONL files.
 
         Pyperf calls this once the hook is done with a process, and it is the
-        first point at which ``metadata['name']`` names the benchmark.
+        first point at which ``metadata['name']`` names the benchmark. The
+        dict is read and not written: a benchmark's own numbers are pyperf's,
+        and gcmon's are in the capture.
         """
         bench_name = re.sub(r"[^a-zA-Z0-9_-]", "_", metadata.get("name", ""))
         self._send_marks(bench_name)
@@ -256,21 +259,10 @@ class GCMonitorHook:
                             shutil.copyfileobj(f, out)
                         out.write(b"\n")
 
-            ss = StreamingStats()
-            if output_path.exists():
-                try:
-                    _replay(ss, read_jsonl(output_path))
-                except Exception as e:
-                    logger.warning("Failed to read combined GC metrics: %s", e)
-
-            if ss.count():
-                for key, value in to_metrics(ss).items():
-                    metadata[f"gc_{key}"] = value
-
         except Exception as e:
-            # The benchmark's own numbers outrank ours, so this warns and the
-            # run stands.
-            logger.warning("Failed to aggregate GC metrics: %s", e)
+            # A capture that failed to combine is not worth failing a
+            # benchmark over, so this warns and the run stands.
+            logger.warning("Failed to combine GC captures: %s", e)
 
         finally:
             self._temp_dir.cleanup()

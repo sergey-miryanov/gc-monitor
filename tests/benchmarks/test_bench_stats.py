@@ -12,7 +12,6 @@ from typing import Any
 import pytest
 from pytest_codspeed import BenchmarkFixture
 
-from gcmon.pyperf.metrics import to_metrics
 from gcmon.stats.stats import Stats, get_quantile_value
 from gcmon.stats.streaming_stats import StreamingStats
 
@@ -81,19 +80,6 @@ def test_streaming_stats_retain_wide_fan_out(benchmark: BenchmarkFixture) -> Non
     # Not timing: a run that stopped settling would otherwise read as a win.
     assert result._running_rings == {}
     assert len(result.rings()) == StreamingStats.MAX_ACTIVE_RINGS
-
-
-@pytest.mark.benchmark
-def test_streaming_stats_aggregate(benchmark: BenchmarkFixture) -> None:
-    """The projection, which used to be `StreamingStats.aggregate`. The name
-    stays so CodSpeed keeps one series across the move, and *stats* goes
-    through the fixture so the number leaves out a wrapper frame."""
-    stats = StreamingStats()
-    for i in range(EVENT_COUNT):
-        stats.update(12345, make_gc_event(i, gen=i % 3))
-
-    result = benchmark(to_metrics, stats)
-    assert result["pause_count"] == EVENT_COUNT
 
 
 @pytest.mark.benchmark

@@ -9,6 +9,7 @@
 - The default output is `gcmon.pftrace`, where it was `gcmon.json`. `--format jsonl` still defaults to `gcmon.jsonl`
 - `GCMON_FORMAT` refuses a word `--format` would refuse and stops the run, where it used to fall back to the default without saying so
 - A run that read no records writes no file, where it used to write an empty `gcmon.json`
+- The pyperf hook publishes no GC metrics: `gc_pause_gen_N_p99`, `_sum`, `_count`, `_coverage`, `_lifetime_count`, `_lifetime_sum`, `gc_pause_count` and `gc_heap_size_p99` are gone from pyperf's metadata. They covered a window wider than the benchmark by every gap in it, so a history spanning this change is not one series. The hook marks the benchmark's region in the trace and the numbers are read from there
 - `gcmon combine` reads JSONL only: `--input-format` is gone, `--output-format` takes `perfetto` or `jsonl` and defaults to `perfetto`. Handed a `.json` from an earlier release, it names the Chrome format instead of reporting malformed JSON
 
 ### Features

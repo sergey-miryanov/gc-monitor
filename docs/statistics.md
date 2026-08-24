@@ -92,9 +92,8 @@ of three intervals:
   and `Sum` report this, reconstructed from the target's cumulative counters.
 - **Lifetime totals**: everything an interpreter has collected since it
   started, monitored window included. They appear in the footer under the
-  table, and as `pause_gen_N_lifetime_*` in [pyperf metadata](pyperf.md). They
-  overlap the other two rather than extending them, so they stay out of `Cov`
-  and `F`.
+  table. They overlap the other two rather than extending them, so they stay
+  out of `Cov` and `F`.
 
 Always write the qualifier: bare *lifetime* means a process's span on the
 `Processes` track ([ADR-0011](adr/0011-process-lifetime-and-ordering.md)), a
