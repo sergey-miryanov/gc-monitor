@@ -90,12 +90,14 @@ The protocol above is what makes the choice reversible, and the round-trip
 test in section 5 is what would validate the replacement.
 
 **The reader returns `dict[int, list[TItem]]`,** the type `read_jsonl` already
-returns. `_replay`, today a private function in `pyperf/hook.py`, moves to a
-module both can import and becomes the single path from records to a
-`StreamingStats`. Spec 0064 left it without a caller there: the hook marks the
-benchmark and computes nothing. JSONL and a tracefile then reach the table
-through the same code, and the zero-duration rule in `streaming_stats._record`
-is applied once rather than reimplemented.
+returns. Folding a capture's records back into a `StreamingStats` becomes the
+single path from records to a table. `pyperf/hook.py` carried a private
+`_replay` doing exactly that; spec 0064 left it with no caller, since the hook
+marks the benchmark and computes nothing, and it was deleted rather than left
+to rot. Recover it from git history: it and its tests are the commit before
+"Drop the hook's replay of a capture". JSONL and a tracefile then reach the
+table through the same code, and the zero-duration rule in
+`streaming_stats._record` is applied once rather than reimplemented.
 
 That costs the reader some fabrication. A sub-phase has its own slice, so its
 duration is in the file directly, and reassembling the timestamp pair the
@@ -173,6 +175,6 @@ Depends on spec 0059, without which the offline table cannot say which process
 held a pid and would drop a distinction the live table makes. Spec 0063
 depends on this one.
 
-Moving `_replay` out of `pyperf/hook.py` touches the hook. The hook is due a
-refactor of its own, which this does not attempt: the function moves and its
-callers follow, and nothing else about the hook changes.
+Nothing here touches the hook. Spec 0064 already took the replay out of
+`pyperf/hook.py`, so this spec writes the shared implementation rather than
+moving one.

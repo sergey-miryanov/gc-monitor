@@ -9,15 +9,12 @@ is what it annotates.
 import logging
 import os
 import time
-from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Any
 
 from ..control.control_client import ControlClient, connect_with_retry
 from ..control.control_server import CONTROL_ADDRESS_ENV
 from ..model.marks import BEGIN, END, format_mark
-from ..model.protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
-from ..stats.streaming_stats import StreamingStats
 
 ENV_PYPERF_HOOK_VERBOSE = "GCMON_PYPERF_HOOK_VERBOSE"
 ENV_PYPERF_HOOK_CONTROL_TIMEOUT = "GCMON_PYPERF_HOOK_CONTROL_TIMEOUT"
@@ -77,47 +74,6 @@ def _get_env_pyperf_hook_control_timeout() -> float:
         except ValueError:
             pass
     return 10.0
-
-
-def _replay(stats: StreamingStats, parsed: Mapping[int, Sequence[TItem]]) -> None:
-    """Rebuild a session's statistics from the records it wrote.
-
-    The monitor folds loss and the cumulative counters as it polls, but the
-    hook meets the session only as a file, so both have to come back off it.
-    Loss rides in records of its own. The counters ride on every GC record,
-    whose ``collections`` and ``duration`` are the target's cumulative totals,
-    so the newest record of each ring carries what the monitor observed live.
-
-    Loss is summed per ``(pid, iid, gen)`` before it goes in: one record covers
-    one interpreter's poll interval and names every generation active in it, so
-    its entries sum rather than its records.
-
-    Order between the two guards does not matter, since no record answers to
-    both. Were they ever to overlap, a loss record would fold in here as a
-    collection and inflate the very numbers it carries to correct.
-    """
-    lost: dict[tuple[int, int, int], tuple[int, int]] = {}
-    newest: dict[tuple[int, int, int], TGCStatsInfo] = {}
-
-    for pid, items in parsed.items():
-        for item in items:
-            if is_gc_stats(item):
-                stats.update(pid, item)
-                ring = (pid, item.iid, item.gen)
-                if ring not in newest or item.collections > newest[ring].collections:
-                    newest[ring] = item
-            elif is_loss(item):
-                for entry in item.gens:
-                    ring = (pid, item.iid, entry.gen)
-                    seen_count, seen_pause = lost.get(ring, (0, 0))
-                    lost[ring] = (seen_count + entry.lost_count, seen_pause + entry.lost_pause_ns)
-
-    for (pid, iid, gen), record in newest.items():
-        stats.observe_cumulative(pid, iid, gen, record.collections, record.duration)
-
-    for (pid, iid, gen), (count, pause_ns) in lost.items():
-        if count or pause_ns:
-            stats.record_loss(pid, iid, gen, count, pause_ns)
 
 
 class GCMonitorHook:

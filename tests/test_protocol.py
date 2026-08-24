@@ -494,11 +494,11 @@ class TestGuardsAreMutuallyExclusive:
         instant_item: InstantMsg,
         loss_item: LossMsg,
     ) -> None:
-        """No two call sites dispatch in the same order: ``_replay`` asks
-        ``is_gc_stats`` first, the converters ask ``is_loss`` first, so a
-        record that two guards claim would take a different branch depending
-        on who asked, silently. Exactly one may hold, for every record type,
-        whatever fields those types grow later."""
+        """A record two guards claim takes a different branch depending on
+        which guard a call site happens to ask first, and does it silently.
+        Keeping them disjoint is cheaper than auditing every dispatch order
+        as call sites come and go. Exactly one may hold, for every record
+        type, whatever fields those types grow later."""
         for item in (simple_item, incremental_item, instant_item, loss_item):
             claims = [is_gc_stats(item), is_instant(item), is_loss(item)]
             assert claims.count(True) == 1, f"{type(item).__name__} matched {claims}"
