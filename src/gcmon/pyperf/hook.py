@@ -14,7 +14,7 @@ from typing import Any
 
 from ..control.control_client import ControlClient, connect_with_retry
 from ..control.control_server import CONTROL_ADDRESS_ENV
-from ..model.marks import BEGIN, END, format_mark
+from ..model.marks import Side, format_mark
 
 ENV_PYPERF_HOOK_VERBOSE = "GCMON_PYPERF_HOOK_VERBOSE"
 ENV_PYPERF_HOOK_CONTROL_TIMEOUT = "GCMON_PYPERF_HOOK_CONTROL_TIMEOUT"
@@ -128,8 +128,8 @@ class GCMonitorHook:
     def _send_marks(self, bench_name: str) -> None:
         """Land every region that finished, now that they can be named."""
         for region, began, ended in self._marked:
-            self._control_client.instant_msg(format_mark(bench_name, region, BEGIN), ts=began)
-            self._control_client.instant_msg(format_mark(bench_name, region, END), ts=ended)
+            self._control_client.instant_msg(format_mark(bench_name, region, Side.BEGIN), ts=began)
+            self._control_client.instant_msg(format_mark(bench_name, region, Side.END), ts=ended)
         self._marked.clear()
 
     def teardown(self, metadata: dict[str, Any]) -> None:

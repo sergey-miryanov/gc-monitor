@@ -17,7 +17,7 @@ from typing import NamedTuple, override
 import pytest
 
 from gcmon.control.control_server import CONTROL_ADDRESS_ENV, ControlServer, _make_address
-from gcmon.model.marks import BEGIN, END, Mark, parse_mark
+from gcmon.model.marks import Mark, Side, parse_mark
 from gcmon.model.protocol import TInstantMsg
 from gcmon.monitoring.events_reader import RemoteEventsReader, TargetUnavailable
 from gcmon.pyperf.hook import GCMonitorHook, gcmon_hook
@@ -86,7 +86,7 @@ class TestAccumulateAndLand:
         hook.teardown({"name": "bm_base64"})
 
         marks = sink.wait_for(4)
-        assert _sides(marks) == [BEGIN, END, BEGIN, END]
+        assert _sides(marks) == [Side.BEGIN, Side.END, Side.BEGIN, Side.END]
         assert [m.mark.bench for m in marks] == ["bm_base64"] * 4
         first, second = marks[0].mark.region, marks[2].mark.region
         assert [m.mark.region for m in marks] == [first, first, second, second]
@@ -207,8 +207,8 @@ class TestTheMarksInATrace:
         marks = [parse_mark(row.name) for row in rows]
         assert len(marks) == 2, f"expected one region's pair of marks, got {[row.name for row in rows]}"
         assert marks[0] is not None and marks[1] is not None
-        assert marks[0].side == BEGIN
-        assert marks[1].side == END
+        assert marks[0].side == Side.BEGIN
+        assert marks[1].side == Side.END
         assert marks[0].bench == marks[1].bench == "bm_base64"
         assert marks[0].region == marks[1].region
 
@@ -230,7 +230,7 @@ class TestAnUnfinishedRegion:
         hook.__enter__()
         hook.teardown({"name": "bm_base64"})
 
-        assert _sides(sink.wait_for(2)) == [BEGIN, END]
+        assert _sides(sink.wait_for(2)) == [Side.BEGIN, Side.END]
 
 
 class TestTheHookDoesNothingElse:

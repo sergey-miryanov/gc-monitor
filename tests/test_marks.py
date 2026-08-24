@@ -2,34 +2,34 @@
 
 import pytest
 
-from gcmon.model.marks import BEGIN, END, Mark, TSide, format_mark, parse_mark
+from gcmon.model.marks import Mark, Side, format_mark, parse_mark
 
 
 class TestRoundTrip:
     @pytest.mark.parametrize("bench", ["bm_base64", "a", "with-dash", "with_underscore", "0"])
     @pytest.mark.parametrize("region", [1, 2, 42, 1000])
-    @pytest.mark.parametrize("side", [BEGIN, END])
-    def test_a_formatted_mark_parses_back_to_its_parts(self, bench: str, region: int, side: TSide) -> None:
+    @pytest.mark.parametrize("side", [Side.BEGIN, Side.END])
+    def test_a_formatted_mark_parses_back_to_its_parts(self, bench: str, region: int, side: Side) -> None:
         assert parse_mark(format_mark(bench, region, side)) == Mark(bench, region, side)
 
 
 class TestTheLiteralShape:
     def test_the_grammar_is_pinned(self) -> None:
-        assert format_mark("bm_base64", 1, BEGIN) == "gcmon:bm_base64:1:begin"
-        assert format_mark("bm_base64", 1, END) == "gcmon:bm_base64:1:end"
+        assert format_mark("bm_base64", 1, Side.BEGIN) == "gcmon:bm_base64:1:begin"
+        assert format_mark("bm_base64", 1, Side.END) == "gcmon:bm_base64:1:end"
 
     def test_a_mark_is_selectable_by_prefix(self) -> None:
-        assert format_mark("bm_base64", 1, BEGIN).startswith("gcmon:")
+        assert format_mark("bm_base64", 1, Side.BEGIN).startswith("gcmon:")
 
     def test_a_separator_in_the_benchmark_name_cannot_reach_the_grammar(self) -> None:
-        assert format_mark("a:b", 1, BEGIN) == "gcmon:a_b:1:begin"
+        assert format_mark("a:b", 1, Side.BEGIN) == "gcmon:a_b:1:begin"
 
     @pytest.mark.parametrize(
         "bench, expected",
         [("a b", "a_b"), ("a.b", "a_b"), ("a/b", "a_b"), ("bm[x]", "bm_x_"), ("é", "_")],
     )
     def test_a_benchmark_name_keeps_only_word_characters(self, bench: str, expected: str) -> None:
-        assert format_mark(bench, 1, BEGIN) == f"gcmon:{expected}:1:begin"
+        assert format_mark(bench, 1, Side.BEGIN) == f"gcmon:{expected}:1:begin"
 
 
 class TestTheWriterNeverBeatsTheReader:
@@ -41,10 +41,10 @@ class TestTheWriterNeverBeatsTheReader:
 
     @pytest.mark.parametrize("bench", ["", ":", "::", "   ", "éé", "...", "bm_ok", "a" * 200])
     def test_any_name_produces_a_mark_that_parses(self, bench: str) -> None:
-        assert parse_mark(format_mark(bench, 1, BEGIN)) is not None
+        assert parse_mark(format_mark(bench, 1, Side.BEGIN)) is not None
 
     def test_an_unnamed_workload_keeps_a_field(self) -> None:
-        assert format_mark("", 7, END) == "gcmon:_:7:end"
+        assert format_mark("", 7, Side.END) == "gcmon:_:7:end"
 
 
 class TestParsingSomethingElse:

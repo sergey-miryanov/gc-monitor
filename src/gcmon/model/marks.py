@@ -5,21 +5,25 @@ wire, and a writer that drifts from a reader produces marks nothing selects.
 """
 
 import re
-from typing import Final, Literal, NamedTuple
+from enum import StrEnum
+from typing import Final, NamedTuple
 
 PREFIX: Final = "gcmon"
 """Reserved, so ``name LIKE 'gcmon:%'`` selects marks and nothing else."""
 
-SEPARATOR: Final = ":"
+_NAME_CHARS: Final = "a-zA-Z0-9_-"
+"""What a benchmark name may hold, in both directions.
 
-TSide = Literal["begin", "end"]
+The separator is not among them, which is what keeps the grammar unambiguous
+whatever a workload calls itself.
+"""
 
-BEGIN: Final[TSide] = "begin"
-END: Final[TSide] = "end"
 
-_SIDES: Final[dict[str, TSide]] = {BEGIN: BEGIN, END: END}
-_FIELDS: Final = 4
-_NOT_IN_A_NAME: Final = re.compile(r"[^a-zA-Z0-9_-]")
+class Side(StrEnum):
+    """Which end of a region a mark is."""
+
+    BEGIN = "begin"
+    END = "end"
 
 
 class Mark(NamedTuple):
@@ -27,23 +31,21 @@ class Mark(NamedTuple):
 
     bench: str
     region: int
-    side: TSide
+    side: Side
 
 
-def sanitize(bench: str) -> str:
-    """*bench* with everything a field cannot hold replaced.
+_NOT_A_NAME: Final = re.compile(f"[^{_NAME_CHARS}]")
+_MARK: Final = re.compile(f"{PREFIX}:([{_NAME_CHARS}]+):([0-9]+):({'|'.join(Side)})")
 
-    The separator goes with it, which is what keeps the grammar unambiguous
-    whatever a workload calls itself. An empty name becomes ``_`` rather than
-    an empty field, so a formatted mark always parses: a writer that emits a
-    name its own reader refuses is the failure this module exists to prevent.
+
+def format_mark(bench: str, region: int, side: Side) -> str:
+    """The name of one mark.
+
+    *bench* keeps only what a field can hold, and an empty result becomes
+    ``_``: a writer that emits a name its own reader refuses is the failure
+    this module exists to prevent.
     """
-    return _NOT_IN_A_NAME.sub("_", bench) or "_"
-
-
-def format_mark(bench: str, region: int, side: TSide) -> str:
-    """The name of one mark, sanitized."""
-    return SEPARATOR.join((PREFIX, sanitize(bench), str(region), side))
+    return f"{PREFIX}:{_NOT_A_NAME.sub('_', bench) or '_'}:{region}:{side}"
 
 
 def parse_mark(name: str) -> Mark | None:
@@ -52,15 +54,9 @@ def parse_mark(name: str) -> Mark | None:
     Instants from elsewhere share the trace, so this answers rather than
     raises.
     """
-    parts = name.split(SEPARATOR)
-    if len(parts) != _FIELDS:
+    found = _MARK.fullmatch(name)
+    if found is None:
         return None
 
-    prefix, bench, region, raw_side = parts
-    side = _SIDES.get(raw_side)
-    if side is None or prefix != PREFIX or not bench:
-        return None
-    if not (region.isascii() and region.isdigit()):
-        return None
-
-    return Mark(bench, int(region), side)
+    bench, region, side = found.groups()
+    return Mark(bench, int(region), Side(side))
