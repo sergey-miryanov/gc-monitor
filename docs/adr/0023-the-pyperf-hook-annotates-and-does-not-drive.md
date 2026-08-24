@@ -98,6 +98,18 @@ polling hard enough that every read takes the GIL inside the process being
 benchmarked. gcmon reads from outside for that reason, and `--rate` spends the
 monitor's time rather than the target's.
 
+**Carry the fields as annotations rather than in the name.** An instant could
+take a payload of arbitrary keys, which `build_track_event` already supports
+through `debug_annotations` and the GC pause slices already use, and a reader
+would join the `args` table instead of parsing a string. That is the better
+shape, for the same reason ADR-0006's slice pair is: the fields are structured
+rather than encoded. It is also not a change to the hook. `InstantEvent` has
+no args where `BeginEvent` and `CounterEvent` do, so a payload has to be
+carried by every exporter's `add_instant_event` and survive the JSONL round
+trip that `combine` reads. It gets a spec of its own, together with the
+decision about what the name is then for, and it is the same spec that settles
+the slice shape below.
+
 **Draw a region as a slice.** ADR-0006 makes a duration a begin/end pair in
 both backends, and that is the better shape here too: it pairs in the model
 rather than in a string, and a reader finds a region without matching two
