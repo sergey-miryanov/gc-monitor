@@ -6,9 +6,11 @@ pyperf.
 """
 
 import os
+import subprocess
 import sys
 import time
 from collections.abc import Generator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple, override
 
@@ -17,8 +19,10 @@ import pytest
 from gcmon.control.control_server import CONTROL_ADDRESS_ENV, ControlServer, _make_address
 from gcmon.model.marks import BEGIN, END, Mark, parse_mark
 from gcmon.model.protocol import TInstantMsg
+from gcmon.monitoring.events_reader import RemoteEventsReader, TargetUnavailable
 from gcmon.pyperf.hook import GCMonitorHook, gcmon_hook
 from tests.helpers import MockExporter
+from tests.test_events_reader import target_executable
 
 
 class Marked(NamedTuple):
@@ -266,6 +270,71 @@ class TestTheHookDoesNothingElse:
         hook.teardown(metadata)
 
         assert metadata == {"name": "bm_base64", "loops": 4}
+
+
+# A target that collects on demand. The one in ``tests/test_events_reader``
+# fills its rings while the interpreter starts and then goes quiet, which
+# proves a ring can be read but says nothing about when a record was stamped.
+_COLLECTING_TARGET = """
+import gc, time
+
+while True:
+    a = {}
+    b = {"a": a}
+    a["b"] = b
+    del a, b
+    gc.collect()
+    time.sleep(0.01)
+"""
+
+
+@contextmanager
+def _collecting_target(timeout: float = 20.0) -> Generator[tuple[RemoteEventsReader, int]]:
+    """A live process writing GC records, and a reader already attached."""
+    proc = subprocess.Popen(
+        [target_executable(), "-c", _COLLECTING_TARGET],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    reader = RemoteEventsReader()
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                reader.read(proc.pid)
+                break
+            except TargetUnavailable:
+                if time.monotonic() >= deadline:
+                    raise AssertionError(f"target {proc.pid} never became readable") from None
+                time.sleep(0.05)
+        yield reader, proc.pid
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+class TestTheClockBehindTheMarks:
+    """A mark and a GC record have to land on one timeline.
+
+    The hook stamps a mark with ``time.monotonic_ns()`` and CPython stamps a
+    record itself, so the whole arrangement rests on those being the same
+    system-wide clock. Nothing downstream notices if they stop being it: the
+    marks would simply sit in the wrong place. It is asserted here rather than
+    assumed in a comment.
+    """
+
+    def test_a_record_carries_the_clock_a_mark_is_stamped_from(self) -> None:
+        with _collecting_target() as (reader, pid):
+            before = time.monotonic_ns()
+            time.sleep(0.25)
+            records = reader.read(pid)
+            after = time.monotonic_ns()
+
+        newest = max(record.ts_stop for record in records)
+        assert before < newest < after, (
+            "a GC record is not stamped from the clock a mark is stamped from: "
+            f"{newest} is outside the window [{before}, {after}] it was read in"
+        )
 
 
 class TestNoMonitorIsARefusal:
