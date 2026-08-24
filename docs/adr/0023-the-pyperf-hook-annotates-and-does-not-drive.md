@@ -132,7 +132,7 @@ two in step.
 `ControlClient.instant_msg` carries the captured timestamp, and the control
 server passes it through to the exporter unchanged.
 
-`tests/pyperf/test_pyperf_marks.py` drives a real client into a real control
+`tests/pyperf/test_pyperf_hook.py` drives a real client into a real control
 server: that the marks carry the timestamps taken at the region's ends rather
 than at send time, that regions keep counting across hook instances, that an
 unfinished region lands nothing, and that the marks reach a Perfetto trace on
