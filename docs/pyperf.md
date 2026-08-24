@@ -17,8 +17,8 @@ gcmon run -o suite.pftrace -s my_benchmark.py \
 ```
 
 `gcmon run` takes its target as `-s <script>` or `-m <module>` and passes
-everything after it to that target verbatim, which is how the pyperf flags get
-there. A module works the same way:
+everything after it to that target verbatim. That is how the pyperf flags
+reach it. A module works the same way:
 
 ```bash
 gcmon run -o suite.pftrace -m pyperf timeit \
@@ -30,9 +30,9 @@ gcmon run -o suite.pftrace -m pyperformance run \
 ```
 
 `gcmon run` puts the control address in the environment of the process it
-starts, and pyperf isolates its workers from that environment, so
-`--inherit-environ=GCMON_CONTROL_ADDRESS` is what carries it the last step to
-the processes the hook runs in. Without it every worker refuses.
+starts, and pyperf isolates its workers from that environment.
+`--inherit-environ=GCMON_CONTROL_ADDRESS` carries it the last step, to the
+processes the hook runs in. Without it every worker refuses.
 
 ## When No Monitor Is Listening
 
@@ -67,11 +67,11 @@ replaced by `_`.
 
 `<n>` counts regions across the whole worker process, in the order they ran.
 `<i>` counts them within one measurement phase and restarts at 1 when pyperf
-begins the next, which is what separates the warmups from the values: under
+begins the next, which separates the warmups from the values: under
 `--warmups=1 --values=3` a worker writes `<n>` 1 through 4, with `<i>` going
 1, then 1, 2, 3. Where `<i>` restarts is the phase boundary.
 
-The `gcmon:` prefix is reserved, so `name LIKE 'gcmon:%'` selects marks and
+The `gcmon:` prefix is reserved: `name LIKE 'gcmon:%'` selects marks and
 nothing else. See [Perfetto SQL](perfetto-sql.md) for querying a trace.
 
 The hook adds nothing to pyperf's metadata. It spawns no process, writes no
@@ -80,16 +80,16 @@ file, and computes no statistics.
 ## Why the Hook Marks Instead of Monitoring
 
 It used to start a `gcmon monitor` of its own around each benchmark and
-publish `gc_*` keys into pyperf's metadata. Four things are better this way.
+publish `gc_*` keys into pyperf's metadata.
 
 **A suite costs one monitor.** pyperf builds a hook inside each measurement
 phase, and a phase runs twice per process, once for warmups and once for
 values. A sixty-benchmark suite at `-p 5` was on the order of six hundred
 monitor processes, each attaching and writing a file of its own.
 
-**Nothing of the hook's runs while the benchmark does.** It reads a clock at
-each end of the region and sends both instants afterwards, when pyperf hands
-it the benchmark name. No I/O happens between those two reads.
+**The hook does nothing while the benchmark runs.** It reads a clock at each
+end of the region and sends both instants afterwards, when pyperf hands it the
+benchmark name. No I/O happens between those two reads.
 
 **The old numbers covered more than the benchmark.** Stopping a monitor stops
 the reading, not the collecting: the target kept collecting through every gap,
@@ -99,8 +99,8 @@ benchmark by every gap in it.
 
 **A marked region can be narrowed afterwards.** A gated one is fixed when the
 run ends, and a benchmark cannot be re-run to change your mind about where its
-boundaries were. Everything outside the marks is still in the trace, so what
-to count is a decision you make later.
+boundaries were. Everything outside the marks is still in the trace, and what
+to count stays a decision you make later.
 
 ## Perfetto Traces from a Pyperf Run
 

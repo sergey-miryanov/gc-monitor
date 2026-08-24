@@ -57,7 +57,7 @@ happened instead:
 
 ```python
 started = time.monotonic_ns()
-# ... the work you want bracketed, with no I/O of ours inside it ...
+# ... the work you want bracketed ...
 stopped = time.monotonic_ns()
 
 client.instant_msg("work_start", ts=started)
@@ -66,9 +66,9 @@ client.instant_msg("work_end", ts=stopped)
 
 Capture the timestamps in the hot path and send them outside it, and the
 control plane costs the measured code nothing. `time.monotonic_ns` is the
-right clock: gcmon stamps a GC record from the same one, so the marks and the
-records land on one timeline. The instants reach the trace out of order with
-respect to the records, which the exporter sorts out by timestamp.
+clock to use: gcmon stamps a GC record from the same one, and your instants
+land on the same timeline as the records. They reach the trace out of order,
+and the exporter orders by timestamp.
 
 ## When to Use
 

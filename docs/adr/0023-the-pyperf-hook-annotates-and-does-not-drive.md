@@ -134,8 +134,9 @@ server passes it through to the exporter unchanged.
 
 `tests/pyperf/test_pyperf_hook.py` drives a real client into a real control
 server: that the marks carry the timestamps taken at the region's ends rather
-than at send time, that regions keep counting across hook instances, that an
-unfinished region lands nothing, and that the marks reach a Perfetto trace on
-the worker's process, read back through the trace processor.
-`tests/test_marks.py` pins the literal `gcmon:bm_base64:1:begin`, so a change
-to the grammar is a visible diff rather than a round trip that still passes.
+than at send time, that the process-wide count keeps running across hook
+instances while the per-phase one restarts, that an unfinished region lands
+nothing, and that the marks reach a Perfetto trace on the worker's process,
+read back through the trace processor. `tests/test_marks.py` pins the literal
+`gcmon:bm_base64:4:2:begin`, so a change to the grammar is a visible diff
+rather than a round trip that still passes.
