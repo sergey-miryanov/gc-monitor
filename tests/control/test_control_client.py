@@ -78,6 +78,24 @@ class TestPublicAPI:
         assert mock_conn.send.call_args_list[1][0][0]["msg"] == "start"
 
 
+class TestInstantMsg:
+    def test_stamps_at_send_time_without_ts(self, client: ControlClient, mock_conn: MagicMock) -> None:
+        with patch("gcmon.control.control_client.time.monotonic_ns", return_value=98765):
+            client.instant_msg("mark")
+        assert assert_payload(mock_conn, "mark")["ts"] == 98765
+
+    def test_carries_the_given_ts(self, client: ControlClient, mock_conn: MagicMock) -> None:
+        with patch("gcmon.control.control_client.time.monotonic_ns", return_value=98765):
+            client.instant_msg("mark", ts=111)
+        assert assert_payload(mock_conn, "mark")["ts"] == 111
+
+    def test_a_later_send_does_not_inherit_the_ts(self, client: ControlClient, mock_conn: MagicMock) -> None:
+        with patch("gcmon.control.control_client.time.monotonic_ns", return_value=98765):
+            client.instant_msg("first", ts=111)
+            client.instant_msg("second")
+        assert assert_payload(mock_conn, "second", call_index=1)["ts"] == 98765
+
+
 class TestSend:
     def test_uses_monotonic_ns(self, client: ControlClient, mock_conn: MagicMock) -> None:
         with patch("gcmon.control.control_client.time.monotonic_ns", return_value=98765):

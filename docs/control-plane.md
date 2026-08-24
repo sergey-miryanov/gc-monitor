@@ -50,6 +50,26 @@ client.instant_msg("request_end")
 These messages appear as instant events in the trace viewer, helping you
 correlate GC activity with application behavior.
 
+### Sending an instant after the fact
+
+`instant_msg` stamps the message when it is sent. Pass `ts` to say when it
+happened instead:
+
+```python
+started = time.monotonic_ns()
+# ... the work you want bracketed, with no I/O of ours inside it ...
+stopped = time.monotonic_ns()
+
+client.instant_msg("work_start", ts=started)
+client.instant_msg("work_end", ts=stopped)
+```
+
+Capture the timestamps in the hot path and send them outside it, and the
+control plane costs the measured code nothing. `time.monotonic_ns` is the
+right clock: gcmon stamps a GC record from the same one, so the marks and the
+records land on one timeline. The instants reach the trace out of order with
+respect to the records, which the exporter sorts out by timestamp.
+
 ## When to Use
 
 - **Skip setup/teardown**: Avoid monitoring during initialization or cleanup

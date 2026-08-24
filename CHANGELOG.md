@@ -14,6 +14,7 @@
 ### Features
 
 - A Perfetto trace is compressed: the same events in a file six to nine times smaller. It opens the same way, and there is nothing to run first
+- `ControlClient.instant_msg` takes a `ts`, so an instant captured in a hot path can be sent after it and still land where it happened
 
 ### Internal
 

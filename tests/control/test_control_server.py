@@ -287,6 +287,28 @@ class TestControlServerExporter:
         finally:
             server.close()
 
+    def test_instant_keeps_the_timestamp_the_client_captured(self, mock_exporter: MagicMock) -> None:
+        from gcmon.control.control_client import ControlClient
+        from tests.helpers import MockExporter
+
+        exporter = MockExporter()
+        server = ControlServer(exporter)
+        server.start()
+        try:
+            captured = time.monotonic_ns() - 5_000_000_000
+            with ControlClient(server.address) as client:
+                client.instant_msg("gcmon:bm_x:1:begin", ts=captured)
+                deadline = time.monotonic() + 5
+                while not exporter.instant_events and time.monotonic() < deadline:
+                    time.sleep(0.01)
+
+            assert len(exporter.instant_events) == 1
+            _, msg = exporter.instant_events[0]
+            assert msg.name == "gcmon:bm_x:1:begin"
+            assert msg.ts == captured
+        finally:
+            server.close()
+
     def test_exporter_receives_multiple_events(self, mock_exporter: MagicMock) -> None:
         from tests.helpers import MockExporter
 

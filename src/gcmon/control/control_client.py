@@ -61,11 +61,11 @@ class ControlClient:
                     self._conn = self._connect(address)
         return self._conn
 
-    def _send(self, msg: str) -> None:
+    def _send(self, msg: str, ts: int | None = None) -> None:
         to_send = {
             "msg": msg,
             "pid": os.getpid(),
-            "ts": time.monotonic_ns(),
+            "ts": time.monotonic_ns() if ts is None else ts,
         }
 
         conn = self._ensure_connected()
@@ -93,8 +93,13 @@ class ControlClient:
         """Pause/disable GC monitoring for this process."""
         self._send("stop")
 
-    def instant_msg(self, msg: str) -> None:
-        self._send(msg)
+    def instant_msg(self, msg: str, ts: int | None = None) -> None:
+        """Record an instant.
+
+        ``ts`` is when it happened, for a caller that holds its instants and
+        sends them later. Omitting it stamps the send.
+        """
+        self._send(msg, ts)
 
     @contextmanager
     def pause_monitoring(self) -> Generator[None, Any]:
