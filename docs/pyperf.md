@@ -12,23 +12,27 @@ are already recording, over the same
 Start one monitor over the whole suite and let the hook annotate its trace:
 
 ```bash
-gcmon run -o suite.pftrace -- \
-    python my_benchmark.py --hook=gcmon \
-    --inherit-environ=GCMON_CONTROL_ADDRESS
+gcmon run -o suite.pftrace -s my_benchmark.py \
+    --hook=gcmon --inherit-environ=GCMON_CONTROL_ADDRESS
 ```
 
-`gcmon run` puts the control address in the environment, and pyperf isolates
-its workers from it, so `--inherit-environ=GCMON_CONTROL_ADDRESS` is what
-carries it through to the process the hook runs in. Without it the hook has
-nothing to talk to.
-
-pyperf's own runners take the same flags:
+`gcmon run` takes its target as `-s <script>` or `-m <module>` and passes
+everything after it to that target verbatim, which is how the pyperf flags get
+there. A module works the same way:
 
 ```bash
-gcmon run -o suite.pftrace -- \
-    pyperf timeit --hook=gcmon --inherit-environ=GCMON_CONTROL_ADDRESS \
-    my_benchmark.py
+gcmon run -o suite.pftrace -m pyperf timeit \
+    --hook=gcmon --inherit-environ=GCMON_CONTROL_ADDRESS \
+    "sum(range(100))"
+
+gcmon run -o suite.pftrace -m pyperformance run \
+    --hook=gcmon --inherit-environ=GCMON_CONTROL_ADDRESS
 ```
+
+`gcmon run` puts the control address in the environment of the process it
+starts, and pyperf isolates its workers from that environment, so
+`--inherit-environ=GCMON_CONTROL_ADDRESS` is what carries it the last step to
+the processes the hook runs in. Without it every worker refuses.
 
 ## When No Monitor Is Listening
 
@@ -38,9 +42,9 @@ that recorded nothing. pyperf prints the message and exits 1:
 ```
 ERROR setting up hook 'gcmon':
 gcmon: no monitor is listening on GCMON_CONTROL_ADDRESS. Start one over the
-whole run, `gcmon run -o suite.pftrace -- <your benchmark> --hook=gcmon
---inherit-environ=GCMON_CONTROL_ADDRESS`, and pyperf will carry the address
-through to its workers.
+whole run: `gcmon run -o suite.pftrace -s my_benchmark.py --hook=gcmon
+--inherit-environ=GCMON_CONTROL_ADDRESS`, or -m for a module. pyperf carries
+the address through to its workers from there.
 ```
 
 Two things produce it: running without `gcmon run`, and running under it
@@ -103,9 +107,8 @@ to count is a decision you make later.
 process beside them, and each worker's GC activity on its own tracks.*
 
 ```bash
-gcmon run -o suite.pftrace -- \
-    python my_benchmark.py --hook=gcmon -p 5 \
-    --inherit-environ=GCMON_CONTROL_ADDRESS
+gcmon run -o suite.pftrace -s my_benchmark.py \
+    --hook=gcmon -p 5 --inherit-environ=GCMON_CONTROL_ADDRESS
 ```
 
 Open `suite.pftrace` in [Perfetto UI](https://ui.perfetto.dev).
@@ -117,5 +120,8 @@ Open `suite.pftrace` in [Perfetto UI](https://ui.perfetto.dev).
 | `GCMON_PYPERF_HOOK_VERBOSE` | Enable verbose logging from the hook. Accepts `1`, `yes`, `on`, or `true` (case-insensitive). | Disabled |
 | `GCMON_PYPERF_HOOK_CONTROL_TIMEOUT` | Timeout (seconds) for the hook to connect to the control plane. | `10.0` |
 
-`GCMON_CONTROL_ADDRESS` is set by `gcmon run` and `gcmon monitor`, not by you.
-Pass it through `--inherit-environ` so the workers see it.
+`GCMON_CONTROL_ADDRESS` is set by `gcmon run` in the environment of the
+process it starts, and goes on from there with `--inherit-environ`.
+`gcmon monitor` attaches to a process that is already running and cannot put
+anything in its environment, so the hook works under `gcmon run` and not under
+`gcmon monitor`.

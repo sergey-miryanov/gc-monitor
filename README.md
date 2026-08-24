@@ -134,11 +134,11 @@ covers the polling loop, what it misses, and what it recovers.
 
 For the pyperf hook integration, gcmon uses an **external process model**:
 
-1. The hook spawns the `gcmon` CLI as a separate process
-2. The external process reads the target process memory directly
-3. Results are written to a temporary JSON file
-4. The hook marks where each benchmark ran, and adds nothing to pyperf's
-   metadata
+1. You start the monitor yourself, over the whole suite: `gcmon run`
+2. That process reads the benchmark process's memory directly
+3. The hook marks where each benchmark ran, in the trace that monitor writes
+4. Nothing of the hook's reaches pyperf's metadata, and nothing of it runs
+   while a benchmark does
 
 This provides zero in-process overhead during benchmarks, crash isolation
 (gcmon crashes don't affect the target), and clean separation of concerns.

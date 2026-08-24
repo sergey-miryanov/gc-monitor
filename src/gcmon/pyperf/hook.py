@@ -36,9 +36,9 @@ one mark name twice meaning two different things.
 
 NO_MONITOR = (
     f"gcmon: no monitor is listening on {CONTROL_ADDRESS_ENV}. Start one over "
-    f"the whole run, `gcmon run -o suite.pftrace -- <your benchmark> "
-    f"--hook=gcmon --inherit-environ={CONTROL_ADDRESS_ENV}`, and pyperf will "
-    "carry the address through to its workers."
+    f"the whole run: `gcmon run -o suite.pftrace -s my_benchmark.py "
+    f"--hook=gcmon --inherit-environ={CONTROL_ADDRESS_ENV}`, or -m for a "
+    "module. pyperf carries the address through to its workers from there."
 )
 
 
@@ -129,7 +129,7 @@ class GCMonitorHook:
         gcmon = "gcmon.pyperf.hook:gcmon_hook"
 
         # Then use in CLI
-        gcmon run -o suite.pftrace -- pyperf run --hook=gcmon ...
+        gcmon run -o suite.pftrace -m pyperf run --hook=gcmon ...
     """
 
     def __init__(self) -> None:

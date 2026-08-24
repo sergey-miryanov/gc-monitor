@@ -56,7 +56,7 @@ The operator starts one monitor over the whole suite, the way they would over
 any other process tree:
 
 ```
-gcmon run -o suite.pftrace -- python -m pyperformance run --hook=gcmon ...
+gcmon run -o suite.pftrace -m pyperformance run --hook=gcmon ...
 ```
 
 The hook, inside each worker, records when the benchmark function started and
