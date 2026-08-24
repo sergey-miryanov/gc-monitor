@@ -30,6 +30,25 @@ gcmon run -o suite.pftrace -- \
     my_benchmark.py
 ```
 
+## When No Monitor Is Listening
+
+The hook refuses the run on the first worker rather than finishing a suite
+that recorded nothing. pyperf prints the message and exits 1:
+
+```
+ERROR setting up hook 'gcmon':
+gcmon: no monitor is listening on GCMON_CONTROL_ADDRESS. Start one over the
+whole run, `gcmon run -o suite.pftrace -- <your benchmark> --hook=gcmon
+--inherit-environ=GCMON_CONTROL_ADDRESS`, and pyperf will carry the address
+through to its workers.
+```
+
+Two things produce it: running without `gcmon run`, and running under it
+without `--inherit-environ=GCMON_CONTROL_ADDRESS`. The second is the one that
+catches people, because the runner process can reach the monitor and its
+workers cannot. `GCMON_PYPERF_HOOK_CONTROL_TIMEOUT` bounds how long the hook
+waits before it gives up.
+
 ## What the Hook Writes
 
 Two instants per measured region, on the worker's own process:

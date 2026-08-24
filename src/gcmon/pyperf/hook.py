@@ -15,6 +15,7 @@ from functools import partial
 from typing import Any
 
 from ..control.control_client import ControlClient, connect_with_retry
+from ..control.control_server import CONTROL_ADDRESS_ENV
 from ..model.marks import BEGIN, END, format_mark
 from ..model.protocol import TGCStatsInfo, TItem, is_gc_stats, is_loss
 from ..stats.streaming_stats import StreamingStats
@@ -31,6 +32,30 @@ A worker builds one hook for its warmups and another for its values, and both
 are handed the same benchmark name, so an instance-scoped counter would emit
 one mark name twice meaning two different things.
 """
+
+
+NO_MONITOR = (
+    f"gcmon: no monitor is listening on {CONTROL_ADDRESS_ENV}. Start one over "
+    f"the whole run, `gcmon run -o suite.pftrace -- <your benchmark> "
+    f"--hook=gcmon --inherit-environ={CONTROL_ADDRESS_ENV}`, and pyperf will "
+    "carry the address through to its workers."
+)
+
+
+def _hook_error() -> type[Exception]:
+    """The exception pyperf's loader catches to print one line and exit 1.
+
+    ``pyperf.__all__`` does not carry ``HookError``, so this reaches into a
+    private module and settles for failing the run some other way if that
+    module ever moves. Importing it here rather than at module scope also
+    keeps pyperf off the path a working hook takes.
+    """
+    try:
+        from pyperf._hooks import HookError
+    except Exception:
+        return RuntimeError
+    refusal: type[Exception] = HookError
+    return refusal
 
 
 def _get_env_pyperf_hook_verbose() -> bool:
@@ -96,6 +121,8 @@ class GCMonitorHook:
     reaches it through the control address that monitor set in the
     environment.
 
+    Building one connects, and refuses the run where nothing answers.
+
     Usage:
         # Entry point registration in pyproject.toml
         [project.entry-points."pyperf.hook"]
@@ -114,6 +141,11 @@ class GCMonitorHook:
                 timeout=_get_env_pyperf_hook_control_timeout(),
             ),
         )
+        # Eagerly, before a benchmark is running and outside anything pyperf
+        # times. Refusing here costs a second; the alternative costs a suite,
+        # because a client with nowhere to send makes every send a no-op.
+        if self._control_client._ensure_connected() is None:
+            raise _hook_error()(NO_MONITOR)
 
     def __enter__(self) -> GCMonitorHook:
         """Open a region, immediately before the benchmark runs."""

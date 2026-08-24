@@ -93,6 +93,10 @@ mypy_path = "./stubs"
 module = "perfetto.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "pyperf.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 tmp_path_retention_policy = "failed"

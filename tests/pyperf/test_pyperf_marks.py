@@ -1,4 +1,4 @@
-"""The marks the hook writes: where each benchmark ran, on the worker's timeline.
+"""What the hook does: mark where each benchmark ran, and refuse to run blind.
 
 Driven through a real ``ControlClient`` into a real ``ControlServer``, which is
 the highest seam that sees a mark end to end without a monitor, a target or
@@ -6,6 +6,7 @@ pyperf.
 """
 
 import os
+import sys
 import time
 from collections.abc import Generator, Sequence
 from pathlib import Path
@@ -13,7 +14,7 @@ from typing import NamedTuple, override
 
 import pytest
 
-from gcmon.control.control_server import CONTROL_ADDRESS_ENV, ControlServer
+from gcmon.control.control_server import CONTROL_ADDRESS_ENV, ControlServer, _make_address
 from gcmon.model.marks import BEGIN, END, Mark, parse_mark
 from gcmon.model.protocol import TInstantMsg
 from gcmon.pyperf.hook import GCMonitorHook, gcmon_hook
@@ -266,10 +267,53 @@ class TestTheHookDoesNothingElse:
 
         assert metadata == {"name": "bm_base64", "loops": 4}
 
-    def test_a_hook_is_built_without_touching_the_control_plane(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Nothing connects until there are marks to send."""
+
+class TestNoMonitorIsARefusal:
+    """A hook that only annotates has nothing to do where nothing is listening.
+
+    pyperf catches its own ``HookError`` to print one message and exit, so the
+    run stops on the first worker instead of finishing a suite that recorded
+    nothing.
+    """
+
+    def test_no_control_address_refuses_the_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(CONTROL_ADDRESS_ENV, raising=False)
 
-        hook = gcmon_hook()
+        with pytest.raises(Exception) as caught:
+            gcmon_hook()
 
-        assert isinstance(hook, GCMonitorHook)
+        assert "gcmon run" in str(caught.value)
+
+    def test_an_address_nobody_is_listening_on_refuses_the_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(CONTROL_ADDRESS_ENV, _make_address("nobody-is-listening"))
+        monkeypatch.setenv("GCMON_PYPERF_HOOK_CONTROL_TIMEOUT", "0.2")
+
+        with pytest.raises(Exception) as caught:
+            gcmon_hook()
+
+        assert "gcmon run" in str(caught.value)
+
+    def test_the_refusal_is_the_type_pyperf_catches(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pyperf._hooks import HookError
+
+        monkeypatch.delenv(CONTROL_ADDRESS_ENV, raising=False)
+
+        with pytest.raises(HookError):
+            gcmon_hook()
+
+    def test_the_run_still_fails_if_pyperf_moves_the_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Losing the refusal would lose the run instead, which is worse."""
+        monkeypatch.delenv(CONTROL_ADDRESS_ENV, raising=False)
+        monkeypatch.setitem(sys.modules, "pyperf._hooks", None)
+
+        with pytest.raises(Exception) as caught:
+            gcmon_hook()
+
+        assert "gcmon run" in str(caught.value)
+
+    def test_a_hook_is_built_with_pyperf_absent(self, sink: Sink, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Nothing reaches for pyperf on the path where the monitor is there."""
+        monkeypatch.setitem(sys.modules, "pyperf", None)
+        monkeypatch.setitem(sys.modules, "pyperf._hooks", None)
+
+        assert isinstance(gcmon_hook(), GCMonitorHook)
