@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import zlib
 from collections.abc import Iterator
+from compression import zstd
 from pathlib import Path
 
 import pytest
@@ -113,7 +114,7 @@ class TestTheCompressedBatch:
     def test_every_packet_in_the_file_is_a_compressed_batch(self, tmp_path: Path) -> None:
         path = _write_trace(tmp_path / "batched.pftrace")
 
-        assert [p.HasField("compressed_packets") for p in _compressed_batches(path)] == [True] * _BATCHES
+        assert [p.HasField("zstd_compressed_packets") for p in _compressed_batches(path)] == [True] * _BATCHES
 
     def test_one_compressed_batch_per_flush(self, tmp_path: Path) -> None:
         """Each flush, and the closeout ``close()`` writes, leaves one behind."""
@@ -126,14 +127,14 @@ class TestTheCompressedBatch:
 
         inflated: list[TracePacket] = []
         for batch in _compressed_batches(path):
-            inflated.extend(perfetto_packets(zlib.decompress(batch.compressed_packets)))
+            inflated.extend(perfetto_packets(zstd.decompress(batch.zstd_compressed_packets)))
 
         assert inflated == assert_valid_perfetto_trace(path)
 
     def test_a_run_that_never_collected_is_compressed_too(self, tmp_path: Path) -> None:
         path = _write_liveness_only_trace(tmp_path / "liveness_only.pftrace")
 
-        assert [p.HasField("compressed_packets") for p in _compressed_batches(path)] == [True]
+        assert [p.HasField("zstd_compressed_packets") for p in _compressed_batches(path)] == [True]
         assert assert_valid_perfetto_trace(path)
 
 
@@ -208,7 +209,7 @@ def _framed(path: Path) -> list[bytes]:
     pieces = [
         encode_bytes_field(
             TraceField.PACKET,
-            TracePacket(compressed_packets=batch.compressed_packets).SerializeToString(),
+            TracePacket(zstd_compressed_packets=batch.zstd_compressed_packets).SerializeToString(),
         )
         for batch in _compressed_batches(path)
     ]
@@ -277,3 +278,40 @@ class TestAKilledRun:
             }
 
         assert raised == dict.fromkeys(_LOSS_STATS, 0)
+
+
+def _deflated(path: Path, target: Path) -> Path:
+    """*path* rewritten batch for batch into field 50, the encoding gcmon has
+    stopped writing and Perfetto's own tooling has not."""
+    target.write_bytes(
+        b"".join(
+            encode_bytes_field(
+                TraceField.PACKET,
+                TracePacket(
+                    compressed_packets=zlib.compress(zstd.decompress(batch.zstd_compressed_packets))
+                ).SerializeToString(),
+            )
+            for batch in _compressed_batches(path)
+        )
+    )
+    return target
+
+
+class TestADeflatedTraceStillReads:
+    """The only case left producing one. Nothing gcmon writes is deflated
+    after this change, so without these the reader's second branch is
+    unguarded (ADR-0022)."""
+
+    def test_it_reads_as_the_trace_it_was_rewritten_from(self, tmp_path: Path) -> None:
+        whole = _write_trace(tmp_path / "batched.pftrace")
+        deflated = _deflated(whole, tmp_path / "deflated.pftrace")
+
+        assert perfetto_packets(deflated.read_bytes()) == perfetto_packets(whole.read_bytes())
+
+    def test_its_slices_resolve_through_the_trace_processor(self, tmp_path: Path) -> None:
+        deflated = _deflated(_write_trace(tmp_path / "batched.pftrace"), tmp_path / "deflated.pftrace")
+
+        with open_trace_processor(deflated) as tp:
+            names = {row.name for row in tp.query("SELECT name FROM slice")}
+
+        assert _PAUSE_NAME in names

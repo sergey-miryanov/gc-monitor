@@ -8,8 +8,8 @@ implementation (ADR-0008).
 from __future__ import annotations
 
 import logging
-import zlib
 from collections.abc import Callable, Sequence, Set
+from compression import zstd
 from pathlib import Path
 from typing import Protocol
 
@@ -25,7 +25,7 @@ from .protobuf_encoder import encode_bytes_field
 
 logger = logging.getLogger("gcmon")
 
-_COMPRESSION_LEVEL = 6
+_COMPRESSION_LEVEL = zstd.COMPRESSION_LEVEL_DEFAULT
 
 __all__ = [
     "EventEncoder",
@@ -112,10 +112,12 @@ class ProtobufEventEncoder:
             self._track_state.update_process_lifetime(pid, ts_ns)
 
     def _write_batch(self, descriptors: Sequence[bytes], packets: Sequence[bytes]) -> None:
-        """Append one batch to the trace as a single deflated packet."""
+        """Append one batch to the trace as a single compressed packet."""
         assert self._path is not None, "open() must be called before writing"
         batch = b"".join(encode_bytes_field(TraceField.PACKET, entry) for entry in (*descriptors, *packets))
-        compressed = encode_bytes_field(TracePacketField.COMPRESSED_PACKETS, zlib.compress(batch, _COMPRESSION_LEVEL))
+        compressed = encode_bytes_field(
+            TracePacketField.ZSTD_COMPRESSED_PACKETS, zstd.compress(batch, _COMPRESSION_LEVEL)
+        )
         mode = "wb" if not self._has_written else "ab"
         self._has_written = True
         with open(self._path, mode) as f:

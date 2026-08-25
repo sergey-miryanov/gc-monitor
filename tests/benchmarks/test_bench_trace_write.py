@@ -1,6 +1,6 @@
 """Benchmark for the encoder's write path.
 
-Converting a batch, deflating it and appending it to the trace is what a
+Converting a batch, compressing it and appending it to the trace is what a
 monitored process pays for being observed, and it runs on the flush, while the
 target is still working.
 
