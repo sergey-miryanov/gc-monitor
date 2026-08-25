@@ -6,13 +6,11 @@
 - **Origin:** design session 2026-08-23 on the pyperf hook, from two
   complaints about it: that it runs a monitor process of its own, and that it
   starts and stops one
-- **Respects:** [ADR-0006](../docs/adr/0006-begin-end-slice-pairs.md) (a
-  duration is a begin/end pair in both backends; a mark is two instants
-  instead, and section 4 says why that shape is deferred rather than
-  rejected), [ADR-0009](../docs/adr/0009-nanoseconds-canonical-time-unit.md)
-  (nanoseconds inside gcmon),
-  [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) (ordering by
-  timestamp, under which a mark landing seconds late is already normal)
+- **Respects:**
+  [ADR-0009](../docs/adr/0009-nanoseconds-canonical-time-unit.md) (nanoseconds
+  inside gcmon), [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md)
+  (ordering by timestamp, under which a mark landing seconds late is already
+  normal)
 
 ## 1. Problem statement
 
@@ -142,12 +140,10 @@ position only where timestamps are equal.
 existing `InstantMsg`, which `JsonlExporter.add_instant_event` already writes
 and the trace converter already draws.
 
-ADR-0006 would make a duration a begin/end slice pair, and that is the better
-shape: it pairs in the model rather than in a string, and a reader finds a
-region without matching two names. It waits on a new track and a decision
-about where that track sits in the hierarchy, a larger change than this spec
-is for. When someone takes it, the grammar module below is the only thing that
-has to know.
+A slice would pair the two ends in the model, where a reader has to match two
+names. It waits on a new track and a decision about where that track sits in
+the hierarchy, a larger change than this spec is for. When someone takes it,
+the grammar module below is the only thing that has to know.
 
 **The grammar is colon-delimited, with a reserved prefix, and lives in one
 module with a parser beside the formatter.** `<bench>` is `metadata['name']`
@@ -292,8 +288,8 @@ when this lands.
   and `examples/ctrl.py` with it, and it needs an amendment to ADR-0011, which
   reasons about a pid the control server suppresses mid-run getting one
   continuous span across the gap.
-- **Drawing a region as a slice.** ADR-0006's shape is the right one and it
-  needs a track of its own; see section 4.
+- **Drawing a region as a slice.** It needs a track of its own and a decision
+  about where that track sits; see section 4.
 - **Restoring the pyperf metadata.** It is dropped, and the reader spec
   replaces it. Adding a reduced version here would ship a second statistics
   path for the life of one spec.

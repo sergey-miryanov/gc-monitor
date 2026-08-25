@@ -9,7 +9,7 @@
 measurement phase and a phase runs twice per worker process, once for warmups
 and once for values, so each build spawned a `gcmon monitor`, attached it to
 the worker, opened a control pipe and wrote a temporary capture of its own. A
-sixty-benchmark suite at `-p 5` is on that order of six hundred monitors, and
+sixty-benchmark suite at `-p 5` was on the order of six hundred monitors, and
 each one reopened the same output path for writing, so all but the last were
 overwritten.
 
@@ -17,108 +17,96 @@ Around the benchmark the hook started and stopped the monitor through the
 control plane. Stopping suppresses gcmon's polling of that pid and nothing
 else: the target keeps collecting, the records made during the gap are still
 in the ring when polling resumes, and the cumulative counters a capture is
-reconstructed from span the gap whole. The numbers the hook published were
-therefore the pause over a window wider than the benchmark by every gap in it,
-under a documented claim that they covered the monitored window.
+reconstructed from span the gap whole. The numbers the hook published were the
+pause over a window wider than the benchmark by every gap in it, and
+`docs/pyperf.md` told the operator they covered the monitored window.
 
-What the operator wanted from all this was one thing the hook did not produce:
-a way to tell a benchmark's own activity from the interpreter starting up,
-importing, calibrating, and pyperf's bookkeeping between values.
+The operator wanted one thing the hook did not produce: a way to tell a
+benchmark's own activity from the interpreter starting up, importing,
+calibrating, and pyperf's bookkeeping between values.
 
 ## Decision
 
-- **The hook annotates a trace somebody else is recording.** It spawns no
-  process, writes no file, computes no statistics, and adds no key to pyperf's
-  metadata. The operator runs the suite under `gcmon run`, and the hook
-  reaches that monitor through `GCMON_CONTROL_ADDRESS`.
-- **A benchmark's extent is two instants, not a gate.** The hook writes a
-  begin and an end mark per measured region, under a grammar reserved to
-  gcmon: `gcmon:<benchmark>:<n>:<i>:begin` and `:end`. Everything outside a
-  region stays in the trace.
-- **Marks are captured in the region and sent after it.** The hook reads a
+- **The hook annotates a trace it did not start.** It spawns no process,
+  writes no file, computes no statistics, and adds no key to pyperf's
+  metadata. It reaches the monitor through `GCMON_CONTROL_ADDRESS`.
+- **A benchmark's extent is two instants.** The hook writes a begin and an end
+  mark per measured region, named under a prefix reserved to gcmon:
+  `gcmon:<benchmark>:<n>:<i>:begin` and `:end`.
+- **The hook captures a mark in the region and sends it after.** It reads a
   clock at each end and holds the pair; `ControlClient.instant_msg` takes the
-  captured timestamp, so the send can happen at teardown, which is the first
-  moment pyperf names the benchmark. No I/O of gcmon's runs between the two
-  reads.
-- **A region is numbered twice, once per process and once per phase.** `<n>`
-  counts across the worker, because two hook instances in one worker are
-  handed the same benchmark name and an instance-scoped count alone would put
-  one mark name on two different regions. `<i>` counts within the hook, and
-  where it restarts is where pyperf began a new measurement phase, which `<n>`
-  on its own cannot say.
-- **No monitor is a refusal.** The constructor connects, and raises pyperf's
-  own `HookError` when nothing is listening, which pyperf catches to print one
-  message and exit. Failing on the first worker costs a second; the
-  alternative costs a suite, because a control client with nowhere to send
-  makes every send a silent no-op.
-- **The grammar is written and read in one module,**
-  `src/gcmon/model/marks.py`, below every layer that would want either half.
+  captured timestamp, and the send happens at teardown, the first moment
+  pyperf names the benchmark.
+- **A region carries two numbers.** `<n>` counts across the worker process and
+  `<i>` within the hook.
+- **The hook refuses to run without a monitor.** The constructor connects and
+  raises pyperf's `HookError`, caught by its loader to print one message and
+  exit 1.
+- **One module writes the grammar and reads it.** `src/gcmon/model/marks.py`
+  sits in `model/`, below both the hook that writes a mark and anything that
+  would read one.
 
 ## Consequences
 
-A run costs one monitor whatever the suite's shape, and one trace holds every
-worker's marks alongside its GC activity.
+A run costs one monitor however many benchmarks and processes it has, and one
+trace holds every worker's marks alongside its GC activity.
 
-The region is decided after the run rather than during it. A benchmark cannot
-be re-run to change your mind about where its boundaries were, and with the
-marks in the trace it does not have to be.
+You decide the region after the run, not during it. A benchmark cannot be
+re-run to change your mind about where its boundaries were, and the marks mean
+you do not have to.
 
 Marks reach the exporter out of order with respect to records, by seconds
-rather than milliseconds, which ADR-0011 already covers: the trace processor
-sorts by timestamp and a freshly discovered child's first event can already
-predate gcmon polling it.
+rather than milliseconds. ADR-0011 covers that: the trace processor sorts by
+timestamp, and a freshly discovered child's first event can predate gcmon
+polling it.
 
-Anyone wanting per-benchmark numbers reads them off the trace. There is one
-path from records to a table instead of two, and nothing in pyperf's metadata
-to trend across this change.
+pyperf's metadata holds nothing to trend across this change, and nothing in
+tree reads the marks: until a reader exists they are for the Perfetto UI.
 
-The whole arrangement rests on `time.monotonic` being the clock CPython stamps
-a GC record from, on both Windows and Linux. If that stops being true the
-marks land in the wrong place and nothing says so, which is why a test asserts
-the two clocks agree rather than a comment claiming it.
-
-Two ways to get nothing are now one refusal, and both are the operator's to
-fix: no `gcmon run`, or `gcmon run` without
-`--inherit-environ=GCMON_CONTROL_ADDRESS`, since pyperf isolates its workers
-from the environment.
+A mark and a GC record have to come from one clock, and gcmon assumes it is
+the one `time.monotonic_ns` reads. If CPython ever stamps a record from
+another, every mark is misplaced and nothing downstream catches it.
 
 ## Alternatives considered
 
-**Repair the gate rather than replace it.** Making start/stop scope anything
-means polling at the stop, keeping the counters, polling again at the start,
-subtracting the difference, and discarding whatever the ring holds on resume,
-which turns the observed span into a set of intervals. Even repaired it loses:
-gating destroys the gap's records while still counting their cost, marking
-keeps everything and opens no loss window. The one thing gating saves is
-gcmon's own polling cost, and gcmon is external, so that cost is not the
-benchmark's.
+**Repair the gate.** Making start/stop scope a region means polling at both
+edges, subtracting the counters across the gap, and dropping whatever the ring
+holds on resume; the observed span becomes a set of intervals. A repaired gate
+still destroys the gap's records while counting their cost, and marking keeps
+them. Gating saves only gcmon's own polling cost, and gcmon is external, so
+the benchmark never paid it.
+
+**Number a region once.** A worker builds one hook per measurement phase and
+every one is handed the same benchmark name, so a count scoped to the hook
+would put one mark name on two different regions. A count scoped to the
+process is unique, but it runs straight through both phases and cannot say
+where one ended.
+
+**Warn and carry on.** The hook could log that it found no monitor and let the
+run proceed. A control client with no address never connects, so every send
+goes nowhere: the suite finishes having recorded nothing, and the operator
+finds out when they open the trace.
 
 **Monitor from inside the worker.** The remote debugging interface accepts the
-caller's own pid, so an in-process hook is available rather than impossible:
-it would read its own ring and need no second process. A free-threaded build
-sizes the ring at one record per generation, so keeping up means a thread
-polling hard enough that every read takes the GIL inside the process being
-benchmarked. gcmon reads from outside for that reason, and `--rate` spends the
-monitor's time rather than the target's.
+caller's own pid, so an in-process hook is possible: it would read its own
+ring and need no second process. A free-threaded build sizes the ring at one
+record per generation, so keeping up means a thread polling hard enough that
+every read takes the GIL inside the process being benchmarked. gcmon reads
+from outside for that reason, and `--rate` spends the monitor's time rather
+than the target's.
 
-**Carry the fields as annotations rather than in the name.** An instant could
-take a payload of arbitrary keys, which `build_track_event` already supports
-through `debug_annotations` and the GC pause slices already use, and a reader
-would join the `args` table instead of parsing a string. That is the better
-shape, for the same reason ADR-0006's slice pair is: the fields are structured
-rather than encoded. It is also not a change to the hook. `InstantEvent` has
-no args where `BeginEvent` and `CounterEvent` do, so a payload has to be
-carried by every exporter's `add_instant_event` and survive the JSONL round
-trip that `combine` reads. It gets a spec of its own, together with the
-decision about what the name is then for, and it is the same spec that settles
-the slice shape below.
+**Carry the fields as annotations.** An instant could take a payload of keys,
+and a reader would join the `args` table instead of parsing a string.
+`build_track_event` already writes `debug_annotations` for the GC pause
+slices, but `InstantEvent` carries no args where `BeginEvent` and
+`CounterEvent` do, so a payload has to reach every exporter's
+`add_instant_event` and survive the JSONL round trip `combine` reads. That
+touches the model and both backends, not the hook, and gets a spec of its own.
 
-**Draw a region as a slice.** ADR-0006 makes a duration a begin/end pair in
-both backends, and that is the better shape here too: it pairs in the model
-rather than in a string, and a reader finds a region without matching two
-names. It needs a track of its own and a decision about where that track sits
-in the hierarchy, which is a larger change; the grammar module is the only
-thing that has to know when someone takes it.
+**Draw a region as a slice.** A slice would pair the two ends in the model,
+where a reader now matches two names. It needs a track to sit on, and where a
+benchmark's track belongs in the hierarchy is a larger decision than this
+record makes.
 
 **Recover the benchmark name from the worker's command line.** A regex over
 `sys.argv` would name the region without waiting for teardown, at the price of
@@ -133,10 +121,5 @@ two in step.
 server passes it through to the exporter unchanged.
 
 `tests/pyperf/test_pyperf_hook.py` drives a real client into a real control
-server: that the marks carry the timestamps taken at the region's ends rather
-than at send time, that the process-wide count keeps running across hook
-instances while the per-phase one restarts, that an unfinished region lands
-nothing, and that the marks reach a Perfetto trace on the worker's process,
-read back through the trace processor. `tests/test_marks.py` pins the literal
-`gcmon:bm_base64:4:2:begin`, so a change to the grammar is a visible diff
-rather than a round trip that still passes.
+server. `tests/test_marks.py` pins the grammar as a literal string: a round
+trip alone passes on a changed separator.
