@@ -130,8 +130,8 @@ With `--format jsonl` (writes to file) or `--format stdout` (writes to
 terminal), each line is a JSON object holding one GC record:
 
 ```jsonl
-{"pid": 12345, "tid": 0, "gen": 0, "iid": 1, "ts_start": 1700000000000000, "ts_stop": 1700000001500000, "heap_size": 1048576, "collections": 42, "collected": 120, "uncollectable": 0, "candidates": 300, "duration": 0.0015}
-{"pid": 12345, "tid": 0, "gen": 1, "iid": 2, "ts_start": 1700000200000000, "ts_stop": 1700000235000000, "heap_size": 2097152, "collections": 3, "collected": 85, "uncollectable": 1, "candidates": 150, "duration": 0.035}
+{"pid": 12345, "gen": 0, "iid": 1, "ts_start": 1700000000000000, "ts_stop": 1700000001500000, "heap_size": 1048576, "collections": 42, "collected": 120, "uncollectable": 0, "candidates": 300, "duration": 0.0015}
+{"pid": 12345, "gen": 1, "iid": 2, "ts_start": 1700000200000000, "ts_stop": 1700000235000000, "heap_size": 2097152, "collections": 3, "collected": 85, "uncollectable": 1, "candidates": 150, "duration": 0.035}
 ```
 
 | Field | Description | Build |
@@ -162,12 +162,11 @@ interpreter, alongside the GC records. A loss record carries no `collections`
 and no `gen` of its own; the per-generation counts sit in `gens`:
 
 ```jsonl
-{"pid": 12345, "tid": -2, "iid": 0, "ts_start": 1700000001500000, "ts_stop": 1700000098000000, "gens": [{"gen": 0, "observed_count": 11, "lost_from": 413, "lost_count": 9, "lost_pause_ns": 57450000}, {"gen": 1, "observed_count": 3, "lost_from": 27, "lost_count": 1, "lost_pause_ns": 8100000}]}
+{"pid": 12345, "iid": 0, "ts_start": 1700000001500000, "ts_stop": 1700000098000000, "gens": [{"gen": 0, "observed_count": 11, "lost_from": 413, "lost_count": 9, "lost_pause_ns": 57450000}, {"gen": 1, "observed_count": 3, "lost_from": 27, "lost_count": 1, "lost_pause_ns": 8100000}]}
 ```
 
 | Field | Description |
 |-------|-------------|
-| `tid` | `-2 - iid`, the sentinel the trace formats draw the `GC Loss` track on. `-1` is reserved for `rss` |
 | `iid` | Interpreter the records were lost from |
 | `ts_start`, `ts_stop` | The interval, from one poll to the next (nanoseconds). Its width is uncertainty; the pause is in `lost_pause_ns` |
 | `gens` | One entry per generation that ran or lost anything in the interval |

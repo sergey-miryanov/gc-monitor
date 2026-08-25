@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import TextIO, override
 
 from ..model.protocol import JsonlRecord, TGCStatsInfo, TInstantMsg, TLossMsg, to_mapping
-from ..model.trace_event import loss_tid
 from .exporter import EventsExporter
 
 __all__ = ["JsonlExporter"]
@@ -41,7 +40,6 @@ class JsonlExporter(EventsExporter):
     def add_event(self, pid: int, item: TGCStatsInfo) -> None:
         event: JsonlRecord = {
             "pid": pid,
-            "tid": item.iid,
         }
         event.update(to_mapping(item))
 
@@ -61,7 +59,6 @@ class JsonlExporter(EventsExporter):
     def add_loss_event(self, pid: int, item: TLossMsg) -> None:
         event: JsonlRecord = {
             "pid": pid,
-            "tid": loss_tid(item.iid),
         }
         event.update(to_mapping(item))
 

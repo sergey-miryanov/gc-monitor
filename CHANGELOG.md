@@ -14,6 +14,7 @@
 - The pyperf hook's `GCMON_PYPERF_HOOK_OUTPUT` and `GCMON_PYPERF_HOOK_TEMP_DIR` environment variables are gone
 - `gcmon combine` reads JSONL only: `--input-format` is gone, `--output-format` takes `perfetto` or `jsonl` and defaults to `perfetto`. Handed a `.json` from an earlier release, it names the Chrome format instead of reporting malformed JSON
 - A compressed `.pftrace` needs Perfetto v58 or newer to open. An older Perfetto shows an empty timeline rather than refusing the file
+- A JSONL capture carries no `tid`, on any kind of line. It was `iid` again on a GC record and `-2 - iid` on a loss one; derive it from `iid` if you read it. gcmon still reads a capture that has it
 
 ### Features
 

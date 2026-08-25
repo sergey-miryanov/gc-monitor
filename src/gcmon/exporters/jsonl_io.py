@@ -23,7 +23,7 @@ from ..model.protocol import (
     is_loss,
     to_mapping,
 )
-from ..model.trace_event import TraceEvent, loss_tid
+from ..model.trace_event import TraceEvent
 from .trace_converter import convert_to_trace_format
 
 __all__ = [
@@ -79,11 +79,6 @@ def write_jsonl(filename: Path, items: Mapping[int, Sequence[TItem]]) -> None:
         for pid, pid_items in items.items():
             for item in pid_items:
                 rec: JsonlRecord = {"pid": pid}
-                if is_loss(item):
-                    rec["tid"] = loss_tid(item.iid)
-                elif is_gc_stats(item):
-                    rec["tid"] = item.iid
-
                 rec.update(to_mapping(item))
                 f.write(msgspec.json.encode(rec))
                 f.write(b"\n")

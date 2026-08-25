@@ -264,8 +264,8 @@ class TestCliCombine:
         run_combine: Combiner,
         combine_output: Path,
     ) -> None:
-        f1 = make_jsonl_file("data1.jsonl", [create_jsonl_record(pid=123, tid=1, gen=0)])
-        f2 = make_jsonl_file("data2.jsonl", [create_jsonl_record(pid=456, tid=2, gen=1)])
+        f1 = make_jsonl_file("data1.jsonl", [create_jsonl_record(pid=123, gen=0)])
+        f2 = make_jsonl_file("data2.jsonl", [create_jsonl_record(pid=456, gen=1)])
 
         result = run_combine([f1, f2], output=combine_output)
 
@@ -370,8 +370,8 @@ class TestCliCombineJsonlToJsonl:
         assert records[0]["ts_start"] == 1_000_000
 
     def test_multiple_files(self, make_jsonl_file: JsonlFileFactory, run_combine: Combiner, tmp_path: Path) -> None:
-        f1 = make_jsonl_file("data1.jsonl", [create_jsonl_record(pid=123, tid=1, gen=0)])
-        f2 = make_jsonl_file("data2.jsonl", [create_jsonl_record(pid=456, tid=2, gen=1)])
+        f1 = make_jsonl_file("data1.jsonl", [create_jsonl_record(pid=123, gen=0)])
+        f2 = make_jsonl_file("data2.jsonl", [create_jsonl_record(pid=456, gen=1)])
         output = tmp_path / "combined.jsonl"
 
         result = run_combine([f1, f2], output=output, extra_args=["--output-format", "jsonl"])

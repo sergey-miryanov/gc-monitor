@@ -301,7 +301,6 @@ def create_mock_incremental_item(
 
 def create_jsonl_record(
     pid: int = 123,
-    tid: int = 1,
     gen: int = 0,
     iid: int = 1,
     ts_start: int = 1_000_000,
@@ -315,7 +314,6 @@ def create_jsonl_record(
 ) -> dict[str, int | float]:
     return {
         "pid": pid,
-        "tid": tid,
         "gen": gen,
         "iid": iid,
         "ts_start": ts_start,

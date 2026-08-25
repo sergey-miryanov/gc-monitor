@@ -5,7 +5,6 @@ import json
 from gcmon.exporters import JsonlExporter
 from gcmon.exporters.jsonl_io import read_jsonl
 from gcmon.model.data import GCStatsInfo
-from gcmon.model.trace_event import loss_tid
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory, JsonlFileReader
@@ -47,7 +46,7 @@ class TestJsonlExporter:
         assert len(events) == 1
         event = events[0]
         assert event["pid"] == 12345
-        assert event["tid"] == 0
+        assert event["iid"] == 0
         assert event["gen"] == 0
         assert event["ts_start"] == 1000000
         assert event["collections"] == 10
@@ -110,13 +109,13 @@ class TestJsonlExporter:
         for event in events:
             assert "pid" in event
 
-    def test_thread_id_in_output(self, jsonl_exporter: ExporterFactory, read_jsonl: JsonlFileReader) -> None:
+    def test_interpreter_id_in_output(self, jsonl_exporter: ExporterFactory, read_jsonl: JsonlFileReader) -> None:
         exporter, path = jsonl_exporter(threshold=1)
         stats_item = create_mock_stats_item(iid=5678)
         exporter.add_event(DEFAULT_PID, stats_item)
         exporter.close()
         event = read_jsonl(path)[0]
-        assert event["tid"] == 5678
+        assert event["iid"] == 5678
 
     def test_pid_in_output(
         self, mock_stats_item: GCStatsInfo, jsonl_exporter: ExporterFactory, read_jsonl: JsonlFileReader
@@ -292,7 +291,9 @@ class TestJsonlLossRecords:
 
         assert read_jsonl(path) == {DEFAULT_PID: [msg]}
 
-    def test_it_is_written_on_the_loss_track(self, jsonl_exporter: ExporterFactory) -> None:
+    def test_it_names_the_interpreter_that_lost_the_records(self, jsonl_exporter: ExporterFactory) -> None:
+        """`iid` is the only thing on the line that says which interpreter
+        went blind, and the loss row is drawn per interpreter."""
         exporter, path = jsonl_exporter()
 
         exporter.add_loss_event(
@@ -300,7 +301,9 @@ class TestJsonlLossRecords:
         )
         exporter.close()
 
-        assert json.loads(path.read_text(encoding="utf-8"))["tid"] == loss_tid(1)
+        record = json.loads(path.read_text(encoding="utf-8"))
+        assert record["iid"] == 1
+        assert "tid" not in record
 
     def test_it_does_not_disturb_gc_records(self, jsonl_exporter: ExporterFactory) -> None:
         exporter, path = jsonl_exporter()

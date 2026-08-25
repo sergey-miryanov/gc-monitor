@@ -9,7 +9,6 @@ import pytest
 from gcmon.exporters import StdoutExporter
 from gcmon.model.data import LossMsg
 from gcmon.model.protocol import TGCStatsInfo
-from gcmon.model.trace_event import loss_tid
 from tests.conftest import DEFAULT_PID
 from tests.helpers import create_mock_loss_item, create_mock_stats_item
 
@@ -45,7 +44,7 @@ class TestStdoutExporter:
 
         # Verify all fields are present
         assert data["pid"] == 12345
-        assert data["tid"] == 0
+        assert data["iid"] == 0
         assert data["gen"] == 0
         assert data["ts_start"] == 1_500_000_000
         assert data["collections"] == 50
@@ -118,17 +117,17 @@ class TestStdoutExporter:
         data: dict[str, Any] = json.loads(output.strip())
         assert isinstance(data, dict)
 
-    def test_thread_id_in_output(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
-        """Test that thread ID appears in output."""
+    def test_interpreter_id_in_output(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
+        """Test that the interpreter ID appears in output."""
         exporter = StdoutExporter()
-        stats_item_with_tid = create_mock_stats_item(iid=42)
-        exporter.add_event(DEFAULT_PID, stats_item_with_tid)
+        stats_item = create_mock_stats_item(iid=42)
+        exporter.add_event(DEFAULT_PID, stats_item)
         exporter.close()
 
         captured = capsys.readouterr()
         data: dict[str, Any] = json.loads(captured.out.strip())
 
-        assert data["tid"] == 42
+        assert data["iid"] == 42
 
     def test_pid_in_output(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
         """Test that PID appears in output."""
@@ -175,9 +174,10 @@ class TestStdoutLossRecords:
             {"gen": 1, "observed_count": 4, "lost_from": 0, "lost_count": 76, "lost_pause_ns": 8_100_000}
         ]
 
-    def test_it_is_tagged_with_the_loss_tid(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """The same sentinel the trace formats use, so a stream and a capture
-        of the same run agree on which interpreter lost the records."""
+    def test_it_names_the_interpreter_that_lost_the_records(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A stream and a capture of the same run agree on which interpreter
+        lost the records, and neither carries a track number."""
         data = self._emit(capsys)
 
-        assert data["tid"] == loss_tid(3)
+        assert data["iid"] == 3
+        assert "tid" not in data
