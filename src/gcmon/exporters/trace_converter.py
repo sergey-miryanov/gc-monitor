@@ -30,8 +30,6 @@ from ..model.trace_event import (
     counter_event,
     end_event,
     instant_event,
-    process_meta,
-    thread_meta,
 )
 
 __all__ = [
@@ -416,8 +414,6 @@ def _loss_in_time_order(items: Sequence[TItem]) -> Sequence[TItem]:
 def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceEvent]:
     events: list[TraceEvent] = []
     for pid, pid_items in items.items():
-        events.append(process_meta(pid, f"{pid}"))
-        threads: set[int] = set()
         pid_events: list[TraceEvent] = []
         # The guards are mutually exclusive, so the order is free to follow the
         # capture: GC records outnumber the other two by orders of magnitude,
@@ -425,16 +421,12 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
         # `hasattr`.
         for item in _loss_in_time_order(pid_items):
             if is_gc_stats(item):
-                threads.add(item.iid)
                 pid_events.extend(convert_item_to_trace_format(pid, item))
             elif is_loss(item):
-                # No `thread_meta`: the loss track is not a thread, and
-                # `perfetto_format` describes it off the slices themselves.
                 pid_events.extend(convert_loss_to_trace_format(pid, item))
             elif is_instant(item):
                 pid_events.append(instant_event(ProcessTrack(pid), item.name, item.ts))
 
-        events.extend(thread_meta(ThreadTrack(pid, iid), f"{pid}:{iid}") for iid in threads)
         events.extend(pid_events)
 
     return events

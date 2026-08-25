@@ -16,9 +16,7 @@ from gcmon.exporters.jsonl_io import (
 )
 from gcmon.model.data import GCStatsInfo, LossMsg
 from gcmon.model.protocol import has_incremental
-from gcmon.model.trace_event import (
-    ProcessMeta,
-)
+from gcmon.model.trace_event import ThreadTrack
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import make_inc_item, make_inc_jsonl_record
 from tests.helpers import (
@@ -275,7 +273,6 @@ class TestConvertJsonlToTraceFormat:
 
         events = convert_jsonl_to_trace_format(path)
         assert len(events) > 0
-        assert any(e.ph == "M" for e in events)  # metadata
         assert any(e.ph == "B" for e in events)  # pause begin
         assert any(e.ph == "C" for e in events)  # counter
 
@@ -300,17 +297,15 @@ class TestConvertJsonlToTraceFormat:
         assert any("Clear Weakrefs" in e.name for e in pause_events)
         assert any("Delete Garbage" in e.name for e in pause_events)
 
-    def test_multiple_pids_generates_metadata(self, tmp_path: Path) -> None:
+    def test_multiple_pids_each_get_their_own_tracks(self, tmp_path: Path) -> None:
         path = tmp_path / "multi.jsonl"
         lines = [
-            msgspec.json.encode(create_jsonl_record(pid=1)),
-            msgspec.json.encode(create_jsonl_record(pid=2)),
+            msgspec.json.encode(create_jsonl_record(pid=1, iid=0)),
+            msgspec.json.encode(create_jsonl_record(pid=2, iid=0)),
         ]
         path.write_bytes(b"\n".join(lines) + b"\n")
         events = convert_jsonl_to_trace_format(path)
-        process_metas = [e for e in events if isinstance(e, ProcessMeta)]
-        assert len(process_metas) == 2
-        assert {e.pid for e in process_metas} == {1, 2}
+        assert {e.track for e in events} == {ThreadTrack(1, 0), ThreadTrack(2, 0)}
 
 
 class TestAnOldFormatLossRecord:

@@ -17,12 +17,10 @@ from gcmon.exporters.jsonl_io import (
 from gcmon.model.data import LossMsg
 from gcmon.model.trace_event import (
     EventArgs,
-    ProcessMeta,
     ThreadTrack,
     TraceEvent,
     begin_event,
     counter_event,
-    process_meta,
 )
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import make_inc_jsonl_record
@@ -83,18 +81,10 @@ class TestNormalizeTraceTimestamps:
             ts_ns=3_000_000,
             value=10,
         )
-        e3 = process_meta(pid=1, name="p")
-        events: list[TraceEvent] = [e1, e2, e3]
+        events: list[TraceEvent] = [e1, e2]
         _normalize_trace_timestamps(events)
         assert e1.ts == 2_000_000  # 5_000_000 - 3_000_000
         assert e2.ts == 0  # 3_000_000 - 3_000_000
-        assert e3.name == "process_name"  # metadata preserved
-
-    def test_no_timestamp_events_is_noop(self) -> None:
-        events: list[TraceEvent] = [process_meta(pid=1, name="p")]
-        _normalize_trace_timestamps(events)
-        assert len(events) == 1
-        assert isinstance(events[0], ProcessMeta)
 
     def test_single_event_ts_becomes_zero(self) -> None:
         args: EventArgs = {

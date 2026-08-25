@@ -551,15 +551,16 @@ class TestPerfettoExporterCmdlinePath:
 
 @pytest.mark.stress
 class TestMetaDedupRaceClosed:
-    """The shared ``BufferedTraceExporter._build_meta`` is atomic under
-    ``_lock`` -- the check-and-add of pid / tid happens inside the same
-    critical section. This fires two threads at a brand-new pid and
-    asserts that the file holds exactly one process descriptor, proving
-    the race window is closed.
+    """Two threads at a brand-new pid put exactly one process descriptor in
+    the file.
 
-    The pre-refactor ``PerfettoExporter.add_event`` had a TOCTOU between
-    ``pid not in self._pids`` and ``self._pids.add(pid)`` that could
-    produce two process descriptors under load.
+    The race this closes was a TOCTOU in the producer, between
+    ``pid not in self._pids`` and ``self._pids.add(pid)``, which could put
+    two process descriptors in a trace under load. It closed by deletion
+    rather than by locking: no producer decides what a batch's descriptors
+    are any more. The dedup lives in ``PerfettoTrackState``, reached only
+    through ``write_events`` and ``record_process_liveness``, both already
+    under ``_io_lock``.
     """
 
     def test_perfetto_two_threads_same_new_pid_produces_single_descriptor(self, tmp_path: Path) -> None:

@@ -3,7 +3,7 @@
 One BEGIN/END pair per pid on one shared track. See ADR-0011.
 """
 
-from ..model.trace_event import ProcessMeta, ThreadMeta, TraceEvent
+from ..model.trace_event import TraceEvent
 from .perfetto_builders import (
     _build_debug_annotation_int,
     _build_debug_annotation_string,
@@ -97,18 +97,11 @@ def _record_process_lifetime(
 ) -> None:
     """Fold *event* into its pid's recorded ``Processes``-track span.
 
-    Every non-meta event widens the span in both directions, counters
-    included: a timestamped event is evidence the process existed at
-    that instant, whatever kind it is. Meta events carry no timestamp,
-    so a pid seen only through them gets no span and no slice. Emits
-    nothing: spans become packets at close.
+    Every event widens the span in both directions, counters included: a
+    timestamped event is evidence the process existed at that instant,
+    whatever kind it is. Emits nothing: spans become packets at close.
     """
-    if isinstance(event, (ProcessMeta, ThreadMeta)):
-        return
-    ts = getattr(event, "ts", None)
-    if ts is None:
-        return
-    state.update_process_lifetime(event.track.pid, ts)
+    state.update_process_lifetime(event.track.pid, event.ts)
 
 
 def _clip_spans_to_laminar(

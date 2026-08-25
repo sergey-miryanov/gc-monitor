@@ -23,7 +23,7 @@ from gcmon.exporters.perfetto_proto import TrackEventType
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
-from gcmon.model.trace_event import ThreadTrack, TraceEvent, process_meta, thread_meta
+from gcmon.model.trace_event import TraceEvent
 from tests.exporters.perfetto_helpers import (
     convert_item,
     convert_items,
@@ -330,10 +330,9 @@ class TestProcessLifetimeLaminarClipping:
 
     def test_pid_without_process_descriptor_still_gets_a_slice(self) -> None:
         """A span is drawn for a pid that never reached ``mark_pid`` --
-        one polled OK for a whole run that never collected, so it
-        produced no events and no ``ProcessMeta``. It has no process
-        track and no cmdline, so the slice carries only the ``real_*``
-        annotations."""
+        one polled OK for a whole run that never collected, so it named
+        no track and nothing described it. It has no process track and no
+        cmdline, so the slice carries only the ``real_*`` annotations."""
         state = PerfettoTrackState()
         state.update_process_lifetime(100, 500)
         state.update_process_lifetime(100, 5_000)
@@ -723,10 +722,7 @@ class TestCloseoutAtFinalize:
             duration=0.001,
         )
         gc_events = convert_item_to_trace_format(100, item)
-        meta: list[TraceEvent] = [
-            process_meta(100, "Process 100"),
-            thread_meta(ThreadTrack(100, item.iid), f"Thread {item.iid}"),
-        ]
+        meta: list[TraceEvent] = []
         _, packets = convert_trace_events_to_perfetto(
             meta + gc_events,
             state,
@@ -794,13 +790,9 @@ class TestCloseoutAtFinalize:
             duration=0.002,
         )
         events1: list[TraceEvent] = [
-            process_meta(100, "Process 100"),
-            thread_meta(ThreadTrack(100, item1.iid), f"Thread {item1.iid}"),
             *convert_item_to_trace_format(100, item1),
         ]
         events2: list[TraceEvent] = [
-            process_meta(100, "Process 100"),
-            thread_meta(ThreadTrack(100, item2.iid), f"Thread {item2.iid}"),
             *convert_item_to_trace_format(100, item2),
         ]
         _, packets1 = convert_trace_events_to_perfetto(

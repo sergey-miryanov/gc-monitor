@@ -1,7 +1,8 @@
 """The events every output format is built from, and the factories that build them.
 
 One converter fills these and every encoder reads them (ADR-0007). `ts` is
-nanoseconds (ADR-0009).
+nanoseconds (ADR-0009). Every event names the `Track` it is drawn on, and
+the encoder derives every other row of the trace from those.
 """
 
 from typing import Literal
@@ -16,10 +17,7 @@ __all__ = [
     "EventArgs",
     "InstantEvent",
     "LossTrack",
-    "NameInfo",
-    "ProcessMeta",
     "ProcessTrack",
-    "ThreadMeta",
     "ThreadTrack",
     "TraceEvent",
     "Track",
@@ -27,8 +25,6 @@ __all__ = [
     "counter_event",
     "end_event",
     "instant_event",
-    "process_meta",
-    "thread_meta",
 ]
 
 
@@ -71,10 +67,6 @@ type ArgGroup = dict[str, int | str]
 type EventArgs = dict[str, int | str | ArgGroup]
 
 
-class NameInfo(msgspec.Struct):
-    name: str
-
-
 class BeginEvent(msgspec.Struct):
     name: str
     cat: str
@@ -109,39 +101,7 @@ class CounterEvent(msgspec.Struct):
     value: int | float
 
 
-class ProcessMeta(msgspec.Struct):
-    name: Literal["process_name"]
-    ph: Literal["M"]
-    pid: int
-    args: NameInfo
-
-
-class ThreadMeta(msgspec.Struct):
-    name: Literal["thread_name"]
-    ph: Literal["M"]
-    track: ThreadTrack
-    args: NameInfo
-
-
-TraceEvent = BeginEvent | EndEvent | CounterEvent | ProcessMeta | ThreadMeta | InstantEvent
-
-
-def process_meta(pid: int, name: str) -> ProcessMeta:
-    return ProcessMeta(
-        name="process_name",
-        ph="M",
-        pid=pid,
-        args=NameInfo(name=name),
-    )
-
-
-def thread_meta(track: ThreadTrack, name: str) -> ThreadMeta:
-    return ThreadMeta(
-        name="thread_name",
-        ph="M",
-        track=track,
-        args=NameInfo(name=name),
-    )
+TraceEvent = BeginEvent | EndEvent | CounterEvent | InstantEvent
 
 
 def begin_event(

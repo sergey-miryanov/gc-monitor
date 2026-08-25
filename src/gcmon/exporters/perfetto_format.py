@@ -17,9 +17,7 @@ from ..model.trace_event import (
     EndEvent,
     InstantEvent,
     LossTrack,
-    ProcessMeta,
     ProcessTrack,
-    ThreadMeta,
     ThreadTrack,
     TraceEvent,
     Track,
@@ -227,20 +225,17 @@ def _emit_thread_descriptor(
 
 
 def _emit_loss_descriptor(
-    track: Track,
+    track: LossTrack,
     state: PerfettoTrackState,
     sequence_id: int,
 ) -> list[bytes]:
     """Build *track*'s GC Loss track descriptor, once.
 
-    Returns nothing for a track that is not a loss track, so the slice
-    branches can call this without checking first.
-
-    Nothing else describes this track, and it is a plain custom one rather
-    than a thread: a ``LossTrack`` names an interpreter but no OS thread, and
-    a ``thread`` sub-message would describe one that does not exist.
+    A plain custom track rather than a thread: a ``LossTrack`` names an
+    interpreter but no OS thread, and a ``thread`` sub-message would describe
+    one that does not exist.
     """
-    if not isinstance(track, LossTrack) or state.has_track(track):
+    if state.has_track(track):
         return []
     state.mark_track(track)
     desc = build_track_descriptor(
@@ -324,6 +319,34 @@ def _emit_counter_track_descriptor(
     return ctr_uuid, [*group_packets, build_trace_packet(sequence_id, track_descriptor=desc)]
 
 
+def _emit_track_descriptors(
+    track: Track,
+    state: PerfettoTrackState,
+    sequence_id: int,
+    ranks: dict[int, int],
+) -> list[bytes]:
+    """Every descriptor *track* needs that has not gone out yet, parent
+    first.
+
+    The pid's process descriptor whichever kind of track this is, then the
+    track's own where it has one of its own to write. A ``ProcessTrack`` has
+    none: the process descriptor *is* its descriptor.
+    """
+    pid = track.pid
+    descriptors = _emit_process_descriptor(
+        pid,
+        state,
+        sequence_id,
+        sibling_order_rank=ranks.get(pid),
+        start_timestamp_ns=state.get_process_lifetime_start_ts(pid),
+    )
+    if isinstance(track, ThreadTrack):
+        descriptors.extend(_emit_thread_descriptor(track, state, sequence_id))
+    elif isinstance(track, LossTrack):
+        descriptors.extend(_emit_loss_descriptor(track, state, sequence_id))
+    return descriptors
+
+
 def convert_trace_events_to_perfetto(
     events: Sequence[TraceEvent],
     state: PerfettoTrackState,
@@ -331,20 +354,20 @@ def convert_trace_events_to_perfetto(
 ) -> tuple[list[bytes], list[bytes]]:
     """Convert a list of ``TraceEvent`` objects to Perfetto protobuf packets.
 
-    The caller must include ``ProcessMeta`` and ``ThreadMeta`` events, at
-    least once per pid and tid, or no track descriptor goes out.
-    ``PerfettoExporter`` does that itself.
+    A track's descriptor goes out because an event named that track, ahead of
+    the packet that named it. No producer sends metadata first, and none can
+    forget to.
 
     Returns ``(descriptors, packets)``, two lists of encoded ``TracePacket``
     bytes ready for ``build_trace``. The first call on a given *state* also
     emits the root descriptor.
 
     Each process descriptor carries a ``sibling_order_rank`` and a
-    ``process.start_timestamp_ns``, both taken from the pid's first non-meta
-    event. *state* accumulates those across batches, and the pre-pass below
-    folds this batch in before the main loop, so a pid whose first event
-    shares a batch with its ``ProcessMeta`` still gets a rank. A pid with no
-    recorded span gets neither field.
+    ``process.start_timestamp_ns``, both taken from the pid's first event.
+    *state* accumulates those across batches, and the pre-pass below folds
+    this batch in before the main loop, so a pid described in this batch is
+    ranked against the events of it. A pid with no recorded span gets neither
+    field.
 
     ``Processes``-track slices go out at trace close instead, from
     ``finalize_perfetto_packets``.
@@ -360,37 +383,11 @@ def convert_trace_events_to_perfetto(
     ranks = state.get_process_track_ranks()
 
     for event in events:
-        pid = event.pid if isinstance(event, ProcessMeta) else event.track.pid
+        pid = event.track.pid
+        descriptors.extend(_emit_track_descriptors(event.track, state, sequence_id, ranks))
 
-        if isinstance(event, ProcessMeta):
-            descriptors.extend(
-                _emit_process_descriptor(
-                    pid,
-                    state,
-                    sequence_id,
-                    sibling_order_rank=ranks.get(pid),
-                    start_timestamp_ns=state.get_process_lifetime_start_ts(pid),
-                )
-            )
-
-        # A `ThreadMeta` arriving before its pid's `ProcessMeta` still gets a
-        # process track: one descriptor goes out per pid, whichever event
-        # asks for it first.
-        elif isinstance(event, ThreadMeta):
-            descriptors.extend(
-                _emit_process_descriptor(
-                    pid,
-                    state,
-                    sequence_id,
-                    sibling_order_rank=ranks.get(pid),
-                    start_timestamp_ns=state.get_process_lifetime_start_ts(pid),
-                )
-            )
-            descriptors.extend(_emit_thread_descriptor(event.track, state, sequence_id))
-
-        elif isinstance(event, BeginEvent):
+        if isinstance(event, BeginEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            descriptors.extend(_emit_loss_descriptor(event.track, state, sequence_id))
             annotations = _args_to_debug_annotations(event.args)
             packets.append(
                 build_trace_packet(
@@ -407,7 +404,6 @@ def convert_trace_events_to_perfetto(
 
         elif isinstance(event, EndEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            descriptors.extend(_emit_loss_descriptor(event.track, state, sequence_id))
             packets.append(
                 build_trace_packet(
                     sequence_id,
@@ -460,8 +456,7 @@ def _maybe_emit_start_process_marker(
 ) -> None:
     """Place the pid's ``Start Process`` marker at *event*, if the process
     track is already described and the marker is not."""
-    pid = event.pid if isinstance(event, ProcessMeta) else event.track.pid
+    pid = event.track.pid
     if not state.has_pid(pid) or state.has_start_process_marker(pid):
         return
-    ts = getattr(event, "ts", 0)
-    packets.extend(_emit_start_process_marker(pid, ts, state, sequence_id))
+    packets.extend(_emit_start_process_marker(pid, event.ts, state, sequence_id))

@@ -11,23 +11,25 @@ from gcmon.exporters.encoder import ProtobufEventEncoder
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.exporters.jsonl_exporter import JsonlExporter
 from gcmon.exporters.stdout_exporter import StdoutExporter
+from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.trace_event import (
     BeginEvent,
     CounterEvent,
     EndEvent,
     LossTrack,
-    ProcessMeta,
     ProcessTrack,
-    ThreadMeta,
     ThreadTrack,
 )
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_loss_item, create_mock_stats_item
 
 
-class TestBuildMetaGuard:
-    """``_build_meta`` describes an interpreter's own row and nothing else."""
+class TestTheBufferHoldsNothingButEvents:
+    """The exporter sends the encoder what the monitor gave it and nothing
+    else. Which rows a trace draws is the encoder's to work out from the
+    tracks those events name; see `TestATrackIsDescribedOffTheEventsOnIt` in
+    `test_perfetto_format.py`."""
 
     def _make_exporter(self, tmp_path: Path) -> BufferedTraceExporter:
         return BufferedTraceExporter(
@@ -36,20 +38,18 @@ class TestBuildMetaGuard:
             flush_threshold=1000,
         )
 
-    def test_an_rss_sample_gets_no_thread_meta(self, tmp_path: Path) -> None:
+    def test_an_rss_sample_buffers_one_event(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
         exporter.add_rss_sample(100, 4096, 1_000_000)
-        assert any(isinstance(e, ProcessMeta) and e.pid == 100 for e in exporter._buffer)
-        assert not any(isinstance(e, ThreadMeta) for e in exporter._buffer)
+        assert len(exporter._buffer) == 1
 
-    def test_multiple_rss_samples_no_duplicate_process_meta(self, tmp_path: Path) -> None:
+    def test_a_second_rss_sample_buffers_a_second_event(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
         exporter.add_rss_sample(100, 4096, 1_000_000)
         exporter.add_rss_sample(100, 8192, 2_000_000)
-        metas = [e for e in exporter._buffer if isinstance(e, ProcessMeta)]
-        assert len(metas) == 1
+        assert len(exporter._buffer) == 2
 
-    def test_a_gc_record_emits_thread_meta(self, tmp_path: Path) -> None:
+    def test_a_gc_record_buffers_the_events_the_converter_made(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
         item = GCStatsInfo(
             gen=0,
@@ -64,7 +64,8 @@ class TestBuildMetaGuard:
             duration=0.001,
         )
         exporter.add_event(100, item)
-        assert any(isinstance(e, ThreadMeta) and e.track == ThreadTrack(100, 0) for e in exporter._buffer)
+        assert exporter._buffer == convert_item_to_trace_format(100, item)
+        assert {e.track for e in exporter._buffer} == {ThreadTrack(100, 0)}
 
 
 class TestAddRssSample:
@@ -84,7 +85,7 @@ class TestAddRssSample:
         assert c.value == 4096
         assert c.ts == 1_000_000
 
-    def test_multiple_pids_produce_separate_meta(self, tmp_path: Path) -> None:
+    def test_two_pids_sample_onto_two_process_rows(self, tmp_path: Path) -> None:
         exporter = BufferedTraceExporter(
             ProtobufEventEncoder(),
             tmp_path / "test.pb",
@@ -92,9 +93,7 @@ class TestAddRssSample:
         )
         exporter.add_rss_sample(100, 4096, 1_000_000)
         exporter.add_rss_sample(200, 8192, 2_000_000)
-        events = exporter._buffer
-        pids_in_meta = {e.pid for e in events if isinstance(e, ProcessMeta)}
-        assert pids_in_meta == {100, 200}
+        assert {e.track for e in exporter._buffer} == {ProcessTrack(100), ProcessTrack(200)}
 
 
 class TestAddProcessLivenessIsPerfettoOnly:
@@ -174,17 +173,16 @@ class TestAddLossEvent:
             LossTrack(100, 0),
         }
 
-    def test_the_loss_track_is_not_declared_as_a_thread(self, tmp_path: Path) -> None:
-        """A `LossTrack` is not a `ThreadTrack`, so nothing names it as one.
-        `perfetto_format` describes this track off the slices instead."""
+    def test_a_loss_event_names_no_interpreter_row(self, tmp_path: Path) -> None:
+        """A `LossTrack` is not a `ThreadTrack`, so a poll gcmon went blind in
+        draws nothing on the interpreter's own row."""
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_loss_event(
             100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        assert any(isinstance(e, ProcessMeta) for e in exporter._buffer)
-        assert not any(isinstance(e, ThreadMeta) for e in exporter._buffer)
+        assert {e.track for e in exporter._buffer} == {LossTrack(100, 0)}
 
     def test_two_interpreters_get_two_loss_tracks(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)

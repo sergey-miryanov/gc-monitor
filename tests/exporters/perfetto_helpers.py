@@ -15,7 +15,7 @@ from gcmon.exporters.perfetto_process_lifetime import finalize_perfetto_packets
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
-from gcmon.model.trace_event import ThreadTrack, TraceEvent, process_meta, thread_meta
+from gcmon.model.trace_event import TraceEvent
 
 
 def convert_item(
@@ -31,10 +31,7 @@ def convert_item(
     what convert emitted on its own wants that one instead.
     """
     gc_events = convert_item_to_trace_format(pid, item)
-    meta: list[TraceEvent] = [
-        process_meta(pid, f"Process {pid}"),
-        thread_meta(ThreadTrack(pid, item.iid), f"Thread {item.iid}"),
-    ]
+    meta: list[TraceEvent] = []
     descriptors, packets = convert_trace_events_to_perfetto(
         meta + gc_events,
         state,
@@ -59,10 +56,7 @@ def convert_items(
     descriptors: list[bytes] = []
     packets: list[bytes] = []
     for pid, item in items:
-        meta: list[TraceEvent] = [
-            process_meta(pid, f"Process {pid}"),
-            thread_meta(ThreadTrack(pid, item.iid), f"Thread {item.iid}"),
-        ]
+        meta: list[TraceEvent] = []
         batch_desc, batch_packets = convert_trace_events_to_perfetto(
             meta + convert_item_to_trace_format(pid, item),
             state,
