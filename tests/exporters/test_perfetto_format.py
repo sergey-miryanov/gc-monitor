@@ -877,6 +877,61 @@ class TestConvertInstantToPerfettoPacket:
         assert uuid_after_g0 == uuid_after_g1
 
 
+class TestAnInstantCanCarryArgs:
+    """An `Instant` carries debug annotations the way a `SliceBegin` does.
+
+    Nothing fills the field yet: a `TInstantMsg` is a type, a name and a `ts`,
+    so neither the live path nor `combine` has anything to put there. The
+    mark grammar is what will, and it arrives with the caller that needs it.
+    Reached by constructing an `Instant` directly, which is the only way to
+    reach it and what the encoder's other unit tests already do.
+    """
+
+    def _instant_packet(self, event: Instant) -> TrackEvent:
+        state = PerfettoTrackState()
+        _, packets = convert_trace_events_to_perfetto([event], state, sequence_id=1)
+        for p in packets:
+            packet = TracePacket()
+            packet.ParseFromString(p)
+            if packet.track_event.type == TrackEvent.Type.TYPE_INSTANT and packet.track_event.name == event.name:
+                return packet.track_event
+        raise AssertionError(f"no instant packet named {event.name!r}")
+
+    def test_the_args_reach_the_packet_as_debug_annotations(self) -> None:
+        track_event = self._instant_packet(
+            Instant(ProcessTrack(100), "benchmark", 1_000, {"benchmark": "json_loads", "run": 3})
+        )
+        annotations = {
+            a.name: (a.string_value or None, a.int_value if a.HasField("int_value") else None)
+            for a in track_event.debug_annotations
+        }
+        assert annotations == {"benchmark": ("json_loads", None), "run": (None, 3)}
+
+    def test_an_instant_with_no_args_writes_no_annotations_field(self) -> None:
+        """The bytes an instant produces today, so the field costs a trace
+        that does not use it nothing."""
+        bare = self._instant_packet(Instant(ProcessTrack(100), "mark", 1_000))
+        assert len(bare.debug_annotations) == 0
+        assert (
+            bare.SerializeToString()
+            == self._instant_packet(Instant(ProcessTrack(100), "mark", 1_000, {})).SerializeToString()
+        )
+
+    def test_a_nested_group_flattens_the_way_it_does_on_a_slice(self) -> None:
+        track_event = self._instant_packet(
+            Instant(ProcessTrack(100), "benchmark", 1_000, {"timing": {"warmup": 5, "unit": "ms"}})
+        )
+        (group,) = track_event.debug_annotations
+        assert group.name == "timing"
+        assert {
+            e.name: (e.string_value or None, e.int_value if e.HasField("int_value") else None)
+            for e in group.dict_entries
+        } == {
+            "warmup": (None, 5),
+            "unit": ("ms", None),
+        }
+
+
 class TestATrackIsDescribedOffTheEventsOnIt:
     """A track's descriptor goes out because an event named that track.
 

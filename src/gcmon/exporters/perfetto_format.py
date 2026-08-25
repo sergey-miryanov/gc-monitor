@@ -423,6 +423,9 @@ def convert_trace_events_to_perfetto(
                         type=TrackEventType.INSTANT,
                         track_uuid=proc_uuid,
                         name=event.name,
+                        # Left off rather than passed empty, so an instant
+                        # carrying no args produces the packet it always has.
+                        debug_annotations=_args_to_debug_annotations(event.args) if event.args else None,
                     ),
                 )
             )

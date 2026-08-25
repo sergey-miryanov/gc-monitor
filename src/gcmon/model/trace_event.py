@@ -88,6 +88,11 @@ class Instant(msgspec.Struct):
     track: ProcessTrack
     name: str
     ts: int
+    # A default rather than a required field, since the two producers of an
+    # instant have nothing to put here: a `TInstantMsg` is a type, a name and
+    # a `ts`. Built per instant rather than shared, so the encoder can take
+    # ownership of it the way it takes a slice's.
+    args: EventArgs = msgspec.field(default_factory=dict)
 
 
 class Counter(msgspec.Struct):
