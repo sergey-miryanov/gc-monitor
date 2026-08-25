@@ -4,6 +4,7 @@ import json
 import threading
 import zlib
 from collections.abc import Callable, Iterator, Sequence, Set
+from compression import zstd
 from contextlib import contextmanager
 from pathlib import Path
 from typing import override
@@ -370,16 +371,17 @@ def open_trace_processor(path: Path | str) -> Iterator[TraceProcessor]:
 def perfetto_packets(content: bytes) -> list[TracePacket]:
     """Every ``TracePacket`` in a serialized trace, in file order.
 
-    A packet gcmon wrote is deflated inside ``compressed_packets``, and a file
-    may mix those with plain ones. Read through Perfetto's own generated schema
-    rather than gcmon's constants, so a wrong field number fails here
-    (ADR-0001).
+    A batch carries its packets compressed, and a file may mix either encoding
+    with plain packets. Read through Perfetto's own generated schema rather
+    than gcmon's constants, so a wrong field number fails here (ADR-0001).
     """
     trace = Trace()
     trace.ParseFromString(content)
     packets: list[TracePacket] = []
     for packet in trace.packet:
-        if packet.HasField("compressed_packets"):
+        if packet.HasField("zstd_compressed_packets"):
+            packets.extend(perfetto_packets(zstd.decompress(packet.zstd_compressed_packets)))
+        elif packet.HasField("compressed_packets"):
             packets.extend(perfetto_packets(zlib.decompress(packet.compressed_packets)))
         else:
             packets.append(packet)

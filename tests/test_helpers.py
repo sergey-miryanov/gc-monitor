@@ -8,6 +8,7 @@ suite reads its traces through it.
 from __future__ import annotations
 
 import zlib
+from compression import zstd
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,13 @@ def _compressed(timestamps: list[int]) -> bytes:
     return content
 
 
+def _zstd(timestamps: list[int]) -> bytes:
+    """The same packets again, in the batch gcmon writes."""
+    batch = TracePacket(zstd_compressed_packets=zstd.compress(_plain(timestamps)))
+    content: bytes = Trace(packet=[batch]).SerializeToString()
+    return content
+
+
 class TestPerfettoPackets:
     def test_a_plain_trace_reads(self) -> None:
         assert [p.timestamp for p in perfetto_packets(_plain([1, 2, 3]))] == [1, 2, 3]
@@ -38,16 +46,21 @@ class TestPerfettoPackets:
 
         assert perfetto_packets(_compressed(timestamps)) == perfetto_packets(_plain(timestamps))
 
+    def test_a_zstd_trace_reads_as_the_plain_one(self) -> None:
+        timestamps = [10, 20, 30]
+
+        assert perfetto_packets(_zstd(timestamps)) == perfetto_packets(_plain(timestamps))
+
     def test_a_compressed_batch_is_flattened_where_it_stood(self) -> None:
         """The format allows a file to mix the two encodings, so order is by
         position in the file and not by encoding."""
-        content = _plain([1]) + _compressed([2, 3]) + _plain([4])
+        content = _plain([1]) + _compressed([2, 3]) + _zstd([4, 5]) + _plain([6])
 
-        assert [p.timestamp for p in perfetto_packets(content)] == [1, 2, 3, 4]
+        assert [p.timestamp for p in perfetto_packets(content)] == [1, 2, 3, 4, 5, 6]
 
     def test_several_batches_read_in_file_order(self) -> None:
         """What a run flushed over more than one batch leaves behind."""
-        content = _compressed([1, 2]) + _compressed([3, 4])
+        content = _zstd([1, 2]) + _zstd([3, 4])
 
         assert [p.timestamp for p in perfetto_packets(content)] == [1, 2, 3, 4]
 

@@ -31,6 +31,7 @@ class TracePacketField(IntEnum):
     TRACK_EVENT = 11
     COMPRESSED_PACKETS = 50
     TRACK_DESCRIPTOR = 60
+    ZSTD_COMPRESSED_PACKETS = 133
 
 
 class TrackDescriptorField(IntEnum):
