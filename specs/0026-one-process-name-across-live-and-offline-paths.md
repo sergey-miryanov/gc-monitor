@@ -12,16 +12,21 @@
 
 ## 1. Problem
 
-The same process is labelled two different ways depending on how the trace was
-produced. Run `gcmon 12345 -o trace.json` and the process shows up as
-**`Process 12345`**. Record JSONL and run
-`gcmon combine run.jsonl -o trace.json` and the same process shows up as
-**`12345`**. An operator comparing a live capture against a combined one, or
-grouping by process name in a PerfettoSQL query, gets two names for one thing.
+Two call sites build the `ProcessMeta` for a pid and disagree on the name
+string. That is real. What was claimed to follow from it was not: **no trace
+ever carried either name.**
+
+This spec was written against the Chrome output, where the `process_name`
+metadata event's `args.name` reached the file. `--format chrome` is gone
+([ADR-0021](../docs/adr/0021-chrome-trace-format-removal.md)), and the
+Perfetto encoder builds `f"Process {pid}"` itself and has never read the name
+a `ProcessMeta` carried. So the symptom the spec opens with -- one process
+labelled `Process 12345` live and `12345` combined -- cannot occur in any
+output gcmon writes today.
 
 ## 2. Evidence
 
-Two call sites build the `ProcessMeta`, and they disagree on the name string:
+The drift is there:
 
 - `BufferedTraceExporter._build_meta` (live path):
   `process_meta(pid, f"Process {pid}")`
@@ -34,55 +39,35 @@ thing wherever it came from. The meta events are the part that stayed behind:
 dedup state, so it never went through the converter, and the two literals
 drifted.
 
+What did not follow is that anything downstream could tell.
+
 ## 3. Scope
 
-**Affected:** the `process_name` metadata event in Chrome JSON, and the
-process name in Perfetto, for `gcmon combine` output. Live captures are
-already correct.
+**Affected:** nothing an operator can observe. Two literals disagree in the
+source and neither is read.
 
-**Not affected:** `ThreadMeta`, since both paths name threads
-`f"Thread {iid}"`. The Perfetto `cmdline` annotation (ADR-0010) is a different
-field and unaffected. Event content, timestamps and track layout are
-untouched.
+The original spec claimed the process name in Perfetto for `gcmon combine`
+output was affected. It is not, for the reason in §1. It also claimed
+`ThreadMeta` was "not affected, since both paths name threads
+`f"Thread {iid}"`" -- `convert_to_trace_format` names them `f"{pid}:{tid}"`, a
+third spelling. Moot for the same reason: the encoder builds `f"Thread {iid}"`
+itself and reads neither.
 
 **Why the suite didn't catch it:** each path is tested against its own
-expectation. `tests/exporters/test_chrome_trace_exporter.py` asserts
-`args={"name": "Process 12345"}` and the combine tests assert their own value.
-Nothing compares the two paths, so both "passed" while disagreeing.
+expectation, and nothing compares the two. That is why the drift went
+unnoticed; it is not why the drift was harmless.
 
 ## 4. Proposed change
 
-1. Adopt `f"Process {pid}"`, the live form. It is what most existing fixtures
-   and helpers already carry (`tests/exporters/perfetto_helpers.py` builds
-   `process_meta(pid, f"Process {pid}")`), it is the form users have seen
-   since v0.1.0, and a bare integer reads as a track index rather than a name
-   in the Perfetto UI.
-2. Change the offline literal in `convert_to_trace_format` to match. Update
-   the combine fixtures that pin the bare-pid form.
-3. Give the string one home so it cannot drift again: a
-   `process_display_name(pid)` helper in `trace_event.py`, next to
-   `process_meta`, called by both sites.
+None. [Spec 0065](0065-name-the-track-an-event-is-drawn-on.md) removes the
+drift by deleting the events: an event names the `Track` it is drawn on, and
+the encoder derives every descriptor from that, so there is no second place
+for a name to be written and no name to disagree about.
 
 ## 5. Seams and testing decisions
 
-- **Seam:** `tests/test_convert_cmd_perfetto.py`, which already loads combine
-  output into the trace processor and queries the `process` table. The name is
-  a column there, so the assertion is on what the trace means rather than on
-  our own literal.
-- **New seam needed:** none.
-- **What makes a good test here:** one test that asserts *equality between the
-  two paths* for the same pid, not two tests each asserting a literal; a
-  literal test is what let the drift happen. Build the live events and the
-  offline events for the same pid and compare the `ProcessMeta` produced.
-- **Prior art:** the chrome↔perfetto content-equivalence test in
-  `tests/test_convert_cmd_perfetto.py`
-  ([ADR-0014](../docs/adr/0014-perfetto-integration-test-strategy.md)), which
-  is the same shape of assertion across two encoders.
-- **Cases:**
-  1. Live and offline `ProcessMeta` for `pid=12345` carry the same name.
-  2. Regression guard: existing Chrome-format assertions on
-     `args={"name": "Process 12345"}` stay byte-identical, since the live form
-     is the one being kept.
+Nothing to test. A test asserting that two unread literals agree would pin
+source that is about to be deleted.
 
 ## 6. Out of scope
 
@@ -90,5 +75,3 @@ Nothing compares the two paths, so both "passed" while disagreeing.
   is a real improvement and a separate decision: ADR-0010 already carries
   cmdline in Perfetto, and changing the display name would affect every
   existing trace comparison.
-- Moving `_build_meta` itself into `trace_converter`. It holds the exporter's
-  dedup state; the shared helper closes this defect without that move.
