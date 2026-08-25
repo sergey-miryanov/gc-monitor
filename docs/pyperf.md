@@ -1,15 +1,16 @@
 # Pyperf Hook Integration
 
-gcmon ships a pyperf hook that marks where each benchmark ran in a trace you
-are already recording, over the same
-[external-process model](../README.md#how-it-works) as the CLI.
+gcmon ships a pyperf hook that marks where each benchmark ran in the trace a
+running monitor is already writing. The hook is the only gcmon code inside the
+benchmark process; the monitor reads that process from outside
+([How it works](../README.md#how-it-works)).
 
-> **Prerequisite:** `pip install pyperf`. It finds the hook once `gcmon` is
+> **Prerequisite:** `pip install pyperf`. pyperf finds the hook once gcmon is
 > installed; pass `--hook=gcmon` to turn it on.
 
 ## Usage
 
-Start one monitor over the whole suite and let the hook annotate its trace:
+Start one monitor over the whole suite:
 
 ```bash
 gcmon run -o suite.pftrace -s my_benchmark.py \
@@ -17,8 +18,7 @@ gcmon run -o suite.pftrace -s my_benchmark.py \
 ```
 
 `gcmon run` takes its target as `-s <script>` or `-m <module>` and passes
-everything after it to that target verbatim. That is how the pyperf flags
-reach it. A module works the same way:
+everything after it to the target untouched, pyperf's flags included:
 
 ```bash
 gcmon run -o suite.pftrace -m pyperf timeit \
@@ -29,15 +29,22 @@ gcmon run -o suite.pftrace -m pyperformance run \
     --hook=gcmon --inherit-environ=GCMON_CONTROL_ADDRESS
 ```
 
-`gcmon run` puts the control address in the environment of the process it
-starts, and pyperf isolates its workers from that environment.
-`--inherit-environ=GCMON_CONTROL_ADDRESS` carries it the last step, to the
-processes the hook runs in. Without it every worker refuses.
+`gcmon run` sets `GCMON_CONTROL_ADDRESS` for the script it starts. That script
+is pyperf's runner, and the hook runs a level down, inside each worker the
+runner spawns:
+
+```
+gcmon run  ->  your script (pyperf runner)  ->  worker (the hook)
+```
+
+pyperf passes a worker a fixed set of environment variables, plus the ones you
+name in `--inherit-environ`. Without the flag the address stops at the runner,
+and the first worker cannot connect.
 
 ## When No Monitor Is Listening
 
-The hook refuses the run on the first worker rather than finishing a suite
-that recorded nothing. pyperf prints the message and exits 1:
+One worker that cannot reach a monitor stops the whole run. pyperf prints the
+message and exits 1:
 
 ```
 ERROR setting up hook 'gcmon':
@@ -47,39 +54,37 @@ whole run: `gcmon run -o suite.pftrace -s my_benchmark.py --hook=gcmon
 the address through to its workers from there.
 ```
 
-Two things produce it: running without `gcmon run`, and running under it
-without `--inherit-environ=GCMON_CONTROL_ADDRESS`. The second is the one that
-catches people, because the runner process can reach the monitor and its
-workers cannot. `GCMON_PYPERF_HOOK_CONTROL_TIMEOUT` bounds how long the hook
-waits before it gives up.
+Two things produce it: no `gcmon run` at all, or `gcmon run` without
+`--inherit-environ=GCMON_CONTROL_ADDRESS`. The second is easy to miss, because
+the runner process reaches the monitor and the workers do not. The hook waits
+`GCMON_PYPERF_HOOK_CONTROL_TIMEOUT` seconds before printing this.
 
 ## What the Hook Writes
 
-Two instants per measured region, on the worker's own process:
+Two instants per measured region, on the worker's process track:
 
 ```
 gcmon:<benchmark>:<n>:<i>:begin
 gcmon:<benchmark>:<n>:<i>:end
 ```
 
-`<benchmark>` is pyperf's name for it, with anything outside `[A-Za-z0-9_-]`
-replaced by `_`.
+`<benchmark>` is the name pyperf reports, with anything outside
+`[A-Za-z0-9_-]` replaced by `_`.
 
 `<n>` counts regions across the whole worker process, in the order they ran.
 `<i>` counts them within one measurement phase and restarts at 1 when pyperf
-begins the next, which separates the warmups from the values: under
+begins the next. The restart is the boundary between warmups and values: under
 `--warmups=1 --values=3` a worker writes `<n>` 1 through 4, with `<i>` going
-1, then 1, 2, 3. Where `<i>` restarts is the phase boundary.
+1, then 1, 2, 3.
 
 The `gcmon:` prefix is reserved: `name LIKE 'gcmon:%'` selects marks and
 nothing else. See [Perfetto SQL](perfetto-sql.md) for querying a trace.
 
-The hook adds nothing to pyperf's metadata. It spawns no process, writes no
-file, and computes no statistics.
+The hook writes nothing else: no metadata key, no file of its own.
 
 ## Why the Hook Marks Instead of Monitoring
 
-It used to start a `gcmon monitor` of its own around each benchmark and
+The hook used to start a `gcmon monitor` of its own around each benchmark and
 publish `gc_*` keys into pyperf's metadata.
 
 **A suite costs one monitor.** pyperf builds a hook inside each measurement
@@ -89,18 +94,19 @@ monitor processes, each attaching and writing a file of its own.
 
 **The hook does nothing while the benchmark runs.** It reads a clock at each
 end of the region and sends both instants afterwards, when pyperf hands it the
-benchmark name. No I/O happens between those two reads.
+benchmark name. It does no I/O between them.
 
 **The old numbers covered more than the benchmark.** Stopping a monitor stops
 the reading, not the collecting: the target kept collecting through every gap,
-and the cumulative counters those numbers were reconstructed from span the
+and gcmon reconstructed those numbers from cumulative counters that span the
 gaps whole. `gc_pause_gen_N_sum` was the pause over a window wider than the
 benchmark by every gap in it.
 
-**A marked region can be narrowed afterwards.** A gated one is fixed when the
-run ends, and a benchmark cannot be re-run to change your mind about where its
-boundaries were. Everything outside the marks is still in the trace, and what
-to count stays a decision you make later.
+**You pick the window when you read the trace.** The old hook fixed it during
+the run, by stopping and starting the monitor, and a different window meant
+running the suite again. A marked run leaves everything in the trace: the
+benchmark, pyperf's bookkeeping between values, and the interpreter starting
+up.
 
 ## Perfetto Traces from a Pyperf Run
 
@@ -123,8 +129,7 @@ Open `suite.pftrace` in [Perfetto UI](https://ui.perfetto.dev).
 | `GCMON_PYPERF_HOOK_VERBOSE` | Enable verbose logging from the hook. Accepts `1`, `yes`, `on`, or `true` (case-insensitive). | Disabled |
 | `GCMON_PYPERF_HOOK_CONTROL_TIMEOUT` | Timeout (seconds) for the hook to connect to the control plane. | `10.0` |
 
-`GCMON_CONTROL_ADDRESS` is set by `gcmon run` in the environment of the
-process it starts, and goes on from there with `--inherit-environ`.
-`gcmon monitor` attaches to a process that is already running and cannot put
-anything in its environment, so the hook works under `gcmon run` and not under
-`gcmon monitor`.
+`gcmon run` sets `GCMON_CONTROL_ADDRESS`, and `--inherit-environ` passes it on
+to the workers ([Usage](#usage)). That is the hook's only route to the
+monitor, and `gcmon monitor` cannot offer it: it attaches to a process already
+running, whose environment is fixed by then.
