@@ -28,7 +28,7 @@ This file holds the open set and the order to take it in. The other two:
 | [0033](0033-loss-counter-track.md) | Feature (enhancement) | S | The loss row shows where gcmon went blind but not how much it missed; a bar losing 1 record looks like one losing 40 |
 | [0035](0035-derive-every-gc-sub-phase-from-one-table.md) | Feature (cleanup) | L | gcmon writes CPython's eight optional GC sub-phases out by hand in six places; adding the ninth means six edits, and nothing fails if you miss one |
 | [0036](0036-one-exporter-method-per-record-kind.md) | Feature (cleanup) | M | `EventsExporter` has grown one method per record kind, three of them no-ops, and the CLI keeps a hand-maintained list of which formats handle RSS at all |
-| [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md) | Feature (cleanup) | M | Two implementations of "emit this pid's process and thread meta"; the two already drifted once |
+| [0037](0037-one-format-dispatch-for-live-and-combined-traces.md) | Feature (cleanup) | S | Two call sites decide what a format name means, so a format can be supported live and missing offline |
 | [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature (cleanup) | M | gcmon declares every monitoring option three times, and echoes a rejected configuration to the log as though it had accepted it |
 | [0042](0042-name-the-process-session-for-its-role.md) | Feature (cleanup) | S | The monitored-process seam carries the name of a role it does not fill, and its two adapters do not have the same shape |
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug (correctness) | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
@@ -58,8 +58,7 @@ one; [RETIRED.md](RETIRED.md) says which.
 | 0052 | Silent, and what it produces is indistinguishable from a real measurement |
 | 0030 | |
 | 0035 | 0039 landed, and the nine `Metric` classes it replaces are a module named for the table |
-| 0065 | Constrained: before 0037 |
-| 0037 | Constrained: after 0065 |
+| 0037 | |
 | 0036 | |
 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edited |
 | 0042 | |
@@ -88,7 +87,6 @@ the position. A blank cell means no recorded reason, so that row can move.
 
 | First | Then | Why |
 |-------|------|-----|
-| 0065 | 0037 | 0065 deletes the meta events 0037's §4.1 sets out to share; only its §4.2 survives |
 | 0050 | 0040 | 0040 derives the option declarations from one table and would otherwise have to carry the alias 0050 introduces through a rewrite of the structure holding it |
 | 0059 | 0061 | Without it a table built from a tracefile cannot say which process held a pid, and the offline table would drop a distinction the live one makes |
 | 0060, 0061, 0062 | 0063 | 0063 builds two of the tables those three produce and diffs them; it computes no statistic of its own |

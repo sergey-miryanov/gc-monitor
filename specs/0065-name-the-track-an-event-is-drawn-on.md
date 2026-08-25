@@ -5,7 +5,7 @@
 - **Effort:** M
 - **Origin:** grilling session, 2026-08-26, on whether `TraceEvent` survives
   the Chrome format's removal. **Supersedes** spec 0026 entirely and §4.1 of
-  [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md); 0037's
+  [0037](0037-one-format-dispatch-for-live-and-combined-traces.md); 0037's
   §4.2 is independent of this and stays open.
 - **Respects:** [ADR-0006](../docs/adr/0006-begin-end-slice-pairs.md) (a span
   is a begin/end pair),
@@ -331,9 +331,9 @@ claims to be.
   many places decide which sub-phases exist. Landing this first leaves 0035
   the same size.
 - **[0036](0036-one-exporter-method-per-record-kind.md) and §4.2 of
-  [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md).** Both
-  are about the exporter's method set and the format dispatch, neither of
-  which this touches.
+  [0037](0037-one-format-dispatch-for-live-and-combined-traces.md).** Both are
+  about the exporter's method set and the format dispatch, neither of which
+  this touches.
 - **The `docs/formats.md` GC-record examples**, which show `"tid": 0` beside
   `"iid": 1` and `"iid": 2` where `JsonlExporter` writes `tid = item.iid`.
   Wrong before this spec, and the field they are wrong about is being deleted;
