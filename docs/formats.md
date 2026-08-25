@@ -1,8 +1,9 @@
 # Output formats
 
 gcmon writes traces in three formats, selected with `--format`: `perfetto`
-(compressed Perfetto binary protobuf), `jsonl` (JSONL to file), and `stdout`
-(JSONL to stdout). See the [CLI reference](cli.md) for the flag.
+(compressed Perfetto binary protobuf, which needs Perfetto v58 or newer to
+open), `jsonl` (JSONL to file), and `stdout` (JSONL to stdout). See the
+[CLI reference](cli.md) for the flag.
 
 ## Perfetto output
 
