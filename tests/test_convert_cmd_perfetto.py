@@ -72,9 +72,16 @@ _G2_COUNTERS: frozenset[str] = frozenset(
         "G2 candidates",
     }
 )
+# One row per interpreter in the capture, and the capture holds four. The
+# per-generation counters are one row per interpreter too, but they hang off
+# each interpreter's own `GC Metrics` group and so collapse into one name
+# here; these are siblings under the process track and cannot.
 _HEAP_COUNTERS: frozenset[str] = frozenset(
     {
-        "heap_size",
+        "Thread 0 heap_size",
+        "Thread 1 heap_size",
+        "Thread 2 heap_size",
+        "Thread 10 heap_size",
     }
 )
 _DURATION_COUNTERS: frozenset[str] = frozenset(

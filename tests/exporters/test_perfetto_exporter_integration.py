@@ -53,7 +53,9 @@ _EXPECTED_COUNTER_NAMES: frozenset[str] = frozenset(
         "G1 uncollectable",
         "G1 candidates",
         "G1 duration",
-        "heap_size",
+        "Thread 0 heap_size",
+        "Thread 1 heap_size",
+        "Thread 2 heap_size",
     }
 )
 
@@ -493,10 +495,9 @@ class TestCounterTracks:
         trace_processor: TraceProcessor,
     ) -> None:
         rows = {r.name for r in trace_processor.query("SELECT name FROM counter_track")}
-        # Chrome JSON's trace processor prepends a space when the counter
-        # event name is empty (the consolidated `heap_size` event has no
-        # event-level name to avoid the `heap_size heap_size` duplication).
-        # Strip the leading space so the set comparison is format-agnostic.
+        # One `heap_size` row per interpreter, each naming its own. The two
+        # are siblings under the process track, so unqualified they would
+        # read as one row drawn twice.
         normalized = {r.strip() for r in rows}
         missing = _EXPECTED_COUNTER_NAMES - normalized
         unexpected = normalized - _EXPECTED_COUNTER_NAMES
@@ -1611,10 +1612,65 @@ class TestRssCounterTrackIntegration:
         with open_trace_processor(path) as tp:
             counter_tracks = {r.name.strip() for r in tp.query("SELECT name FROM counter_track")}
             # GC counter tracks should still be present.
-            for expected in ("G0 collected", "G0 candidates", "heap_size"):
+            for expected in ("G0 collected", "G0 candidates", "Thread 0 heap_size"):
                 assert expected in counter_tracks, (
                     f"GC counter track {expected!r} missing after adding RSS; got {sorted(counter_tracks)}"
                 )
             assert "rss" in counter_tracks, (
                 f"RSS counter track missing after adding RSS + GC events; got {sorted(counter_tracks)}"
             )
+
+
+class TestTwoInterpretersHeapSizes:
+    """Two interpreters in one process draw two `heap_size` rows.
+
+    Both parent to the process track, so unqualified they would be siblings
+    sharing a name: one row apparently drawn twice, and a PerfettoSQL query
+    matching on it selecting both heaps at once.
+    """
+
+    @pytest.fixture(scope="class")
+    def two_interpreters(self, tmp_path_factory: pytest.TempPathFactory) -> Iterator[TraceProcessor]:
+        path = tmp_path_factory.mktemp("two_iids") / "trace.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+        for iid, heap_size in ((0, 1_000), (1, 9_000)):
+            exporter.add_event(
+                DEFAULT_PID,
+                create_mock_stats_item(gen=0, iid=iid, heap_size=heap_size, ts_start=_TS_START, ts_stop=_TS_STOP),
+            )
+        exporter.add_rss_sample(DEFAULT_PID, _RSS_VAL_1, _RSS_TS_1)
+        exporter.close()
+        with open_trace_processor(path) as tp:
+            yield tp
+
+    def test_each_interpreter_gets_a_row_of_its_own(self, two_interpreters: TraceProcessor) -> None:
+        names = {r.name.strip() for r in two_interpreters.query("SELECT name FROM counter_track")}
+        assert {"Thread 0 heap_size", "Thread 1 heap_size"} <= names
+        assert "heap_size" not in names
+
+    def test_a_query_can_select_one_heap(self, two_interpreters: TraceProcessor) -> None:
+        rows = list(
+            two_interpreters.query(
+                "SELECT c.value AS value FROM counter c "
+                "JOIN counter_track ct ON c.track_id = ct.id "
+                "WHERE ct.name = 'Thread 1 heap_size'"
+            )
+        )
+        assert [r.value for r in rows] == [9_000]
+
+    def test_both_rows_parent_to_the_process_track(self, two_interpreters: TraceProcessor) -> None:
+        parents = {
+            r.name.strip(): r.parent_id
+            for r in two_interpreters.query("SELECT name, parent_id FROM counter_track WHERE name LIKE '%heap_size'")
+        }
+        assert len(parents) == 2
+        assert len(set(parents.values())) == 1
+
+    def test_rss_stays_bare(self, two_interpreters: TraceProcessor) -> None:
+        """Its owner is the process, and a process holds one."""
+        names = {r.name.strip() for r in two_interpreters.query("SELECT name FROM counter_track")}
+        assert "rss" in names
+
+    def test_every_other_counter_name_is_what_it_was(self, two_interpreters: TraceProcessor) -> None:
+        names = {r.name.strip() for r in two_interpreters.query("SELECT name FROM counter_track")}
+        assert {"G0 collected", "G0 candidates", "G0 duration"} <= names

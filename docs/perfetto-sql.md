@@ -22,7 +22,7 @@ gcmon traces use the standard Perfetto schema:
 - **`counter`**: counter samples
   - `track_id`, `ts`, `value`
 - **`counter_track`**: one row per counter track
-  - `id`, `name` (`"G0 collected"`, `"heap_size"`)
+  - `id`, `name` (`"G0 collected"`, `"Thread 0 heap_size"`)
 - **`process_track`** / **`thread_track`**: process and thread rows
   - `id`, `pid` / `tid`, and `source_arg_set_id` for the track's own args
 - **`args`**: key/value arguments for slices and tracks
