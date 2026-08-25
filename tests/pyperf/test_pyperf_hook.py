@@ -1,8 +1,7 @@
 """What the hook does: mark where each benchmark ran, and refuse to run blind.
 
-Driven through a real ``ControlClient`` into a real ``ControlServer``, which is
-the highest seam that sees a mark end to end without a monitor, a target or
-pyperf.
+The marks are driven through a real ``ControlClient`` into a real
+``ControlServer``, the highest seam that sees one end to end.
 """
 
 import os
@@ -143,11 +142,7 @@ class TestRegionNumbering:
         assert regions[2] == regions[0] + 1, "the second instance restarted the count and reused a mark name"
 
     def test_each_hook_counts_its_own_regions_from_one(self, sink: Sink) -> None:
-        """Where the phase count restarts is where pyperf started a new phase.
-
-        A worker builds one hook for its warmups and another for its values,
-        and the process-wide number cannot say where one ended.
-        """
+        """Where the phase count restarts is where pyperf started a new phase."""
         warmups = gcmon_hook()
         with warmups:
             pass
@@ -172,8 +167,7 @@ class TestRegionNumbering:
         assert regions == [opened + n // 2 for n in range(8)]
 
     def test_a_region_that_never_closed_takes_no_number(self, sink: Sink) -> None:
-        """The number is taken at the close, so a region that produced no
-        marks spends none and the landed regions have no gaps."""
+        """The landed regions have no gaps in their numbering."""
         first = gcmon_hook()
         with first:
             pass
@@ -367,11 +361,9 @@ def _collecting_target(timeout: float = 20.0) -> Generator[tuple[RemoteEventsRea
 class TestTheClockBehindTheMarks:
     """A mark and a GC record have to land on one timeline.
 
-    The hook stamps a mark with ``time.monotonic_ns()`` and CPython stamps a
-    record itself, so the whole arrangement rests on those being the same
-    system-wide clock. Nothing downstream notices if they stop being it: the
-    marks would simply sit in the wrong place. It is asserted here rather than
-    assumed in a comment.
+    The hook stamps a mark with ``time.monotonic_ns()``; CPython stamps a
+    record from its own clock. Nothing downstream notices if those two stop
+    being the same clock, and the marks land in the wrong place.
     """
 
     def test_a_record_carries_the_clock_a_mark_is_stamped_from(self) -> None:
@@ -389,11 +381,10 @@ class TestTheClockBehindTheMarks:
 
 
 class TestNoMonitorIsARefusal:
-    """A hook that only annotates has nothing to do where nothing is listening.
+    """A hook that only annotates has nothing to do without a monitor.
 
-    pyperf catches its own ``HookError`` to print one message and exit, so the
-    run stops on the first worker instead of finishing a suite that recorded
-    nothing.
+    pyperf catches its own ``HookError``, so the run stops on the first worker
+    rather than finishing a suite that recorded nothing.
     """
 
     def test_no_control_address_refuses_the_run(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -422,7 +413,7 @@ class TestNoMonitorIsARefusal:
             gcmon_hook()
 
     def test_the_run_still_fails_if_pyperf_moves_the_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Losing the refusal would lose the run instead, which is worse."""
+        """Losing the refusal would lose the run instead."""
         monkeypatch.delenv(CONTROL_ADDRESS_ENV, raising=False)
         monkeypatch.setitem(sys.modules, "pyperf._hooks", None)
 
@@ -432,7 +423,7 @@ class TestNoMonitorIsARefusal:
         assert "gcmon run" in str(caught.value)
 
     def test_a_hook_is_built_with_pyperf_absent(self, sink: Sink, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Nothing reaches for pyperf on the path where the monitor is there."""
+        """Nothing imports pyperf on the path a working hook takes."""
         monkeypatch.setitem(sys.modules, "pyperf", None)
         monkeypatch.setitem(sys.modules, "pyperf._hooks", None)
 

@@ -256,10 +256,8 @@ class TestRunMonitoringLoop:
     ) -> None:
         """Whatever a client sent last has to reach an exporter still open.
 
-        A pyperf worker holds its marks and lands them all at teardown, so the
-        control server can still be draining when the run ends. Stopping the
-        monitor closes the exporter, and a drain after that is dropped without
-        a word.
+        A pyperf worker lands every mark at teardown, so the control server can
+        still be draining when the run ends.
         """
         from gcmon.cli.commands.monitoring_base import run_monitoring_loop
 

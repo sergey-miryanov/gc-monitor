@@ -35,11 +35,7 @@ class TestTheLiteralShape:
 
 
 class TestTheWriterNeverBeatsTheReader:
-    """Whatever `format_mark` emits, `parse_mark` reads back.
-
-    The two live in one module so they cannot drift; this is the property that
-    says so, and an empty benchmark name is the case that used to break it.
-    """
+    """Whatever `format_mark` emits, `parse_mark` reads back."""
 
     @pytest.mark.parametrize("bench", ["", ":", "::", "   ", "éé", "...", "bm_ok", "a" * 200])
     def test_any_name_produces_a_mark_that_parses(self, bench: str) -> None:
