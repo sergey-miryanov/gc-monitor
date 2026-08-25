@@ -23,13 +23,12 @@ This file holds the open set and the order to take it in. The other two:
 | [0020](0020-process-metadata-in-perfetto-traces.md) | Feature (enhancement) | M | A trace does not say which Python ran it or what GC thresholds it used; gcmon logs both to stderr and loses them |
 | [0024](0024-cpython-report-remote-readable-gc-stats.md) | Report (upstream) | S | Five findings on `_remote_debugging.get_gc_stats` to file upstream with CPython; no gcmon change |
 | [0025](0025-control-server-accept-loop-survives-transient-errors.md) | Bug (**availability**) | XS | One transient accept error and the control server refuses every later connection, saying nothing |
-| [0026](0026-one-process-name-across-live-and-offline-paths.md) | Bug (correctness) | XS | A live capture names a process `Process 12345`; combined from JSONL, the same process comes out `12345` |
 | [0027](0027-thread-descriptor-tid-for-interpreter-zero.md) | Bug (reporting) | XS | The main interpreter's `thread.tid` is the pid, so a SQL query has to special-case interpreter zero to read ids |
 | [0030](0030-exporter-hygiene-batch.md) | Feature (cleanup) | XS | Four one-file hazards in the exporter package: rank dict, builtin shadow, two undocumented threading contracts |
 | [0033](0033-loss-counter-track.md) | Feature (enhancement) | S | The loss row shows where gcmon went blind but not how much it missed; a bar losing 1 record looks like one losing 40 |
 | [0035](0035-derive-every-gc-sub-phase-from-one-table.md) | Feature (cleanup) | L | gcmon writes CPython's eight optional GC sub-phases out by hand in six places; adding the ninth means six edits, and nothing fails if you miss one |
 | [0036](0036-one-exporter-method-per-record-kind.md) | Feature (cleanup) | M | `EventsExporter` has grown one method per record kind, three of them no-ops, and the CLI keeps a hand-maintained list of which formats handle RSS at all |
-| [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md) | Feature (cleanup) | M | Two implementations of "emit this pid's process and thread meta"; 0026 exists because they already drifted once |
+| [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md) | Feature (cleanup) | M | Two implementations of "emit this pid's process and thread meta"; the two already drifted once |
 | [0040](0040-derive-the-monitoring-options-from-one-table.md) | Feature (cleanup) | M | gcmon declares every monitoring option three times, and echoes a rejected configuration to the log as though it had accepted it |
 | [0042](0042-name-the-process-session-for-its-role.md) | Feature (cleanup) | S | The monitored-process seam carries the name of a role it does not fill, and its two adapters do not have the same shape |
 | [0044](0044-torn-reads-and-reordered-publishes.md) | Bug (correctness) | S | **Blocked on upstream.** A pause slice can read one inter-collection interval too long, and a hole inside one poll's records reaches no loss window; both are races in the target that every filter gcmon has passes |
@@ -53,15 +52,14 @@ one; [RETIRED.md](RETIRED.md) says which.
 | Spec | Why here |
 |------|----------|
 | 0025 | The only outage, and the fix is one word |
-| 0026 | Smallest user-visible wrongness |
 | 0050 | Unblocked: 0049 landed, and taking this next edits the help text and the advisory once |
 | 0027 | Needs an answer from trace-processor before anyone can settle it either way |
 | 0047 | XS, and the command that fails is the one the README opens with |
 | 0052 | Silent, and what it produces is indistinguishable from a real measurement |
 | 0030 | |
 | 0035 | 0039 landed, and the nine `Metric` classes it replaces are a module named for the table |
-| 0065 | Constrained: before 0037, and it retires 0026 |
-| 0037 | Constrained: after 0026 |
+| 0065 | Constrained: before 0037 |
+| 0037 | Constrained: after 0065 |
 | 0036 | |
 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edited |
 | 0042 | |
@@ -90,7 +88,6 @@ the position. A blank cell means no recorded reason, so that row can move.
 
 | First | Then | Why |
 |-------|------|-----|
-| 0026 | 0037 | 0037 assumes 0026's shared naming helper |
 | 0065 | 0037 | 0065 deletes the meta events 0037's §4.1 sets out to share; only its §4.2 survives |
 | 0050 | 0040 | 0040 derives the option declarations from one table and would otherwise have to carry the alias 0050 introduces through a rewrite of the structure holding it |
 | 0059 | 0061 | Without it a table built from a tracefile cannot say which process held a pid, and the offline table would drop a distinction the live one makes |

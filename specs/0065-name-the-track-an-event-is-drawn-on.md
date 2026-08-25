@@ -4,10 +4,9 @@
 - **Kind:** feature (cleanup)
 - **Effort:** M
 - **Origin:** grilling session, 2026-08-26, on whether `TraceEvent` survives
-  the Chrome format's removal. **Supersedes**
-  [0026](0026-one-process-name-across-live-and-offline-paths.md) entirely and
-  §4.1 of [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md);
-  0037's §4.2 is independent of this and stays open.
+  the Chrome format's removal. **Supersedes** spec 0026 entirely and §4.1 of
+  [0037](0037-one-meta-emission-path-for-live-and-combined-traces.md); 0037's
+  §4.2 is independent of this and stays open.
 - **Respects:** [ADR-0006](../docs/adr/0006-begin-end-slice-pairs.md) (a span
   is a begin/end pair),
   [ADR-0007](../docs/adr/0007-shared-trace-converter-pipeline.md) (one
@@ -87,8 +86,7 @@ counters and tracks come out, in the same order.
    spoken for.
 6. As a maintainer changing how a track is named or described, I want one
    place to change it, so that the offline path cannot keep the old form. That
-   is [0026](0026-one-process-name-across-live-and-offline-paths.md)'s story,
-   and this spec is how it gets answered.
+   is spec 0026's story, and this spec is how it gets answered.
 7. As a maintainer, I want the meta dedup to stay correct under concurrency,
    so that removing a critical section does not reopen the race ADR-0008
    closed.

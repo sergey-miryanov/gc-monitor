@@ -104,8 +104,8 @@ duration is in the file directly, and reassembling the timestamp pair the
 writer started from only to have it differenced again is round-tripping
 through a shape the trace does not use. The alternative is a second entry into
 `StreamingStats` and a second copy of the zero-duration rule, which is the
-drift specs 0026 and 0037 exist to prevent. The fabrication is the cheaper
-mistake.
+drift [ADR-0007](../docs/adr/0007-shared-trace-converter-pipeline.md) exists
+to prevent. The fabrication is the cheaper mistake.
 
 **Two joins the reader has to make.** The cumulative `duration` that
 `observe_cumulative` needs is a sample on the `G{gen} duration` counter track,

@@ -138,9 +138,10 @@ section 6.
   record, and then `combine` would have to honour it. That is a larger change
   than this one and nothing yet depends on it.
 - **`combine`.** A trace built from captures will keep collapsing a recycled
-  pid, so a live trace and a combined trace of the same run differ. Specs 0026
-  and 0037 are about that class of divergence; this one adds to it knowingly
-  rather than growing to cover it.
+  pid, so a live trace and a combined trace of the same run differ.
+  [ADR-0007](../docs/adr/0007-shared-trace-converter-pipeline.md) is what
+  keeps that class of divergence small; this one adds to it knowingly rather
+  than growing to cover it.
 - **Splitting the Perfetto process track**, for the reason in section 4.
 - **Reading a command line per epoch.** ADR-0010 already reads whatever holds
   the pid at capture time, and a dead predecessor has none to read.
