@@ -38,7 +38,6 @@ This file holds the open set and the order to take it in. The other two:
 | [0051](0051-key-the-running-rings-by-pid.md) | Feature (efficiency) | S | Asking `StreamingStats` about one process walks every process's rings; `low_coverage` does it once per polled pid per tick, and on a healthy run it never stops |
 | [0052](0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md) | Bug (correctness) | S | A pid the OS reissues between two ticks is read through the attachment gcmon still holds, so an unrelated process's memory reaches the trace as plausible records; only Linux is exposed |
 | [0054](0054-macos-attachment-leaks-a-mach-task-port.md) | Bug (availability) | S | On macOS every attachment costs gcmon a Mach port name that nothing gives back; CPython's cleanup has a Windows arm and a Linux arm and no Apple one |
-| [0058](0058-write-the-batches-with-zstd.md) | Feature (efficiency) | S | zstd at its default level writes a trace 12-14% smaller than the deflate gcmon writes, and writes it faster. Costs every reader older than Perfetto v58, which shows an empty timeline rather than refusing the file |
 | [0059](0059-say-which-process-held-a-pid-in-the-trace.md) | Feature (enhancement) | M | The table says `12345:0#2` when a pid was reused; the trace of the same run says `12345` once, and draws one span over an interval in which that process did not exist |
 | [0060](0060-report-an-exact-mean-and-a-geometric-mean.md) | Feature (enhancement) | S | `Avg` is the sampled mean and reads high on any lossy run, while the exact one sits unprinted in `PauseTotals`; and no column summarises a pause distribution as skewed as this one |
 | [0061](0061-build-the-statistics-table-from-a-tracefile.md) | Feature (enhancement) | L | The statistics table exists only while gcmon is running; a capture from last week holds every number and offers no way to see them |
@@ -66,7 +65,6 @@ one; [RETIRED.md](RETIRED.md) says which.
 | 0042 | |
 | 0020 | |
 | 0051 | Unblocked: 0039 landed, and `StreamingStats` is in the module it will keep |
-| 0058 | Unblocked: the suite pins its own v58.2 trace processor, and section 5's cases were run against one |
 | 0060 | Smallest of the comparison set and depends on none of it |
 | 0059 | Constrained: before 0061 |
 | 0061 | Constrained: after 0059 |

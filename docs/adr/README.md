@@ -82,7 +82,7 @@ module is neither.
 | [0019](0019-schedule-tick-starts-on-a-fixed-grid.md) | Schedule tick starts on a fixed grid, and skip the positions a slow tick misses |
 | [0020](0020-attach-to-a-process-once.md) | Attach to a process once, and let go the moment a read fails |
 | [0021](0021-write-one-trace-format.md) | Write one trace format, and read only JSONL back |
-| [0022](0022-compress-each-batch-of-packets.md) | Compress each batch into one `TracePacket.compressed_packets` field |
+| [0022](0022-compress-each-batch-of-packets.md) | Compress each batch into one `TracePacket.zstd_compressed_packets` field |
 | [0023](0023-the-pyperf-hook-annotates-and-does-not-drive.md) | Mark the benchmark from the pyperf hook, and drive nothing |
 
 ## Reading order
