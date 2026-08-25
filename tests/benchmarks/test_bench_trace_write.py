@@ -17,7 +17,7 @@ from pytest_codspeed import BenchmarkFixture
 
 from gcmon.exporters.encoder import ProtobufEventEncoder
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
-from gcmon.model.trace_event import TraceEvent, process_meta, thread_meta
+from gcmon.model.trace_event import ThreadTrack, TraceEvent, process_meta, thread_meta
 
 from .conftest import make_gc_event
 
@@ -29,7 +29,7 @@ BATCHES = 10
 def _batches() -> list[list[TraceEvent]]:
     """One run's worth of flushes, converted the way the buffer hands them
     over: the process and thread descriptors reach the first batch only."""
-    meta: list[TraceEvent] = [process_meta(PID, f"Process {PID}"), thread_meta(PID, 0, "Thread 0")]
+    meta: list[TraceEvent] = [process_meta(PID, f"Process {PID}"), thread_meta(ThreadTrack(PID, 0), "Thread 0")]
     batches: list[list[TraceEvent]] = []
     for batch in range(BATCHES):
         events: list[TraceEvent] = list(meta) if batch == 0 else []

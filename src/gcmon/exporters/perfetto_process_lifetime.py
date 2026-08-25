@@ -108,7 +108,7 @@ def _record_process_lifetime(
     ts = getattr(event, "ts", None)
     if ts is None:
         return
-    state.update_process_lifetime(event.pid, ts)
+    state.update_process_lifetime(event.track.pid, ts)
 
 
 def _clip_spans_to_laminar(

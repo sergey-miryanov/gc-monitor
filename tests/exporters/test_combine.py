@@ -18,10 +18,10 @@ from gcmon.model.data import LossMsg
 from gcmon.model.trace_event import (
     EventArgs,
     ProcessMeta,
+    ThreadTrack,
     TraceEvent,
     begin_event,
     counter_event,
-    loss_tid,
     process_meta,
 )
 from tests.data_helpers import create_instant_msg
@@ -75,10 +75,9 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=5_000_000, args=args)
+        e1 = begin_event(ThreadTrack(1, 1), name="e1", cat="c", ts_ns=5_000_000, args=args)
         e2 = counter_event(
-            pid=1,
-            tid=1,
+            ThreadTrack(1, 1),
             metric="collected",
             display_name="c1 collected",
             ts_ns=3_000_000,
@@ -107,7 +106,7 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=1_000_000, args=args)
+        e1 = begin_event(ThreadTrack(1, 1), name="e1", cat="c", ts_ns=1_000_000, args=args)
         events: list[TraceEvent] = [e1]
         _normalize_trace_timestamps(events)
         assert e1.ts == 0
@@ -127,10 +126,10 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=10_000_000, args=args)
-        e2 = begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=12_000_000, args=args)
-        e3 = begin_event(pid=2, tid=1, name="e3", cat="c", ts_ns=5_000_000, args=args)
-        e4 = begin_event(pid=2, tid=1, name="e4", cat="c", ts_ns=7_000_000, args=args)
+        e1 = begin_event(ThreadTrack(1, 1), name="e1", cat="c", ts_ns=10_000_000, args=args)
+        e2 = begin_event(ThreadTrack(1, 1), name="e2", cat="c", ts_ns=12_000_000, args=args)
+        e3 = begin_event(ThreadTrack(2, 1), name="e3", cat="c", ts_ns=5_000_000, args=args)
+        e4 = begin_event(ThreadTrack(2, 1), name="e4", cat="c", ts_ns=7_000_000, args=args)
         events: list[TraceEvent] = [e1, e2, e3, e4]
         _normalize_trace_timestamps(events)
         assert e1.ts == 0  # pid=1: 10_000_000 - 10_000_000
@@ -148,8 +147,8 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = begin_event(pid=1, tid=1, name="e1", cat="c", ts_ns=-100, args=args)
-        e2 = begin_event(pid=1, tid=1, name="e2", cat="c", ts_ns=-500, args=args)
+        e1 = begin_event(ThreadTrack(1, 1), name="e1", cat="c", ts_ns=-100, args=args)
+        e2 = begin_event(ThreadTrack(1, 1), name="e2", cat="c", ts_ns=-500, args=args)
         events: list[TraceEvent] = [e1, e2]
         _normalize_trace_timestamps(events)
         assert e1.ts == 400  # -100 - (-500)
@@ -265,7 +264,6 @@ class TestJsonlLossRoundTrip:
 
         assert json.loads(path.read_text(encoding="utf-8")) == {
             "pid": 42,
-            "tid": loss_tid(1),
             "iid": 1,
             "ts_start": 5_000,
             "ts_stop": 6_000,
@@ -299,12 +297,14 @@ class TestJsonlLossRoundTrip:
 
         assert [a["gen0"]["lost_collections"] for a in args] == ["413..431"]  # type: ignore[index]
 
-    def test_written_on_the_loss_track(self, tmp_path: Path) -> None:
+    def test_written_naming_the_interpreter_that_lost_the_records(self, tmp_path: Path) -> None:
         path = tmp_path / "loss.jsonl"
 
         write_jsonl(path, {42: [self._msg(lost_count=76)]})
 
-        assert json.loads(path.read_text(encoding="utf-8"))["tid"] == loss_tid(1)
+        record = json.loads(path.read_text(encoding="utf-8"))
+        assert record["iid"] == 1
+        assert "tid" not in record
 
     def test_normalize_shifts_a_loss_span(self) -> None:
         """It is neither a GC record nor an instant, so without a branch of its

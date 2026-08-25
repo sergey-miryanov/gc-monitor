@@ -1,14 +1,15 @@
 """Tests for ``PerfettoTrackState`` uuid allocation and bookkeeping."""
 
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from gcmon.model.trace_event import ThreadTrack
 
 
 class TestPerfettoTrackState:
     def test_init_empty(self) -> None:
         state = PerfettoTrackState()
         assert not state.has_pid(123)
-        assert not state.has_tid(123, 0)
-        assert not state.has_counter_track(123, 0, "G0 collected")
+        assert not state.has_track(ThreadTrack(123, 0))
+        assert not state.has_counter_track(ThreadTrack(123, 0), "G0 collected")
 
     def test_pid_tracking(self) -> None:
         state = PerfettoTrackState()
@@ -19,11 +20,11 @@ class TestPerfettoTrackState:
 
     def test_tid_tracking(self) -> None:
         state = PerfettoTrackState()
-        assert not state.has_tid(100, 0)
-        state.mark_tid(100, 0)
-        assert state.has_tid(100, 0)
-        assert not state.has_tid(100, 1)
-        assert not state.has_tid(200, 0)
+        assert not state.has_track(ThreadTrack(100, 0))
+        state.mark_track(ThreadTrack(100, 0))
+        assert state.has_track(ThreadTrack(100, 0))
+        assert not state.has_track(ThreadTrack(100, 1))
+        assert not state.has_track(ThreadTrack(200, 0))
 
     def test_process_track_uuid(self) -> None:
         state = PerfettoTrackState()
@@ -32,34 +33,34 @@ class TestPerfettoTrackState:
 
     def test_thread_track_uuid(self) -> None:
         state = PerfettoTrackState()
-        uuid = state.get_thread_track_uuid(12345, 0)
+        uuid = state.get_track_uuid(ThreadTrack(12345, 0))
         assert uuid == 1
 
     def test_thread_track_uuid_different_iid(self) -> None:
         state = PerfettoTrackState()
-        uuid0 = state.get_thread_track_uuid(12345, 0)
-        uuid1 = state.get_thread_track_uuid(12345, 1)
+        uuid0 = state.get_track_uuid(ThreadTrack(12345, 0))
+        uuid1 = state.get_track_uuid(ThreadTrack(12345, 1))
         assert uuid0 != uuid1
 
     def test_counter_track_uuid_sequential(self) -> None:
         state = PerfettoTrackState()
-        uuid0 = state.get_or_create_counter_track_uuid(100, 0, "G0 collected")
-        uuid1 = state.get_or_create_counter_track_uuid(100, 0, "heap_size")
+        uuid0 = state.get_or_create_counter_track_uuid(ThreadTrack(100, 0), "G0 collected")
+        uuid1 = state.get_or_create_counter_track_uuid(ThreadTrack(100, 0), "heap_size")
         assert uuid0 == 1
         assert uuid1 == 2
 
     def test_counter_track_uuid_idempotent(self) -> None:
         state = PerfettoTrackState()
-        uuid1 = state.get_or_create_counter_track_uuid(100, 0, "G0 collected")
-        uuid2 = state.get_or_create_counter_track_uuid(100, 0, "G0 collected")
+        uuid1 = state.get_or_create_counter_track_uuid(ThreadTrack(100, 0), "G0 collected")
+        uuid2 = state.get_or_create_counter_track_uuid(ThreadTrack(100, 0), "G0 collected")
         assert uuid1 == uuid2
 
     def test_has_counter_track(self) -> None:
         state = PerfettoTrackState()
-        assert not state.has_counter_track(100, 0, "G0 collected")
-        state.get_or_create_counter_track_uuid(100, 0, "G0 collected")
-        assert state.has_counter_track(100, 0, "G0 collected")
-        assert not state.has_counter_track(100, 0, "G1 collected")
+        assert not state.has_counter_track(ThreadTrack(100, 0), "G0 collected")
+        state.get_or_create_counter_track_uuid(ThreadTrack(100, 0), "G0 collected")
+        assert state.has_counter_track(ThreadTrack(100, 0), "G0 collected")
+        assert not state.has_counter_track(ThreadTrack(100, 0), "G1 collected")
 
 
 class TestProcessLifetimeState:

@@ -9,50 +9,59 @@ from typing import Literal
 import msgspec
 
 __all__ = [
-    "LOSS_TID_BASE",
-    "RSS_TID",
     "ArgGroup",
     "BeginEvent",
     "CounterEvent",
     "EndEvent",
     "EventArgs",
     "InstantEvent",
+    "LossTrack",
     "NameInfo",
     "ProcessMeta",
+    "ProcessTrack",
     "ThreadMeta",
+    "ThreadTrack",
     "TraceEvent",
+    "Track",
     "begin_event",
     "counter_event",
     "end_event",
     "instant_event",
-    "loss_iid",
-    "loss_tid",
     "process_meta",
     "thread_meta",
 ]
 
-# These numbers are what they are because the Chrome format, which this shape
-# came from, identified a track by `(pid, tid)` alone: a row belonging to no
-# interpreter had to take a tid no interpreter would claim. gcmon names none of
-# these rows with `thread_meta`, so Perfetto leaves them off its thread list.
-#
-# RSS belongs to the process, with no interpreter behind it.
-RSS_TID: int = -1
 
-# Loss belongs to an interpreter and gets a row of its own, per ADR-0015. One
-# row holds every poll: a poll draws a single span there whatever went blind in
-# it, and consecutive polls tile the timeline, so no two spans overlap.
-LOSS_TID_BASE: int = -2
+class ProcessTrack(msgspec.Struct, frozen=True):
+    """The process's own row: its marks, and its RSS.
+
+    Nothing here belongs to an interpreter, so nothing here names one.
+    """
+
+    pid: int
 
 
-def loss_tid(iid: int) -> int:
-    """The tid carrying interpreter *iid*'s loss track: -2, -3, ..."""
-    return LOSS_TID_BASE - iid
+class ThreadTrack(msgspec.Struct, frozen=True):
+    """Interpreter *iid*'s row, carrying its collections."""
+
+    pid: int
+    iid: int
 
 
-def loss_iid(tid: int) -> int:
-    """The interpreter behind a loss tid. A `TraceEvent` carries no `iid`."""
-    return LOSS_TID_BASE - tid
+class LossTrack(msgspec.Struct, frozen=True):
+    """Interpreter *iid*'s loss row, drawn beside its collections per
+    ADR-0015.
+
+    One row holds every poll: a poll draws a single span there whatever went
+    blind in it, and consecutive polls tile the timeline, so no two spans
+    overlap.
+    """
+
+    pid: int
+    iid: int
+
+
+type Track = ProcessTrack | ThreadTrack | LossTrack
 
 
 type ArgGroup = dict[str, int | str]
@@ -71,8 +80,7 @@ class BeginEvent(msgspec.Struct):
     cat: str
     ph: Literal["B"]
     ts: int
-    pid: int
-    tid: int
+    track: Track
     args: EventArgs
 
 
@@ -81,8 +89,7 @@ class EndEvent(msgspec.Struct):
     cat: str
     ph: Literal["E"]
     ts: int
-    pid: int
-    tid: int
+    track: Track
 
 
 class InstantEvent(msgspec.Struct):
@@ -90,7 +97,7 @@ class InstantEvent(msgspec.Struct):
     ph: Literal["I"]
     s: Literal["p"]
     ts: int
-    pid: int
+    track: ProcessTrack
 
 
 class CounterEvent(msgspec.Struct):
@@ -98,8 +105,7 @@ class CounterEvent(msgspec.Struct):
     display_name: str
     ph: Literal["C"]
     ts: int
-    pid: int
-    tid: int
+    track: Track
     value: int | float
 
 
@@ -113,8 +119,7 @@ class ProcessMeta(msgspec.Struct):
 class ThreadMeta(msgspec.Struct):
     name: Literal["thread_name"]
     ph: Literal["M"]
-    pid: int
-    tid: int
+    track: ThreadTrack
     args: NameInfo
 
 
@@ -130,19 +135,17 @@ def process_meta(pid: int, name: str) -> ProcessMeta:
     )
 
 
-def thread_meta(pid: int, tid: int, name: str) -> ThreadMeta:
+def thread_meta(track: ThreadTrack, name: str) -> ThreadMeta:
     return ThreadMeta(
         name="thread_name",
         ph="M",
-        pid=pid,
-        tid=tid,
+        track=track,
         args=NameInfo(name=name),
     )
 
 
 def begin_event(
-    pid: int,
-    tid: int,
+    track: Track,
     name: str,
     cat: str,
     ts_ns: int,
@@ -157,15 +160,13 @@ def begin_event(
         cat=cat,
         ph="B",
         ts=ts_ns,
-        pid=pid,
-        tid=tid,
+        track=track,
         args=args,
     )
 
 
 def end_event(
-    pid: int,
-    tid: int,
+    track: Track,
     name: str,
     cat: str,
     ts_ns: int,
@@ -175,13 +176,12 @@ def end_event(
         cat=cat,
         ph="E",
         ts=ts_ns,
-        pid=pid,
-        tid=tid,
+        track=track,
     )
 
 
 def instant_event(
-    pid: int,
+    track: ProcessTrack,
     name: str,
     ts_ns: int,
 ) -> InstantEvent:
@@ -189,14 +189,13 @@ def instant_event(
         name=name,
         ph="I",
         s="p",
-        pid=pid,
+        track=track,
         ts=ts_ns,
     )
 
 
 def counter_event(
-    pid: int,
-    tid: int,
+    track: Track,
     metric: str,
     display_name: str,
     ts_ns: int,
@@ -207,7 +206,6 @@ def counter_event(
         display_name=display_name,
         ph="C",
         ts=ts_ns,
-        pid=pid,
-        tid=tid,
+        track=track,
         value=value,
     )

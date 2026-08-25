@@ -20,7 +20,7 @@ from gcmon.exporters.trace_converter import convert_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.poll_status import PollStatus
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TItem, TLossMsg
-from gcmon.model.trace_event import LOSS_TID_BASE, BeginEvent, EndEvent
+from gcmon.model.trace_event import BeginEvent, EndEvent, LossTrack
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
@@ -99,11 +99,11 @@ def ingest(*batches: Sequence[GCStatsInfo]) -> list[TItem]:
     return recorder.items
 
 
-def loss_slices(items: Sequence[TItem]) -> dict[tuple[int, int], list[Slice]]:
+def loss_slices(items: Sequence[TItem]) -> dict[LossTrack, list[Slice]]:
     """Every loss row's slices, resolved the way a trace processor resolves
     them.
 
-    Groups the converter's BEGIN/END events by ``(pid, tid)``, sorts each row
+    Groups the converter's BEGIN/END events by loss track, sorts each row
     by timestamp (**stably**, so events sharing one timestamp keep the order
     they were emitted in, which is what a trace processor does with them) and
     walks it as a stack.
@@ -116,12 +116,12 @@ def loss_slices(items: Sequence[TItem]) -> dict[tuple[int, int], list[Slice]]:
     out.
     """
     events = convert_to_trace_format({PID: items})
-    rows: dict[tuple[int, int], list[BeginEvent | EndEvent]] = {}
+    rows: dict[LossTrack, list[BeginEvent | EndEvent]] = {}
     for event in events:
-        if isinstance(event, BeginEvent | EndEvent) and event.tid <= LOSS_TID_BASE:
-            rows.setdefault((event.pid, event.tid), []).append(event)
+        if isinstance(event, BeginEvent | EndEvent) and isinstance(event.track, LossTrack):
+            rows.setdefault(event.track, []).append(event)
 
-    resolved: dict[tuple[int, int], list[Slice]] = {}
+    resolved: dict[LossTrack, list[Slice]] = {}
     for row, row_events in rows.items():
         stack: list[tuple[str, int]] = []
         slices: list[Slice] = []

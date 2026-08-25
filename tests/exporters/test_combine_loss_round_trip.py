@@ -33,7 +33,7 @@ from perfetto.trace_processor import TraceProcessor
 from gcmon.exporters.combine import combine_files
 from gcmon.exporters.jsonl_io import read_jsonl, write_jsonl
 from gcmon.model.protocol import TItem, is_loss
-from gcmon.model.trace_event import loss_tid
+from gcmon.model.trace_event import LossTrack
 from tests.exporters.loss_row import (
     IID,
     PID,
@@ -45,7 +45,7 @@ from tests.exporters.loss_row import (
 )
 from tests.helpers import create_mock_loss_item, open_trace_processor
 
-LOSS_TID = loss_tid(IID)
+LOSS_ROW = LossTrack(PID, IID)
 
 LIVE_ROW: list[Slice] = [
     ("GC Loss(0,1,2)", 1_000_000, 10_000_000, 0),
@@ -149,7 +149,7 @@ class TestTheCombinedRowIsTheLiveRow:
     def test_the_two_paths_agree(self, tmp_path: Path) -> None:
         """Live and offline, one capture, resolved by two independent walks:
         one over the converter's objects, one over the trace on disk."""
-        live = loss_slices(ingest(*three_generations()))[(PID, LOSS_TID)]
+        live = loss_slices(ingest(*three_generations()))[LOSS_ROW]
 
         with _combined(tmp_path, _capture(tmp_path)) as tp:
             assert _loss_row(tp) == live
@@ -242,14 +242,14 @@ class TestTheWalksCanFail:
         """The baseline the combined row is compared against. If the converter
         drew a nested row live, `test_the_two_paths_agree` would pass on two
         wrong rows."""
-        row = loss_slices(ingest(*three_generations()))[(PID, LOSS_TID)]
+        row = loss_slices(ingest(*three_generations()))[LOSS_ROW]
 
         assert [depth for _name, _s, _e, depth in row] == [0, 0]
 
     def test_the_walks_are_reading_something(self) -> None:
         """Both resolvers return an empty row for a track that carries no
         slices, so an empty walk is indistinguishable from a clean one."""
-        row = loss_slices(ingest(*three_generations()))[(PID, LOSS_TID)]
+        row = loss_slices(ingest(*three_generations()))[LOSS_ROW]
 
         assert len(row) == 2
 

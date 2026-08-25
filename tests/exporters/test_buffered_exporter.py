@@ -12,13 +12,22 @@ from gcmon.exporters.exporter import EventsExporter
 from gcmon.exporters.jsonl_exporter import JsonlExporter
 from gcmon.exporters.stdout_exporter import StdoutExporter
 from gcmon.model.data import GCStatsInfo
-from gcmon.model.trace_event import RSS_TID, BeginEvent, CounterEvent, EndEvent, ProcessMeta, ThreadMeta, loss_tid
+from gcmon.model.trace_event import (
+    BeginEvent,
+    CounterEvent,
+    EndEvent,
+    LossTrack,
+    ProcessMeta,
+    ProcessTrack,
+    ThreadMeta,
+    ThreadTrack,
+)
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_loss_item, create_mock_stats_item
 
 
 class TestBuildMetaGuard:
-    """``_build_meta`` with ``iid=-1`` must skip ThreadMeta."""
+    """``_build_meta`` describes an interpreter's own row and nothing else."""
 
     def _make_exporter(self, tmp_path: Path) -> BufferedTraceExporter:
         return BufferedTraceExporter(
@@ -27,7 +36,7 @@ class TestBuildMetaGuard:
             flush_threshold=1000,
         )
 
-    def test_negative_iid_skips_thread_meta(self, tmp_path: Path) -> None:
+    def test_an_rss_sample_gets_no_thread_meta(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
         exporter.add_rss_sample(100, 4096, 1_000_000)
         assert any(isinstance(e, ProcessMeta) and e.pid == 100 for e in exporter._buffer)
@@ -40,7 +49,7 @@ class TestBuildMetaGuard:
         metas = [e for e in exporter._buffer if isinstance(e, ProcessMeta)]
         assert len(metas) == 1
 
-    def test_non_negative_iid_emits_thread_meta(self, tmp_path: Path) -> None:
+    def test_a_gc_record_emits_thread_meta(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
         item = GCStatsInfo(
             gen=0,
@@ -55,7 +64,7 @@ class TestBuildMetaGuard:
             duration=0.001,
         )
         exporter.add_event(100, item)
-        assert any(isinstance(e, ThreadMeta) and e.tid == 0 for e in exporter._buffer)
+        assert any(isinstance(e, ThreadMeta) and e.track == ThreadTrack(100, 0) for e in exporter._buffer)
 
 
 class TestAddRssSample:
@@ -69,8 +78,7 @@ class TestAddRssSample:
         counters = [e for e in exporter._buffer if isinstance(e, CounterEvent)]
         assert len(counters) == 1
         c = counters[0]
-        assert c.pid == 100
-        assert c.tid == RSS_TID
+        assert c.track == ProcessTrack(100)
         assert c.metric == "rss"
         assert c.display_name == "rss"
         assert c.value == 4096
@@ -149,7 +157,7 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
         )
 
-        assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {loss_tid(1)}
+        assert {e.track for e in exporter._buffer if isinstance(e, BeginEvent)} == {LossTrack(100, 1)}
 
     def test_it_does_not_share_the_track_with_gc_slices(self, tmp_path: Path) -> None:
         """One interpreter, two rows: a reconstructed span is easier to find
@@ -161,11 +169,14 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {0, loss_tid(0)}
+        assert {e.track for e in exporter._buffer if isinstance(e, BeginEvent)} == {
+            ThreadTrack(100, 0),
+            LossTrack(100, 0),
+        }
 
     def test_the_loss_track_is_not_declared_as_a_thread(self, tmp_path: Path) -> None:
-        """The same negative-tid guard RSS relies on. `perfetto_format`
-        describes this track off the slices instead."""
+        """A `LossTrack` is not a `ThreadTrack`, so nothing names it as one.
+        `perfetto_format` describes this track off the slices instead."""
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_loss_event(
@@ -185,9 +196,15 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=1, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        assert {e.tid for e in exporter._buffer if isinstance(e, BeginEvent)} == {loss_tid(0), loss_tid(1)}
+        assert {e.track for e in exporter._buffer if isinstance(e, BeginEvent)} == {
+            LossTrack(100, 0),
+            LossTrack(100, 1),
+        }
 
-    def test_the_loss_and_rss_sentinels_do_not_collide(self, tmp_path: Path) -> None:
+    def test_the_loss_row_and_the_rss_row_are_not_the_same_row(self, tmp_path: Path) -> None:
+        """Both belong to one pid and neither is an interpreter's own row.
+        They are two track kinds rather than two reserved numbers, so this
+        cannot be made to collide."""
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_rss_sample(100, 4096, 1_000)
@@ -195,4 +212,7 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        assert loss_tid(0) != RSS_TID
+        rss = next(e for e in exporter._buffer if isinstance(e, CounterEvent))
+        loss = next(e for e in exporter._buffer if isinstance(e, BeginEvent))
+        assert rss.track == ProcessTrack(100)
+        assert loss.track == LossTrack(100, 0)

@@ -13,7 +13,7 @@ from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
-from gcmon.model.trace_event import TraceEvent, instant_event, process_meta, thread_meta
+from gcmon.model.trace_event import ProcessTrack, ThreadTrack, TraceEvent, instant_event, process_meta, thread_meta
 from tests.exporters.perfetto_helpers import (
     parse_track_descriptor,
 )
@@ -59,7 +59,7 @@ class TestProcessOrderingByFirstTs:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
-            instant_event(100, "start", ts_ns=5_000),
+            instant_event(ProcessTrack(100), "start", ts_ns=5_000),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -82,11 +82,11 @@ class TestProcessOrderingByFirstTs:
         state = PerfettoTrackState()
         events1: list[TraceEvent] = [
             process_meta(100, "Process 100"),
-            instant_event(100, "first", ts_ns=1_000),
+            instant_event(ProcessTrack(100), "first", ts_ns=1_000),
         ]
         events2: list[TraceEvent] = [
             process_meta(200, "Process 200"),
-            instant_event(200, "second", ts_ns=2_000),
+            instant_event(ProcessTrack(200), "second", ts_ns=2_000),
         ]
         d1, _ = convert_trace_events_to_perfetto(events1, state, sequence_id=1)
         d2, _ = convert_trace_events_to_perfetto(events2, state, sequence_id=1)
@@ -104,9 +104,9 @@ class TestProcessOrderingByFirstTs:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             process_meta(1, "Process 1"),
-            instant_event(1, "ev1", ts_ns=2_000),
+            instant_event(ProcessTrack(1), "ev1", ts_ns=2_000),
             process_meta(2, "Process 2"),
-            instant_event(2, "ev2", ts_ns=1_000),
+            instant_event(ProcessTrack(2), "ev2", ts_ns=1_000),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -124,9 +124,9 @@ class TestProcessOrderingByFirstTs:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             process_meta(2, "Process 2"),
-            instant_event(2, "ev", ts_ns=1_000),
+            instant_event(ProcessTrack(2), "ev", ts_ns=1_000),
             process_meta(1, "Process 1"),
-            instant_event(1, "ev", ts_ns=1_000),
+            instant_event(ProcessTrack(1), "ev", ts_ns=1_000),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -144,7 +144,7 @@ class TestProcessOrderingByFirstTs:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
-            thread_meta(100, 0, "Thread 0"),
+            thread_meta(ThreadTrack(100, 0), "Thread 0"),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -161,11 +161,11 @@ class TestProcessOrderingByFirstTs:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
-            thread_meta(100, 0, "Thread 0"),
+            thread_meta(ThreadTrack(100, 0), "Thread 0"),
             process_meta(200, "Process 200"),
-            thread_meta(200, 0, "Thread 0"),
-            instant_event(100, "late", ts_ns=5_000),
-            instant_event(200, "early", ts_ns=1_000),
+            thread_meta(ThreadTrack(200, 0), "Thread 0"),
+            instant_event(ProcessTrack(100), "late", ts_ns=5_000),
+            instant_event(ProcessTrack(200), "early", ts_ns=1_000),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -198,7 +198,7 @@ class TestProcessOrderingByFirstTs:
         events: list[TraceEvent] = [
             process_meta(1, "Process 1"),
             process_meta(2, "Process 2"),
-            instant_event(2, "ev", ts_ns=2_000),
+            instant_event(ProcessTrack(2), "ev", ts_ns=2_000),
             *convert_item_to_trace_format(1, item1),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
@@ -222,7 +222,7 @@ class TestProcessOrderingByFirstTs:
                 for pid in ordered_pids
                 for ev in (
                     process_meta(pid, f"Process {pid}"),
-                    instant_event(pid, "ev", ts_ns=ts_map[pid]),
+                    instant_event(ProcessTrack(pid), "ev", ts_ns=ts_map[pid]),
                 )
             ]
 
@@ -239,12 +239,12 @@ class TestProcessOrderingByFirstTs:
         computing ranks in a later batch (multi-flush invariant)."""
         s = PerfettoTrackState()
         d1, _ = convert_trace_events_to_perfetto(
-            [process_meta(1, "p1"), instant_event(1, "a", ts_ns=1_000)],
+            [process_meta(1, "p1"), instant_event(ProcessTrack(1), "a", ts_ns=1_000)],
             s,
             sequence_id=1,
         )
         d2, _ = convert_trace_events_to_perfetto(
-            [process_meta(2, "p2"), instant_event(2, "b", ts_ns=5_000)],
+            [process_meta(2, "p2"), instant_event(ProcessTrack(2), "b", ts_ns=5_000)],
             s,
             sequence_id=1,
         )
@@ -269,9 +269,9 @@ class TestProcessOrderingByFirstTs:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
-            instant_event(100, "start", ts_ns=5_000),
+            instant_event(ProcessTrack(100), "start", ts_ns=5_000),
             process_meta(200, "Process 200"),
-            instant_event(200, "start", ts_ns=1_000),
+            instant_event(ProcessTrack(200), "start", ts_ns=1_000),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -292,7 +292,7 @@ class TestProcessOrderingByFirstTs:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             process_meta(100, "Process 100"),
-            thread_meta(100, 0, "Thread 0"),
+            thread_meta(ThreadTrack(100, 0), "Thread 0"),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -325,7 +325,7 @@ class TestProcessOrderingByFirstTs:
         events: list[TraceEvent] = [
             process_meta(1, "Process 1"),
             process_meta(2, "Process 2"),
-            instant_event(2, "ev", ts_ns=2_000),
+            instant_event(ProcessTrack(2), "ev", ts_ns=2_000),
             *convert_item_to_trace_format(1, item),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
@@ -344,12 +344,12 @@ class TestProcessOrderingByFirstTs:
         the process descriptor is emitted in a later batch."""
         s = PerfettoTrackState()
         d1, _ = convert_trace_events_to_perfetto(
-            [process_meta(1, "p1"), instant_event(1, "a", ts_ns=1_000)],
+            [process_meta(1, "p1"), instant_event(ProcessTrack(1), "a", ts_ns=1_000)],
             s,
             sequence_id=1,
         )
         d2, _ = convert_trace_events_to_perfetto(
-            [process_meta(2, "p2"), instant_event(2, "b", ts_ns=5_000)],
+            [process_meta(2, "p2"), instant_event(ProcessTrack(2), "b", ts_ns=5_000)],
             s,
             sequence_id=1,
         )

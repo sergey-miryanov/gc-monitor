@@ -22,12 +22,14 @@ from ..model.protocol import (
 from ..model.trace_event import (
     ArgGroup,
     EventArgs,
+    LossTrack,
+    ProcessTrack,
+    ThreadTrack,
     TraceEvent,
     begin_event,
     counter_event,
     end_event,
     instant_event,
-    loss_tid,
     process_meta,
     thread_meta,
 )
@@ -42,7 +44,7 @@ __all__ = [
 def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEvent]:
     gen = item.gen
     iid = item.iid
-    tid = iid
+    track = ThreadTrack(pid, iid)
     ts_start_ns = item.ts_start
     ts_stop_ns = item.ts_stop
 
@@ -82,8 +84,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     events: list[TraceEvent] = []
     events.append(
         begin_event(
-            pid,
-            tid,
+            track,
             f"GC Pause({gen})",
             f"gc.pause(gen={gen})",
             ts_start_ns,
@@ -95,8 +96,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         inc_data: EventArgs = {"generation": gen, "iid": iid, "alive_size": item.alive_size}
         events.append(
             begin_event(
-                pid,
-                tid,
+                track,
                 f"Mark Alive({gen})",
                 f"gc.mark.alive(gen={gen})",
                 item.ts_mark_alive_start,
@@ -105,8 +105,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
         events.append(
             end_event(
-                pid,
-                tid,
+                track,
                 f"Mark Alive({gen})",
                 f"gc.mark.alive(gen={gen})",
                 item.ts_mark_alive_stop,
@@ -117,8 +116,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         inc_data = {"generation": gen, "iid": iid, "increment_size": item.increment_size}
         events.append(
             begin_event(
-                pid,
-                tid,
+                track,
                 f"Fill increment({gen})",
                 f"gc.increment(gen={gen})",
                 item.ts_fill_increment_start,
@@ -127,8 +125,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
         events.append(
             end_event(
-                pid,
-                tid,
+                track,
                 f"Fill increment({gen})",
                 f"gc.increment(gen={gen})",
                 item.ts_fill_increment_stop,
@@ -139,8 +136,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         inc_data = {"generation": gen, "iid": iid, "candidates": item.candidates}
         events.append(
             begin_event(
-                pid,
-                tid,
+                track,
                 f"Deduce Unreachable({gen})",
                 f"gc.deduce(gen={gen})",
                 item.ts_deduce_unreachable_start,
@@ -149,8 +145,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
         events.append(
             end_event(
-                pid,
-                tid,
+                track,
                 f"Deduce Unreachable({gen})",
                 f"gc.deduce(gen={gen})",
                 item.ts_deduce_unreachable_stop,
@@ -161,8 +156,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         inc_data = {"generation": gen, "iid": iid}
         events.append(
             begin_event(
-                pid,
-                tid,
+                track,
                 f"Handle Weakrefs Callbacks({gen})",
                 f"gc.weakrefs(gen={gen})",
                 item.ts_handle_weakref_callbacks_start,
@@ -171,8 +165,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
         events.append(
             end_event(
-                pid,
-                tid,
+                track,
                 f"Handle Weakrefs Callbacks({gen})",
                 f"gc.weakrefs(gen={gen})",
                 item.ts_handle_weakref_callbacks_stop,
@@ -183,8 +176,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         inc_data = {"generation": gen, "iid": iid, "finalized_garbage_count": item.finalized_garbage_count}
         events.append(
             begin_event(
-                pid,
-                tid,
+                track,
                 f"Finalize Garbage({gen})",
                 f"gc.finalize(gen={gen})",
                 item.ts_handle_weakref_callbacks_stop,
@@ -193,8 +185,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
         events.append(
             end_event(
-                pid,
-                tid,
+                track,
                 f"Finalize Garbage({gen})",
                 f"gc.finalize(gen={gen})",
                 item.ts_finalize_garbage_stop,
@@ -205,8 +196,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         inc_data = {"generation": gen, "iid": iid}
         events.append(
             begin_event(
-                pid,
-                tid,
+                track,
                 f"Handle Resurrected({gen})",
                 f"gc.resurrect(gen={gen})",
                 item.ts_finalize_garbage_stop,
@@ -215,8 +205,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
         events.append(
             end_event(
-                pid,
-                tid,
+                track,
                 f"Handle Resurrected({gen})",
                 f"gc.resurrect(gen={gen})",
                 item.ts_handle_resurrected_stop,
@@ -227,8 +216,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         inc_data = {"generation": gen, "iid": iid, "clear_weakrefs_count": item.clear_weakrefs_count}
         events.append(
             begin_event(
-                pid,
-                tid,
+                track,
                 f"Clear Weakrefs({gen})",
                 f"gc.clear_weakrefs(gen={gen})",
                 item.ts_handle_resurrected_stop,
@@ -237,8 +225,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
         events.append(
             end_event(
-                pid,
-                tid,
+                track,
                 f"Clear Weakrefs({gen})",
                 f"gc.clear_weakrefs(gen={gen})",
                 item.ts_clear_weakrefs_stop,
@@ -249,8 +236,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         inc_data = {"generation": gen, "iid": iid, "deleted_garbage_count": item.deleted_garbage_count}
         events.append(
             begin_event(
-                pid,
-                tid,
+                track,
                 f"Delete Garbage({gen})",
                 f"gc.delete(gen={gen})",
                 item.ts_delete_garbage_start,
@@ -259,8 +245,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
         events.append(
             end_event(
-                pid,
-                tid,
+                track,
                 f"Delete Garbage({gen})",
                 f"gc.delete(gen={gen})",
                 item.ts_delete_garbage_stop,
@@ -269,8 +254,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
 
     events.append(
         end_event(
-            pid,
-            tid,
+            track,
             f"GC Pause({gen})",
             f"gc.pause(gen={gen})",
             ts_stop_ns,
@@ -278,14 +262,12 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     )
 
     events.extend(
-        counter_event(pid, tid, metric, f"G{gen} {metric}", ts_start_ns, value)
-        for metric, value in counter_data.items()
+        counter_event(track, metric, f"G{gen} {metric}", ts_start_ns, value) for metric, value in counter_data.items()
     )
 
     events.append(
         counter_event(
-            pid,
-            tid,
+            track,
             "heap_size",
             "heap_size",
             ts_start_ns,
@@ -384,7 +366,7 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
 
     See ADR-0015 for the width, the track and the grouping.
     """
-    tid = loss_tid(item.iid)
+    track = LossTrack(pid, item.iid)
     blind = [gen.gen for gen in item.gens if gen.lost_count]
     name = f"GC Loss({','.join(str(gen) for gen in blind)})" if blind else "GC Loss"
     category = "gc.loss"
@@ -405,8 +387,8 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
         args[f"gen{gen.gen}"] = _gen_loss_args(gen)
 
     return [
-        begin_event(pid, tid, name, category, item.ts_start, args),
-        end_event(pid, tid, name, category, item.ts_stop),
+        begin_event(track, name, category, item.ts_start, args),
+        end_event(track, name, category, item.ts_stop),
     ]
 
 
@@ -450,9 +432,9 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
                 # `perfetto_format` describes it off the slices themselves.
                 pid_events.extend(convert_loss_to_trace_format(pid, item))
             elif is_instant(item):
-                pid_events.append(instant_event(pid, item.name, item.ts))
+                pid_events.append(instant_event(ProcessTrack(pid), item.name, item.ts))
 
-        events.extend(thread_meta(pid, tid, f"{pid}:{tid}") for tid in threads)
+        events.extend(thread_meta(ThreadTrack(pid, iid), f"{pid}:{iid}") for iid in threads)
         events.extend(pid_events)
 
     return events

@@ -8,16 +8,18 @@ lives here, apart from the emission code in ``perfetto_process_lifetime``,
 because splitting the class would leave two halves sharing ``_next_uuid``.
 """
 
+from ..model.trace_event import Track
+
 
 class PerfettoTrackState:
     def __init__(self) -> None:
         self._pids: set[int] = set()
-        self._tids: set[tuple[int, int]] = set()
+        self._tracks: set[Track] = set()
         self._cmdlines: dict[int, list[str]] = {}
-        self._counter_tracks: dict[tuple[int, int, str], int] = {}
-        self._counter_group_uuids: dict[tuple[int, int], int] = {}
+        self._counter_tracks: dict[tuple[Track, str], int] = {}
+        self._counter_group_uuids: dict[Track, int] = {}
         self._pid_uuids: dict[int, int] = {}
-        self._tid_uuids: dict[tuple[int, int], int] = {}
+        self._track_uuids: dict[Track, int] = {}
         self._start_process_marker_emitted: set[int] = set()
         self._process_lifetime_track_uuid: int | None = None
         self._process_lifetime_start: dict[int, int] = {}
@@ -37,11 +39,11 @@ class PerfettoTrackState:
     def mark_pid(self, pid: int) -> None:
         self._pids.add(pid)
 
-    def has_tid(self, pid: int, iid: int) -> bool:
-        return (pid, iid) in self._tids
+    def has_track(self, track: Track) -> bool:
+        return track in self._tracks
 
-    def mark_tid(self, pid: int, iid: int) -> None:
-        self._tids.add((pid, iid))
+    def mark_track(self, track: Track) -> None:
+        self._tracks.add(track)
 
     def set_cmdline(self, pid: int, cmdline: list[str]) -> None:
         self._cmdlines[pid] = cmdline
@@ -54,29 +56,27 @@ class PerfettoTrackState:
             self._pid_uuids[pid] = self._alloc_uuid()
         return self._pid_uuids[pid]
 
-    def get_thread_track_uuid(self, pid: int, iid: int) -> int:
-        key = (pid, iid)
-        if key not in self._tid_uuids:
-            self._tid_uuids[key] = self._alloc_uuid()
-        return self._tid_uuids[key]
+    def get_track_uuid(self, track: Track) -> int:
+        if track not in self._track_uuids:
+            self._track_uuids[track] = self._alloc_uuid()
+        return self._track_uuids[track]
 
-    def has_counter_track(self, pid: int, iid: int, display_name: str) -> bool:
-        return (pid, iid, display_name) in self._counter_tracks
+    def has_counter_track(self, track: Track, display_name: str) -> bool:
+        return (track, display_name) in self._counter_tracks
 
-    def get_or_create_counter_track_uuid(self, pid: int, iid: int, display_name: str) -> int:
-        key = (pid, iid, display_name)
+    def get_or_create_counter_track_uuid(self, track: Track, display_name: str) -> int:
+        key = (track, display_name)
         if key not in self._counter_tracks:
             self._counter_tracks[key] = self._alloc_uuid()
         return self._counter_tracks[key]
 
-    def has_counter_group_track(self, pid: int, iid: int) -> bool:
-        return (pid, iid) in self._counter_group_uuids
+    def has_counter_group_track(self, track: Track) -> bool:
+        return track in self._counter_group_uuids
 
-    def get_or_create_counter_group_track_uuid(self, pid: int, iid: int) -> int:
-        key = (pid, iid)
-        if key not in self._counter_group_uuids:
-            self._counter_group_uuids[key] = self._alloc_uuid()
-        return self._counter_group_uuids[key]
+    def get_or_create_counter_group_track_uuid(self, track: Track) -> int:
+        if track not in self._counter_group_uuids:
+            self._counter_group_uuids[track] = self._alloc_uuid()
+        return self._counter_group_uuids[track]
 
     def has_start_process_marker(self, pid: int) -> bool:
         return pid in self._start_process_marker_emitted

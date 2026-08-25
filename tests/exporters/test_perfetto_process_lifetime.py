@@ -23,7 +23,7 @@ from gcmon.exporters.perfetto_proto import TrackEventType
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
-from gcmon.model.trace_event import TraceEvent, process_meta, thread_meta
+from gcmon.model.trace_event import ThreadTrack, TraceEvent, process_meta, thread_meta
 from tests.exporters.perfetto_helpers import (
     convert_item,
     convert_items,
@@ -725,7 +725,7 @@ class TestCloseoutAtFinalize:
         gc_events = convert_item_to_trace_format(100, item)
         meta: list[TraceEvent] = [
             process_meta(100, "Process 100"),
-            thread_meta(100, item.iid, f"Thread {item.iid}"),
+            thread_meta(ThreadTrack(100, item.iid), f"Thread {item.iid}"),
         ]
         _, packets = convert_trace_events_to_perfetto(
             meta + gc_events,
@@ -795,12 +795,12 @@ class TestCloseoutAtFinalize:
         )
         events1: list[TraceEvent] = [
             process_meta(100, "Process 100"),
-            thread_meta(100, item1.iid, f"Thread {item1.iid}"),
+            thread_meta(ThreadTrack(100, item1.iid), f"Thread {item1.iid}"),
             *convert_item_to_trace_format(100, item1),
         ]
         events2: list[TraceEvent] = [
             process_meta(100, "Process 100"),
-            thread_meta(100, item2.iid, f"Thread {item2.iid}"),
+            thread_meta(ThreadTrack(100, item2.iid), f"Thread {item2.iid}"),
             *convert_item_to_trace_format(100, item2),
         ]
         _, packets1 = convert_trace_events_to_perfetto(
