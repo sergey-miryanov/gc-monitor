@@ -13,11 +13,11 @@
 - The pyperf hook's metadata keys `gc_pause_*` and `gc_heap_size_p99` are gone
 - The pyperf hook's `GCMON_PYPERF_HOOK_OUTPUT` and `GCMON_PYPERF_HOOK_TEMP_DIR` environment variables are gone
 - `gcmon combine` reads JSONL only: `--input-format` is gone, `--output-format` takes `perfetto` or `jsonl` and defaults to `perfetto`. Handed a `.json` from an earlier release, it names the Chrome format instead of reporting malformed JSON
-- A `.pftrace` needs Perfetto v58 or newer to open, where a capture from 0.6.0 opened in any version. An older Perfetto shows an empty timeline rather than refusing the file
+- A compressed `.pftrace` needs Perfetto v58 or newer to open. An older Perfetto shows an empty timeline rather than refusing the file
 
 ### Features
 
-- A Perfetto trace is compressed: the same events in a file seven to ten times smaller. It opens the same way, and there is nothing to run first
+- A Perfetto trace is compressed: the same events in a file several times smaller. It opens the same way, and there is nothing to run first
 - `ControlClient.instant_msg` takes a `ts`, so an instant captured in a hot path can be sent after it and still land where it happened
 - The pyperf hook marks where each benchmark ran: `gcmon:`-prefixed begin and end marks per measured region
 
