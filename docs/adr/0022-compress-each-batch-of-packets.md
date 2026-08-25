@@ -82,6 +82,13 @@ slower and cannot run on a flush.
   has.
 - `perfetto` stays a development dependency, and the codec comes from the
   stdlib's `compression.zstd`.
+- **`compression.zstd` is an optional part of a CPython build**, where the
+  `zlib` it replaces is on essentially every one. The encoder imports it at
+  module scope and the package imports the encoder, so on an interpreter built
+  without libzstd no gcmon command starts, `--format jsonl` and `combine`
+  included. gcmon is installed beside the process it watches
+  ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)), which is where
+  a minimal build turns up.
 
 ## Alternatives considered
 
@@ -119,8 +126,10 @@ slower and cannot run on a flush.
 - `src/gcmon/exporters/encoder.py` holds the write path a flush and the
   closeout share, and the compression level.
 - `src/gcmon/exporters/perfetto_proto.py` holds
-  `TracePacketField.ZSTD_COMPRESSED_PACKETS`, and `COMPRESSED_PACKETS` for the
-  branch the reader keeps.
+  `TracePacketField.ZSTD_COMPRESSED_PACKETS`. `COMPRESSED_PACKETS` sits beside
+  it with no caller left: the reader matches the descriptor's field names, not
+  these constants (ADR-0001), so the check against the descriptor is the whole
+  of what field 50's member still does.
 - `tests/perfetto_prebuilt.py` pins the trace processor the suite drives, to a
   build that reads field 133.
 - Tests: `tests/exporters/test_perfetto_compression.py` covers the compressed
