@@ -3,13 +3,7 @@
 from pathlib import Path
 
 from ..model.protocol import TItem
-from ..model.trace_event import (
-    BeginEvent,
-    CounterEvent,
-    EndEvent,
-    InstantEvent,
-    TraceEvent,
-)
+from ..model.trace_event import TraceEvent
 from .encoder import ProtobufEventEncoder
 from .jsonl_io import normalize_jsonl_timestamps, read_jsonl, write_jsonl
 from .trace_converter import convert_to_trace_format
@@ -20,10 +14,9 @@ __all__ = [
 
 
 def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
-    by_pid: dict[int, list[BeginEvent | EndEvent | CounterEvent | InstantEvent]] = {}
+    by_pid: dict[int, list[TraceEvent]] = {}
     for event in events:
-        if event.ph in ("B", "E", "C", "I"):
-            by_pid.setdefault(event.track.pid, []).append(event)
+        by_pid.setdefault(event.track.pid, []).append(event)
 
     for timed in by_pid.values():
         min_ts = min(e.ts for e in timed)

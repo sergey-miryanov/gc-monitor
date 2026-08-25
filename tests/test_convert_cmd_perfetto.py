@@ -22,7 +22,7 @@ from perfetto.trace_processor import TraceProcessor
 
 from gcmon.exporters.jsonl_io import read_jsonl
 from gcmon.exporters.trace_converter import convert_to_trace_format
-from gcmon.model.trace_event import BeginEvent, EndEvent, TraceEvent, Track
+from gcmon.model.trace_event import SliceBegin, SliceEnd, TraceEvent, Track
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item, open_trace_processor
 
 
@@ -293,16 +293,15 @@ def _slices_from_events(events: Sequence[TraceEvent]) -> list[_Slice]:
 
     Begin and end events arrive properly nested per track -- a sub-step
     closes before the pause containing it -- so one stack per track pairs
-    them.
+    them, the way the trace processor pairs them off the wire.
     """
-    open_slices: dict[Track, list[BeginEvent]] = {}
+    open_slices: dict[Track, list[SliceBegin]] = {}
     drawn: list[_Slice] = []
     for event in events:
-        if isinstance(event, BeginEvent):
+        if isinstance(event, SliceBegin):
             open_slices.setdefault(event.track, []).append(event)
-        elif isinstance(event, EndEvent):
+        elif isinstance(event, SliceEnd):
             begin = open_slices[event.track].pop()
-            assert begin.name == event.name, f"{event.name} ended a slice opened as {begin.name}"
             drawn.append((begin.name, event.ts - begin.ts, tuple(sorted(begin.args.items()))))
     unclosed = [b.name for stack in open_slices.values() for b in stack]
     assert not unclosed, f"slices left open by the converter: {unclosed}"

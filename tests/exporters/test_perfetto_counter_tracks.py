@@ -4,7 +4,7 @@ import pytest
 
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
-from gcmon.model.trace_event import ProcessTrack, ThreadTrack, TraceEvent, counter_event
+from gcmon.model.trace_event import Counter, ProcessTrack, ThreadTrack, TraceEvent
 from tests.exporters.perfetto_helpers import (
     parse_track_descriptor,
 )
@@ -39,15 +39,15 @@ class TestCounterTrackYAxisShareKey:
     def test_grouped_counters_share_y_axis_by_metric(self) -> None:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            counter_event(ThreadTrack(100, 0), "collected", "G0 collected", 1_000, 100),
-            counter_event(ThreadTrack(100, 0), "candidates", "G0 candidates", 1_000, 50),
-            counter_event(ThreadTrack(100, 0), "duration", "G0 duration", 1_000, 0.005),
-            counter_event(ThreadTrack(100, 0), "collected", "G1 collected", 1_001, 80),
-            counter_event(ThreadTrack(100, 0), "candidates", "G1 candidates", 1_001, 40),
-            counter_event(ThreadTrack(100, 0), "duration", "G1 duration", 1_001, 0.004),
-            counter_event(ThreadTrack(100, 0), "collected", "G2 collected", 1_002, 60),
-            counter_event(ThreadTrack(100, 0), "candidates", "G2 candidates", 1_002, 30),
-            counter_event(ThreadTrack(100, 0), "duration", "G2 duration", 1_002, 0.003),
+            Counter(ThreadTrack(100, 0), "collected", "G0 collected", 1_000, 100),
+            Counter(ThreadTrack(100, 0), "candidates", "G0 candidates", 1_000, 50),
+            Counter(ThreadTrack(100, 0), "duration", "G0 duration", 1_000, 0.005),
+            Counter(ThreadTrack(100, 0), "collected", "G1 collected", 1_001, 80),
+            Counter(ThreadTrack(100, 0), "candidates", "G1 candidates", 1_001, 40),
+            Counter(ThreadTrack(100, 0), "duration", "G1 duration", 1_001, 0.004),
+            Counter(ThreadTrack(100, 0), "collected", "G2 collected", 1_002, 60),
+            Counter(ThreadTrack(100, 0), "candidates", "G2 candidates", 1_002, 30),
+            Counter(ThreadTrack(100, 0), "duration", "G2 duration", 1_002, 0.003),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -64,7 +64,7 @@ class TestCounterTrackYAxisShareKey:
     def test_heap_size_has_no_share_key(self) -> None:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            counter_event(ThreadTrack(100, 0), "heap_size", "heap_size", 1_000, 4096),
+            Counter(ThreadTrack(100, 0), "heap_size", "heap_size", 1_000, 4096),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -76,10 +76,10 @@ class TestCounterTrackYAxisShareKey:
     def test_uncollectable_share_key_emitted_when_nonzero(self) -> None:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            counter_event(ThreadTrack(100, 0), "collected", "G0 collected", 1_000, 1),
-            counter_event(ThreadTrack(100, 0), "uncollectable", "G0 uncollectable", 1_000, 1),
-            counter_event(ThreadTrack(100, 0), "candidates", "G0 candidates", 1_000, 1),
-            counter_event(ThreadTrack(100, 0), "duration", "G0 duration", 1_000, 1),
+            Counter(ThreadTrack(100, 0), "collected", "G0 collected", 1_000, 1),
+            Counter(ThreadTrack(100, 0), "uncollectable", "G0 uncollectable", 1_000, 1),
+            Counter(ThreadTrack(100, 0), "candidates", "G0 candidates", 1_000, 1),
+            Counter(ThreadTrack(100, 0), "duration", "G0 duration", 1_000, 1),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -96,10 +96,10 @@ class TestCounterTrackYAxisShareKey:
         """
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            counter_event(ThreadTrack(100, 0), "collected", "G0 collected", 1_000, 10),
-            counter_event(ThreadTrack(100, 0), "candidates", "G0 candidates", 1_000, 5),
-            counter_event(ThreadTrack(200, 0), "collected", "G0 collected", 1_001, 20),
-            counter_event(ThreadTrack(200, 0), "candidates", "G0 candidates", 1_001, 6),
+            Counter(ThreadTrack(100, 0), "collected", "G0 collected", 1_000, 10),
+            Counter(ThreadTrack(100, 0), "candidates", "G0 candidates", 1_000, 5),
+            Counter(ThreadTrack(200, 0), "collected", "G0 collected", 1_001, 20),
+            Counter(ThreadTrack(200, 0), "candidates", "G0 candidates", 1_001, 6),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(
             events,
@@ -130,7 +130,7 @@ class TestRssCounterTrack:
     def test_counter_track_parented_to_process(self) -> None:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            counter_event(ProcessTrack(100), "rss", "rss", 1_000, 4096),
+            Counter(ProcessTrack(100), "rss", "rss", 1_000, 4096),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         proc_uuid = state.get_process_track_uuid(100)
@@ -158,7 +158,7 @@ class TestRssCounterTrack:
         ``"rss"``, unqualified by any owner."""
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            counter_event(ProcessTrack(100), "rss", "rss", 1_000, 8192),
+            Counter(ProcessTrack(100), "rss", "rss", 1_000, 8192),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         ctr_key = (ProcessTrack(100), "rss")
@@ -175,7 +175,7 @@ class TestRssCounterTrack:
         ``tid=-1``; RSS is process-level."""
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            counter_event(ProcessTrack(100), "rss", "rss", 1_000, 4096),
+            Counter(ProcessTrack(100), "rss", "rss", 1_000, 4096),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         for d in descriptors:
@@ -186,8 +186,8 @@ class TestRssCounterTrack:
     def test_multiple_pids_get_separate_rss_tracks(self) -> None:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            counter_event(ProcessTrack(100), "rss", "rss", 1_000, 4096),
-            counter_event(ProcessTrack(200), "rss", "rss", 2_000, 8192),
+            Counter(ProcessTrack(100), "rss", "rss", 1_000, 4096),
+            Counter(ProcessTrack(200), "rss", "rss", 2_000, 8192),
         ]
         _, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         for pid in (100, 200):
@@ -203,11 +203,11 @@ class TestRssCounterTrack:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             # RSS sample (tid=-1, process-level)
-            counter_event(ProcessTrack(100), "rss", "rss", 1_000, 4096),
+            Counter(ProcessTrack(100), "rss", "rss", 1_000, 4096),
             # GC counter (tid=0, thread-level, inside GC Metrics group)
-            counter_event(ThreadTrack(100, 0), "collected", "G0 collected", 1_000, 42),
-            counter_event(ThreadTrack(100, 0), "candidates", "G0 candidates", 1_000, 10),
-            counter_event(ThreadTrack(100, 0), "duration", "G0 duration", 1_000, 0.005),
+            Counter(ThreadTrack(100, 0), "collected", "G0 collected", 1_000, 42),
+            Counter(ThreadTrack(100, 0), "candidates", "G0 candidates", 1_000, 10),
+            Counter(ThreadTrack(100, 0), "duration", "G0 duration", 1_000, 0.005),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         proc_uuid = state.get_process_track_uuid(100)

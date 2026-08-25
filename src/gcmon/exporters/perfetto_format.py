@@ -12,12 +12,12 @@ importer needs one name.
 from collections.abc import Sequence
 
 from ..model.trace_event import (
-    BeginEvent,
-    CounterEvent,
-    EndEvent,
-    InstantEvent,
+    Counter,
+    Instant,
     LossTrack,
     ProcessTrack,
+    SliceBegin,
+    SliceEnd,
     ThreadTrack,
     TraceEvent,
     Track,
@@ -182,7 +182,7 @@ def _emit_start_process_marker(
     Idempotent per pid, and stamped with the first non-meta event that pid
     produced. The Perfetto UI hides a track holding no events, and with it
     the process track's ``description``, the joined cmdline. One marker
-    keeps the description visible however few ``InstantEvent`` the caller
+    keeps the description visible however few ``Instant`` the caller
     sent.
     """
     if state.has_start_process_marker(pid):
@@ -386,7 +386,7 @@ def convert_trace_events_to_perfetto(
         pid = event.track.pid
         descriptors.extend(_emit_track_descriptors(event.track, state, sequence_id, ranks))
 
-        if isinstance(event, BeginEvent):
+        if isinstance(event, SliceBegin):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
             annotations = _args_to_debug_annotations(event.args)
             packets.append(
@@ -402,7 +402,7 @@ def convert_trace_events_to_perfetto(
                 )
             )
 
-        elif isinstance(event, EndEvent):
+        elif isinstance(event, SliceEnd):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
             packets.append(
                 build_trace_packet(
@@ -412,7 +412,7 @@ def convert_trace_events_to_perfetto(
                 )
             )
 
-        elif isinstance(event, InstantEvent):
+        elif isinstance(event, Instant):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
             proc_uuid = state.get_process_track_uuid(pid)
             packets.append(
@@ -427,7 +427,7 @@ def convert_trace_events_to_perfetto(
                 )
             )
 
-        elif isinstance(event, CounterEvent):
+        elif isinstance(event, Counter):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
             ctr_uuid, desc_bytes = _emit_counter_track_descriptor(
                 event.track,

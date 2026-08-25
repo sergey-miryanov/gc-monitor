@@ -16,11 +16,15 @@ from gcmon.exporters.jsonl_io import (
 )
 from gcmon.model.data import LossMsg
 from gcmon.model.trace_event import (
+    Counter,
     EventArgs,
+    Instant,
+    LossTrack,
+    ProcessTrack,
+    SliceBegin,
+    SliceEnd,
     ThreadTrack,
     TraceEvent,
-    begin_event,
-    counter_event,
 )
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import make_inc_jsonl_record
@@ -73,12 +77,12 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = begin_event(ThreadTrack(1, 1), name="e1", cat="c", ts_ns=5_000_000, args=args)
-        e2 = counter_event(
+        e1 = SliceBegin(ThreadTrack(1, 1), name="e1", cat="c", ts=5_000_000, args=args)
+        e2 = Counter(
             ThreadTrack(1, 1),
             metric="collected",
             display_name="c1 collected",
-            ts_ns=3_000_000,
+            ts=3_000_000,
             value=10,
         )
         events: list[TraceEvent] = [e1, e2]
@@ -96,7 +100,7 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = begin_event(ThreadTrack(1, 1), name="e1", cat="c", ts_ns=1_000_000, args=args)
+        e1 = SliceBegin(ThreadTrack(1, 1), name="e1", cat="c", ts=1_000_000, args=args)
         events: list[TraceEvent] = [e1]
         _normalize_trace_timestamps(events)
         assert e1.ts == 0
@@ -116,16 +120,33 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = begin_event(ThreadTrack(1, 1), name="e1", cat="c", ts_ns=10_000_000, args=args)
-        e2 = begin_event(ThreadTrack(1, 1), name="e2", cat="c", ts_ns=12_000_000, args=args)
-        e3 = begin_event(ThreadTrack(2, 1), name="e3", cat="c", ts_ns=5_000_000, args=args)
-        e4 = begin_event(ThreadTrack(2, 1), name="e4", cat="c", ts_ns=7_000_000, args=args)
+        e1 = SliceBegin(ThreadTrack(1, 1), name="e1", cat="c", ts=10_000_000, args=args)
+        e2 = SliceBegin(ThreadTrack(1, 1), name="e2", cat="c", ts=12_000_000, args=args)
+        e3 = SliceBegin(ThreadTrack(2, 1), name="e3", cat="c", ts=5_000_000, args=args)
+        e4 = SliceBegin(ThreadTrack(2, 1), name="e4", cat="c", ts=7_000_000, args=args)
         events: list[TraceEvent] = [e1, e2, e3, e4]
         _normalize_trace_timestamps(events)
         assert e1.ts == 0  # pid=1: 10_000_000 - 10_000_000
         assert e2.ts == 2_000_000  # pid=1: 12_000_000 - 10_000_000
         assert e3.ts == 0  # pid=2: 5_000_000 - 5_000_000
         assert e4.ts == 2_000_000  # pid=2: 7_000_000 - 5_000_000
+
+    def test_every_kind_of_event_is_shifted(self) -> None:
+        """Every member of the union carries a `ts`, so the normalizer picks
+        no kinds out. It used to select them by `ph`, and a fifth kind added
+        later would have been left behind holding raw timestamps."""
+        pause = SliceBegin(ThreadTrack(1, 0), name="GC Pause(0)", cat="gc", ts=8_000, args={})
+        close = SliceEnd(ThreadTrack(1, 0), ts=9_000)
+        counter = Counter(ThreadTrack(1, 0), metric="collected", display_name="G0 collected", ts=8_000, value=1)
+        rss = Counter(ProcessTrack(1), metric="rss", display_name="rss", ts=6_000, value=4096)
+        mark = Instant(ProcessTrack(1), name="benchmark", ts=5_000)
+        loss_begin = SliceBegin(LossTrack(1, 0), name="GC Loss(0)", cat="gc.loss", ts=5_000, args={})
+        loss_end = SliceEnd(LossTrack(1, 0), ts=7_000)
+        events: list[TraceEvent] = [pause, close, counter, rss, mark, loss_begin, loss_end]
+
+        _normalize_trace_timestamps(events)
+
+        assert [e.ts for e in events] == [3_000, 4_000, 3_000, 1_000, 0, 0, 2_000]
 
     def test_negative_timestamps(self) -> None:
         args: EventArgs = {
@@ -137,8 +158,8 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = begin_event(ThreadTrack(1, 1), name="e1", cat="c", ts_ns=-100, args=args)
-        e2 = begin_event(ThreadTrack(1, 1), name="e2", cat="c", ts_ns=-500, args=args)
+        e1 = SliceBegin(ThreadTrack(1, 1), name="e1", cat="c", ts=-100, args=args)
+        e2 = SliceBegin(ThreadTrack(1, 1), name="e2", cat="c", ts=-500, args=args)
         events: list[TraceEvent] = [e1, e2]
         _normalize_trace_timestamps(events)
         assert e1.ts == 400  # -100 - (-500)
@@ -283,7 +304,7 @@ class TestJsonlLossRoundTrip:
         path = tmp_path / "loss.jsonl"
         write_jsonl(path, {42: [self._msg(lost_from=413, lost_count=19)]})
 
-        args = [e.args for e in convert_jsonl_to_trace_format(path) if e.ph == "B"]
+        args = [e.args for e in convert_jsonl_to_trace_format(path) if isinstance(e, SliceBegin)]
 
         assert [a["gen0"]["lost_collections"] for a in args] == ["413..431"]  # type: ignore[index]
 

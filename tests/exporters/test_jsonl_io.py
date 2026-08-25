@@ -16,7 +16,7 @@ from gcmon.exporters.jsonl_io import (
 )
 from gcmon.model.data import GCStatsInfo, LossMsg
 from gcmon.model.protocol import has_incremental
-from gcmon.model.trace_event import ThreadTrack
+from gcmon.model.trace_event import Counter, SliceBegin, ThreadTrack
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import make_inc_item, make_inc_jsonl_record
 from tests.helpers import (
@@ -273,8 +273,8 @@ class TestConvertJsonlToTraceFormat:
 
         events = convert_jsonl_to_trace_format(path)
         assert len(events) > 0
-        assert any(e.ph == "B" for e in events)  # pause begin
-        assert any(e.ph == "C" for e in events)  # counter
+        assert any(isinstance(e, SliceBegin) for e in events)  # pause begin
+        assert any(isinstance(e, Counter) for e in events)  # counter
 
     def test_empty_file_returns_empty_list(self, tmp_path: Path) -> None:
         path = tmp_path / "empty.jsonl"
@@ -287,7 +287,7 @@ class TestConvertJsonlToTraceFormat:
         record = make_inc_jsonl_record(pid=1, ts_start=1000, ts_stop=5000)
         path.write_bytes(msgspec.json.encode(record) + b"\n")
         events = convert_jsonl_to_trace_format(path)
-        pause_events = [e for e in events if e.ph == "B"]
+        pause_events = [e for e in events if isinstance(e, SliceBegin)]
         assert any("Mark Alive" in e.name for e in pause_events)
         assert any("Fill increment" in e.name for e in pause_events)
         assert any("Deduce Unreachable" in e.name for e in pause_events)

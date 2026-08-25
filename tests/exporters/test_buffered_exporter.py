@@ -14,11 +14,11 @@ from gcmon.exporters.stdout_exporter import StdoutExporter
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.trace_event import (
-    BeginEvent,
-    CounterEvent,
-    EndEvent,
+    Counter,
     LossTrack,
     ProcessTrack,
+    SliceBegin,
+    SliceEnd,
     ThreadTrack,
 )
 from tests.data_helpers import create_instant_msg
@@ -76,7 +76,7 @@ class TestAddRssSample:
             flush_threshold=1000,
         )
         exporter.add_rss_sample(100, 4096, 1_000_000)
-        counters = [e for e in exporter._buffer if isinstance(e, CounterEvent)]
+        counters = [e for e in exporter._buffer if isinstance(e, Counter)]
         assert len(counters) == 1
         c = counters[0]
         assert c.track == ProcessTrack(100)
@@ -144,8 +144,8 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=0, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
         )
 
-        begin = next(e for e in exporter._buffer if isinstance(e, BeginEvent))
-        end = next(e for e in exporter._buffer if isinstance(e, EndEvent))
+        begin = next(e for e in exporter._buffer if isinstance(e, SliceBegin))
+        end = next(e for e in exporter._buffer if isinstance(e, SliceEnd))
         assert (begin.name, begin.ts) == ("GC Loss(0)", 1_000)
         assert end.ts == 2_000
 
@@ -156,7 +156,7 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
         )
 
-        assert {e.track for e in exporter._buffer if isinstance(e, BeginEvent)} == {LossTrack(100, 1)}
+        assert {e.track for e in exporter._buffer if isinstance(e, SliceBegin)} == {LossTrack(100, 1)}
 
     def test_it_does_not_share_the_track_with_gc_slices(self, tmp_path: Path) -> None:
         """One interpreter, two rows: a reconstructed span is easier to find
@@ -168,7 +168,7 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        assert {e.track for e in exporter._buffer if isinstance(e, BeginEvent)} == {
+        assert {e.track for e in exporter._buffer if isinstance(e, SliceBegin)} == {
             ThreadTrack(100, 0),
             LossTrack(100, 0),
         }
@@ -194,7 +194,7 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=1, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        assert {e.track for e in exporter._buffer if isinstance(e, BeginEvent)} == {
+        assert {e.track for e in exporter._buffer if isinstance(e, SliceBegin)} == {
             LossTrack(100, 0),
             LossTrack(100, 1),
         }
@@ -210,7 +210,7 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        rss = next(e for e in exporter._buffer if isinstance(e, CounterEvent))
-        loss = next(e for e in exporter._buffer if isinstance(e, BeginEvent))
+        rss = next(e for e in exporter._buffer if isinstance(e, Counter))
+        loss = next(e for e in exporter._buffer if isinstance(e, SliceBegin))
         assert rss.track == ProcessTrack(100)
         assert loss.track == LossTrack(100, 0)

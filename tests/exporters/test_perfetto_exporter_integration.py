@@ -770,7 +770,7 @@ class TestStartProcessMarker:
     non-meta event for the pid. This guarantees the process track has at
     least one event so its ``description`` (the joined cmdline) is
     always visible in the Perfetto UI, independent of whether the caller
-    emitted any ``InstantEvent`` for the pid.
+    emitted any ``Instant`` for the pid.
     """
 
     def test_marker_emitted_with_user_instant(
@@ -963,7 +963,7 @@ class TestProcessesTrack:
         # then a GC item at _TS_START / _TS_START + dur, then a second
         # item etc. The first non-meta event for each pid is the
         # instant event. The last non-counter non-meta event for each
-        # pid is the EndEvent of the last GC item.
+        # pid is the SliceEnd of the last GC item.
         #
         # We compare against SQL: take the min(ts) and max(ts) of all
         # Begin/End/Instant events for the pid (joined through
@@ -1305,7 +1305,7 @@ class TestMultiFlushProcessesTrack:
             slice_ts = rows[0].ts
             slice_dur = rows[0].dur
             slice_end = slice_ts + slice_dur
-            # Expected end: the EndEvent of the last GC item.
+            # Expected end: the SliceEnd of the last GC item.
             expected_end = 1_000_000 * n_items + 50_000
             assert slice_end == expected_end, (
                 f"slice end mismatch: got {slice_end}, expected "

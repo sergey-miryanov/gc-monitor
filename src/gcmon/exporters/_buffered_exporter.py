@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import override
 
 from ..model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
-from ..model.trace_event import ProcessTrack, TraceEvent, counter_event, instant_event
+from ..model.trace_event import Counter, Instant, ProcessTrack, TraceEvent
 from .encoder import EventEncoder
 from .exporter import EventsExporter
 from .trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format
@@ -51,11 +51,11 @@ class BufferedTraceExporter(EventsExporter):
 
     @override
     def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
-        self._enqueue([instant_event(ProcessTrack(pid), item.name, item.ts)])
+        self._enqueue([Instant(ProcessTrack(pid), item.name, item.ts)])
 
     @override
     def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:
-        self._enqueue([counter_event(ProcessTrack(pid), "rss", "rss", ts_ns, rss_bytes)])
+        self._enqueue([Counter(ProcessTrack(pid), "rss", "rss", ts_ns, rss_bytes)])
 
     @override
     def add_loss_event(self, pid: int, item: TLossMsg) -> None:

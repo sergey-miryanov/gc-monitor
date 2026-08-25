@@ -21,15 +21,15 @@ from ..model.protocol import (
 )
 from ..model.trace_event import (
     ArgGroup,
+    Counter,
     EventArgs,
+    Instant,
     LossTrack,
     ProcessTrack,
+    SliceBegin,
+    SliceEnd,
     ThreadTrack,
     TraceEvent,
-    begin_event,
-    counter_event,
-    end_event,
-    instant_event,
 )
 
 __all__ = [
@@ -81,7 +81,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
 
     events: list[TraceEvent] = []
     events.append(
-        begin_event(
+        SliceBegin(
             track,
             f"GC Pause({gen})",
             f"gc.pause(gen={gen})",
@@ -93,7 +93,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     if has_mark_alive(item) and item.ts_mark_alive_stop - item.ts_mark_alive_start > 0:
         inc_data: EventArgs = {"generation": gen, "iid": iid, "alive_size": item.alive_size}
         events.append(
-            begin_event(
+            SliceBegin(
                 track,
                 f"Mark Alive({gen})",
                 f"gc.mark.alive(gen={gen})",
@@ -101,19 +101,12 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 inc_data,
             )
         )
-        events.append(
-            end_event(
-                track,
-                f"Mark Alive({gen})",
-                f"gc.mark.alive(gen={gen})",
-                item.ts_mark_alive_stop,
-            )
-        )
+        events.append(SliceEnd(track, item.ts_mark_alive_stop))
 
     if has_incremental(item) and item.ts_fill_increment_stop - item.ts_fill_increment_start > 0:
         inc_data = {"generation": gen, "iid": iid, "increment_size": item.increment_size}
         events.append(
-            begin_event(
+            SliceBegin(
                 track,
                 f"Fill increment({gen})",
                 f"gc.increment(gen={gen})",
@@ -121,19 +114,12 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 inc_data,
             )
         )
-        events.append(
-            end_event(
-                track,
-                f"Fill increment({gen})",
-                f"gc.increment(gen={gen})",
-                item.ts_fill_increment_stop,
-            )
-        )
+        events.append(SliceEnd(track, item.ts_fill_increment_stop))
 
     if has_deduce_unreachable(item) and item.ts_deduce_unreachable_stop - item.ts_deduce_unreachable_start > 0:
         inc_data = {"generation": gen, "iid": iid, "candidates": item.candidates}
         events.append(
-            begin_event(
+            SliceBegin(
                 track,
                 f"Deduce Unreachable({gen})",
                 f"gc.deduce(gen={gen})",
@@ -141,19 +127,12 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 inc_data,
             )
         )
-        events.append(
-            end_event(
-                track,
-                f"Deduce Unreachable({gen})",
-                f"gc.deduce(gen={gen})",
-                item.ts_deduce_unreachable_stop,
-            )
-        )
+        events.append(SliceEnd(track, item.ts_deduce_unreachable_stop))
 
     if has_handle_weakrefs(item) and item.ts_handle_weakref_callbacks_stop - item.ts_handle_weakref_callbacks_start > 0:
         inc_data = {"generation": gen, "iid": iid}
         events.append(
-            begin_event(
+            SliceBegin(
                 track,
                 f"Handle Weakrefs Callbacks({gen})",
                 f"gc.weakrefs(gen={gen})",
@@ -161,19 +140,12 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 inc_data,
             )
         )
-        events.append(
-            end_event(
-                track,
-                f"Handle Weakrefs Callbacks({gen})",
-                f"gc.weakrefs(gen={gen})",
-                item.ts_handle_weakref_callbacks_stop,
-            )
-        )
+        events.append(SliceEnd(track, item.ts_handle_weakref_callbacks_stop))
 
     if has_finalize_garbage(item) and item.ts_finalize_garbage_stop - item.ts_handle_weakref_callbacks_stop > 0:
         inc_data = {"generation": gen, "iid": iid, "finalized_garbage_count": item.finalized_garbage_count}
         events.append(
-            begin_event(
+            SliceBegin(
                 track,
                 f"Finalize Garbage({gen})",
                 f"gc.finalize(gen={gen})",
@@ -181,19 +153,12 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 inc_data,
             )
         )
-        events.append(
-            end_event(
-                track,
-                f"Finalize Garbage({gen})",
-                f"gc.finalize(gen={gen})",
-                item.ts_finalize_garbage_stop,
-            )
-        )
+        events.append(SliceEnd(track, item.ts_finalize_garbage_stop))
 
     if has_handle_resurrected(item) and item.ts_handle_resurrected_stop - item.ts_finalize_garbage_stop > 0:
         inc_data = {"generation": gen, "iid": iid}
         events.append(
-            begin_event(
+            SliceBegin(
                 track,
                 f"Handle Resurrected({gen})",
                 f"gc.resurrect(gen={gen})",
@@ -201,19 +166,12 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 inc_data,
             )
         )
-        events.append(
-            end_event(
-                track,
-                f"Handle Resurrected({gen})",
-                f"gc.resurrect(gen={gen})",
-                item.ts_handle_resurrected_stop,
-            )
-        )
+        events.append(SliceEnd(track, item.ts_handle_resurrected_stop))
 
     if has_clear_weakrefs(item) and item.ts_clear_weakrefs_stop - item.ts_handle_resurrected_stop > 0:
         inc_data = {"generation": gen, "iid": iid, "clear_weakrefs_count": item.clear_weakrefs_count}
         events.append(
-            begin_event(
+            SliceBegin(
                 track,
                 f"Clear Weakrefs({gen})",
                 f"gc.clear_weakrefs(gen={gen})",
@@ -221,19 +179,12 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 inc_data,
             )
         )
-        events.append(
-            end_event(
-                track,
-                f"Clear Weakrefs({gen})",
-                f"gc.clear_weakrefs(gen={gen})",
-                item.ts_clear_weakrefs_stop,
-            )
-        )
+        events.append(SliceEnd(track, item.ts_clear_weakrefs_stop))
 
     if has_delete_garbage(item) and item.ts_delete_garbage_stop - item.ts_delete_garbage_start > 0:
         inc_data = {"generation": gen, "iid": iid, "deleted_garbage_count": item.deleted_garbage_count}
         events.append(
-            begin_event(
+            SliceBegin(
                 track,
                 f"Delete Garbage({gen})",
                 f"gc.delete(gen={gen})",
@@ -241,30 +192,16 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 inc_data,
             )
         )
-        events.append(
-            end_event(
-                track,
-                f"Delete Garbage({gen})",
-                f"gc.delete(gen={gen})",
-                item.ts_delete_garbage_stop,
-            )
-        )
+        events.append(SliceEnd(track, item.ts_delete_garbage_stop))
 
-    events.append(
-        end_event(
-            track,
-            f"GC Pause({gen})",
-            f"gc.pause(gen={gen})",
-            ts_stop_ns,
-        )
-    )
+    events.append(SliceEnd(track, ts_stop_ns))
 
     events.extend(
-        counter_event(track, metric, f"G{gen} {metric}", ts_start_ns, value) for metric, value in counter_data.items()
+        Counter(track, metric, f"G{gen} {metric}", ts_start_ns, value) for metric, value in counter_data.items()
     )
 
     events.append(
-        counter_event(
+        Counter(
             track,
             "heap_size",
             "heap_size",
@@ -385,8 +322,8 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
         args[f"gen{gen.gen}"] = _gen_loss_args(gen)
 
     return [
-        begin_event(track, name, category, item.ts_start, args),
-        end_event(track, name, category, item.ts_stop),
+        SliceBegin(track, name, category, item.ts_start, args),
+        SliceEnd(track, item.ts_stop),
     ]
 
 
@@ -425,7 +362,7 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
             elif is_loss(item):
                 pid_events.extend(convert_loss_to_trace_format(pid, item))
             elif is_instant(item):
-                pid_events.append(instant_event(ProcessTrack(pid), item.name, item.ts))
+                pid_events.append(Instant(ProcessTrack(pid), item.name, item.ts))
 
         events.extend(pid_events)
 

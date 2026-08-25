@@ -1,30 +1,24 @@
-"""The events every output format is built from, and the factories that build them.
+"""The events every output format is built from.
 
 One converter fills these and every encoder reads them (ADR-0007). `ts` is
-nanoseconds (ADR-0009). Every event names the `Track` it is drawn on, and
-the encoder derives every other row of the trace from those.
+nanoseconds (ADR-0009). Every event names the `Track` it is drawn on, and the
+encoder derives every other row of the trace from those.
 """
-
-from typing import Literal
 
 import msgspec
 
 __all__ = [
     "ArgGroup",
-    "BeginEvent",
-    "CounterEvent",
-    "EndEvent",
+    "Counter",
     "EventArgs",
-    "InstantEvent",
+    "Instant",
     "LossTrack",
     "ProcessTrack",
+    "SliceBegin",
+    "SliceEnd",
     "ThreadTrack",
     "TraceEvent",
     "Track",
-    "begin_event",
-    "counter_event",
-    "end_event",
-    "instant_event",
 ]
 
 
@@ -67,105 +61,41 @@ type ArgGroup = dict[str, int | str]
 type EventArgs = dict[str, int | str | ArgGroup]
 
 
-class BeginEvent(msgspec.Struct):
+class SliceBegin(msgspec.Struct):
+    track: Track
     name: str
     cat: str
-    ph: Literal["B"]
     ts: int
-    track: Track
-    args: EventArgs
-
-
-class EndEvent(msgspec.Struct):
-    name: str
-    cat: str
-    ph: Literal["E"]
-    ts: int
-    track: Track
-
-
-class InstantEvent(msgspec.Struct):
-    name: str
-    ph: Literal["I"]
-    s: Literal["p"]
-    ts: int
-    track: ProcessTrack
-
-
-class CounterEvent(msgspec.Struct):
-    metric: str
-    display_name: str
-    ph: Literal["C"]
-    ts: int
-    track: Track
-    value: int | float
-
-
-TraceEvent = BeginEvent | EndEvent | CounterEvent | InstantEvent
-
-
-def begin_event(
-    track: Track,
-    name: str,
-    cat: str,
-    ts_ns: int,
-    args: EventArgs,
-) -> BeginEvent:
     # The slice owns *args*: every caller builds the dict for this one event
     # and drops it, so the event keeps it rather than copying it. A capture
     # holds one of these per phase of every collection, and the copy was the
     # largest single cost of converting one.
-    return BeginEvent(
-        name=name,
-        cat=cat,
-        ph="B",
-        ts=ts_ns,
-        track=track,
-        args=args,
-    )
+    args: EventArgs
 
 
-def end_event(
-    track: Track,
-    name: str,
-    cat: str,
-    ts_ns: int,
-) -> EndEvent:
-    return EndEvent(
-        name=name,
-        cat=cat,
-        ph="E",
-        ts=ts_ns,
-        track=track,
-    )
+class SliceEnd(msgspec.Struct):
+    """Closes the slice open on *track*.
+
+    Carries no name: the encoder closes a slice with the track uuid alone,
+    and a trace processor pairs an END with the BEGIN below it on the row.
+    """
+
+    track: Track
+    ts: int
 
 
-def instant_event(
-    track: ProcessTrack,
-    name: str,
-    ts_ns: int,
-) -> InstantEvent:
-    return InstantEvent(
-        name=name,
-        ph="I",
-        s="p",
-        track=track,
-        ts=ts_ns,
-    )
+class Instant(msgspec.Struct):
+    track: ProcessTrack
+    name: str
+    ts: int
 
 
-def counter_event(
-    track: Track,
-    metric: str,
-    display_name: str,
-    ts_ns: int,
-    value: int | float,
-) -> CounterEvent:
-    return CounterEvent(
-        metric=metric,
-        display_name=display_name,
-        ph="C",
-        ts=ts_ns,
-        track=track,
-        value=value,
-    )
+class Counter(msgspec.Struct):
+    track: Track
+    metric: str
+    display_name: str
+    ts: int
+    value: int | float
+
+
+type TraceEvent = SliceBegin | SliceEnd | Instant | Counter

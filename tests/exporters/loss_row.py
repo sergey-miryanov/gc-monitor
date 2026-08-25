@@ -20,7 +20,7 @@ from gcmon.exporters.trace_converter import convert_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.poll_status import PollStatus
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TItem, TLossMsg
-from gcmon.model.trace_event import BeginEvent, EndEvent, LossTrack
+from gcmon.model.trace_event import LossTrack, SliceBegin, SliceEnd
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
@@ -108,17 +108,17 @@ def loss_slices(items: Sequence[TItem]) -> dict[LossTrack, list[Slice]]:
     they were emitted in, which is what a trace processor does with them) and
     walks it as a stack.
 
-    Fails if a span opens while another is still open. Two spans on this row
-    share a name whenever they lost the same generations, so a walk that only
-    checked names against each other could pair an END with the wrong BEGIN and
-    never notice. Flatness is the property anyway: the row claims a sequence of
-    intervals, and an interval inside another one is the reading being designed
-    out.
+    Fails if a span opens while another is still open. An END carries no name
+    of its own -- a trace processor closes whatever sits below it on the row --
+    so the stack is the only thing pairing them, and flatness is what makes
+    that pairing right. It is the property anyway: the row claims a sequence
+    of intervals, and an interval inside another one is the reading being
+    designed out.
     """
     events = convert_to_trace_format({PID: items})
-    rows: dict[LossTrack, list[BeginEvent | EndEvent]] = {}
+    rows: dict[LossTrack, list[SliceBegin | SliceEnd]] = {}
     for event in events:
-        if isinstance(event, BeginEvent | EndEvent) and isinstance(event.track, LossTrack):
+        if isinstance(event, SliceBegin | SliceEnd) and isinstance(event.track, LossTrack):
             rows.setdefault(event.track, []).append(event)
 
     resolved: dict[LossTrack, list[Slice]] = {}
@@ -126,13 +126,12 @@ def loss_slices(items: Sequence[TItem]) -> dict[LossTrack, list[Slice]]:
         stack: list[tuple[str, int]] = []
         slices: list[Slice] = []
         for event in sorted(row_events, key=lambda e: e.ts):
-            if isinstance(event, BeginEvent):
+            if isinstance(event, SliceBegin):
                 assert not stack, f"{row}: {event.name!r} at {event.ts} opened inside {stack[-1][0]!r}"
                 stack.append((event.name, event.ts))
                 continue
-            assert stack, f"{row}: END of {event.name!r} at {event.ts} with nothing open"
+            assert stack, f"{row}: an END at {event.ts} with nothing open"
             name, ts_start = stack.pop()
-            assert name == event.name, f"{row}: END of {event.name!r} closed {name!r}, opened at {ts_start}"
             slices.append((name, ts_start, event.ts, 0))
         assert not stack, f"{row}: {[name for name, _ts in stack]} left open"
         resolved[row] = sorted(slices, key=lambda s: (s[1], -s[2]))
