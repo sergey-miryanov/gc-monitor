@@ -68,14 +68,16 @@ sampled.** The live set is cleared each iteration, so a pid must pass a fresh
 poll to be sampled. No stale pids, and a process that dies between the poll
 and the RSS read yields nothing.
 
-**The RSS counter uses a sentinel `tid = -1`.** Meta building gates
-thread-meta emission on `iid >= 0`, so the `ProcessMeta` goes out once,
-deduped as usual, and **no phantom `ThreadMeta` is created**. The counter
-track key is `(pid, -1, "rss", "rss")`.
-
-`"rss"` is one of the top-level metrics, so the track is parented directly to
-the process track, outside the `GC Metrics` group, with the display name `rss`
-([ADR-0004](0004-toplevel-shared-counters.md)).
+**Amended 2026-08-26 by
+[ADR-0024](0024-an-event-names-the-track-it-is-drawn-on.md).** There was a
+sentinel `tid = -1` here, and a counter track keyed `(pid, -1, "rss", "rss")`.
+The decision underneath is confirmed rather than overturned: RSS belongs to
+the process and must not conjure a thread. An RSS sample names a
+`ProcessTrack(pid)` now, so that is what the row is rather than a number
+reserved to stand for it, and there is no thread descriptor to suppress. The
+track is still parented directly to the process track, outside the
+`GC Metrics` group, with the display name `rss` -- by construction now rather
+than by membership of a metric set.
 
 **Opt-in, with a decoupled interval.** `--rss` / `GCMON_RSS` (truthy: `1`,
 `true`, `yes`, `on`) enables it; `--rss-interval` / `GCMON_RSS_INTERVAL`

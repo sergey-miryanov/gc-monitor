@@ -1,7 +1,18 @@
 # ADR-0004: Emit `heap_size` and `rss` as single top-level counters, outside the `GC Metrics` group
 
-- **Status:** Accepted
+- **Status:** Superseded by
+  [ADR-0024](0024-an-event-names-the-track-it-is-drawn-on.md)
 - **Date:** 2026-06-27 (`rss` added 2026-07-13)
+
+> Superseded on 2026-08-26. The single-arg display-name rule and the top-level
+> metric set holding both `heap_size` and `rss` are gone: the converter writes
+> every display name, and a counter a `ProcessTrack` owns parents to the
+> process track by construction. What survives -- one `heap_size` series per
+> `(pid, iid)` and one `rss` per pid, `heap_size` drawn a level up with the
+> dropped-rank trade-off that costs, and `heap_size` staying on the
+> `GC Pause(N)` slice args -- is carried forward in
+> [ADR-0024](0024-an-event-names-the-track-it-is-drawn-on.md). A `heap_size`
+> track is named `Thread {iid} heap_size` now.
 
 ## Context
 

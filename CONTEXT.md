@@ -82,6 +82,15 @@ Perfetto UI. One run writes one, live or through `combine`. **Tracefile** and
 **trace file** say the same thing and are interchangeable with it.
 _Avoid_: timeline, profile, output file
 
+**Track**:
+One row in a trace. An **event** names the track it is drawn on: a
+**process**'s row for its marks and its RSS, an **interpreter**'s for that
+interpreter's collections, or that interpreter's **loss** row. gcmon derives
+every other row from those - a counter's, the `GC Metrics` group holding it,
+the `Processes` track - so nothing it writes names them.
+_Avoid_: lane, thread (only one of the three is one), tid (that was Chrome's
+spelling), row (in output; fine in prose)
+
 **Capture**:
 The JSONL file gcmon writes: one JSON object per line, holding the records
 gcmon read and the loss windows between them. A **trace** holds events drawn
@@ -138,9 +147,9 @@ time)
 
 **Loss window**: An interval whose records were overwritten before any poll
 read them, bounded by the two poll instants either side of it. In a name,
-**loss** is the window itself and **lost** is what was in it: `loss_tid` names
-the track it is drawn on, `lost_count` the records it swallowed. The window
-has a width of its own, so a `loss_duration` and a `lost_pause_ns` are
+**loss** is the window itself and **lost** is what was in it: a `LossTrack`
+names the row it is drawn on, `lost_count` the records it swallowed. The
+window has a width of its own, so a `loss_duration` and a `lost_pause_ns` are
 different numbers.
 _Avoid_: missing data, dropped events, gap (in output; fine in prose about the
 arithmetic), `loss_count` for a count of records

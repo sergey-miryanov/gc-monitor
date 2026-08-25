@@ -4,8 +4,9 @@
 - **Kind:** feature (cleanup)
 - **Effort:** S
 - **Origin:** code structure review of `src/gcmon`, 2026-08-15. Reduced to
-  this on 2026-08-26 when [0065](0065-name-the-track-an-event-is-drawn-on.md)
-  deleted the meta events the rest of it was about.
+  this on 2026-08-26 when 0065 deleted the meta events the rest of it was
+  about; see
+  [ADR-0024](../docs/adr/0024-an-event-names-the-track-it-is-drawn-on.md).
 - **Respects:**
   [ADR-0007](../docs/adr/0007-shared-trace-converter-pipeline.md) (one
   conversion pipeline),

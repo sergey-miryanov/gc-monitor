@@ -51,10 +51,13 @@ now drops them the way Perfetto always did. Filtering at the producer is
 exporter-agnostic and keeps the shared converter pure: filter once, emit
 everywhere.
 
-**`ProcessMeta` precedes `ThreadMeta`** for a given pid. This is part of the
-public contract of the event stream. The Perfetto conversion synthesizes a
-process descriptor defensively if a `ThreadMeta` arrives first, but callers
-should not rely on that.
+**Amended 2026-08-26 by
+[ADR-0024](0024-an-event-names-the-track-it-is-drawn-on.md).** There were meta
+events here, and `ProcessMeta` preceding `ThreadMeta` for a pid was called
+part of the public contract of the event stream. It is not a contract a
+producer keeps any more: an event names the `Track` it is drawn on, the
+encoder derives the descriptors from that, and the ordering follows by
+construction. Everything else here stands.
 
 ## Consequences
 
