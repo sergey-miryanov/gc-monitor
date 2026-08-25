@@ -53,9 +53,16 @@ it is the one thing the hook does not answer.
 The operator starts one monitor over the whole suite, the way they would over
 any other process tree:
 
+```bash
+gcmon run -o suite.pftrace -m pyperformance run \
+    --hook=gcmon --inherit-environ=GCMON_CONTROL_ADDRESS
 ```
-gcmon run -o suite.pftrace -m pyperformance run --hook=gcmon ...
-```
+
+`gcmon run` sets `GCMON_CONTROL_ADDRESS` for the script it starts, which is
+pyperf's runner; the hook runs a level down, in the workers the runner spawns.
+pyperf passes a worker a fixed set of environment variables plus the ones
+`--inherit-environ` names, so without the flag the address stops at the
+runner.
 
 The hook, inside each worker, records when the benchmark function started and
 stopped and writes those instants into that one trace. Opening `suite.pftrace`
@@ -68,8 +75,8 @@ writes no file, computes no statistics, and adds nothing to pyperf's metadata.
 
 Because it only annotates, it refuses to run where there is nothing to
 annotate: without a monitor it fails on the first worker with a message naming
-the `gcmon run` that was missed, rather than completing a suite and producing
-nothing.
+the `gcmon run` and the `--inherit-environ` that were missed, rather than
+completing a suite and producing nothing.
 
 ## 3. User stories
 
@@ -157,11 +164,11 @@ over the hook's own `sys.argv`. It would put a second copy of spec 0062's
 sanitizer inside the hook, in a different language, with nothing keeping the
 two in step.
 
-**`<n>` counts regions in the process, not in the hook instance.** A worker
-builds one hook per `_compute_values` call and both teardowns read the same
-`metadata['name']`, so an instance-scoped counter would emit
-`gcmon:bm_base64:1:begin` twice in one process, meaning different things. A
-The hook also counts its own regions, and `<i>` restarting is where one
+**`<n>` counts regions in the process and `<i>` in the hook instance.** A
+worker builds one hook per `_compute_values` call and both teardowns read the
+same `metadata['name']`, so an instance-scoped count alone would emit
+`gcmon:bm_base64:1:begin` twice in one process, meaning different things. The
+hook also counts its own regions, and `<i>` restarting is where one
 measurement phase ended and the next began. That is what the process-wide
 count cannot say, since it runs straight through both. Which phase is the
 warmups still comes from the command line: `--warmups=1 --values=3` says the
@@ -231,11 +238,11 @@ for `ChildProcessRunner`. `GCMON_PYPERF_HOOK_OUTPUT` and
 `GCMON_PYPERF_HOOK_CONTROL_TIMEOUT` stay. The entry point takes no arguments,
 matching how pyperf calls it.
 
-`_replay` moves out of `pyperf/hook.py` under spec 0061, which currently
-justifies the move as letting the hook and the offline path share one
-implementation. After this the hook has no statistics at all, so the move
-needs a different reason, and 0061's section 4 gets that one-line correction
-when this lands.
+`_replay` goes with them rather than moving. Spec 0061 justified moving it out
+of `pyperf/hook.py` as letting the hook and the offline path share one
+implementation; with no statistics left in the hook it has no caller, so 0061
+writes that implementation instead and points at git history for the function.
+Its section 4 and its closing note carry the correction.
 
 ## 5. Seams and testing decisions
 
@@ -331,9 +338,11 @@ outside a process that could read itself. The page keeps the four facts and
 names no ADR; both stand alone.
 
 `docs/control-plane.md` gains the `ts` parameter on `instant_msg` and loses
-nothing; its "Focus on specific phases" use case is now better served by
-marking and filtering than by gating, which is where the spec named in section
-6 starts.
+its four "When to Use" bullets, two of which claimed a stop keeps a phase out
+of the numbers. What a stop costs is stated there now: gcmon counts the gap's
+collections and loses the records describing them. The same claim was in three
+`ControlClient` docstrings and went the same way; withdrawing the gate itself
+is the spec named in section 6.
 
 `CONTEXT.md` gains **mark**: one instant a workload wrote into a trace to say
 where it was, as against an **event**, which is what gcmon wrote from a
