@@ -92,6 +92,9 @@ and level 19 is orders of magnitude slower and cannot run on a flush.
 - **The trace format depends on the interpreter that wrote it.** Two people on
   one gcmon version can produce different files, and neither names the codec
   that wrote it. The reader takes both.
+- **Verification has to cover both codecs, on a machine that writes one.** A
+  suite exercising only what its own interpreter resolved would leave the
+  other branch untested everywhere it ran.
 
 ## Alternatives considered
 

@@ -12,7 +12,7 @@ import zlib
 from collections.abc import Callable, Sequence, Set
 from functools import partial
 from pathlib import Path
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 from ..model.trace_event import ProcessMeta, TraceEvent
 from .perfetto_format import (
@@ -29,20 +29,37 @@ logger = logging.getLogger("gcmon")
 _DEFLATE_LEVEL = 6
 _ZSTD_LEVEL = 3
 
-# The codec this interpreter can write, resolved once. ``compression.zstd`` is
-# an optional part of a CPython build (ADR-0022).
-try:
-    from compression import zstd
-except ImportError:
-    _CODEC: tuple[TracePacketField, Callable[[bytes], bytes]] = (
-        TracePacketField.COMPRESSED_PACKETS,
-        partial(zlib.compress, level=_DEFLATE_LEVEL),
-    )
-else:
-    _CODEC = (
-        TracePacketField.ZSTD_COMPRESSED_PACKETS,
-        partial(zstd.compress, level=_ZSTD_LEVEL),
-    )
+
+class Codec(NamedTuple):
+    """A compressed-batch field and the compressor that fills it.
+
+    The field number is the only thing telling a reader how to inflate the
+    bytes. A mismatched pair writes a trace nothing can open.
+    """
+
+    field: TracePacketField
+    compress: Callable[[bytes], bytes]
+
+
+_DEFLATE = Codec(TracePacketField.COMPRESSED_PACKETS, partial(zlib.compress, level=_DEFLATE_LEVEL))
+
+
+def _resolve_codec() -> Codec:
+    """The codec this interpreter can write. ``compression.zstd`` is an
+    optional part of a CPython build (ADR-0022).
+
+    The import sits in here to give the fallback branch a caller. It runs at
+    module import all the same, from the line below.
+    """
+    try:
+        from compression import zstd
+    except ImportError:
+        return _DEFLATE
+    return Codec(TracePacketField.ZSTD_COMPRESSED_PACKETS, partial(zstd.compress, level=_ZSTD_LEVEL))
+
+
+# Resolved once, never from a flag and never per run.
+_CODEC = _resolve_codec()
 
 __all__ = [
     "EventEncoder",
@@ -71,6 +88,7 @@ class ProtobufEventEncoder:
         self,
         cmdline_provider: Callable[[int], list[str] | None] | None = None,
         sequence_id: int | None = None,
+        codec: Codec | None = None,
     ) -> None:
         self._path: Path | None = None
         self._track_state = PerfettoTrackState()
@@ -79,6 +97,7 @@ class ProtobufEventEncoder:
             cmdline_provider if cmdline_provider is not None else self._default_cmdline_provider
         )
         self._has_written: bool = False
+        self._codec: Codec = codec if codec is not None else _CODEC
 
     @staticmethod
     def _default_cmdline_provider(pid: int) -> list[str]:
@@ -132,8 +151,7 @@ class ProtobufEventEncoder:
         """Append one batch to the trace as a single compressed packet."""
         assert self._path is not None, "open() must be called before writing"
         batch = b"".join(encode_bytes_field(TraceField.PACKET, entry) for entry in (*descriptors, *packets))
-        field, compress = _CODEC
-        compressed = encode_bytes_field(field, compress(batch))
+        compressed = encode_bytes_field(self._codec.field, self._codec.compress(batch))
         mode = "wb" if not self._has_written else "ab"
         self._has_written = True
         with open(self._path, mode) as f:

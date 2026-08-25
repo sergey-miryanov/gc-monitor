@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import override
 
 from ._buffered_exporter import BufferedTraceExporter
-from .encoder import ProtobufEventEncoder
+from .encoder import Codec, ProtobufEventEncoder
 
 __all__ = [
     "PerfettoExporter",
@@ -21,8 +21,9 @@ class PerfettoExporter(BufferedTraceExporter):
         flush_threshold: int = 1000,
         cmdline_provider: Callable[[int], list[str] | None] | None = None,
         sequence_id: int | None = None,
+        codec: Codec | None = None,
     ) -> None:
-        encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider, sequence_id=sequence_id)
+        encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider, sequence_id=sequence_id, codec=codec)
         super().__init__(
             encoder,
             output_path,
