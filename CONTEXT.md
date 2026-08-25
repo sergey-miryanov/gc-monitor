@@ -62,11 +62,13 @@ _Avoid_: sample, entry, datapoint
 One thing gcmon wrote into a trace. A record becomes one or more events.
 _Avoid_: record (for the trace side), slice (that is one shape of event)
 
-**Mark**:
-One instant a workload wrote into a trace to say where it was. An **event** is
-what gcmon wrote from a record; a mark is what the workload wrote itself. The
-name is `gcmon:<workload>:<n>:<i>:begin` or `:end`.
-_Avoid_: annotation, marker, label, event (that is gcmon's side)
+**Mark**, **marker**: One instant a workload wrote into a trace to say where
+it was, under either spelling. An **event** is what gcmon wrote from a record;
+a mark is what the workload wrote itself. A name starts `gcmon:` and the
+workload fills in the rest. The pyperf hook spells its half
+`<benchmark>:<n>:<i>:begin` or `:end`; the two numbers and the two sides are
+that hook's, not every mark's.
+_Avoid_: annotation, label, event (that is gcmon's side)
 
 **Batch**:
 The events one flush writes, compressed into a single packet in the trace. It
