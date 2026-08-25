@@ -1,45 +1,46 @@
 # Programmatic Control
 
-If you start your app with `gcmon run` or `gcmon monitor`, the control plane
-API lets you programmatically start, stop, and annotate GC monitoring from
-within your application.
+A `ControlClient` reaches the monitor from inside the process being monitored.
+It can mark the trace, and it can suspend gcmon's polling of that process.
 
 ## Import and Setup
 
 ```python
 from gcmon.control.control_client import ControlClient
 
-# Create a client: no address needed, auto-discovered from environment
+# The address comes from GCMON_CONTROL_ADDRESS.
 client = ControlClient()
 ```
 
 ## Start/Stop Monitoring
 
-Control when GC monitoring is active:
-
 ```python
-# Skip monitoring during setup
 client.stop_monitoring()
 # ... setup code ...
 client.start_monitoring()
-
-# Now GC events are tracked
 ```
+
+Stopping stops gcmon reading that pid. The target keeps collecting. CPython's
+buffer holds the newest few records
+([How gcmon reads a process](monitoring.md)), so a gap wider than a few
+collections overwrites them, and the first poll after `start_monitoring` reads
+counters spanning the whole gap. The gap becomes one GC Loss span
+([Trace Formats](formats.md)): gcmon counts the collections and has lost the
+records that described them.
+
+Both calls are events in the trace, so a stopped stretch reads as deliberate
+rather than blank.
 
 ## Context Manager
 
-Temporarily pause monitoring for a block of code:
+`pause_monitoring` sends the pair around a block:
 
 ```python
 with client.pause_monitoring():
-    # GC monitoring is paused here
-    # ... code that shouldn't be monitored ...
-# Monitoring automatically resumes
+    # ... code gcmon does not poll through ...
 ```
 
 ## Custom Instant Messages
-
-Add application-specific markers to your trace:
 
 ```python
 client.instant_msg("request_start")
@@ -47,8 +48,8 @@ client.instant_msg("request_start")
 client.instant_msg("request_end")
 ```
 
-These messages appear as instant events in the trace viewer, helping you
-correlate GC activity with application behavior.
+Each message becomes an instant on the process's track, beside its GC
+activity.
 
 ### Sending an instant after the fact
 
@@ -64,24 +65,25 @@ client.instant_msg("work_start", ts=started)
 client.instant_msg("work_end", ts=stopped)
 ```
 
-Capture the timestamps in the hot path and send them outside it, and the
-control plane costs the measured code nothing. `time.monotonic_ns` is the
-clock to use: gcmon stamps a GC record from the same one, and your instants
-land on the same timeline as the records. They reach the trace out of order,
-and the exporter orders by timestamp.
+The measured code pays two clock reads and nothing else; the send happens
+outside it.
+
+Use `time.monotonic_ns`: gcmon stamps a GC record from the same clock, so your
+instants sit on the same timeline as the records.
 
 ## When to Use
 
-- **Skip setup/teardown**: Avoid monitoring during initialization or cleanup
-  phases that aren't relevant to your analysis.
-- **Focus on specific phases**: Monitor only the critical sections of your
-  application (e.g., request handling, batch processing).
-- **Correlate with application events**: Add custom markers to understand how
-  GC pauses relate to specific operations (database queries, API calls, etc.).
-- **Dynamic control**: Enable/disable monitoring based on runtime conditions
-  (e.g., only monitor during peak load).
+Mark a region to record what your application was doing, then decide what to
+count when you read the trace. Everything outside the marks stays in the
+trace.
+
+Stop polling to spend less of gcmon's time on a process you do not care about:
+a long idle stretch, or one whose GC you have already characterised. gcmon
+reads from outside, so the target was never paying for it, and the saving is
+gcmon's own.
 
 ## Prerequisites
 
-The control plane is only available if you start your app with `gcmon run` or
-`gcmon monitor`. Standalone processes cannot use the control plane.
+`gcmon run` and `gcmon monitor` set `GCMON_CONTROL_ADDRESS` in the process
+they start. Without it the client never connects, and every send is logged at
+debug level and dropped.

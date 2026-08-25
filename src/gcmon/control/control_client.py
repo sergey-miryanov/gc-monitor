@@ -86,11 +86,14 @@ class ControlClient:
                     conn.close()
 
     def start_monitoring(self) -> None:
-        """Resume/enable GC monitoring for this process."""
+        """Resume gcmon's polling of this process."""
         self._send("start")
 
     def stop_monitoring(self) -> None:
-        """Pause/disable GC monitoring for this process."""
+        """Suppress gcmon's polling of this process.
+
+        The target keeps collecting through the gap.
+        """
         self._send("stop")
 
     def instant_msg(self, msg: str, ts: int | None = None) -> None:
@@ -103,7 +106,7 @@ class ControlClient:
 
     @contextmanager
     def pause_monitoring(self) -> Generator[None, Any]:
-        """Context manager that pauses monitoring and resumes on exit."""
+        """Suppress polling for the duration of the block."""
         self.stop_monitoring()
         try:
             yield
