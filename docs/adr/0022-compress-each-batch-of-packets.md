@@ -41,9 +41,11 @@ a trace back, and the deflate Perfetto's own tooling writes.
 before the write returns, and nothing is held back for the next one. A coarser
 boundary compresses a few percent better and widens what a killed run loses.
 
-**Level 3, zstd's own default, and no flag.** Level 9 costs more CPU than the
-deflate it replaces and buys a few percent. Level 19 is orders of magnitude
-slower and cannot run on a flush.
+**Level 3, written out here rather than read from the library, and no flag.**
+It is zstd's own default today, and pinning it means an upstream change to
+that default moves what gcmon writes only when someone here decides it should.
+Level 9 costs more CPU than the deflate it replaces and buys a few percent.
+Level 19 is orders of magnitude slower and cannot run on a flush.
 
 **Deflate, field 50, where `compression.zstd` is missing.** It is an optional
 part of a CPython build, and gcmon writes a trace on an interpreter that lacks

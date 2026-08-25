@@ -27,6 +27,7 @@ from .protobuf_encoder import encode_bytes_field
 logger = logging.getLogger("gcmon")
 
 _DEFLATE_LEVEL = 6
+_ZSTD_LEVEL = 3
 
 # The codec this interpreter can write, resolved once: the field number and
 # the call that fills it. ``compression.zstd`` is an optional part of a
@@ -42,7 +43,7 @@ except ImportError:
 else:
     _CODEC = (
         TracePacketField.ZSTD_COMPRESSED_PACKETS,
-        partial(zstd.compress, level=zstd.COMPRESSION_LEVEL_DEFAULT),
+        partial(zstd.compress, level=_ZSTD_LEVEL),
     )
 
 __all__ = [
