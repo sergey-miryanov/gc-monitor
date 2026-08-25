@@ -15,6 +15,7 @@ from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import GCStatsInfo, GenLoss, LossMsg
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 from gcmon.monitoring.events_reader import EventsReader
+from tests.perfetto_prebuilt import trace_processor_bin
 
 _JsonValue = int | float | str
 JsonlRecord = dict[str, _JsonValue]
@@ -355,11 +356,11 @@ _TRACE_PROCESSOR_TIMEOUT: int = 300
 def open_trace_processor(path: Path | str) -> Iterator[TraceProcessor]:
     """Load *path* into a trace processor, closed when the caller is done.
 
-    The one place the suite says which processor it drives. Spec 0058 needs a
-    v58 binary to read `zstd_compressed_packets`, and the `perfetto` package
-    pins one that cannot; pointing this at another build is that change.
+    The one place the suite says which processor it drives, pinned by
+    `tests.perfetto_prebuilt` rather than taken from the `perfetto` package.
     """
-    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=_TRACE_PROCESSOR_TIMEOUT))
+    config = TraceProcessorConfig(bin_path=trace_processor_bin(), load_timeout=_TRACE_PROCESSOR_TIMEOUT)
+    tp = TraceProcessor(trace=str(path), config=config)
     try:
         yield tp
     finally:
