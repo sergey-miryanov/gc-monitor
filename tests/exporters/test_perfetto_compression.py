@@ -109,7 +109,9 @@ def _write_liveness_only_trace(path: Path, codec: Codec) -> Path:
 
 def _batch_field(codec: Codec) -> str:
     """The oneof member *codec* fills."""
-    name: str = TracePacket.DESCRIPTOR.fields_by_number[codec.field].name
+    desc = TracePacket.DESCRIPTOR
+    assert desc is not None
+    name: str = desc.fields_by_number[codec.field].name
     return name
 
 
