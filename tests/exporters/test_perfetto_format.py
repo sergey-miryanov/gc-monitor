@@ -814,13 +814,20 @@ class TestConvertInstantToPerfettoPacket:
         assert len(gc_desc) >= 2
         assert len(inst_desc) == 0
 
-    def test_single_arg_counter_uses_metric_name_as_track_name(self) -> None:
+    def test_counter_track_takes_the_display_name_it_was_given(self) -> None:
         state = PerfettoTrackState()
         descriptors, _ = convert_trace_events_to_perfetto(
             [
                 process_meta(100, "Process 100"),
                 thread_meta(100, 0, "Thread 0"),
-                counter_event(pid=100, tid=0, name="heap_size", ts_ns=1_000, args={"heap_size": 1234}),
+                counter_event(
+                    pid=100,
+                    tid=0,
+                    metric="heap_size",
+                    display_name="heap_size",
+                    ts_ns=1_000,
+                    value=1234,
+                ),
             ],
             state,
             sequence_id=1,
@@ -863,9 +870,9 @@ class TestConvertInstantToPerfettoPacket:
             duration=0.001,
         )
         convert_item(100, item_g0, state, sequence_id=1)
-        uuid_after_g0 = state.get_or_create_counter_track_uuid(100, 0, "heap_size", "heap_size")
+        uuid_after_g0 = state.get_or_create_counter_track_uuid(100, 0, "heap_size")
         convert_item(100, item_g1, state, sequence_id=1)
-        uuid_after_g1 = state.get_or_create_counter_track_uuid(100, 0, "heap_size", "heap_size")
+        uuid_after_g1 = state.get_or_create_counter_track_uuid(100, 0, "heap_size")
         assert uuid_after_g0 == uuid_after_g1
 
 

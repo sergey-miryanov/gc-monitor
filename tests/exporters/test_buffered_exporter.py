@@ -71,8 +71,9 @@ class TestAddRssSample:
         c = counters[0]
         assert c.pid == 100
         assert c.tid == RSS_TID
-        assert c.name == "rss"
-        assert c.args == {"rss": 4096}
+        assert c.metric == "rss"
+        assert c.display_name == "rss"
+        assert c.value == 4096
         assert c.ts == 1_000_000
 
     def test_multiple_pids_produce_separate_meta(self, tmp_path: Path) -> None:

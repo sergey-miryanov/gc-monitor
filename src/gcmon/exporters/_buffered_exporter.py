@@ -74,7 +74,7 @@ class BufferedTraceExporter(EventsExporter):
     def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:
         events = [
             *self._build_meta(pid, RSS_TID),
-            counter_event(pid, RSS_TID, "rss", ts_ns, {"rss": rss_bytes}),
+            counter_event(pid, RSS_TID, "rss", "rss", ts_ns, rss_bytes),
         ]
         self._enqueue(events)
 

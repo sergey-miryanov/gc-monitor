@@ -277,14 +277,9 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         )
     )
 
-    events.append(
-        counter_event(
-            pid,
-            tid,
-            f"G{gen}",
-            ts_start_ns,
-            counter_data,
-        )
+    events.extend(
+        counter_event(pid, tid, metric, f"G{gen} {metric}", ts_start_ns, value)
+        for metric, value in counter_data.items()
     )
 
     events.append(
@@ -292,8 +287,9 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             pid,
             tid,
             "heap_size",
+            "heap_size",
             ts_start_ns,
-            {"heap_size": item.heap_size},
+            item.heap_size,
         )
     )
 

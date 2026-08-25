@@ -14,7 +14,7 @@ class PerfettoTrackState:
         self._pids: set[int] = set()
         self._tids: set[tuple[int, int]] = set()
         self._cmdlines: dict[int, list[str]] = {}
-        self._counter_tracks: dict[tuple[int, int, str, str], int] = {}
+        self._counter_tracks: dict[tuple[int, int, str], int] = {}
         self._counter_group_uuids: dict[tuple[int, int], int] = {}
         self._pid_uuids: dict[int, int] = {}
         self._tid_uuids: dict[tuple[int, int], int] = {}
@@ -60,11 +60,11 @@ class PerfettoTrackState:
             self._tid_uuids[key] = self._alloc_uuid()
         return self._tid_uuids[key]
 
-    def has_counter_track(self, pid: int, iid: int, name: str, metric: str) -> bool:
-        return (pid, iid, name, metric) in self._counter_tracks
+    def has_counter_track(self, pid: int, iid: int, display_name: str) -> bool:
+        return (pid, iid, display_name) in self._counter_tracks
 
-    def get_or_create_counter_track_uuid(self, pid: int, iid: int, name: str, metric: str) -> int:
-        key = (pid, iid, name, metric)
+    def get_or_create_counter_track_uuid(self, pid: int, iid: int, display_name: str) -> int:
+        key = (pid, iid, display_name)
         if key not in self._counter_tracks:
             self._counter_tracks[key] = self._alloc_uuid()
         return self._counter_tracks[key]

@@ -284,11 +284,10 @@ def _emit_counter_group_descriptor(
 def _emit_counter_track_descriptor(
     pid: int,
     iid: int,
-    name: str,
     metric: str,
+    display_name: str,
     state: PerfettoTrackState,
     sequence_id: int,
-    display_name: str | None = None,
 ) -> tuple[int, list[bytes]]:
     """Build a counter track descriptor if not already emitted.
 
@@ -297,31 +296,30 @@ def _emit_counter_track_descriptor(
     Metrics group, where the trace processor and the UI honor its
     ``_COUNTER_RANKS`` entry.
 
-    *display_name* becomes the track name on the wire, or ``f"{name}
-    {metric}"`` without one.
+    *display_name* is the track name on the wire and identifies the track
+    within *(pid, iid)*; *metric* is what the rank and the shared y axis are
+    keyed on, so ``G0 collected`` and ``G1 collected`` share a scale.
     """
     if metric in _TOPLEVEL_COUNTER_METRICS:
-        if state.has_counter_track(pid, iid, name, metric):
-            return state.get_or_create_counter_track_uuid(pid, iid, name, metric), []
-        ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, name, metric)
-        track_name = display_name if display_name is not None else f"{name} {metric}"
+        if state.has_counter_track(pid, iid, display_name):
+            return state.get_or_create_counter_track_uuid(pid, iid, display_name), []
+        ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, display_name)
         desc = build_track_descriptor(
             ctr_uuid,
-            track_name,
+            display_name,
             parent_uuid=state.get_process_track_uuid(pid),
             is_counter=True,
             sibling_order_rank=_COUNTER_RANKS.get(metric, 0),
         )
         return ctr_uuid, [build_trace_packet(sequence_id, track_descriptor=desc)]
     group_uuid, group_packets = _emit_counter_group_descriptor(pid, iid, state, sequence_id)
-    if state.has_counter_track(pid, iid, name, metric):
-        ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, name, metric)
+    if state.has_counter_track(pid, iid, display_name):
+        ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, display_name)
         return ctr_uuid, group_packets
-    ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, name, metric)
-    track_name = display_name if display_name is not None else f"{name} {metric}"
+    ctr_uuid = state.get_or_create_counter_track_uuid(pid, iid, display_name)
     desc = build_track_descriptor(
         ctr_uuid,
-        track_name,
+        display_name,
         parent_uuid=group_uuid,
         is_counter=True,
         sibling_order_rank=_COUNTER_RANKS.get(metric, 0),
@@ -441,26 +439,22 @@ def convert_trace_events_to_perfetto(
 
         elif isinstance(event, CounterEvent):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            single_arg = len(event.args) == 1
-            for metric, value in event.args.items():
-                display_name = metric if single_arg else f"{event.name} {metric}"
-                ctr_uuid, desc_bytes = _emit_counter_track_descriptor(
-                    pid,
-                    event.tid,
-                    event.name,
-                    metric,
-                    state,
+            ctr_uuid, desc_bytes = _emit_counter_track_descriptor(
+                pid,
+                event.tid,
+                event.metric,
+                event.display_name,
+                state,
+                sequence_id,
+            )
+            descriptors.extend(desc_bytes)
+            packets.append(
+                build_trace_packet(
                     sequence_id,
-                    display_name=display_name,
+                    timestamp=event.ts,
+                    track_event=_make_counter_event(ctr_uuid, event.value),
                 )
-                descriptors.extend(desc_bytes)
-                packets.append(
-                    build_trace_packet(
-                        sequence_id,
-                        timestamp=event.ts,
-                        track_event=_make_counter_event(ctr_uuid, value),
-                    )
-                )
+            )
 
     return descriptors, packets
 

@@ -17,6 +17,7 @@ from gcmon.exporters.jsonl_io import (
 from gcmon.model.data import LossMsg
 from gcmon.model.trace_event import (
     EventArgs,
+    ProcessMeta,
     TraceEvent,
     begin_event,
     counter_event,
@@ -78,9 +79,10 @@ class TestNormalizeTraceTimestamps:
         e2 = counter_event(
             pid=1,
             tid=1,
-            name="c1",
+            metric="collected",
+            display_name="c1 collected",
             ts_ns=3_000_000,
-            args={"collected": 10, "uncollectable": 0, "candidates": 5, "heap_size": 100},
+            value=10,
         )
         e3 = process_meta(pid=1, name="p")
         events: list[TraceEvent] = [e1, e2, e3]
@@ -93,7 +95,7 @@ class TestNormalizeTraceTimestamps:
         events: list[TraceEvent] = [process_meta(pid=1, name="p")]
         _normalize_trace_timestamps(events)
         assert len(events) == 1
-        assert events[0].name == "process_name"
+        assert isinstance(events[0], ProcessMeta)
 
     def test_single_event_ts_becomes_zero(self) -> None:
         args: EventArgs = {

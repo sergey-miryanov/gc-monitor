@@ -16,6 +16,7 @@ from gcmon.exporters.jsonl_io import (
 )
 from gcmon.model.protocol import has_incremental
 from gcmon.model.trace_event import (
+    ProcessMeta,
     loss_tid,
 )
 from tests.data_helpers import create_instant_msg
@@ -254,7 +255,7 @@ class TestConvertJsonlToTraceFormat:
         ]
         path.write_bytes(b"\n".join(lines) + b"\n")
         events = convert_jsonl_to_trace_format(path)
-        process_metas = [e for e in events if e.name == "process_name"]
+        process_metas = [e for e in events if isinstance(e, ProcessMeta)]
         assert len(process_metas) == 2
         assert {e.pid for e in process_metas} == {1, 2}
 
