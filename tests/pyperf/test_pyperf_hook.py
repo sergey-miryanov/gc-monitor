@@ -21,7 +21,7 @@ from gcmon.model.marks import Mark, Side, parse_mark
 from gcmon.model.protocol import TInstantMsg
 from gcmon.monitoring.events_reader import RemoteEventsReader, TargetUnavailable
 from gcmon.pyperf.hook import GCMonitorHook, _get_env_pyperf_hook_control_timeout, gcmon_hook
-from tests.helpers import MockExporter
+from tests.helpers import MockExporter, open_trace_processor
 from tests.test_events_reader import target_executable
 
 
@@ -204,7 +204,6 @@ class TestTheMarksInATrace:
     def test_the_marks_reach_a_perfetto_trace_on_the_worker_s_process(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
         from gcmon.exporters.perfetto_exporter import PerfettoExporter
 
@@ -235,8 +234,7 @@ class TestTheMarksInATrace:
             server.close()
             exporter.close()
 
-        tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
-        try:
+        with open_trace_processor(path) as tp:
             rows = list(
                 tp.query(
                     "SELECT s.name AS name FROM slice s "
@@ -246,8 +244,6 @@ class TestTheMarksInATrace:
                     "ORDER BY s.ts"
                 )
             )
-        finally:
-            tp.close()
 
         marks = [parse_mark(row.name) for row in rows]
         assert len(marks) == 2, f"expected one region's pair of marks, got {[row.name for row in rows]}"

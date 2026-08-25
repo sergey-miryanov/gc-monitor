@@ -10,12 +10,12 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
-from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
+from perfetto.trace_processor import TraceProcessor
 
 from gcmon.exporters import PerfettoExporter
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
-from tests.helpers import create_mock_incremental_item, create_mock_stats_item
+from tests.helpers import create_mock_incremental_item, create_mock_stats_item, open_trace_processor
 
 _PAUSE_NAME: str = "GC Pause(0)"
 _INSTANT_NAME: str = "GC monitor started"
@@ -249,11 +249,8 @@ def _write_crossing_trace(tmp: Path) -> Path:
 @pytest.fixture
 def crossing_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_crossing_trace(tmp_path)
-    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(path) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 # Timestamps for the zero-duration trace. _THIRD_PID is seen at a single
@@ -289,11 +286,8 @@ def _write_zero_duration_trace(tmp: Path) -> Path:
 @pytest.fixture
 def zero_duration_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_zero_duration_trace(tmp_path)
-    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(path) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 # Timestamps for the liveness trace. DEFAULT_PID collects once, early,
@@ -330,11 +324,8 @@ def _write_liveness_trace(tmp: Path) -> Path:
 @pytest.fixture
 def liveness_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_liveness_trace(tmp_path)
-    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(path) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 def _write_liveness_only_trace(tmp: Path) -> Path:
@@ -351,22 +342,15 @@ def _write_liveness_only_trace(tmp: Path) -> Path:
 @pytest.fixture
 def liveness_only_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_liveness_only_trace(tmp_path)
-    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(path) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 @pytest.fixture
 def trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_trace(tmp_path)
-    config = TraceProcessorConfig(load_timeout=300)
-    tp = TraceProcessor(trace=str(path), config=config)
-    try:
+    with open_trace_processor(path) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 @pytest.fixture
@@ -374,12 +358,8 @@ def trace_processor_with_cmdline(
     tmp_path: Path,
 ) -> Iterator[TraceProcessor]:
     path = _write_trace(tmp_path, cmdline_provider=_fake_cmdline_provider)
-    config = TraceProcessorConfig(load_timeout=300)
-    tp = TraceProcessor(trace=str(path), config=config)
-    try:
+    with open_trace_processor(path) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 @pytest.fixture
@@ -387,12 +367,8 @@ def trace_processor_no_instant(
     tmp_path: Path,
 ) -> Iterator[TraceProcessor]:
     path = _write_trace_no_instant(tmp_path)
-    config = TraceProcessorConfig(load_timeout=300)
-    tp = TraceProcessor(trace=str(path), config=config)
-    try:
+    with open_trace_processor(path) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 class TestSliceArgs:
@@ -547,19 +523,13 @@ class TestCounterTracks:
             ),
         )
         exporter.close()
-        tp = TraceProcessor(
-            trace=str(path),
-            config=TraceProcessorConfig(load_timeout=300),
-        )
-        try:
+        with open_trace_processor(path) as tp:
             names = {r.name for r in tp.query("SELECT name FROM counter_track")}
             assert "G0 uncollectable" not in {n.strip() for n in names}, (
                 f"uncollectable counter should be omitted when 0; got {names}"
             )
             assert "G0 collected" in {n.strip() for n in names}
             assert "G0 candidates" in {n.strip() for n in names}
-        finally:
-            tp.close()
 
     def test_duration_counter_track_present(
         self,
@@ -1322,9 +1292,7 @@ class TestMultiFlushProcessesTrack:
         finally:
             exporter.close()
 
-        config = TraceProcessorConfig(load_timeout=300)
-        tp = TraceProcessor(trace=str(path), config=config)
-        try:
+        with open_trace_processor(path) as tp:
             rows = list(
                 tp.query(
                     f"SELECT s.ts, s.dur FROM slice s "
@@ -1347,8 +1315,6 @@ class TestMultiFlushProcessesTrack:
             # Also assert BEGIN is at the first non-meta event ts
             # (the instant event at ts=0).
             assert slice_ts == 0, f"slice begin ts mismatch: got {slice_ts}, expected 0"
-        finally:
-            tp.close()
 
 
 class TestProcessOrderingIntegration:
@@ -1525,12 +1491,8 @@ def _write_trace_with_rss(tmp: Path) -> Path:
 @pytest.fixture
 def trace_processor_with_rss(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_trace_with_rss(tmp_path)
-    config = TraceProcessorConfig(load_timeout=300)
-    tp = TraceProcessor(trace=str(path), config=config)
-    try:
+    with open_trace_processor(path) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 class TestRssCounterTrackIntegration:
@@ -1646,9 +1608,7 @@ class TestRssCounterTrackIntegration:
         exporter.add_rss_sample(DEFAULT_PID, _RSS_VAL_1, _RSS_TS_1)
         exporter.close()
 
-        config = TraceProcessorConfig(load_timeout=300)
-        tp = TraceProcessor(trace=str(path), config=config)
-        try:
+        with open_trace_processor(path) as tp:
             counter_tracks = {r.name.strip() for r in tp.query("SELECT name FROM counter_track")}
             # GC counter tracks should still be present.
             for expected in ("G0 collected", "G0 candidates", "heap_size"):
@@ -1658,5 +1618,3 @@ class TestRssCounterTrackIntegration:
             assert "rss" in counter_tracks, (
                 f"RSS counter track missing after adding RSS + GC events; got {sorted(counter_tracks)}"
             )
-        finally:
-            tp.close()

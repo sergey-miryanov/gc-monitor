@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import threading
 import zlib
-from collections.abc import Callable, Sequence, Set
+from collections.abc import Callable, Iterator, Sequence, Set
+from contextlib import contextmanager
 from pathlib import Path
 from typing import override
 
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket
+from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import GCStatsInfo, GenLoss, LossMsg
@@ -34,6 +36,7 @@ __all__ = [
     "create_mock_incremental_item",
     "create_mock_loss_item",
     "create_mock_stats_item",
+    "open_trace_processor",
     "perfetto_packets",
 ]
 
@@ -341,6 +344,26 @@ def assert_valid_jsonl_format(file_path: Path) -> list[JsonlRecord]:
 
     assert len(data) > 0, f"JSONL file {file_path} is empty"
     return data
+
+
+# Loading a trace pays for a process launch and a parse, so a test that
+# queries one waits on the slowest leg, not the median.
+_TRACE_PROCESSOR_TIMEOUT: int = 300
+
+
+@contextmanager
+def open_trace_processor(path: Path | str) -> Iterator[TraceProcessor]:
+    """Load *path* into a trace processor, closed when the caller is done.
+
+    The one place the suite says which processor it drives. Spec 0058 needs a
+    v58 binary to read `zstd_compressed_packets`, and the `perfetto` package
+    pins one that cannot; pointing this at another build is that change.
+    """
+    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=_TRACE_PROCESSOR_TIMEOUT))
+    try:
+        yield tp
+    finally:
+        tp.close()
 
 
 def perfetto_packets(content: bytes) -> list[TracePacket]:

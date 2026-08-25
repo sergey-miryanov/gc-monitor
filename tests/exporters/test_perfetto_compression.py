@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import Trace, TracePacket
-from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
+from perfetto.trace_processor import TraceProcessor
 
 from gcmon.exporters import PerfettoExporter
 from gcmon.exporters.perfetto_proto import TraceField
@@ -23,6 +23,7 @@ from tests.helpers import (
     assert_valid_perfetto_trace,
     create_mock_loss_item,
     create_mock_stats_item,
+    open_trace_processor,
     perfetto_packets,
 )
 
@@ -102,11 +103,8 @@ def _compressed_batches(path: Path) -> list[TracePacket]:
 @pytest.fixture
 def trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_trace(tmp_path / "batched.pftrace")
-    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(path) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 class TestTheCompressedBatch:
@@ -229,11 +227,8 @@ def _kill(path: Path, after: int) -> Path:
 
 
 def _pause_timestamps(path: Path) -> list[int]:
-    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(path) as tp:
         return [int(row.ts) for row in tp.query(f"SELECT ts FROM slice WHERE name = '{_PAUSE_NAME}' ORDER BY ts")]
-    finally:
-        tp.close()
 
 
 class TestAKilledRun:
@@ -251,8 +246,7 @@ class TestAKilledRun:
         to resolve the way it would have in a file that was never cut."""
         killed = _kill(_write_pauses(tmp_path / "whole.pftrace", _KILLED_EVENTS), _SURVIVING_BATCHES)
 
-        tp = TraceProcessor(trace=str(killed), config=TraceProcessorConfig(load_timeout=300))
-        try:
+        with open_trace_processor(killed) as tp:
             rows = list(
                 tp.query(
                     "SELECT s.category AS category, a.int_value AS collected FROM slice s "
@@ -260,8 +254,6 @@ class TestAKilledRun:
                     f"WHERE s.name = '{_PAUSE_NAME}' AND a.key = 'debug.collected'"
                 )
             )
-        finally:
-            tp.close()
 
         assert len(rows) == _SURVIVING_BATCHES
         assert {(str(row.category), int(row.collected)) for row in rows} == {(_PAUSE_CATEGORY, _COLLECTED)}
@@ -277,14 +269,11 @@ class TestAKilledRun:
         """
         killed = _kill(_write_pauses(tmp_path / "whole.pftrace", _KILLED_EVENTS), _SURVIVING_BATCHES)
 
-        tp = TraceProcessor(trace=str(killed), config=TraceProcessorConfig(load_timeout=300))
-        try:
+        with open_trace_processor(killed) as tp:
             named = ", ".join(f"'{name}'" for name in _LOSS_STATS)
             raised = {
                 str(row.name): int(row.value)
                 for row in tp.query(f"SELECT name, value FROM stats WHERE name IN ({named})")
             }
-        finally:
-            tp.close()
 
         assert raised == dict.fromkeys(_LOSS_STATS, 0)

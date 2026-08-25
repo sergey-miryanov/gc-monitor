@@ -13,7 +13,6 @@ import random
 from pathlib import Path
 
 import pytest
-from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from gcmon.exporters.perfetto_builders import build_trace, build_trace_packet, build_track_event
 from gcmon.exporters.perfetto_process_lifetime import (
@@ -23,6 +22,7 @@ from gcmon.exporters.perfetto_process_lifetime import (
 )
 from gcmon.exporters.perfetto_proto import TrackEventType
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from tests.helpers import open_trace_processor
 
 pytestmark = pytest.mark.fuzz
 
@@ -69,8 +69,7 @@ def _slices_as_read_back(packets: list[bytes], tmp_path: Path, name: str) -> tup
     trace processor reports, plus its ``misplaced_end_event`` counter."""
     path = tmp_path / f"{name}.pftrace"
     path.write_bytes(build_trace(packets))
-    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(path) as tp:
         rows = list(tp.query("SELECT value FROM stats WHERE name = 'misplaced_end_event'"))
         misplaced = rows[0].value if rows else 0
         slices = {
@@ -79,8 +78,6 @@ def _slices_as_read_back(packets: list[bytes], tmp_path: Path, name: str) -> tup
                 "SELECT s.name, s.ts, s.dur FROM slice s JOIN track t ON s.track_id = t.id WHERE t.name = 'Processes'"
             )
         }
-    finally:
-        tp.close()
     return misplaced, slices
 
 

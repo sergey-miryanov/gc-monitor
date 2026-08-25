@@ -18,12 +18,12 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import pytest
-from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
+from perfetto.trace_processor import TraceProcessor
 
 from gcmon.exporters.jsonl_io import read_jsonl
 from gcmon.exporters.trace_converter import convert_to_trace_format
 from gcmon.model.trace_event import BeginEvent, EndEvent, TraceEvent
-from tests.helpers import create_mock_incremental_item, create_mock_stats_item
+from tests.helpers import create_mock_incremental_item, create_mock_stats_item, open_trace_processor
 
 
 def _int(v: int | None) -> int:
@@ -267,14 +267,8 @@ def loaded_trace_processor(
     assert result.returncode == 0, (
         f"gcmon combine failed: rc={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
     )
-    tp = TraceProcessor(
-        trace=str(out),
-        config=TraceProcessorConfig(load_timeout=300),
-    )
-    try:
+    with open_trace_processor(out) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 def _process_filter(pid: int) -> str:
@@ -496,11 +490,7 @@ class TestCombineNormalizePerfettoIntegration:
             extra_args=["--normalize"],
         )
         assert result.returncode == 0, result.stderr
-        tp = TraceProcessor(
-            trace=str(out),
-            config=TraceProcessorConfig(load_timeout=300),
-        )
-        try:
+        with open_trace_processor(out) as tp:
             # pid=1001 records are all in file 1. After per-file normalization
             # the first slice of pid=1001 has ts=0. Without --normalize, the
             # same slice would have ts=1_500_000_000 ns. Assert that the
@@ -516,8 +506,6 @@ class TestCombineNormalizePerfettoIntegration:
             )
             assert len(rows) == 1
             assert rows[0].min_ts == 0, f"expected min_ts=0 after per-file normalize, got {rows[0].min_ts}"
-        finally:
-            tp.close()
 
 
 class TestTheTraceMatchesTheEventsItWasBuiltFrom:
@@ -545,11 +533,8 @@ class TestTheTraceMatchesTheEventsItWasBuiltFrom:
         for path in multi_pid_jsonl:
             events.extend(convert_to_trace_format(read_jsonl(path)))
 
-        tp = TraceProcessor(trace=str(out), config=TraceProcessorConfig(load_timeout=300))
-        try:
+        with open_trace_processor(out) as tp:
             read_back = _slices_from_trace(tp)
-        finally:
-            tp.close()
         expected = _slices_from_events(events)
 
         assert read_back == expected, (

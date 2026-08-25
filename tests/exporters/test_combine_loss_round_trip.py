@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
+from perfetto.trace_processor import TraceProcessor
 
 from gcmon.exporters.combine import combine_files
 from gcmon.exporters.jsonl_io import read_jsonl, write_jsonl
@@ -43,7 +43,7 @@ from tests.exporters.loss_row import (
     loss_slices,
     three_generations,
 )
-from tests.helpers import create_mock_loss_item
+from tests.helpers import create_mock_loss_item, open_trace_processor
 
 LOSS_TID = loss_tid(IID)
 
@@ -71,11 +71,8 @@ def _combined(tmp_path: Path, source: Path, name: str = "combined") -> Iterator[
     out = tmp_path / f"{name}.pftrace"
     combine_files([source], out, output_format="perfetto")
 
-    tp = TraceProcessor(trace=str(out), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(out) as tp:
         yield tp
-    finally:
-        tp.close()
 
 
 def _loss_row(tp: TraceProcessor) -> list[Slice]:

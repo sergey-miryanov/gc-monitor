@@ -17,7 +17,6 @@ in a world where the shape did not matter.
 from pathlib import Path
 
 import pytest
-from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from gcmon.exporters.perfetto_builders import build_trace
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
@@ -25,7 +24,7 @@ from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format
 from gcmon.model.data import GCStatsInfo, LossMsg
 from gcmon.model.trace_event import TraceEvent, process_meta, thread_meta
-from tests.helpers import create_mock_loss_item
+from tests.helpers import create_mock_loss_item, open_trace_processor
 
 pytestmark = pytest.mark.fuzz
 
@@ -62,8 +61,7 @@ def _write(events: list[TraceEvent], tmp_path: Path, name: str) -> Path:
 def _load(events: list[TraceEvent], tmp_path: Path, name: str) -> tuple[int, list[Slice]]:
     path = _write(events, tmp_path, name)
 
-    tp = TraceProcessor(trace=str(path), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(path) as tp:
         rows = list(tp.query("SELECT value FROM stats WHERE name = 'misplaced_end_event'"))
         misplaced = rows[0].value if rows else 0
         slices = [
@@ -79,8 +77,6 @@ def _load(events: list[TraceEvent], tmp_path: Path, name: str) -> tuple[int, lis
                 "WHERE s.depth = 0 AND s.name != 'Start Process' ORDER BY s.ts"
             )
         ]
-    finally:
-        tp.close()
     return misplaced, slices
 
 
@@ -101,8 +97,7 @@ def _loss_row(events: list[TraceEvent], tmp_path: Path, name: str) -> tuple[int,
     was the parent, and it is the only place a wrongly ordered emission shows
     up at all.
     """
-    tp = TraceProcessor(trace=str(_write(events, tmp_path, name)), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(_write(events, tmp_path, name)) as tp:
         rows = list(tp.query("SELECT value FROM stats WHERE name = 'misplaced_end_event'"))
         misplaced = rows[0].value if rows else 0
         slices = [
@@ -112,8 +107,6 @@ def _loss_row(events: list[TraceEvent], tmp_path: Path, name: str) -> tuple[int,
                 "WHERE t.name LIKE 'GC Loss%' ORDER BY s.ts, s.depth"
             )
         ]
-    finally:
-        tp.close()
     return misplaced, slices
 
 
@@ -172,8 +165,7 @@ def test_two_interpreters_get_two_rows(tmp_path: Path) -> None:
 
 def _process_slices(events: list[TraceEvent], tmp_path: Path, name: str) -> list[Slice]:
     """What sits on the process track itself, which `_load` filters out."""
-    tp = TraceProcessor(trace=str(_write(events, tmp_path, name)), config=TraceProcessorConfig(load_timeout=300))
-    try:
+    with open_trace_processor(_write(events, tmp_path, name)) as tp:
         return [
             (row.track_name, row.name, row.ts, row.dur)
             for row in tp.query(
@@ -181,8 +173,6 @@ def _process_slices(events: list[TraceEvent], tmp_path: Path, name: str) -> list
                 "JOIN track t ON s.track_id = t.id WHERE s.name = 'Start Process'"
             )
         ]
-    finally:
-        tp.close()
 
 
 def test_the_process_marker_is_untouched_by_loss_spans(tmp_path: Path) -> None:
