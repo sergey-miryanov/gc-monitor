@@ -99,11 +99,11 @@ class PerfettoTrackState:
         """Fold *ts* into the recorded span for *pid*: a plain min/max
         over every piece of evidence that gcmon saw the process.
 
-        Evidence is any non-meta event, counters included, *or* a
-        liveness observation from the monitor loop. No event-kind
-        exception: the counter carve-out went out with monitor-reported
-        liveness, since an RSS sample is evidence the process existed
-        just as a GC event is. See ADR-0011.
+        Evidence is any event, counters included, *or* a liveness
+        observation from the monitor loop. No event-kind exception: the
+        counter carve-out went out with monitor-reported liveness, since
+        an RSS sample is evidence the process existed just as a GC event
+        is. See ADR-0011.
         """
         start_ts = self._process_lifetime_start.get(pid)
         if start_ts is None or ts < start_ts:

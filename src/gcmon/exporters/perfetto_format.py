@@ -150,8 +150,7 @@ def _emit_process_descriptor(
     ``_emit_root_descriptor``.
 
     *start_timestamp_ns* goes on the ``process`` sub-message. It is *pid*'s
-    first non-meta event in nanoseconds, the same timestamp the rank comes
-    from.
+    first event in nanoseconds, the same timestamp the rank comes from.
     """
     if state.has_pid(pid):
         return []
@@ -179,11 +178,10 @@ def _emit_start_process_marker(
 ) -> list[bytes]:
     """Emit a single dur=0 ``Start Process`` marker on the process track.
 
-    Idempotent per pid, and stamped with the first non-meta event that pid
-    produced. The Perfetto UI hides a track holding no events, and with it
-    the process track's ``description``, the joined cmdline. One marker
-    keeps the description visible however few ``Instant`` the caller
-    sent.
+    Idempotent per pid, and stamped with the first event that pid produced.
+    The Perfetto UI hides a track holding no events, and with it the process
+    track's ``description``, the joined cmdline. One marker keeps the
+    description visible however few ``Instant`` the caller sent.
     """
     if state.has_start_process_marker(pid):
         return []
@@ -366,8 +364,9 @@ def convert_trace_events_to_perfetto(
     ``process.start_timestamp_ns``, both taken from the pid's first event.
     *state* accumulates those across batches, and the pre-pass below folds
     this batch in before the main loop, so a pid described in this batch is
-    ranked against the events of it. A pid with no recorded span gets neither
-    field.
+    ranked against the events of it. Both fields are always present: a
+    descriptor goes out only for a pid that named a track, which is a pid
+    the pre-pass has folded in.
 
     ``Processes``-track slices go out at trace close instead, from
     ``finalize_perfetto_packets``.
@@ -423,9 +422,7 @@ def convert_trace_events_to_perfetto(
                         type=TrackEventType.INSTANT,
                         track_uuid=proc_uuid,
                         name=event.name,
-                        # Left off rather than passed empty, so an instant
-                        # carrying no args produces the packet it always has.
-                        debug_annotations=_args_to_debug_annotations(event.args) if event.args else None,
+                        debug_annotations=_args_to_debug_annotations(event.args),
                     ),
                 )
             )
@@ -457,9 +454,13 @@ def _maybe_emit_start_process_marker(
     sequence_id: int,
     packets: list[bytes],
 ) -> None:
-    """Place the pid's ``Start Process`` marker at *event*, if the process
-    track is already described and the marker is not."""
+    """Place the pid's ``Start Process`` marker at *event*, if it has not
+    gone out yet.
+
+    The process track is described by the time this runs whatever the
+    event: the caller emits *event*'s track descriptors first.
+    """
     pid = event.track.pid
-    if not state.has_pid(pid) or state.has_start_process_marker(pid):
+    if state.has_start_process_marker(pid):
         return
     packets.extend(_emit_start_process_marker(pid, event.ts, state, sequence_id))
