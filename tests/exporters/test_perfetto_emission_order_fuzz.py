@@ -162,13 +162,14 @@ def test_nesting_pairs_up_to_the_trace_processor_limit(tmp_path: Path) -> None:
 
 
 def test_nesting_past_the_limit_loses_slices_silently(tmp_path: Path) -> None:
-    """Past 512 the trace processor stops closing slices: each one
-    beyond the limit reads back ``dur = -1``, and nothing in the trace
-    says so.
+    """Past 512 the trace processor drops slices: each span beyond the
+    limit produces no row at all, and nothing in the trace says so.
 
     gcmon writes a well-formed pair for every span either way, so the
     limit sits in the reader. Pinned here so a trace processor that
-    lifts it shows up as a failure rather than going unnoticed.
+    lifts it shows up as a failure rather than going unnoticed. v57.2
+    lost the same spans by leaving them open at ``dur = -1``; v58.2
+    drops the rows instead, and both keep quiet about it.
     """
     depth = _PAIRABLE_NESTING_DEPTH + 8
     clipped = _clip_spans_to_laminar(_co_terminating(depth))
@@ -178,16 +179,13 @@ def test_nesting_past_the_limit_loses_slices_silently(tmp_path: Path) -> None:
         "deep_nesting_over",
     )
     expected = _expected(clipped)
-    unclosed = {name for name, (_ts, dur) in slices.items() if dur < 0}
+    dropped = expected.keys() - slices.keys()
     assert misplaced == 0, "the loss is silent: the parser reports nothing"
-    assert slices.keys() == expected.keys(), "every span still produces a slice row"
-    assert len(unclosed) == depth - _PAIRABLE_NESTING_DEPTH, (
-        f"expected exactly the {depth - _PAIRABLE_NESTING_DEPTH} innermost slices to be left open, got {len(unclosed)}"
+    assert len(dropped) == depth - _PAIRABLE_NESTING_DEPTH, (
+        f"expected exactly the {depth - _PAIRABLE_NESTING_DEPTH} innermost slices to go missing, got {len(dropped)}"
     )
-    # The ones that fit are untouched.
-    assert {name: span for name, span in slices.items() if name not in unclosed} == {
-        name: span for name, span in expected.items() if name not in unclosed
-    }
+    # The ones that fit are untouched, and none is left open.
+    assert slices == {name: span for name, span in expected.items() if name not in dropped}
 
 
 def test_a_named_end_matches_by_name_not_by_stack_position(tmp_path: Path) -> None:
