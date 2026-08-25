@@ -31,11 +31,7 @@ _ZSTD_LEVEL = 3
 
 
 class Codec(NamedTuple):
-    """A compressed-batch field and the compressor that fills it.
-
-    The field number is the only thing telling a reader how to inflate the
-    bytes. A mismatched pair writes a trace nothing can open.
-    """
+    """A compressed-batch field and the compressor that fills it."""
 
     field: TracePacketField
     compress: Callable[[bytes], bytes]
@@ -45,12 +41,7 @@ _DEFLATE = Codec(TracePacketField.COMPRESSED_PACKETS, partial(zlib.compress, lev
 
 
 def _resolve_codec() -> Codec:
-    """The codec this interpreter can write. ``compression.zstd`` is an
-    optional part of a CPython build (ADR-0022).
-
-    The import sits in here to give the fallback branch a caller. It runs at
-    module import all the same, from the line below.
-    """
+    """The codec this interpreter can write (ADR-0022)."""
     try:
         from compression import zstd
     except ImportError:
@@ -58,7 +49,6 @@ def _resolve_codec() -> Codec:
     return Codec(TracePacketField.ZSTD_COMPRESSED_PACKETS, partial(zstd.compress, level=_ZSTD_LEVEL))
 
 
-# Resolved once, never from a flag and never per run.
 _CODEC = _resolve_codec()
 
 __all__ = [
