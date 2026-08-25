@@ -31,7 +31,7 @@ def _compressed(timestamps: list[int]) -> bytes:
 
 
 def _zstd(timestamps: list[int]) -> bytes:
-    """The same packets again, in the batch gcmon writes."""
+    """The same packets, compressed with zstd into one batch."""
     batch = TracePacket(zstd_compressed_packets=zstd.compress(_plain(timestamps)))
     content: bytes = Trace(packet=[batch]).SerializeToString()
     return content

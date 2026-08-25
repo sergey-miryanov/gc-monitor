@@ -4,10 +4,9 @@ gcmon writes traces in three formats, selected with `--format`: `perfetto`
 (compressed Perfetto binary protobuf), `jsonl` (JSONL to file), and `stdout`
 (JSONL to stdout). See the [CLI reference](cli.md) for the flag.
 
-A `.pftrace` needs Perfetto v58 or newer to open. An older one shows it as an
-empty timeline rather than refusing it, so check the version before reading a
-capture as a run that collected nothing. A Python built without zstd support
-writes a capture that opens on any Perfetto instead.
+A `.pftrace` needs Perfetto v58 or newer. An older one shows the capture as an
+empty timeline rather than refusing to open it: a run that collected nothing
+looks the same.
 
 ## Perfetto output
 

@@ -325,9 +325,9 @@ exporter.close()
 def _written_without_libzstd(path: Path) -> Path:
     """A trace from a child interpreter that cannot import ``compression.zstd``.
 
-    The codec is resolved at import, so the fallback cannot be reached by
-    patching this process: the child is the only place the ``except ImportError``
-    branch actually runs.
+    The codec resolves at import. Patching this process would test the patch
+    rather than the ``except ImportError`` branch, and the child is where that
+    branch runs.
     """
     result = subprocess.run(
         [sys.executable, "-c", _WITHOUT_LIBZSTD, str(path), str(Path(__file__).parents[2])],
@@ -339,9 +339,8 @@ def _written_without_libzstd(path: Path) -> Path:
 
 
 class TestABuildWithoutLibzstd:
-    """``compression.zstd`` is an optional part of a CPython build. gcmon
-    writes the deflate every Perfetto reads there, rather than refusing to
-    write a trace at all (ADR-0022)."""
+    """What gcmon writes on a CPython built without ``compression.zstd``
+    (ADR-0022)."""
 
     def test_it_writes_the_deflated_field(self, tmp_path: Path) -> None:
         path = _written_without_libzstd(tmp_path / "deflated.pftrace")

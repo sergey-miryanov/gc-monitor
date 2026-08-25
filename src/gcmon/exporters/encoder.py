@@ -29,10 +29,8 @@ logger = logging.getLogger("gcmon")
 _DEFLATE_LEVEL = 6
 _ZSTD_LEVEL = 3
 
-# The codec this interpreter can write, resolved once: the field number and
-# the call that fills it. ``compression.zstd`` is an optional part of a
-# CPython build, and gcmon falls back to the deflate every Perfetto reads
-# rather than refusing to write a trace at all (ADR-0022).
+# The codec this interpreter can write, resolved once. ``compression.zstd`` is
+# an optional part of a CPython build (ADR-0022).
 try:
     from compression import zstd
 except ImportError:

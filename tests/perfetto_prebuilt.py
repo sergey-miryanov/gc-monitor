@@ -3,7 +3,7 @@
 The ``perfetto`` package ships two halves rolled at different releases: protos
 generated at v58.2, and a ``trace_processor_shell`` prebuilt still at v57.2. A
 v57.2 reader skips ``TracePacket.zstd_compressed_packets`` (field 133) and
-loads an empty trace rather than failing, which is what gcmon writes wherever
+loads an empty trace rather than failing. gcmon writes that field wherever
 ``compression.zstd`` imports (ADR-0022).
 
 The entries below are the shape ``get_perfetto_prebuilt`` takes, so the
