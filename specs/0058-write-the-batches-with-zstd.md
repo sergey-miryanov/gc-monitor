@@ -1,7 +1,7 @@
 # 0058: Write the batches with zstd
 
-- **Status:** Blocked (the `perfetto` package shipping a v58 trace processor;
-  the newest on PyPI on 2026-08-22 is 0.57.2)
+- **Status:** Not started (unblocked 2026-08-25; the suite pins its own v58.2
+  trace processor, and every case in section 5 was run against one)
 - **Kind:** feature (efficiency)
 - **Effort:** S
 - **Origin:** raised 2026-08-22, out of the alternative
@@ -131,26 +131,36 @@ not about a file carrying two.
 **Rejected: keeping deflate behind a flag for old readers.** Section 4.2's
 ground, and both encodings would have to be kept working.
 
-### 4.5 The gate, and why this is Blocked rather than Not started
+### 4.5 The reader is pinned here, not taken from the package
 
-Both halves arrive together in the `perfetto` development dependency:
+Both halves are in place, from different sources:
 
-- The **generated descriptor** has to carry `zstd_compressed_packets` for
-  ADR-0001's check to run at all. On 0.57.2 there is nothing to check the
-  number against.
-- The **trace processor** the suite drives has to read field 133. On 0.57.2
-  every trace-processor test would query an empty trace: the ones asserting a
-  count would go red, and any asserting only that a file loads would pass
-  while meaning nothing.
+- The **generated descriptor** carries `zstd_compressed_packets = 133` as of
+  `perfetto` 0.58.2, so ADR-0001's check has a number to check against.
+- The **trace processor** is pinned by `tests/perfetto_prebuilt.py` to
+  Perfetto v58.2, which reads field 133. The package's own prebuilt is still
+  rolled at v57.2 and does not, so leaving the choice to the package would
+  load every batch as an empty trace and report no error.
 
-Perfetto v58.2 has published prebuilts for `linux-amd64`, `mac-amd64`,
-`mac-arm64` and `windows-amd64`, so all three CI legs are covered once the
-Python package picks one up. Take this spec when `pip index versions perfetto`
-shows 0.58 or later; the bump in `pyproject.toml` is part of the change.
+The two arrive separately because the package ships protos and prebuilt from
+different releases. Waiting for it to roll both is not a prerequisite: a
+manifest naming the v58.2 URLs and their SHA-256 goes through the same
+`get_perfetto_prebuilt` download, checksum and cache the package uses for its
+own, and Perfetto publishes v58.2 for `linux-amd64`, `mac-amd64`, `mac-arm64`
+and `windows-amd64`, so all three CI legs are covered.
 
-**Rejected: pinning `bin_path` to a downloaded v58.2 binary to unblock
-early.** It leaves the descriptor check unrunnable, and it puts a manually
-fetched binary on the critical path of every CI leg.
+Section 5's cases were run against that binary, with gcmon's `_write_batch`
+switched to field 133: the batches read back, a truncated file still yields
+the batches that completed, and a deflate trace still reads on the same
+processor. What is left is the change itself.
+
+**Rejected: `TraceProcessorConfig(fetch_latest_trace_processor=True)`.** It
+reads field 133, and it pins nothing: no checksum, a fresh download per CI
+leg, and the suite asserting against whatever Perfetto shipped that morning.
+The manifest above costs one file and pins a version.
+
+**Rejected: waiting for the package to pin v58.** It is the same binary from
+the same host either way, and nobody here decides when that lands.
 
 ## 5. Seams and testing decisions
 
@@ -158,9 +168,11 @@ fetched binary on the critical path of every CI leg.
   wire level and SQL for meaning. Unchanged from ADR-0022: compression is
   invisible above the file, so every test that hands a path to
   `TraceProcessor` stays untouched.
-- **New seam needed:** none. `tests/exporters/test_perfetto_compression.py`
-  already owns the behaviours that exist because a batch is compressed, and
-  each of its cases carries over.
+- **New seam needed:** none. `tests.helpers.open_trace_processor` is where the
+  suite says which processor it drives, and `tests/perfetto_prebuilt.py` which
+  build; both already exist. `tests/exporters/test_perfetto_compression.py`
+  owns the behaviours that exist because a batch is compressed, and each of
+  its cases carries over.
 - **What makes a good test here:** assert the name, category, arg and counter
   a slice resolves to, and assert that the batch sits on field 133. **Never
   assert a size or a ratio**, for the reason ADR-0022 gives.
