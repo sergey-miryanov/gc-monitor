@@ -8,6 +8,8 @@ Nothing here asserts a size or a ratio; ADR-0022 says why.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import zlib
 from collections.abc import Iterator
 from compression import zstd
@@ -280,38 +282,85 @@ class TestAKilledRun:
         assert raised == dict.fromkeys(_LOSS_STATS, 0)
 
 
-def _deflated(path: Path, target: Path) -> Path:
-    """*path* rewritten batch for batch into field 50, the encoding gcmon has
-    stopped writing and Perfetto's own tooling has not."""
-    target.write_bytes(
-        b"".join(
-            encode_bytes_field(
-                TraceField.PACKET,
-                TracePacket(
-                    compressed_packets=zlib.compress(zstd.decompress(batch.zstd_compressed_packets))
-                ).SerializeToString(),
-            )
-            for batch in _compressed_batches(path)
-        )
+_WITHOUT_LIBZSTD = f"""
+import sys
+
+sys.modules["_zstd"] = None
+sys.path.insert(0, sys.argv[2])
+
+from pathlib import Path
+
+from gcmon.exporters import PerfettoExporter, encoder
+from gcmon.exporters.perfetto_proto import TracePacketField
+from gcmon.model.data import GCStatsInfo
+
+field, _ = encoder._CODEC
+assert field == TracePacketField.COMPRESSED_PACKETS, field
+
+exporter = PerfettoExporter(
+    output_path=Path(sys.argv[1]),
+    flush_threshold=1,
+    cmdline_provider=lambda _pid: None,
+)
+for i in range({_EVENTS}):
+    exporter.add_event(
+        {_PID},
+        GCStatsInfo(
+            gen=0,
+            iid=0,
+            ts_start=1_000_000 * (i + 1),
+            ts_stop=1_000_000 * (i + 1) + 100_000,
+            heap_size=52428800,
+            collections=50,
+            collected={_COLLECTED},
+            uncollectable=10,
+            candidates=40,
+            duration=0.005,
+        ),
     )
-    return target
+exporter.close()
+"""
 
 
-class TestADeflatedTraceStillReads:
-    """The only case left producing one. Nothing gcmon writes is deflated
-    after this change, so without these the reader's second branch is
-    unguarded (ADR-0022)."""
+def _written_without_libzstd(path: Path) -> Path:
+    """A trace from a child interpreter that cannot import ``compression.zstd``.
 
-    def test_it_reads_as_the_trace_it_was_rewritten_from(self, tmp_path: Path) -> None:
-        whole = _write_trace(tmp_path / "batched.pftrace")
-        deflated = _deflated(whole, tmp_path / "deflated.pftrace")
+    The codec is resolved at import, so the fallback cannot be reached by
+    patching this process: the child is the only place the ``except ImportError``
+    branch actually runs.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", _WITHOUT_LIBZSTD, str(path), str(Path(__file__).parents[2])],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return path
 
-        assert perfetto_packets(deflated.read_bytes()) == perfetto_packets(whole.read_bytes())
+
+class TestABuildWithoutLibzstd:
+    """``compression.zstd`` is an optional part of a CPython build. gcmon
+    writes the deflate every Perfetto reads there, rather than refusing to
+    write a trace at all (ADR-0022)."""
+
+    def test_it_writes_the_deflated_field(self, tmp_path: Path) -> None:
+        path = _written_without_libzstd(tmp_path / "deflated.pftrace")
+
+        assert [p.HasField("compressed_packets") for p in _compressed_batches(path)] == [True] * _BATCHES
+
+    def test_its_batches_inflate_to_the_packets(self, tmp_path: Path) -> None:
+        path = _written_without_libzstd(tmp_path / "deflated.pftrace")
+
+        inflated: list[TracePacket] = []
+        for batch in _compressed_batches(path):
+            inflated.extend(perfetto_packets(zlib.decompress(batch.compressed_packets)))
+
+        assert inflated == assert_valid_perfetto_trace(path)
 
     def test_its_slices_resolve_through_the_trace_processor(self, tmp_path: Path) -> None:
-        deflated = _deflated(_write_trace(tmp_path / "batched.pftrace"), tmp_path / "deflated.pftrace")
+        path = _written_without_libzstd(tmp_path / "deflated.pftrace")
 
-        with open_trace_processor(deflated) as tp:
+        with open_trace_processor(path) as tp:
             names = {row.name for row in tp.query("SELECT name FROM slice")}
 
         assert _PAUSE_NAME in names

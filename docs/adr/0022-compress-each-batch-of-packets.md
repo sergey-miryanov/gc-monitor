@@ -45,6 +45,13 @@ boundary compresses a few percent better and widens what a killed run loses.
 deflate it replaces and buys a few percent. Level 19 is orders of magnitude
 slower and cannot run on a flush.
 
+**Deflate, field 50, where `compression.zstd` is missing.** It is an optional
+part of a CPython build, and gcmon writes a trace on an interpreter that lacks
+it rather than refusing to. The codec is resolved once at import from what the
+interpreter has, never from a flag or an option, so no run picks it and no
+file records which was used. The fallback file is the more portable one: it
+opens on any Perfetto.
+
 ## Consequences
 
 - The trace an operator copies off a host is a fraction of the size, with
@@ -82,13 +89,17 @@ slower and cannot run on a flush.
   has.
 - `perfetto` stays a development dependency, and the codec comes from the
   stdlib's `compression.zstd`.
-- **`compression.zstd` is an optional part of a CPython build**, where the
-  `zlib` it replaces is on essentially every one. The encoder imports it at
-  module scope and the package imports the encoder, so on an interpreter built
-  without libzstd no gcmon command starts, `--format jsonl` and `combine`
-  included. gcmon is installed beside the process it watches
+- **The trace format depends on the interpreter that wrote it**, which is the
+  price of the fallback. Two people on one gcmon version can produce different
+  files, and nothing in either says which codec wrote it: reading it back is
+  what tells them apart, and the reader takes both. Accepted because gcmon is
+  installed beside the process it watches
   ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)), which is where
-  a minimal build turns up.
+  a minimal build turns up, and refusing to write a trace there is worse than
+  writing the older encoding.
+- **Only a zstd trace needs Perfetto v58.** The requirement documented for
+  operators is the one the common build produces; a fallback capture opens
+  anywhere, and the empty timeline cannot happen for it.
 
 ## Alternatives considered
 
@@ -124,7 +135,8 @@ slower and cannot run on a flush.
 ## Implementation
 
 - `src/gcmon/exporters/encoder.py` holds the write path a flush and the
-  closeout share, and the compression level.
+  closeout share, the compression level and the import that resolves the
+  codec.
 - `src/gcmon/exporters/perfetto_proto.py` holds
   `TracePacketField.ZSTD_COMPRESSED_PACKETS`. `COMPRESSED_PACKETS` sits beside
   it with no caller left: the reader matches the descriptor's field names, not
@@ -134,7 +146,7 @@ slower and cannot run on a flush.
   build that reads field 133.
 - Tests: `tests/exporters/test_perfetto_compression.py` covers the compressed
   batch, the flush boundary, the liveness-only closeout, what a killed run
-  still opens and that a deflated trace still reads;
+  still opens and what a child interpreter without libzstd writes instead;
   `tests/exporters/test_perfetto_proto.py` checks the field numbers against
   the generated descriptor; `tests/helpers.py` holds the reader every Perfetto
   test reads through, and `tests/test_helpers.py` covers it;

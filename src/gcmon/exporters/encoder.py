@@ -8,8 +8,9 @@ implementation (ADR-0008).
 from __future__ import annotations
 
 import logging
+import zlib
 from collections.abc import Callable, Sequence, Set
-from compression import zstd
+from functools import partial
 from pathlib import Path
 from typing import Protocol
 
@@ -25,7 +26,24 @@ from .protobuf_encoder import encode_bytes_field
 
 logger = logging.getLogger("gcmon")
 
-_COMPRESSION_LEVEL = zstd.COMPRESSION_LEVEL_DEFAULT
+_DEFLATE_LEVEL = 6
+
+# The codec this interpreter can write, resolved once: the field number and
+# the call that fills it. ``compression.zstd`` is an optional part of a
+# CPython build, and gcmon falls back to the deflate every Perfetto reads
+# rather than refusing to write a trace at all (ADR-0022).
+try:
+    from compression import zstd
+except ImportError:
+    _CODEC: tuple[TracePacketField, Callable[[bytes], bytes]] = (
+        TracePacketField.COMPRESSED_PACKETS,
+        partial(zlib.compress, level=_DEFLATE_LEVEL),
+    )
+else:
+    _CODEC = (
+        TracePacketField.ZSTD_COMPRESSED_PACKETS,
+        partial(zstd.compress, level=zstd.COMPRESSION_LEVEL_DEFAULT),
+    )
 
 __all__ = [
     "EventEncoder",
@@ -115,9 +133,8 @@ class ProtobufEventEncoder:
         """Append one batch to the trace as a single compressed packet."""
         assert self._path is not None, "open() must be called before writing"
         batch = b"".join(encode_bytes_field(TraceField.PACKET, entry) for entry in (*descriptors, *packets))
-        compressed = encode_bytes_field(
-            TracePacketField.ZSTD_COMPRESSED_PACKETS, zstd.compress(batch, _COMPRESSION_LEVEL)
-        )
+        field, compress = _CODEC
+        compressed = encode_bytes_field(field, compress(batch))
         mode = "wb" if not self._has_written else "ab"
         self._has_written = True
         with open(self._path, mode) as f:
