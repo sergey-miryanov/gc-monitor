@@ -16,8 +16,8 @@ from gcmon.model.data import GCStatsInfo, LossMsg
 from gcmon.model.trace_event import (
     Counter,
     Instant,
+    InterpreterTrack,
     ProcessTrack,
-    ThreadTrack,
     TraceEvent,
 )
 from tests.exporters.perfetto_helpers import (
@@ -109,7 +109,7 @@ class TestConvertItemToPerfettoPackets:
         descriptors, _ = convert_item(100, item, state, sequence_id=1)
         assert len(descriptors) >= 2
         assert state.has_pid(100)
-        assert state.has_track(ThreadTrack(100, 0))
+        assert state.has_track(InterpreterTrack(100, 0))
 
     def test_thread_track_has_sibling_order_rank_zero(self) -> None:
         state = PerfettoTrackState()
@@ -127,7 +127,7 @@ class TestConvertItemToPerfettoPackets:
         )
         descriptors, _ = convert_item(100, item, state, sequence_id=1)
         proc_uuid = state.get_process_track_uuid(100)
-        thread_uuid = state.get_track_uuid(ThreadTrack(100, 0))
+        thread_uuid = state.get_track_uuid(InterpreterTrack(100, 0))
         thread_found = False
         for desc_bytes in descriptors:
             packet = TracePacket()
@@ -157,7 +157,7 @@ class TestConvertItemToPerfettoPackets:
         )
         descriptors, _ = convert_item(100, item, state, sequence_id=1)
         proc_uuid = state.get_process_track_uuid(100)
-        group_uuid = state.get_or_create_counter_group_track_uuid(ThreadTrack(100, 0))
+        group_uuid = state.get_or_create_counter_group_track_uuid(InterpreterTrack(100, 0))
         assert group_uuid != proc_uuid
         group_seen = False
         per_metric_parent: dict[str, int] = {}
@@ -619,8 +619,8 @@ class TestConvertItemToPerfettoPackets:
         desc1, _ = convert_item(100, item1, state, sequence_id=1)
         assert len(desc0) >= 2
         assert len(desc1) >= 1
-        assert state.has_track(ThreadTrack(100, 0))
-        assert state.has_track(ThreadTrack(100, 1))
+        assert state.has_track(InterpreterTrack(100, 0))
+        assert state.has_track(InterpreterTrack(100, 1))
 
     def test_debug_annotation_name_wire_format(self) -> None:
         state = PerfettoTrackState()
@@ -823,7 +823,7 @@ class TestConvertInstantToPerfettoPacket:
         descriptors, _ = convert_trace_events_to_perfetto(
             [
                 Counter(
-                    ThreadTrack(100, 0),
+                    InterpreterTrack(100, 0),
                     metric="heap_size",
                     display_name="heap_size",
                     ts=1_000,
@@ -871,9 +871,9 @@ class TestConvertInstantToPerfettoPacket:
             duration=0.001,
         )
         convert_item(100, item_g0, state, sequence_id=1)
-        uuid_after_g0 = state.get_or_create_counter_track_uuid(ThreadTrack(100, 0), "heap_size")
+        uuid_after_g0 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "heap_size")
         convert_item(100, item_g1, state, sequence_id=1)
-        uuid_after_g1 = state.get_or_create_counter_track_uuid(ThreadTrack(100, 0), "heap_size")
+        uuid_after_g1 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "heap_size")
         assert uuid_after_g0 == uuid_after_g1
 
 
@@ -1011,7 +1011,7 @@ class TestATrackIsDescribedOffTheEventsOnIt:
 class TestLossTrackDescriptor:
     """Nothing but the slices describes the loss track.
 
-    A ``LossTrack`` is not a ``ThreadTrack``, the same distinction that keeps
+    A ``LossTrack`` is not a ``InterpreterTrack``, the same distinction that keeps
     the row from being drawn as a thread. So the descriptor has to come off
     the slices themselves, or they land on a uuid nothing ever named.
     """

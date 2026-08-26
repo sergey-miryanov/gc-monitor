@@ -35,14 +35,14 @@ Three things followed from the Chrome shape:
 ## Decision
 
 **A `Track` names a row, and every event carries one.** `ProcessTrack(pid)`,
-`ThreadTrack(pid, iid)` and `LossTrack(pid, iid)`, frozen and hashable. The
-`(pid, tid)` pair and the sentinels go.
+`InterpreterTrack(pid, iid)` and `LossTrack(pid, iid)`, frozen and hashable.
+The `(pid, tid)` pair and the sentinels go.
 
 Three members, not two, because a track names *a row* rather than *what an
-event is about*. `LossTrack` and `ThreadTrack` are the same pid and the same
-interpreter and different rows; naming what an event is about would need a
-second discriminator to say which of the two to draw on, which is the sentinel
-back in another spelling.
+event is about*. `LossTrack` and `InterpreterTrack` are the same pid and the
+same interpreter and different rows; naming what an event is about would need
+a second discriminator to say which of the two to draw on, which is the
+sentinel back in another spelling.
 
 **The encoder derives every other row from those.** A track's descriptor goes
 out because an event named that track, ahead of the packet that named it: the
@@ -79,8 +79,8 @@ staying on the `GC Pause(N)` slice args, so it remains queryable per-pause.
 
 **`rss` leaves the top-level metric set.** A counter a `ProcessTrack` owns
 parents to the process track by construction, so for `rss` that placement
-stops being a policy and becomes its identity. `heap_size` stays in the set: a
-`ThreadTrack` owns it and it is deliberately drawn a level up.
+stops being a policy and becomes its identity. `heap_size` stays in the set:
+an `InterpreterTrack` owns it and it is deliberately drawn a level up.
 
 **Amended 2026-08-26: a slice is one event.** `SliceBegin` and `SliceEnd` only
 ever went out as a pair, and every end timestamp is known when the begin is
@@ -169,8 +169,8 @@ timestamp would need shifting too, and missing it would be silent.
   intermediate earning its place. The fact that would settle it differently: a
   second encoder never arriving *and* the oracle being retired.
 - **Name what an event is about rather than the row it is drawn on.** A
-  `LossTrack` would collapse into `ThreadTrack` plus a flag, and the flag is
-  the sentinel again. Rejected: a track that names a row is the thing the
+  `LossTrack` would collapse into `InterpreterTrack` plus a flag, and the flag
+  is the sentinel again. Rejected: a track that names a row is the thing the
   encoder needs, and every derived row falls out of it.
 - **Qualify `heap_size` only when a process has more than one interpreter.**
   Rejected as unimplementable rather than undesirable: gcmon is a streaming

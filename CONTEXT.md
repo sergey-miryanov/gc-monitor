@@ -88,8 +88,10 @@ One row in a trace. An **event** names the track it is drawn on: a
 interpreter's collections, or that interpreter's **loss** row. gcmon derives
 every other row from those - a counter's, the `GC Metrics` group holding it,
 the `Processes` track - so nothing it writes names them.
-_Avoid_: lane, thread (only one of the three is one), tid (that was Chrome's
-spelling), row (in output; fine in prose)
+_Avoid_: lane, thread (none of the three is one; the wire calls the
+interpreter's row a thread track and the UI labels it `Thread {iid}`, and
+that spelling stops at the encoder), tid (that was Chrome's spelling), row
+(in output; fine in prose)
 
 **Capture**:
 The JSONL file gcmon writes: one JSON object per line, holding the records

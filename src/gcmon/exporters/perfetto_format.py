@@ -14,10 +14,10 @@ from collections.abc import Sequence
 from ..model.trace_event import (
     Counter,
     Instant,
+    InterpreterTrack,
     LossTrack,
     ProcessTrack,
     Slice,
-    ThreadTrack,
     TraceEvent,
     Track,
 )
@@ -200,7 +200,7 @@ def _emit_start_process_marker(
 
 
 def _emit_thread_descriptor(
-    track: ThreadTrack,
+    track: InterpreterTrack,
     state: PerfettoTrackState,
     sequence_id: int,
 ) -> list[bytes]:
@@ -337,7 +337,7 @@ def _emit_track_descriptors(
         sibling_order_rank=ranks.get(pid),
         start_timestamp_ns=state.get_process_lifetime_start_ts(pid),
     )
-    if isinstance(track, ThreadTrack):
+    if isinstance(track, InterpreterTrack):
         descriptors.extend(_emit_thread_descriptor(track, state, sequence_id))
     elif isinstance(track, LossTrack):
         descriptors.extend(_emit_loss_descriptor(track, state, sequence_id))

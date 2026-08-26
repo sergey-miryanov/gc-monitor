@@ -15,10 +15,10 @@ from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.trace_event import (
     Counter,
+    InterpreterTrack,
     LossTrack,
     ProcessTrack,
     Slice,
-    ThreadTrack,
 )
 from tests.data_helpers import create_instant_msg
 from tests.helpers import create_mock_loss_item, create_mock_stats_item
@@ -64,7 +64,7 @@ class TestTheBufferHoldsNothingButEvents:
         )
         exporter.add_event(100, item)
         assert exporter._buffer == convert_item_to_trace_format(100, item)
-        assert {e.track for e in exporter._buffer} == {ThreadTrack(100, 0)}
+        assert {e.track for e in exporter._buffer} == {InterpreterTrack(100, 0)}
 
 
 class TestAddRssSample:
@@ -166,12 +166,12 @@ class TestAddLossEvent:
         )
 
         assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {
-            ThreadTrack(100, 0),
+            InterpreterTrack(100, 0),
             LossTrack(100, 0),
         }
 
     def test_a_loss_event_names_no_interpreter_row(self, tmp_path: Path) -> None:
-        """A `LossTrack` is not a `ThreadTrack`, so a poll gcmon went blind in
+        """A `LossTrack` is not an `InterpreterTrack`, so a poll gcmon went blind in
         draws nothing on the interpreter's own row."""
         exporter = self._make_exporter(tmp_path)
 

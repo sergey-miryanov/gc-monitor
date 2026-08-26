@@ -24,10 +24,10 @@ from ..model.trace_event import (
     Counter,
     EventArgs,
     Instant,
+    InterpreterTrack,
     LossTrack,
     ProcessTrack,
     Slice,
-    ThreadTrack,
     TraceEvent,
 )
 
@@ -41,7 +41,7 @@ __all__ = [
 def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEvent]:
     gen = item.gen
     iid = item.iid
-    track = ThreadTrack(pid, iid)
+    track = InterpreterTrack(pid, iid)
     ts_start_ns = item.ts_start
     ts_stop_ns = item.ts_stop
 

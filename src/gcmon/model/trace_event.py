@@ -12,10 +12,10 @@ __all__ = [
     "Counter",
     "EventArgs",
     "Instant",
+    "InterpreterTrack",
     "LossTrack",
     "ProcessTrack",
     "Slice",
-    "ThreadTrack",
     "TraceEvent",
     "Track",
 ]
@@ -30,8 +30,14 @@ class ProcessTrack(msgspec.Struct, frozen=True):
     pid: int
 
 
-class ThreadTrack(msgspec.Struct, frozen=True):
-    """Interpreter *iid*'s row, carrying its collections."""
+class InterpreterTrack(msgspec.Struct, frozen=True):
+    """Interpreter *iid*'s row, carrying its collections.
+
+    Drawn as a Perfetto thread track and labelled ``Thread {iid}``. That is
+    the wire's vocabulary, not gcmon's: an interpreter is not an OS thread,
+    and the descriptor says thread only because that is what makes the UI
+    draw a row under the process.
+    """
 
     pid: int
     iid: int
@@ -50,7 +56,7 @@ class LossTrack(msgspec.Struct, frozen=True):
     iid: int
 
 
-type Track = ProcessTrack | ThreadTrack | LossTrack
+type Track = ProcessTrack | InterpreterTrack | LossTrack
 
 
 type ArgGroup = dict[str, int | str]
