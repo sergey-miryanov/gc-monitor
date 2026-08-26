@@ -31,10 +31,10 @@ tid=pid if iid == 0 else iid,
 
 Every other tid gcmon publishes is derived from `iid` alone and carries no
 pid: `RSS_TID` is `-1` (ADR-0013), the loss track uses
-`loss_tid(iid) == -2 - iid` (ADR-0015), and
-`BufferedTraceExporter._build_meta` names the thread `f"Thread {iid}"`, the
-very descriptor whose `tid` disagrees with its own name. The `iid == 0` branch
-is the only place in the codebase where a tid is a pid.
+`loss_tid(iid) == -2 - iid` (ADR-0015), and the same `build_track_descriptor`
+call names the thread `f"Thread {iid}"` in the argument above the `tid`, which
+therefore disagrees with the name set beside it. The `iid == 0` branch is the
+only place in the codebase where a tid is a pid.
 
 The likely intent is to mimic Linux, where the main thread's tid equals the
 pid. But gcmon's tids are not OS thread ids at all: they are interpreter ids

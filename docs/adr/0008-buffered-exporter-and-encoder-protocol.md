@@ -36,6 +36,27 @@ stays, because `combine` drives the encoder with no exporter around it.
 `TraceExporter` and `PerfettoExporter` become thin subclasses that construct
 the right encoder. Their public constructor signatures are unchanged.
 
+**Amended 2026-08-26: the base class goes.** `BufferedTraceExporter` merged
+into `PerfettoExporter`, and `_buffered_exporter.py` with it. The argument
+above is a duplication argument -- two exporters independently implementing
+one lifecycle -- and [ADR-0021](0021-write-one-trace-format.md) left one
+exporter, so the base had a fan-out of one. It had also shrunk: meta building
+moved to the encoder under
+[ADR-0024](0024-an-event-names-the-track-it-is-drawn-on.md), taking the
+seen-pid set and the atomic check-and-emit with it, so what merged was a
+buffer, two locks and four one-line `_enqueue` calls. The subclass's second
+handle to the encoder goes with it: that attribute existed only because the
+base held the encoder as an `EventEncoder`, and one class holds it at its own
+type.
+
+**The `EventEncoder` protocol stays declared, and is now typed against
+nothing.** Both callers -- `PerfettoExporter` and `combine` -- name
+`ProtobufEventEncoder`. What ADR-0021 defended when it kept this split is the
+encoder being a separate class that runs with no exporter, no buffer and no
+lock around it, and the merge leaves that untouched. Whether a protocol with
+no annotation left still earns its declaration is a separate question, and
+open.
+
 **Meta building is atomic.** The check and the emit happen inside a single
 critical section under the state lock, closing the race. This is the property
 the two previous implementations were reaching for and missing.

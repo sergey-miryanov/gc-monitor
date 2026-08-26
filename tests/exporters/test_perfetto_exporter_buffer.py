@@ -1,4 +1,4 @@
-"""Tests for BufferedTraceExporter."""
+"""Tests for what a `PerfettoExporter` puts in its buffer."""
 
 from __future__ import annotations
 
@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from gcmon.exporters._buffered_exporter import BufferedTraceExporter
-from gcmon.exporters.encoder import ProtobufEventEncoder
+from gcmon.exporters import PerfettoExporter
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.exporters.jsonl_exporter import JsonlExporter
 from gcmon.exporters.stdout_exporter import StdoutExporter
@@ -30,12 +29,8 @@ class TestTheBufferHoldsNothingButEvents:
     tracks those events name; see `TestATrackIsDescribedOffTheEventsOnIt` in
     `test_perfetto_format.py`."""
 
-    def _make_exporter(self, tmp_path: Path) -> BufferedTraceExporter:
-        return BufferedTraceExporter(
-            ProtobufEventEncoder(),
-            tmp_path / "test.pb",
-            flush_threshold=1000,
-        )
+    def _make_exporter(self, tmp_path: Path) -> PerfettoExporter:
+        return PerfettoExporter(tmp_path / "test.pb", flush_threshold=1000)
 
     def test_an_rss_sample_buffers_one_event(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
@@ -69,11 +64,7 @@ class TestTheBufferHoldsNothingButEvents:
 
 class TestAddRssSample:
     def test_emits_counter_event_with_correct_shape(self, tmp_path: Path) -> None:
-        exporter = BufferedTraceExporter(
-            ProtobufEventEncoder(),
-            tmp_path / "test.pb",
-            flush_threshold=1000,
-        )
+        exporter = PerfettoExporter(tmp_path / "test.pb", flush_threshold=1000)
         exporter.add_rss_sample(100, 4096, 1_000_000)
         counters = [e for e in exporter._buffer if isinstance(e, Counter)]
         assert len(counters) == 1
@@ -85,11 +76,7 @@ class TestAddRssSample:
         assert c.ts == 1_000_000
 
     def test_two_pids_sample_onto_two_process_rows(self, tmp_path: Path) -> None:
-        exporter = BufferedTraceExporter(
-            ProtobufEventEncoder(),
-            tmp_path / "test.pb",
-            flush_threshold=1000,
-        )
+        exporter = PerfettoExporter(tmp_path / "test.pb", flush_threshold=1000)
         exporter.add_rss_sample(100, 4096, 1_000_000)
         exporter.add_rss_sample(200, 8192, 2_000_000)
         assert {e.track for e in exporter._buffer} == {ProcessTrack(100), ProcessTrack(200)}
@@ -131,8 +118,8 @@ class TestAddProcessLivenessIsPerfettoOnly:
 
 
 class TestAddLossEvent:
-    def _make_exporter(self, tmp_path: Path) -> BufferedTraceExporter:
-        return BufferedTraceExporter(ProtobufEventEncoder(), tmp_path / "test.pb", flush_threshold=1000)
+    def _make_exporter(self, tmp_path: Path) -> PerfettoExporter:
+        return PerfettoExporter(tmp_path / "test.pb", flush_threshold=1000)
 
     def test_the_bar_is_the_window(self, tmp_path: Path) -> None:
         """The whole interval gcmon could not observe, not the 200 ns of GC

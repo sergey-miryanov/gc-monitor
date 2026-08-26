@@ -1,4 +1,4 @@
-# 0030: Close four small correctness hazards in the exporter package
+# 0030: Close three small correctness hazards in the exporter package
 
 - **Status:** Not started
 - **Kind:** feature (cleanup)
@@ -14,14 +14,15 @@
 
 ## 1. Problem statement
 
-Four independent one-file changes, batched because each is too small to
-schedule alone and all four live in the same package. Two more went with the
+Three independent one-file changes, batched because each is too small to
+schedule alone and all three live in the same package. Two more went with the
 Chrome format ([0055](RETIRED.md)): the `getattr` probe was in its encoder,
 and the duplicated format validation had nothing left to disagree about once
-`combine` took one input. None is operator-visible today; each is a way for a
-future change to go wrong quietly. They are listed in section 4 in the order
-they should land, cheapest first. Take them together or drop any one; nothing
-here depends on anything else here.
+`combine` took one input. A third, 4.3, went with the code it was about. None
+is operator-visible today; each is a way for a future change to go wrong
+quietly. They are listed in section 4 in the order they should land, cheapest
+first. Take them together or drop any one; nothing here depends on anything
+else here.
 
 ## 2. Solution
 
@@ -55,17 +56,21 @@ field numbers (ADR-0001) and ranks are our own layout policy.
 
 **4.2: `PerfettoTrackState` states its threading contract.** It is not
 internally thread-safe and does not need to be: every call reaches it through
-`ProtobufEventEncoder.write_events` under `BufferedTraceExporter._io_lock`,
-and `PerfettoExporter.add_process_liveness` takes that same lock explicitly
-for exactly this reason (ADR-0011). Add that to the class docstring. No
-locking, no behaviour change.
+`ProtobufEventEncoder.write_events` under `PerfettoExporter._io_lock`, and
+`PerfettoExporter.add_process_liveness` takes that same lock explicitly for
+exactly this reason (ADR-0011). Add that to the class docstring. No locking,
+no behaviour change.
 
-**4.3: `BufferedTraceExporter._build_meta` states its atomicity guarantee.**
-The check-and-emit is already atomic under `_lock`, and
-`TestMetaDedupRaceClosed` in `tests/exporters/test_exporter_thread_safety.py`
-pins it. The docstring does not say so, which makes "hold the lock across both
-the check and the emit" look like an implementation detail rather than the
-contract it is. One paragraph.
+**4.3: dropped, 2026-08-26.** It asked `BufferedTraceExporter._build_meta` to
+state the atomicity of its check-and-emit. There is no such method: no
+producer decides what a batch's descriptors are any more
+([ADR-0024](../docs/adr/0024-an-event-names-the-track-it-is-drawn-on.md)), and
+no such class either
+([ADR-0008](../docs/adr/0008-buffered-exporter-and-encoder-protocol.md)). The
+guarantee it wanted written down is now `PerfettoTrackState`'s, which is what
+4.2 covers. `TestMetaDedupRaceClosed` still stands and says in its own
+docstring that the race closed by deletion. The number is kept rather than
+reused, so 4.4 stays 4.4.
 
 **4.4: `build_track_event` stops shadowing `type`.** Rename its first
 parameter to `event_type`. It is re-exported from `perfetto_format` and called
@@ -80,8 +85,8 @@ place. The mutation is currently harmless (its only caller passes a list it
 just built from `convert_to_trace_format`, so nothing else holds a reference)
 and a non-mutating rewrite means constructing fresh structs for every event in
 a combine run. It becomes worth doing the moment a caller shares the list;
-until then the honest fix is a docstring saying it mutates, which 4.2 and
-4.3's reasoning already argues for. Fold it into 4.2.
+until then the honest fix is a docstring saying it mutates, which 4.2's
+reasoning already argues for. Fold it into 4.2.
 
 **Not adopted at all:** importing `psutil` at the top of `encoder.py` and
 making it a hard dependency. Graceful degradation without `psutil` is a
@@ -100,7 +105,7 @@ documented, tested property: the `[cmdline]` extra in
 - **What makes a good test here:** for 4.1, assert the enum's values against
   the eleven current ranks *by name*, so the test fails if a member is
   renumbered. A test that reads the ranks out of the enum and compares them to
-  itself proves nothing. 4.2, 4.3 and 4.4 are covered by the existing suite
+  itself proves nothing. 4.2 and 4.4 are covered by the existing suite
   continuing to pass; do not add tests that assert a docstring exists.
 - **Prior art:** `tests/exporters/test_perfetto_format.py` for the rank
   assertions.

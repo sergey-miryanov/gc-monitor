@@ -74,6 +74,9 @@ class Slice(msgspec.Struct):
     through. The cost is that `combine` has to shift both ends, which is
     what makes this the one event whose timestamp is not called `ts`.
 
+    Not frozen, for the same reason: `combine` shifts those two ends in
+    place, and it holds every event of every capture when it does.
+
     The encoder expands this into the BEGIN/END pair the wire format has;
     Perfetto has no complete-slice event. See ADR-0024.
     """

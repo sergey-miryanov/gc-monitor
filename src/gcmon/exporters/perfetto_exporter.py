@@ -1,19 +1,29 @@
 """Perfetto binary protobuf exporter for GC monitoring data."""
 
+import threading
 from collections.abc import Callable, Set
 from pathlib import Path
 from typing import override
 
-from ._buffered_exporter import BufferedTraceExporter
+from ..model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
+from ..model.trace_event import Counter, Instant, ProcessTrack, TraceEvent
 from .encoder import Codec, ProtobufEventEncoder
+from .exporter import EventsExporter
+from .trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format
 
 __all__ = [
     "PerfettoExporter",
 ]
 
 
-class PerfettoExporter(BufferedTraceExporter):
-    """Exporter for Perfetto binary protobuf format."""
+class PerfettoExporter(EventsExporter):
+    """Buffer what the monitor reports as `TraceEvent`s, and write them as
+    a Perfetto trace.
+
+    One class and not a buffering base with a thin subclass on top: the
+    base existed to share this lifecycle with a second trace exporter, and
+    there is no second one. See ADR-0008.
+    """
 
     def __init__(
         self,
@@ -23,16 +33,45 @@ class PerfettoExporter(BufferedTraceExporter):
         sequence_id: int | None = None,
         codec: Codec | None = None,
     ) -> None:
-        encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider, sequence_id=sequence_id, codec=codec)
-        super().__init__(
-            encoder,
-            output_path,
-            flush_threshold,
-        )
-        # A second, typed handle to the same object the base holds as an
-        # ``EventEncoder``. Liveness is neither a ``TraceEvent`` nor
-        # bytes, so it is not on that protocol; see ADR-0011.
-        self._protobuf_encoder = encoder
+        super().__init__()
+        self._lock = threading.Lock()
+        self._io_lock = threading.Lock()
+        self._buffer: list[TraceEvent] = []
+        self._flush_threshold = flush_threshold
+        self._output_path = output_path
+        # Held at its own type rather than as an ``EventEncoder``, so that
+        # liveness -- which is neither a ``TraceEvent`` nor bytes, and so
+        # is not on that protocol -- needs no second handle. See ADR-0011.
+        self._encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider, sequence_id=sequence_id, codec=codec)
+        self._closed = False
+        self._encoder.open(output_path)
+
+    def _enqueue(self, events: list[TraceEvent]) -> None:
+        to_write: list[TraceEvent] = []
+        with self._lock:
+            self._buffer.extend(events)
+            if len(self._buffer) >= self._flush_threshold:
+                to_write = self._buffer[:]
+                self._buffer.clear()
+        if to_write:
+            with self._io_lock:
+                self._encoder.write_events(to_write)
+
+    @override
+    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+        self._enqueue(convert_item_to_trace_format(pid, item))
+
+    @override
+    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+        self._enqueue([Instant(ProcessTrack(pid), item.name, item.ts)])
+
+    @override
+    def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:
+        self._enqueue([Counter(ProcessTrack(pid), "rss", "rss", ts_ns, rss_bytes)])
+
+    @override
+    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+        self._enqueue(convert_loss_to_trace_format(pid, item))
 
     @override
     def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
@@ -47,4 +86,18 @@ class PerfettoExporter(BufferedTraceExporter):
         ``get_process_lifetimes``.
         """
         with self._io_lock:
-            self._protobuf_encoder.record_process_liveness(pids, ts_ns)
+            self._encoder.record_process_liveness(pids, ts_ns)
+
+    @override
+    def close(self) -> None:
+        """Drain the buffer and close the encoder."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            remaining = self._buffer[:]
+            self._buffer.clear()
+        with self._io_lock:
+            if remaining:
+                self._encoder.write_events(remaining)
+            self._encoder.close()

@@ -524,14 +524,14 @@ class TestProcessLivenessRoundTrip:
         exporter = PerfettoExporter(output_path=tmp_path / "trace.pb", flush_threshold=1)
         inside = threading.Event()
         release = threading.Event()
-        real_record = exporter._protobuf_encoder.record_process_liveness
+        real_record = exporter._encoder.record_process_liveness
 
         def _blocking_record(pids: AbstractSet[int], ts_ns: int) -> None:
             inside.set()
             assert release.wait(timeout=5.0)
             real_record(pids, ts_ns)
 
-        exporter._protobuf_encoder.record_process_liveness = _blocking_record  # type: ignore[method-assign]
+        exporter._encoder.record_process_liveness = _blocking_record  # type: ignore[method-assign]
 
         flushed = threading.Event()
 

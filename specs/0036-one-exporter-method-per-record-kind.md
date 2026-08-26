@@ -129,7 +129,7 @@ methods. One `add` means one block, with the record-shaping done by a `match`
 on the kind. 0029's extraction of a generic holder is no longer needed.
 
 **Carried from 0029, unchanged: the JSONL record shape does not change, and
-JSONL does not move onto `TraceEvent`.** `BufferedTraceExporter` buffers
+JSONL does not move onto `TraceEvent`.** `PerfettoExporter` buffers
 `TraceEvent`; `JsonlExporter` buffers `to_mapping(record)`, the raw record
 fields. Those are not two encodings of one thing. The JSONL schema is public,
 documented per-field in [docs/formats.md](../docs/formats.md#jsonl-output),
