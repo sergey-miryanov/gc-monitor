@@ -14,6 +14,7 @@ __all__ = [
     "Instant",
     "LossTrack",
     "ProcessTrack",
+    "Slice",
     "SliceBegin",
     "SliceEnd",
     "ThreadTrack",
@@ -61,6 +62,27 @@ type ArgGroup = dict[str, int | str]
 type EventArgs = dict[str, int | str | ArgGroup]
 
 
+class Slice(msgspec.Struct):
+    """One span on *track*, from *ts* for *dur* nanoseconds.
+
+    A duration rather than an end timestamp, because `combine` shifts every
+    event's `ts` to a common origin and a duration is invariant under that
+    shift. The encoder expands this into the BEGIN/END pair the wire format
+    has; Perfetto has no complete-slice event. See ADR-0024.
+    """
+
+    track: Track
+    name: str
+    cat: str
+    ts: int
+    dur: int
+    # The slice owns *args*: every caller builds the dict for this one event
+    # and drops it, so the event keeps it rather than copying it. A capture
+    # holds one of these per phase of every collection, and the copy was the
+    # largest single cost of converting one.
+    args: EventArgs
+
+
 class SliceBegin(msgspec.Struct):
     track: Track
     name: str
@@ -103,4 +125,4 @@ class Counter(msgspec.Struct):
     value: int | float
 
 
-type TraceEvent = SliceBegin | SliceEnd | Instant | Counter
+type TraceEvent = Slice | SliceBegin | SliceEnd | Instant | Counter

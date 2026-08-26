@@ -16,6 +16,7 @@ from ..model.trace_event import (
     Instant,
     LossTrack,
     ProcessTrack,
+    Slice,
     SliceBegin,
     SliceEnd,
     ThreadTrack,
@@ -385,7 +386,35 @@ def convert_trace_events_to_perfetto(
         pid = event.track.pid
         descriptors.extend(_emit_track_descriptors(event.track, state, sequence_id, ranks))
 
-        if isinstance(event, SliceBegin):
+        if isinstance(event, Slice):
+            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
+            track_uuid = state.get_track_uuid(event.track)
+            # An adjacent pair, not interleaved into stack order: the trace
+            # processor sorts by timestamp and builds the nesting itself.
+            # BEGIN first, so a zero-length slice reads as ``dur = 0`` rather
+            # than ``-1``. See ADR-0011 for the pattern and ADR-0024 for why
+            # an anonymous END does not need the naming ADR-0011 relies on.
+            packets.append(
+                build_trace_packet(
+                    sequence_id,
+                    timestamp=event.ts,
+                    track_event=_make_slice_begin(
+                        track_uuid,
+                        event.name,
+                        [event.cat],
+                        _args_to_debug_annotations(event.args),
+                    ),
+                )
+            )
+            packets.append(
+                build_trace_packet(
+                    sequence_id,
+                    timestamp=event.ts + event.dur,
+                    track_event=_make_slice_end(track_uuid),
+                )
+            )
+
+        elif isinstance(event, SliceBegin):
             _maybe_emit_start_process_marker(event, state, sequence_id, packets)
             annotations = _args_to_debug_annotations(event.args)
             packets.append(
