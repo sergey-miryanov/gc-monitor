@@ -64,7 +64,7 @@ module is neither.
 | [0001](0001-hand-rolled-perfetto-protobuf-encoder.md) | Hand-roll the Perfetto protobuf encoder; keep `perfetto` out of the runtime dependency tree |
 | [0002](0002-perfetto-track-uuid-and-hierarchy.md) | Allocate track UUIDs sequentially and parent every track explicitly |
 | [0003](0003-gc-metrics-group-track.md) | Parent per-generation counters to a non-OS-scoped `GC Metrics` group track |
-| [0004](0004-toplevel-shared-counters.md) | Emit `heap_size` and `rss` as single top-level counters, outside the `GC Metrics` group |
+| [0004](0004-toplevel-shared-counters.md) | Emit `heap_size` and `rss` as single top-level counters, outside the `GC Metrics` group (superseded by 0024) |
 | [0005](0005-counter-y-axis-share-key.md) | Use the metric name itself as `CounterDescriptor.y_axis_share_key` |
 | [0006](0006-begin-end-slice-pairs.md) | Represent durations as Begin/End pairs in both backends (superseded by 0024) |
 | [0007](0007-shared-trace-converter-pipeline.md) | Convert GC stats to `TraceEvent` once, in a shared pipeline |

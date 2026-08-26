@@ -41,7 +41,7 @@ test tells them the row is wrong before it reaches a trace.
    silently produce a sub-phase that never appears, so that the failure
    arrives in CI and not in a capture.
 3. As a maintainer reading `trace_converter`, I want the eight near-identical
-   begin/end blocks to be one loop, so that the one block that differs is
+   sub-phase blocks to be one loop, so that the one block that differs is
    visible instead of buried.
 4. As an operator comparing `--stats` against a Perfetto trace of the same
    run, I want the two to cover exactly the same set of sub-phases, so that a
@@ -70,7 +70,7 @@ shape:
 | `protocol` | eight per-phase `Protocol` classes and nine `has_*` TypeGuards |
 | `protocol.to_mapping` | seven `if has_*(item):` blocks assigning field by field |
 | `stats.METRICS` | nine `Metric` classes, each a name and a two-field getter |
-| `trace_converter.convert_item_to_trace_format` | eight near-identical begin/end blocks |
+| `trace_converter.convert_item_to_trace_format` | eight near-identical `Slice` blocks |
 | `jsonl_io.normalize_jsonl_timestamps` | eight `if has_*(item):` subtraction blocks |
 
 `data.GCStatsInfo` stays as it is: it is the msgspec decode target and its
@@ -115,10 +115,10 @@ caller that must distinguish it keeps doing so by key.
 for the optional fields and keeps its explicit list of the mandatory ones.
 `stats.METRICS` is derived from it and the nine `Metric` classes go: each is a
 name and a two-field getter, which is what a row already is.
-`convert_item_to_trace_format` becomes a loop emitting a begin/end pair per
+`convert_item_to_trace_format` becomes a loop emitting one `Slice` per
 present phase whose interval is non-empty, preserving today's
-`stop - start > 0` guard. `normalize_jsonl_timestamps` walks the start and
-stop field names.
+`stop - start > 0` guard, which now also fixes the slice's duration.
+`normalize_jsonl_timestamps` walks the start and stop field names.
 
 **4.4: The `has_*` guards and the per-phase `Protocol` classes go.** Once the
 table drives every consumer, nothing narrows to `TMarkAliveInfo` or its

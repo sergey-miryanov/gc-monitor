@@ -114,8 +114,14 @@ def loss_slices(items: Sequence[TItem]) -> dict[LossTrack, list[SliceRow]]:
     intervals, and an interval inside another one is the reading ADR-0015
     rules out.
 
-    The depth is 0 for that same reason -- a row that got past the assert
-    has nothing nested on it. It stays in the tuple so this lines up with
+    The walk is over the converter's output **in the order it emitted it**,
+    not over a sorted copy, so it also fails on a row emitted out of order.
+    The encoder expands a `Slice` in list order, so that is a defect too --
+    it is the one `_loss_in_time_order` exists to prevent, and sorting here
+    first would hide it.
+
+    The depth is 0 for that reason -- a row that got past the assert has
+    nothing nested on it. It stays in the tuple so this lines up with
     `_loss_row`, which reads a real trace processor and can report a 1.
     """
     events = convert_to_trace_format({PID: items})
@@ -126,12 +132,11 @@ def loss_slices(items: Sequence[TItem]) -> dict[LossTrack, list[SliceRow]]:
 
     resolved: dict[LossTrack, list[SliceRow]] = {}
     for row, spans in rows.items():
-        ordered = sorted(spans, key=lambda s: (s.ts, -s.dur))
-        for previous, span in pairwise(ordered):
+        for previous, span in pairwise(spans):
             assert span.ts >= previous.ts + previous.dur, (
                 f"{row}: {span.name!r} at {span.ts} opened inside {previous.name!r}"
             )
-        resolved[row] = [(s.name, s.ts, s.ts + s.dur, 0) for s in ordered]
+        resolved[row] = sorted(((s.name, s.ts, s.ts + s.dur, 0) for s in spans), key=lambda s: (s[1], -s[2]))
 
     return resolved
 

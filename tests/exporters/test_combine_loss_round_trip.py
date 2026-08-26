@@ -274,3 +274,15 @@ def test_a_shuffled_file_still_draws_a_flat_row(tmp_path: Path) -> None:
     with _combined(tmp_path, _shuffled_capture(tmp_path), "shuffled") as tp:
         assert _misplaced_ends(tp) == 0
         assert _loss_row(tp) == LIVE_ROW
+
+
+def test_the_converter_emits_a_shuffled_capture_in_time_order(tmp_path: Path) -> None:
+    """The same claim one level down, where it is cheap.
+
+    `loss_slices` walks the converter's output in emission order, so it fails
+    on a row emitted out of order as well as on one that overlaps. The test
+    above is what decides -- it asks the trace processor -- but it costs
+    seconds, and a sort that stopped working should not depend on a single
+    trace load to be noticed.
+    """
+    assert loss_slices(read_jsonl(_shuffled_capture(tmp_path))[PID])[LOSS_ROW] == LIVE_ROW
