@@ -66,7 +66,7 @@ module is neither.
 | [0003](0003-gc-metrics-group-track.md) | Parent per-generation counters to a non-OS-scoped `GC Metrics` group track |
 | [0004](0004-toplevel-shared-counters.md) | Emit `heap_size` and `rss` as single top-level counters, outside the `GC Metrics` group |
 | [0005](0005-counter-y-axis-share-key.md) | Use the metric name itself as `CounterDescriptor.y_axis_share_key` |
-| [0006](0006-begin-end-slice-pairs.md) | Represent durations as Begin/End pairs in both backends |
+| [0006](0006-begin-end-slice-pairs.md) | Represent durations as Begin/End pairs in both backends (superseded by 0024) |
 | [0007](0007-shared-trace-converter-pipeline.md) | Convert GC stats to `TraceEvent` once, in a shared pipeline |
 | [0008](0008-buffered-exporter-and-encoder-protocol.md) | Split exporters into a buffering base class and a pluggable `EventEncoder` |
 | [0009](0009-nanoseconds-canonical-time-unit.md) | Store `TraceEvent.ts` in nanoseconds; convert at the encoder |
@@ -92,11 +92,11 @@ ADRs 0001–0005 are about the Perfetto wire format and track layout, and build
 on each other in that order, and 0022 is about how those packets reach the
 file. 0006–0009 cover the internal event model, which one encoder now reads,
 and 0024 is what that model became once it had one reader: it supersedes 0004
-and amends 0007 and 0013. 0010–0013, 0015 and 0016 and 0018 are individual
-features, and 0021 is what became of 0012. 0014 explains how any of it is
-verified. 0017 and 0019 are about the monitoring loop rather than about what
-reaches a trace: 0017 divides per-pid state from the clock, and 0019 says what
-the loop does with that clock. 0023 is about the pyperf hook, which is an
+and 0006 and amends 0007 and 0013. 0010–0013, 0015 and 0016 and 0018 are
+individual features, and 0021 is what became of 0012. 0014 explains how any of
+it is verified. 0017 and 0019 are about the monitoring loop rather than about
+what reaches a trace: 0017 divides per-pid state from the clock, and 0019 says
+what the loop does with that clock. 0023 is about the pyperf hook, which is an
 entry point rather than a part of the loop.
 
 ---
