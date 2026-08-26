@@ -1,7 +1,4 @@
-"""JSONL file exporter for GC monitoring data.
-
-Exports GC events to a file in JSONL format (one JSON object per line).
-"""
+"""JSONL file exporter for GC monitoring data."""
 
 import json
 import threading
@@ -16,12 +13,10 @@ __all__ = ["JsonlExporter"]
 
 
 class JsonlExporter(EventsExporter):
-    """
-    Exporter that writes GC events to one JSON object per line.
+    """Write GC events as one JSON object per line.
 
-    Output goes to the destination provided by _open_writer() (file or stdout).
-    Events are buffered in memory and flushed when the buffer reaches
-    flush_threshold events.
+    ``StdoutExporter`` subclasses this and sends the same lines to stdout
+    by overriding ``_open_writer``.
     """
 
     def __init__(

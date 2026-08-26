@@ -137,11 +137,9 @@ class ProtobufEventEncoder:
         ``Processes``-track span accumulator: *pids* are the processes
         gcmon read GC state out of at *ts_ns*.
 
-        Kept off the ``EventEncoder`` protocol, since a liveness
-        observation is neither a ``TraceEvent`` nor bytes. The caller is
-        ``PerfettoExporter``, which holds a typed handle to this class;
-        see ADR-0011. Writes nothing: the observations reach the file at
-        ``close()``.
+        Kept off the ``EventEncoder`` protocol: a liveness observation is
+        neither a ``TraceEvent`` nor bytes. See ADR-0011. Writes nothing;
+        the observations reach the file at ``close()``.
         """
         for pid in pids:
             self._track_state.update_process_lifetime(pid, ts_ns)

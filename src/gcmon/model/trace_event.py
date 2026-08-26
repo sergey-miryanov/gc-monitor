@@ -69,16 +69,13 @@ type EventArgs = dict[str, int | str | ArgGroup]
 class Slice(msgspec.Struct):
     """One span on *track*, between two absolute timestamps.
 
-    The pair a record already carries, rather than a start and a duration:
-    every producer has `ts_start` and `ts_stop` in hand and passes them
-    through. The cost is that `combine` has to shift both ends, which is
-    what makes this the one event whose timestamp is not called `ts`.
+    Two absolute timestamps rather than a start and a duration, which
+    makes this the one event whose timestamp is not called `ts`. See
+    ADR-0024, which also covers the encoder expanding this into the
+    BEGIN/END pair the wire format has.
 
-    Not frozen, for the same reason: `combine` shifts those two ends in
-    place, and it holds every event of every capture when it does.
-
-    The encoder expands this into the BEGIN/END pair the wire format has;
-    Perfetto has no complete-slice event. See ADR-0024.
+    Not frozen: `combine` shifts both ends in place, and it holds every
+    event of every capture when it does.
     """
 
     track: Track

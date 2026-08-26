@@ -459,9 +459,8 @@ def _maybe_emit_start_process_marker(
     """Place *pid*'s ``Start Process`` marker at *ts*, if it has not gone
     out yet.
 
-    Takes the timestamp rather than the event, since a `Slice` keeps its
-    in `ts_start` and the other two in `ts`, and the caller is already
-    inside the branch that knows which.
+    Takes the timestamp rather than the event: a `Slice` keeps its in
+    `ts_start` and the other two in `ts`.
 
     The process track is described by the time this runs whatever the
     event: the caller emits its track descriptors first.

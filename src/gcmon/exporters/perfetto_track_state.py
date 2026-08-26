@@ -100,10 +100,9 @@ class PerfettoTrackState:
         over every piece of evidence that gcmon saw the process.
 
         Evidence is any event, counters included, *or* a liveness
-        observation from the monitor loop. No event-kind exception: the
-        counter carve-out went out with monitor-reported liveness, since
-        an RSS sample is evidence the process existed just as a GC event
-        is. See ADR-0011.
+        observation from the monitor loop. No event-kind exception: an
+        RSS sample is evidence the process existed just as a GC event is.
+        See ADR-0011.
         """
         start_ts = self._process_lifetime_start.get(pid)
         if start_ts is None or ts < start_ts:
@@ -119,8 +118,7 @@ class PerfettoTrackState:
         """Return ``[(pid, start_ts, end_ts), ...]`` for every pid with a
         recorded span.
 
-        Since ``update_process_lifetime`` became a plain min/max the two
-        dicts always carry identical key sets, so this is every pid ever
+        The two dicts carry identical key sets, so this is every pid ever
         folded in -- including one known only from liveness.
         """
         return [(pid, self._process_lifetime_start[pid], end) for pid, end in self._process_lifetime_end.items()]

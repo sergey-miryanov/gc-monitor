@@ -20,9 +20,8 @@ class PerfettoExporter(EventsExporter):
     """Buffer what the monitor reports as `TraceEvent`s, and write them as
     a Perfetto trace.
 
-    One class and not a buffering base with a thin subclass on top: the
-    base existed to share this lifecycle with a second trace exporter, and
-    there is no second one. See ADR-0008.
+    One class rather than a buffering base and a subclass on top; see
+    ADR-0008.
     """
 
     def __init__(
@@ -39,9 +38,8 @@ class PerfettoExporter(EventsExporter):
         self._buffer: list[TraceEvent] = []
         self._flush_threshold = flush_threshold
         self._output_path = output_path
-        # Held at its own type rather than as an ``EventEncoder``, so that
-        # liveness -- which is neither a ``TraceEvent`` nor bytes, and so
-        # is not on that protocol -- needs no second handle. See ADR-0011.
+        # Held at its own type: ``record_process_liveness`` is not on the
+        # ``EventEncoder`` protocol. See ADR-0011.
         self._encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider, sequence_id=sequence_id, codec=codec)
         self._closed = False
         self._encoder.open(output_path)
