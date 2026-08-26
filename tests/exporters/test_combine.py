@@ -22,8 +22,6 @@ from gcmon.model.trace_event import (
     LossTrack,
     ProcessTrack,
     Slice,
-    SliceBegin,
-    SliceEnd,
     ThreadTrack,
     TraceEvent,
 )
@@ -78,7 +76,7 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = SliceBegin(ThreadTrack(1, 1), name="e1", cat="c", ts=5_000_000, args=args)
+        e1 = Slice(ThreadTrack(1, 1), name="e1", cat="c", ts=5_000_000, dur=1_000, args=args)
         e2 = Counter(
             ThreadTrack(1, 1),
             metric="collected",
@@ -101,7 +99,7 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = SliceBegin(ThreadTrack(1, 1), name="e1", cat="c", ts=1_000_000, args=args)
+        e1 = Slice(ThreadTrack(1, 1), name="e1", cat="c", ts=1_000_000, dur=1_000, args=args)
         events: list[TraceEvent] = [e1]
         _normalize_trace_timestamps(events)
         assert e1.ts == 0
@@ -121,10 +119,10 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = SliceBegin(ThreadTrack(1, 1), name="e1", cat="c", ts=10_000_000, args=args)
-        e2 = SliceBegin(ThreadTrack(1, 1), name="e2", cat="c", ts=12_000_000, args=args)
-        e3 = SliceBegin(ThreadTrack(2, 1), name="e3", cat="c", ts=5_000_000, args=args)
-        e4 = SliceBegin(ThreadTrack(2, 1), name="e4", cat="c", ts=7_000_000, args=args)
+        e1 = Slice(ThreadTrack(1, 1), name="e1", cat="c", ts=10_000_000, dur=1_000, args=args)
+        e2 = Slice(ThreadTrack(1, 1), name="e2", cat="c", ts=12_000_000, dur=1_000, args=args)
+        e3 = Slice(ThreadTrack(2, 1), name="e3", cat="c", ts=5_000_000, dur=1_000, args=args)
+        e4 = Slice(ThreadTrack(2, 1), name="e4", cat="c", ts=7_000_000, dur=1_000, args=args)
         events: list[TraceEvent] = [e1, e2, e3, e4]
         _normalize_trace_timestamps(events)
         assert e1.ts == 0  # pid=1: 10_000_000 - 10_000_000
@@ -136,20 +134,19 @@ class TestNormalizeTraceTimestamps:
         """Every member of the union carries a `ts`, so the normalizer picks
         no kinds out. It used to select them by `ph`, and a fifth kind added
         later would have been left behind holding raw timestamps."""
-        pause = SliceBegin(ThreadTrack(1, 0), name="GC Pause(0)", cat="gc", ts=8_000, args={})
-        close = SliceEnd(ThreadTrack(1, 0), ts=9_000)
+        pause = Slice(ThreadTrack(1, 0), name="GC Pause(0)", cat="gc", ts=8_000, dur=1_000, args={})
         counter = Counter(ThreadTrack(1, 0), metric="collected", display_name="G0 collected", ts=8_000, value=1)
         rss = Counter(ProcessTrack(1), metric="rss", display_name="rss", ts=6_000, value=4096)
         mark = Instant(ProcessTrack(1), name="benchmark", ts=5_000)
-        loss_begin = SliceBegin(LossTrack(1, 0), name="GC Loss(0)", cat="gc.loss", ts=5_000, args={})
-        loss_end = SliceEnd(LossTrack(1, 0), ts=7_000)
-        span = Slice(LossTrack(1, 0), name="GC Loss(1)", cat="gc.loss", ts=6_000, dur=1_500, args={})
-        events: list[TraceEvent] = [pause, close, counter, rss, mark, loss_begin, loss_end, span]
+        loss = Slice(LossTrack(1, 0), name="GC Loss(0)", cat="gc.loss", ts=5_000, dur=2_000, args={})
+        events: list[TraceEvent] = [pause, counter, rss, mark, loss]
 
         _normalize_trace_timestamps(events)
 
-        assert [e.ts for e in events] == [3_000, 4_000, 3_000, 1_000, 0, 0, 2_000, 1_000]
-        assert span.dur == 1_500, "a duration is invariant under the shift, which is why a `Slice` carries one"
+        assert [e.ts for e in events] == [3_000, 3_000, 1_000, 0, 0]
+        assert (pause.dur, loss.dur) == (1_000, 2_000), (
+            "a duration is invariant under the shift, which is why a `Slice` carries one"
+        )
 
     def test_negative_timestamps(self) -> None:
         args: EventArgs = {
@@ -161,8 +158,8 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = SliceBegin(ThreadTrack(1, 1), name="e1", cat="c", ts=-100, args=args)
-        e2 = SliceBegin(ThreadTrack(1, 1), name="e2", cat="c", ts=-500, args=args)
+        e1 = Slice(ThreadTrack(1, 1), name="e1", cat="c", ts=-100, dur=1_000, args=args)
+        e2 = Slice(ThreadTrack(1, 1), name="e2", cat="c", ts=-500, dur=1_000, args=args)
         events: list[TraceEvent] = [e1, e2]
         _normalize_trace_timestamps(events)
         assert e1.ts == 400  # -100 - (-500)

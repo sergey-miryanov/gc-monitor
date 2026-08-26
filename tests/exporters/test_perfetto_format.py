@@ -878,7 +878,7 @@ class TestConvertInstantToPerfettoPacket:
 
 
 class TestAnInstantCanCarryArgs:
-    """An `Instant` carries debug annotations the way a `SliceBegin` does.
+    """An `Instant` carries debug annotations the way a `Slice` does.
 
     Nothing fills the field yet: a `TInstantMsg` is a type, a name and a `ts`,
     so neither the live path nor `combine` has anything to put there. The

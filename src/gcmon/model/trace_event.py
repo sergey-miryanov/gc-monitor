@@ -15,8 +15,6 @@ __all__ = [
     "LossTrack",
     "ProcessTrack",
     "Slice",
-    "SliceBegin",
-    "SliceEnd",
     "ThreadTrack",
     "TraceEvent",
     "Track",
@@ -83,29 +81,6 @@ class Slice(msgspec.Struct):
     args: EventArgs
 
 
-class SliceBegin(msgspec.Struct):
-    track: Track
-    name: str
-    cat: str
-    ts: int
-    # The slice owns *args*: every caller builds the dict for this one event
-    # and drops it, so the event keeps it rather than copying it. A capture
-    # holds one of these per phase of every collection, and the copy was the
-    # largest single cost of converting one.
-    args: EventArgs
-
-
-class SliceEnd(msgspec.Struct):
-    """Closes the slice open on *track*.
-
-    Carries no name: the encoder closes a slice with the track uuid alone,
-    and a trace processor pairs an END with the BEGIN below it on the row.
-    """
-
-    track: Track
-    ts: int
-
-
 class Instant(msgspec.Struct):
     track: ProcessTrack
     name: str
@@ -125,4 +100,4 @@ class Counter(msgspec.Struct):
     value: int | float
 
 
-type TraceEvent = Slice | SliceBegin | SliceEnd | Instant | Counter
+type TraceEvent = Slice | Instant | Counter

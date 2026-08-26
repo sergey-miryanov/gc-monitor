@@ -964,7 +964,7 @@ class TestProcessesTrack:
         # then a GC item at _TS_START / _TS_START + dur, then a second
         # item etc. The first non-meta event for each pid is the
         # instant event. The last non-counter non-meta event for each
-        # pid is the SliceEnd of the last GC item.
+        # pid is the end of the last GC item's pause.
         #
         # We compare against SQL: take the min(ts) and max(ts) of all
         # Begin/End/Instant events for the pid (joined through
@@ -1306,7 +1306,7 @@ class TestMultiFlushProcessesTrack:
             slice_ts = rows[0].ts
             slice_dur = rows[0].dur
             slice_end = slice_ts + slice_dur
-            # Expected end: the SliceEnd of the last GC item.
+            # Expected end: the end of the last GC item's pause.
             expected_end = 1_000_000 * n_items + 50_000
             assert slice_end == expected_end, (
                 f"slice end mismatch: got {slice_end}, expected "

@@ -17,8 +17,6 @@ from ..model.trace_event import (
     LossTrack,
     ProcessTrack,
     Slice,
-    SliceBegin,
-    SliceEnd,
     ThreadTrack,
     TraceEvent,
     Track,
@@ -411,32 +409,6 @@ def convert_trace_events_to_perfetto(
                     sequence_id,
                     timestamp=event.ts + event.dur,
                     track_event=_make_slice_end(track_uuid),
-                )
-            )
-
-        elif isinstance(event, SliceBegin):
-            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            annotations = _args_to_debug_annotations(event.args)
-            packets.append(
-                build_trace_packet(
-                    sequence_id,
-                    timestamp=event.ts,
-                    track_event=_make_slice_begin(
-                        state.get_track_uuid(event.track),
-                        event.name,
-                        [event.cat],
-                        annotations,
-                    ),
-                )
-            )
-
-        elif isinstance(event, SliceEnd):
-            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
-            packets.append(
-                build_trace_packet(
-                    sequence_id,
-                    timestamp=event.ts,
-                    track_event=_make_slice_end(state.get_track_uuid(event.track)),
                 )
             )
 
