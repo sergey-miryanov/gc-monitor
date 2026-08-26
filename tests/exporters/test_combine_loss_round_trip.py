@@ -38,7 +38,7 @@ from tests.exporters.loss_row import (
     IID,
     PID,
     POLL_TIMES,
-    Slice,
+    SliceRow,
     ingest,
     loss_slices,
     three_generations,
@@ -47,7 +47,7 @@ from tests.helpers import create_mock_loss_item, open_trace_processor
 
 LOSS_ROW = LossTrack(PID, IID)
 
-LIVE_ROW: list[Slice] = [
+LIVE_ROW: list[SliceRow] = [
     ("GC Loss(0,1,2)", 1_000_000, 10_000_000, 0),
     ("GC Loss(0,1,2)", 10_000_000, 20_000_000, 0),
 ]
@@ -75,7 +75,7 @@ def _combined(tmp_path: Path, source: Path, name: str = "combined") -> Iterator[
         yield tp
 
 
-def _loss_row(tp: TraceProcessor) -> list[Slice]:
+def _loss_row(tp: TraceProcessor) -> list[SliceRow]:
     """Every slice on the loss track, as `(name, ts_start, ts_stop, depth)`.
 
     A span opened while another is still open lands at depth 1 here, and

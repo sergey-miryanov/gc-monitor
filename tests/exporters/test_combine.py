@@ -21,6 +21,7 @@ from gcmon.model.trace_event import (
     Instant,
     LossTrack,
     ProcessTrack,
+    Slice,
     SliceBegin,
     SliceEnd,
     ThreadTrack,
@@ -142,11 +143,13 @@ class TestNormalizeTraceTimestamps:
         mark = Instant(ProcessTrack(1), name="benchmark", ts=5_000)
         loss_begin = SliceBegin(LossTrack(1, 0), name="GC Loss(0)", cat="gc.loss", ts=5_000, args={})
         loss_end = SliceEnd(LossTrack(1, 0), ts=7_000)
-        events: list[TraceEvent] = [pause, close, counter, rss, mark, loss_begin, loss_end]
+        span = Slice(LossTrack(1, 0), name="GC Loss(1)", cat="gc.loss", ts=6_000, dur=1_500, args={})
+        events: list[TraceEvent] = [pause, close, counter, rss, mark, loss_begin, loss_end, span]
 
         _normalize_trace_timestamps(events)
 
-        assert [e.ts for e in events] == [3_000, 4_000, 3_000, 1_000, 0, 0, 2_000]
+        assert [e.ts for e in events] == [3_000, 4_000, 3_000, 1_000, 0, 0, 2_000, 1_000]
+        assert span.dur == 1_500, "a duration is invariant under the shift, which is why a `Slice` carries one"
 
     def test_negative_timestamps(self) -> None:
         args: EventArgs = {
@@ -304,7 +307,7 @@ class TestJsonlLossRoundTrip:
         path = tmp_path / "loss.jsonl"
         write_jsonl(path, {42: [self._msg(lost_from=413, lost_count=19)]})
 
-        args = [e.args for e in convert_jsonl_to_trace_format(path) if isinstance(e, SliceBegin)]
+        args = [e.args for e in convert_jsonl_to_trace_format(path) if isinstance(e, Slice)]
 
         assert [a["gen0"]["lost_collections"] for a in args] == ["413..431"]  # type: ignore[index]
 

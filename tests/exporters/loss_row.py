@@ -1,17 +1,17 @@
 """A lossy run, and the loss row a trace processor would build from it.
 
 Helpers, not tests. `ingest` polls a real `EventsMonitor` on a fixed clock and
-returns what it exported; `loss_slices` walks the shared converter's output the
-way a trace processor walks a track, as a stack.
+returns what it exported; `loss_slices` reads the row off the shared
+converter's output.
 
-The walk is the instrument the assertions rest on. Slices on one Perfetto track
-are a stack, so an END closes the most recently opened slice, and a row whose
-spans overlap **still parses and still renders**: ADR-0015 records that the
-trace processor reports ``misplaced_end_event = 0`` and reads a crossing span
-as nested. Resolving the row here is what makes the shape visible at all.
+Reading it is the instrument the assertions rest on, because nothing downstream
+rejects a row whose spans overlap: it **still parses and still renders**, and
+ADR-0015 records that the trace processor reports ``misplaced_end_event = 0``
+and reads a crossing span as nested. Something has to go looking for the shape.
 """
 
 from collections.abc import Iterator, Sequence
+from itertools import pairwise
 from typing import override
 from unittest.mock import patch
 
@@ -20,7 +20,7 @@ from gcmon.exporters.trace_converter import convert_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.poll_status import PollStatus
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TItem, TLossMsg
-from gcmon.model.trace_event import LossTrack, SliceBegin, SliceEnd
+from gcmon.model.trace_event import LossTrack, Slice
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
@@ -34,8 +34,12 @@ IID = 0
 # these, so pinning them is what lets a test name a timestamp at all.
 POLL_TIMES = [1_000_000, 10_000_000, 20_000_000, 30_000_000]
 
-Slice = tuple[str, int, int, int]
-"""``(name, ts_start, ts_stop, depth)``."""
+SliceRow = tuple[str, int, int, int]
+"""``(name, ts_start, ts_stop, depth)``.
+
+Named apart from the `Slice` the converter emits, which this is resolved from
+and `_loss_row` in `test_combine_loss_round_trip` is not.
+"""
 
 
 class Recorder(EventsExporter):
@@ -99,42 +103,35 @@ def ingest(*batches: Sequence[GCStatsInfo]) -> list[TItem]:
     return recorder.items
 
 
-def loss_slices(items: Sequence[TItem]) -> dict[LossTrack, list[Slice]]:
-    """Every loss row's slices, resolved the way a trace processor resolves
-    them.
+def loss_slices(items: Sequence[TItem]) -> dict[LossTrack, list[SliceRow]]:
+    """Every loss row's slices, in the order the row draws them.
 
-    Groups the converter's BEGIN/END events by loss track, sorts each row
-    by timestamp (**stably**, so events sharing one timestamp keep the order
-    they were emitted in, which is what a trace processor does with them) and
-    walks it as a stack.
+    Fails if a span opens while another is still open. That used to take a
+    stack walk, because an END carried no name and pairing it with a BEGIN
+    was the only way to know how wide a span was; a `Slice` carries its own
+    width, so the overlap is visible in the data. Same defect, and it is
+    still the one being designed out: the row claims a sequence of
+    intervals, and an interval inside another one is the reading ADR-0015
+    rules out.
 
-    Fails if a span opens while another is still open. An END carries no name
-    of its own -- a trace processor closes whatever sits below it on the row --
-    so the stack is the only thing pairing them, and flatness is what makes
-    that pairing right. It is the property anyway: the row claims a sequence
-    of intervals, and an interval inside another one is the reading being
-    designed out.
+    The depth is 0 for that same reason -- a row that got past the assert
+    has nothing nested on it. It stays in the tuple so this lines up with
+    `_loss_row`, which reads a real trace processor and can report a 1.
     """
     events = convert_to_trace_format({PID: items})
-    rows: dict[LossTrack, list[SliceBegin | SliceEnd]] = {}
+    rows: dict[LossTrack, list[Slice]] = {}
     for event in events:
-        if isinstance(event, SliceBegin | SliceEnd) and isinstance(event.track, LossTrack):
+        if isinstance(event, Slice) and isinstance(event.track, LossTrack):
             rows.setdefault(event.track, []).append(event)
 
-    resolved: dict[LossTrack, list[Slice]] = {}
-    for row, row_events in rows.items():
-        stack: list[tuple[str, int]] = []
-        slices: list[Slice] = []
-        for event in sorted(row_events, key=lambda e: e.ts):
-            if isinstance(event, SliceBegin):
-                assert not stack, f"{row}: {event.name!r} at {event.ts} opened inside {stack[-1][0]!r}"
-                stack.append((event.name, event.ts))
-                continue
-            assert stack, f"{row}: an END at {event.ts} with nothing open"
-            name, ts_start = stack.pop()
-            slices.append((name, ts_start, event.ts, 0))
-        assert not stack, f"{row}: {[name for name, _ts in stack]} left open"
-        resolved[row] = sorted(slices, key=lambda s: (s[1], -s[2]))
+    resolved: dict[LossTrack, list[SliceRow]] = {}
+    for row, spans in rows.items():
+        ordered = sorted(spans, key=lambda s: (s.ts, -s.dur))
+        for previous, span in pairwise(ordered):
+            assert span.ts >= previous.ts + previous.dur, (
+                f"{row}: {span.name!r} at {span.ts} opened inside {previous.name!r}"
+            )
+        resolved[row] = [(s.name, s.ts, s.ts + s.dur, 0) for s in ordered]
 
     return resolved
 

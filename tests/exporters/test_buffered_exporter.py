@@ -17,8 +17,7 @@ from gcmon.model.trace_event import (
     Counter,
     LossTrack,
     ProcessTrack,
-    SliceBegin,
-    SliceEnd,
+    Slice,
     ThreadTrack,
 )
 from tests.data_helpers import create_instant_msg
@@ -144,10 +143,8 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=0, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
         )
 
-        begin = next(e for e in exporter._buffer if isinstance(e, SliceBegin))
-        end = next(e for e in exporter._buffer if isinstance(e, SliceEnd))
-        assert (begin.name, begin.ts) == ("GC Loss(0)", 1_000)
-        assert end.ts == 2_000
+        span = next(e for e in exporter._buffer if isinstance(e, Slice))
+        assert (span.name, span.ts, span.dur) == ("GC Loss(0)", 1_000, 1_000)
 
     def test_it_lands_on_the_loss_track(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
@@ -156,7 +153,7 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
         )
 
-        assert {e.track for e in exporter._buffer if isinstance(e, SliceBegin)} == {LossTrack(100, 1)}
+        assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {LossTrack(100, 1)}
 
     def test_it_does_not_share_the_track_with_gc_slices(self, tmp_path: Path) -> None:
         """One interpreter, two rows: a reconstructed span is easier to find
@@ -168,7 +165,7 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        assert {e.track for e in exporter._buffer if isinstance(e, SliceBegin)} == {
+        assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {
             ThreadTrack(100, 0),
             LossTrack(100, 0),
         }
@@ -194,7 +191,7 @@ class TestAddLossEvent:
             100, create_mock_loss_item(iid=1, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        assert {e.track for e in exporter._buffer if isinstance(e, SliceBegin)} == {
+        assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {
             LossTrack(100, 0),
             LossTrack(100, 1),
         }
@@ -211,6 +208,6 @@ class TestAddLossEvent:
         )
 
         rss = next(e for e in exporter._buffer if isinstance(e, Counter))
-        loss = next(e for e in exporter._buffer if isinstance(e, SliceBegin))
+        loss = next(e for e in exporter._buffer if isinstance(e, Slice))
         assert rss.track == ProcessTrack(100)
         assert loss.track == LossTrack(100, 0)

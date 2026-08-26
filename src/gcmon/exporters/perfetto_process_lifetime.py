@@ -3,7 +3,7 @@
 One BEGIN/END pair per pid on one shared track. See ADR-0011.
 """
 
-from ..model.trace_event import TraceEvent
+from ..model.trace_event import Slice, TraceEvent
 from .perfetto_builders import (
     _build_debug_annotation_int,
     _build_debug_annotation_string,
@@ -99,9 +99,13 @@ def _record_process_lifetime(
 
     Every event widens the span in both directions, counters included: a
     timestamped event is evidence the process existed at that instant,
-    whatever kind it is. Emits nothing: spans become packets at close.
+    whatever kind it is. A slice is evidence at both its ends, so it is
+    folded in twice. Emits nothing: spans become packets at close.
     """
-    state.update_process_lifetime(event.track.pid, event.ts)
+    pid = event.track.pid
+    state.update_process_lifetime(pid, event.ts)
+    if isinstance(event, Slice):
+        state.update_process_lifetime(pid, event.ts + event.dur)
 
 
 def _clip_spans_to_laminar(

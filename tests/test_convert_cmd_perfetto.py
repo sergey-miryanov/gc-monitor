@@ -22,7 +22,7 @@ from perfetto.trace_processor import TraceProcessor
 
 from gcmon.exporters.jsonl_io import read_jsonl
 from gcmon.exporters.trace_converter import convert_to_trace_format
-from gcmon.model.trace_event import SliceBegin, SliceEnd, TraceEvent, Track
+from gcmon.model.trace_event import Slice, TraceEvent
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item, open_trace_processor
 
 
@@ -298,21 +298,13 @@ _Slice = tuple[str, int, tuple[tuple[str, object], ...]]
 def _slices_from_events(events: Sequence[TraceEvent]) -> list[_Slice]:
     """Every slice the events describe: name, duration in nanoseconds, args.
 
-    Begin and end events arrive properly nested per track -- a sub-step
-    closes before the pause containing it -- so one stack per track pairs
-    them, the way the trace processor pairs them off the wire.
+    A `Slice` states its own duration, so this is a read rather than a
+    walk. What the walk it replaced could also check -- that no slice was
+    left open -- is not a thing the converter can now get wrong.
     """
-    open_slices: dict[Track, list[SliceBegin]] = {}
-    drawn: list[_Slice] = []
-    for event in events:
-        if isinstance(event, SliceBegin):
-            open_slices.setdefault(event.track, []).append(event)
-        elif isinstance(event, SliceEnd):
-            begin = open_slices[event.track].pop()
-            drawn.append((begin.name, event.ts - begin.ts, tuple(sorted(begin.args.items()))))
-    unclosed = [b.name for stack in open_slices.values() for b in stack]
-    assert not unclosed, f"slices left open by the converter: {unclosed}"
-    return sorted(drawn)
+    return sorted(
+        (event.name, event.dur, tuple(sorted(event.args.items()))) for event in events if isinstance(event, Slice)
+    )
 
 
 def _slices_from_trace(tp: TraceProcessor) -> list[_Slice]:

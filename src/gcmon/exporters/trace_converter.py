@@ -26,8 +26,7 @@ from ..model.trace_event import (
     Instant,
     LossTrack,
     ProcessTrack,
-    SliceBegin,
-    SliceEnd,
+    Slice,
     ThreadTrack,
     TraceEvent,
 )
@@ -80,12 +79,15 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         pause_data["clear_weakrefs_count"] = item.clear_weakrefs_count
 
     events: list[TraceEvent] = []
+    # Ahead of the sub-phases nested inside it, so its BEGIN wins the tie
+    # against a sub-phase starting where the pause does. See ADR-0024.
     events.append(
-        SliceBegin(
+        Slice(
             track,
             f"GC Pause({gen})",
             f"gc.pause(gen={gen})",
             ts_start_ns,
+            ts_stop_ns - ts_start_ns,
             pause_data,
         )
     )
@@ -93,108 +95,106 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
     if has_mark_alive(item) and item.ts_mark_alive_stop - item.ts_mark_alive_start > 0:
         inc_data: EventArgs = {"generation": gen, "iid": iid, "alive_size": item.alive_size}
         events.append(
-            SliceBegin(
+            Slice(
                 track,
                 f"Mark Alive({gen})",
                 f"gc.mark.alive(gen={gen})",
                 item.ts_mark_alive_start,
+                item.ts_mark_alive_stop - item.ts_mark_alive_start,
                 inc_data,
             )
         )
-        events.append(SliceEnd(track, item.ts_mark_alive_stop))
 
     if has_incremental(item) and item.ts_fill_increment_stop - item.ts_fill_increment_start > 0:
         inc_data = {"generation": gen, "iid": iid, "increment_size": item.increment_size}
         events.append(
-            SliceBegin(
+            Slice(
                 track,
                 f"Fill increment({gen})",
                 f"gc.increment(gen={gen})",
                 item.ts_fill_increment_start,
+                item.ts_fill_increment_stop - item.ts_fill_increment_start,
                 inc_data,
             )
         )
-        events.append(SliceEnd(track, item.ts_fill_increment_stop))
 
     if has_deduce_unreachable(item) and item.ts_deduce_unreachable_stop - item.ts_deduce_unreachable_start > 0:
         inc_data = {"generation": gen, "iid": iid, "candidates": item.candidates}
         events.append(
-            SliceBegin(
+            Slice(
                 track,
                 f"Deduce Unreachable({gen})",
                 f"gc.deduce(gen={gen})",
                 item.ts_deduce_unreachable_start,
+                item.ts_deduce_unreachable_stop - item.ts_deduce_unreachable_start,
                 inc_data,
             )
         )
-        events.append(SliceEnd(track, item.ts_deduce_unreachable_stop))
 
     if has_handle_weakrefs(item) and item.ts_handle_weakref_callbacks_stop - item.ts_handle_weakref_callbacks_start > 0:
         inc_data = {"generation": gen, "iid": iid}
         events.append(
-            SliceBegin(
+            Slice(
                 track,
                 f"Handle Weakrefs Callbacks({gen})",
                 f"gc.weakrefs(gen={gen})",
                 item.ts_handle_weakref_callbacks_start,
+                item.ts_handle_weakref_callbacks_stop - item.ts_handle_weakref_callbacks_start,
                 inc_data,
             )
         )
-        events.append(SliceEnd(track, item.ts_handle_weakref_callbacks_stop))
 
     if has_finalize_garbage(item) and item.ts_finalize_garbage_stop - item.ts_handle_weakref_callbacks_stop > 0:
         inc_data = {"generation": gen, "iid": iid, "finalized_garbage_count": item.finalized_garbage_count}
         events.append(
-            SliceBegin(
+            Slice(
                 track,
                 f"Finalize Garbage({gen})",
                 f"gc.finalize(gen={gen})",
                 item.ts_handle_weakref_callbacks_stop,
+                item.ts_finalize_garbage_stop - item.ts_handle_weakref_callbacks_stop,
                 inc_data,
             )
         )
-        events.append(SliceEnd(track, item.ts_finalize_garbage_stop))
 
     if has_handle_resurrected(item) and item.ts_handle_resurrected_stop - item.ts_finalize_garbage_stop > 0:
         inc_data = {"generation": gen, "iid": iid}
         events.append(
-            SliceBegin(
+            Slice(
                 track,
                 f"Handle Resurrected({gen})",
                 f"gc.resurrect(gen={gen})",
                 item.ts_finalize_garbage_stop,
+                item.ts_handle_resurrected_stop - item.ts_finalize_garbage_stop,
                 inc_data,
             )
         )
-        events.append(SliceEnd(track, item.ts_handle_resurrected_stop))
 
     if has_clear_weakrefs(item) and item.ts_clear_weakrefs_stop - item.ts_handle_resurrected_stop > 0:
         inc_data = {"generation": gen, "iid": iid, "clear_weakrefs_count": item.clear_weakrefs_count}
         events.append(
-            SliceBegin(
+            Slice(
                 track,
                 f"Clear Weakrefs({gen})",
                 f"gc.clear_weakrefs(gen={gen})",
                 item.ts_handle_resurrected_stop,
+                item.ts_clear_weakrefs_stop - item.ts_handle_resurrected_stop,
                 inc_data,
             )
         )
-        events.append(SliceEnd(track, item.ts_clear_weakrefs_stop))
 
     if has_delete_garbage(item) and item.ts_delete_garbage_stop - item.ts_delete_garbage_start > 0:
         inc_data = {"generation": gen, "iid": iid, "deleted_garbage_count": item.deleted_garbage_count}
         events.append(
-            SliceBegin(
+            Slice(
                 track,
                 f"Delete Garbage({gen})",
                 f"gc.delete(gen={gen})",
                 item.ts_delete_garbage_start,
+                item.ts_delete_garbage_stop - item.ts_delete_garbage_start,
                 inc_data,
             )
         )
-        events.append(SliceEnd(track, item.ts_delete_garbage_stop))
-
-    events.append(SliceEnd(track, ts_stop_ns))
 
     events.extend(
         Counter(track, metric, f"G{gen} {metric}", ts_start_ns, value) for metric, value in counter_data.items()
@@ -326,20 +326,19 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     for gen in item.gens:
         args[f"gen{gen.gen}"] = _gen_loss_args(gen)
 
-    return [
-        SliceBegin(track, name, category, item.ts_start, args),
-        SliceEnd(track, item.ts_stop),
-    ]
+    return [Slice(track, name, category, item.ts_start, item.ts_stop - item.ts_start, args)]
 
 
 def _loss_in_time_order(items: Sequence[TItem]) -> Sequence[TItem]:
     """*items* with its loss records in time order, everything else in place.
 
-    Load-bearing rather than tidy. Consecutive intervals touch, so one span's
-    END shares a timestamp with the next one's BEGIN, and a trace processor
-    sorting by timestamp leaves those two in the order they were emitted; the
-    wrong way round they read as nested. `_ingest` emits them in order, but a
-    capture read back from JSONL carries that only in its line order.
+    Load-bearing rather than tidy. The encoder expands a `Slice` into its
+    BEGIN/END pair in list order, and consecutive intervals touch, so one
+    span's END shares a timestamp with the next one's BEGIN. A trace
+    processor leaves two events sharing a timestamp in the order they were
+    emitted, and the wrong way round they read as nested rather than as a
+    sequence. `_ingest` emits them in order, but a capture read back from
+    JSONL carries that only in its line order.
     """
     spans = [item for item in items if is_loss(item)]
     if len(spans) < 2:
