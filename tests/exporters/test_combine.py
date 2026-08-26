@@ -7,7 +7,7 @@ import msgspec
 import pytest
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import TrackEvent
 
-from gcmon.exporters.combine import _normalize_trace_timestamps, combine_files
+from gcmon.exporters.combine import _normalize_trace_timestamps, _starts_at, combine_files
 from gcmon.exporters.jsonl_io import (
     convert_jsonl_to_trace_format,
     normalize_jsonl_timestamps,
@@ -76,7 +76,7 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts=5_000_000, dur=1_000, args=args)
+        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts_start=5_000_000, ts_stop=5_001_000, args=args)
         e2 = Counter(
             InterpreterTrack(1, 1),
             metric="collected",
@@ -86,7 +86,7 @@ class TestNormalizeTraceTimestamps:
         )
         events: list[TraceEvent] = [e1, e2]
         _normalize_trace_timestamps(events)
-        assert e1.ts == 2_000_000  # 5_000_000 - 3_000_000
+        assert e1.ts_start == 2_000_000  # 5_000_000 - 3_000_000
         assert e2.ts == 0  # 3_000_000 - 3_000_000
 
     def test_single_event_ts_becomes_zero(self) -> None:
@@ -99,10 +99,10 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts=1_000_000, dur=1_000, args=args)
+        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts_start=1_000_000, ts_stop=1_001_000, args=args)
         events: list[TraceEvent] = [e1]
         _normalize_trace_timestamps(events)
-        assert e1.ts == 0
+        assert e1.ts_start == 0
 
     def test_empty_events_is_noop(self) -> None:
         events: list[TraceEvent] = []
@@ -119,33 +119,38 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts=10_000_000, dur=1_000, args=args)
-        e2 = Slice(InterpreterTrack(1, 1), name="e2", cat="c", ts=12_000_000, dur=1_000, args=args)
-        e3 = Slice(InterpreterTrack(2, 1), name="e3", cat="c", ts=5_000_000, dur=1_000, args=args)
-        e4 = Slice(InterpreterTrack(2, 1), name="e4", cat="c", ts=7_000_000, dur=1_000, args=args)
+        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts_start=10_000_000, ts_stop=10_001_000, args=args)
+        e2 = Slice(InterpreterTrack(1, 1), name="e2", cat="c", ts_start=12_000_000, ts_stop=12_001_000, args=args)
+        e3 = Slice(InterpreterTrack(2, 1), name="e3", cat="c", ts_start=5_000_000, ts_stop=5_001_000, args=args)
+        e4 = Slice(InterpreterTrack(2, 1), name="e4", cat="c", ts_start=7_000_000, ts_stop=7_001_000, args=args)
         events: list[TraceEvent] = [e1, e2, e3, e4]
         _normalize_trace_timestamps(events)
-        assert e1.ts == 0  # pid=1: 10_000_000 - 10_000_000
-        assert e2.ts == 2_000_000  # pid=1: 12_000_000 - 10_000_000
-        assert e3.ts == 0  # pid=2: 5_000_000 - 5_000_000
-        assert e4.ts == 2_000_000  # pid=2: 7_000_000 - 5_000_000
+        assert e1.ts_start == 0  # pid=1: 10_000_000 - 10_000_000
+        assert e2.ts_start == 2_000_000  # pid=1: 12_000_000 - 10_000_000
+        assert e3.ts_start == 0  # pid=2: 5_000_000 - 5_000_000
+        assert e4.ts_start == 2_000_000  # pid=2: 7_000_000 - 5_000_000
 
     def test_every_kind_of_event_is_shifted(self) -> None:
-        """Every member of the union carries a `ts`, so the normalizer picks
-        no kinds out. It used to select them by `ph`, and a fifth kind added
-        later would have been left behind holding raw timestamps."""
-        pause = Slice(InterpreterTrack(1, 0), name="GC Pause(0)", cat="gc", ts=8_000, dur=1_000, args={})
+        """Every timestamp on every member of the union moves.
+
+        The normalizer used to select events by `ph`, and a kind added later
+        would have been left behind holding raw ones. A `Slice` is the case
+        that can still go half-done: it carries two absolute timestamps, and
+        shifting only the one it starts at would stretch every span back to
+        the old origin without failing anything else.
+        """
+        pause = Slice(InterpreterTrack(1, 0), name="GC Pause(0)", cat="gc", ts_start=8_000, ts_stop=9_000, args={})
         counter = Counter(InterpreterTrack(1, 0), metric="collected", display_name="G0 collected", ts=8_000, value=1)
         rss = Counter(ProcessTrack(1), metric="rss", display_name="rss", ts=6_000, value=4096)
         mark = Instant(ProcessTrack(1), name="benchmark", ts=5_000)
-        loss = Slice(LossTrack(1, 0), name="GC Loss(0)", cat="gc.loss", ts=5_000, dur=2_000, args={})
+        loss = Slice(LossTrack(1, 0), name="GC Loss(0)", cat="gc.loss", ts_start=5_000, ts_stop=7_000, args={})
         events: list[TraceEvent] = [pause, counter, rss, mark, loss]
 
         _normalize_trace_timestamps(events)
 
-        assert [e.ts for e in events] == [3_000, 3_000, 1_000, 0, 0]
-        assert (pause.dur, loss.dur) == (1_000, 2_000), (
-            "a duration is invariant under the shift, which is why a `Slice` carries one"
+        assert [_starts_at(e) for e in events] == [3_000, 3_000, 1_000, 0, 0]
+        assert (pause.ts_stop, loss.ts_stop) == (4_000, 2_000), (
+            "a `Slice` carries an absolute end, so both of its timestamps have to move"
         )
 
     def test_negative_timestamps(self) -> None:
@@ -158,12 +163,12 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts=-100, dur=1_000, args=args)
-        e2 = Slice(InterpreterTrack(1, 1), name="e2", cat="c", ts=-500, dur=1_000, args=args)
+        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts_start=-100, ts_stop=900, args=args)
+        e2 = Slice(InterpreterTrack(1, 1), name="e2", cat="c", ts_start=-500, ts_stop=500, args=args)
         events: list[TraceEvent] = [e1, e2]
         _normalize_trace_timestamps(events)
-        assert e1.ts == 400  # -100 - (-500)
-        assert e2.ts == 0
+        assert e1.ts_start == 400  # -100 - (-500)
+        assert e2.ts_start == 0
 
 
 class TestCombineFiles:

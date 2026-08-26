@@ -1,7 +1,7 @@
 """One `Slice` becomes the BEGIN/END pair the wire format has.
 
-Perfetto has no complete-slice event, so a duration is expanded rather than
-written. The pair goes out adjacent rather than interleaved into stack order,
+Perfetto has no complete-slice event, so a span's two ends are written as two
+packets rather than as one. The pair goes out adjacent rather than interleaved into stack order,
 which is what `finalize_perfetto_packets` already does on the `Processes`
 track (ADR-0011); the nesting is left to the trace processor, which sorts by
 timestamp and breaks ties by position in the sequence.
@@ -62,22 +62,22 @@ class TestASliceExpandsIntoAPair:
     """The packets one `Slice` produces, read back off the wire."""
 
     def test_a_slice_produces_a_begin_then_an_end(self) -> None:
-        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 500, {})])
+        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 1_500, {})])
         events = [p.track_event for p in _slice_packets(packets)]
         assert [e.type for e in events] == [TrackEventType.SLICE_BEGIN, TrackEventType.SLICE_END]
 
     def test_the_begin_carries_the_name_the_category_and_the_args(self) -> None:
-        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 500, {"generation": 0})])
+        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 1_500, {"generation": 0})])
         begin = _slice_packets(packets)[0]
         assert begin.timestamp == 1_000
         assert begin.track_event.name == "GC Pause(0)"
         assert list(begin.track_event.categories) == ["gc.pause"]
         assert [a.name for a in begin.track_event.debug_annotations] == ["generation"]
 
-    def test_the_end_lands_at_ts_plus_dur_and_carries_only_the_track(self) -> None:
-        """A duration is expanded here and nowhere else: no other reader of a
-        `Slice` has to know where it ends."""
-        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 500, {})])
+    def test_the_end_lands_at_ts_stop_and_carries_only_the_track(self) -> None:
+        """A `Slice` states both its ends; the second packet is where the
+        second one is written."""
+        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 1_500, {})])
         end = _slice_packets(packets)[1]
         assert end.timestamp == 1_500
         assert not end.track_event.name
@@ -85,25 +85,25 @@ class TestASliceExpandsIntoAPair:
         assert not end.track_event.debug_annotations
 
     def test_both_packets_name_the_track_the_slice_names(self) -> None:
-        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 500, {})])
+        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 1_500, {})])
         assert len({p.track_event.track_uuid for p in _slice_packets(packets)}) == 1
 
     def test_a_zero_length_slice_still_produces_both_packets(self) -> None:
-        """BEGIN first, so it reads as ``dur = 0`` rather than ``-1``
-        (ADR-0011)."""
-        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 0, {})])
+        """A span whose ends are equal. BEGIN first, so it reads as
+        ``dur = 0`` rather than ``-1`` (ADR-0011)."""
+        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 1_000, {})])
         events = _slice_packets(packets)
         assert [e.track_event.type for e in events] == [TrackEventType.SLICE_BEGIN, TrackEventType.SLICE_END]
         assert [e.timestamp for e in events] == [1_000, 1_000]
 
     def test_a_slice_describes_its_track_before_naming_it(self) -> None:
-        descriptors, _ = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 500, {})])
+        descriptors, _ = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 1_500, {})])
         named = [td.name for td in (parse_track_descriptor(d) for d in descriptors) if td is not None and td.name]
         assert "Process 4242" in named
         assert "Thread 0" in named
 
     def test_a_slice_places_the_start_process_marker(self) -> None:
-        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 500, {})])
+        _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 1_500, {})])
         instants = [p.track_event.name for p in _track_events(packets) if p.track_event.type == TrackEventType.INSTANT]
         assert instants == [_START_PROCESS_MARKER_NAME]
 
@@ -138,8 +138,8 @@ class TestTheTraceProcessorBuildsTheNesting:
     def test_a_slice_inside_another_reads_back_nested(self, tmp_path: Path) -> None:
         row = _as_read_back(
             [
-                Slice(ROW, "outer", "c", 1_000, 1_000, {}),
-                Slice(ROW, "inner", "c", 1_200, 300, {}),
+                Slice(ROW, "outer", "c", 1_000, 2_000, {}),
+                Slice(ROW, "inner", "c", 1_200, 1_500, {}),
             ],
             tmp_path,
             "nested",
@@ -155,8 +155,8 @@ class TestTheTraceProcessorBuildsTheNesting:
         """
         row = _as_read_back(
             [
-                Slice(ROW, "first", "c", 1_000, 500, {}),
-                Slice(ROW, "second", "c", 1_500, 500, {}),
+                Slice(ROW, "first", "c", 1_000, 1_500, {}),
+                Slice(ROW, "second", "c", 1_500, 2_000, {}),
             ],
             tmp_path,
             "touching",
@@ -173,8 +173,8 @@ class TestTheTraceProcessorBuildsTheNesting:
         """
         row = _as_read_back(
             [
-                Slice(ROW, "outer", "c", 1_000, 1_000, {}),
-                Slice(ROW, "inner", "c", 1_800, 200, {}),
+                Slice(ROW, "outer", "c", 1_000, 2_000, {}),
+                Slice(ROW, "inner", "c", 1_800, 2_000, {}),
             ],
             tmp_path,
             "co_terminating",
@@ -186,8 +186,8 @@ class TestTheTraceProcessorBuildsTheNesting:
         its BEGIN wins the tie and the sub-phase nests inside it."""
         row = _as_read_back(
             [
-                Slice(ROW, "outer", "c", 1_000, 1_000, {}),
-                Slice(ROW, "inner", "c", 1_000, 300, {}),
+                Slice(ROW, "outer", "c", 1_000, 2_000, {}),
+                Slice(ROW, "inner", "c", 1_000, 1_300, {}),
             ],
             tmp_path,
             "co_starting",
@@ -199,10 +199,10 @@ class TestTheTraceProcessorBuildsTheNesting:
         each other, the last ending with it. Every tie above at once."""
         row = _as_read_back(
             [
-                Slice(ROW, "GC Pause(2)", "gc.pause", 1_000, 900, {}),
-                Slice(ROW, "Mark Alive(2)", "gc.mark.alive", 1_000, 200, {}),
-                Slice(ROW, "Deduce Unreachable(2)", "gc.deduce", 1_400, 300, {}),
-                Slice(ROW, "Delete Garbage(2)", "gc.delete", 1_700, 200, {}),
+                Slice(ROW, "GC Pause(2)", "gc.pause", 1_000, 1_900, {}),
+                Slice(ROW, "Mark Alive(2)", "gc.mark.alive", 1_000, 1_200, {}),
+                Slice(ROW, "Deduce Unreachable(2)", "gc.deduce", 1_400, 1_700, {}),
+                Slice(ROW, "Delete Garbage(2)", "gc.delete", 1_700, 1_900, {}),
             ],
             tmp_path,
             "record",

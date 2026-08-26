@@ -103,9 +103,11 @@ def _record_process_lifetime(
     folded in twice. Emits nothing: spans become packets at close.
     """
     pid = event.track.pid
-    state.update_process_lifetime(pid, event.ts)
     if isinstance(event, Slice):
-        state.update_process_lifetime(pid, event.ts + event.dur)
+        state.update_process_lifetime(pid, event.ts_start)
+        state.update_process_lifetime(pid, event.ts_stop)
+    else:
+        state.update_process_lifetime(pid, event.ts)
 
 
 def _clip_spans_to_laminar(

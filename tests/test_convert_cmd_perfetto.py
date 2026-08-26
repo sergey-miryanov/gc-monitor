@@ -298,12 +298,14 @@ _Slice = tuple[str, int, tuple[tuple[str, object], ...]]
 def _slices_from_events(events: Sequence[TraceEvent]) -> list[_Slice]:
     """Every slice the events describe: name, duration in nanoseconds, args.
 
-    A `Slice` states its own duration, so this is a read rather than a
-    walk. What the walk it replaced could also check -- that no slice was
-    left open -- is not a thing the converter can now get wrong.
+    A `Slice` states both its ends, so this is a subtraction rather than a
+    stack walk. What the walk it replaced could also check -- that no slice
+    was left open -- is not a thing the converter can now get wrong.
     """
     return sorted(
-        (event.name, event.dur, tuple(sorted(event.args.items()))) for event in events if isinstance(event, Slice)
+        (event.name, event.ts_stop - event.ts_start, tuple(sorted(event.args.items())))
+        for event in events
+        if isinstance(event, Slice)
     )
 
 

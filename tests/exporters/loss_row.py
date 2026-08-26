@@ -133,10 +133,10 @@ def loss_slices(items: Sequence[TItem]) -> dict[LossTrack, list[SliceRow]]:
     resolved: dict[LossTrack, list[SliceRow]] = {}
     for row, spans in rows.items():
         for previous, span in pairwise(spans):
-            assert span.ts >= previous.ts + previous.dur, (
-                f"{row}: {span.name!r} at {span.ts} opened inside {previous.name!r}"
+            assert span.ts_start >= previous.ts_stop, (
+                f"{row}: {span.name!r} at {span.ts_start} opened inside {previous.name!r}"
             )
-        resolved[row] = sorted(((s.name, s.ts, s.ts + s.dur, 0) for s in spans), key=lambda s: (s[1], -s[2]))
+        resolved[row] = sorted(((s.name, s.ts_start, s.ts_stop, 0) for s in spans), key=lambda s: (s[1], -s[2]))
 
     return resolved
 

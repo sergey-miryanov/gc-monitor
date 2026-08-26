@@ -87,7 +87,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
             f"GC Pause({gen})",
             f"gc.pause(gen={gen})",
             ts_start_ns,
-            ts_stop_ns - ts_start_ns,
+            ts_stop_ns,
             pause_data,
         )
     )
@@ -100,7 +100,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 f"Mark Alive({gen})",
                 f"gc.mark.alive(gen={gen})",
                 item.ts_mark_alive_start,
-                item.ts_mark_alive_stop - item.ts_mark_alive_start,
+                item.ts_mark_alive_stop,
                 inc_data,
             )
         )
@@ -113,7 +113,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 f"Fill increment({gen})",
                 f"gc.increment(gen={gen})",
                 item.ts_fill_increment_start,
-                item.ts_fill_increment_stop - item.ts_fill_increment_start,
+                item.ts_fill_increment_stop,
                 inc_data,
             )
         )
@@ -126,7 +126,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 f"Deduce Unreachable({gen})",
                 f"gc.deduce(gen={gen})",
                 item.ts_deduce_unreachable_start,
-                item.ts_deduce_unreachable_stop - item.ts_deduce_unreachable_start,
+                item.ts_deduce_unreachable_stop,
                 inc_data,
             )
         )
@@ -139,7 +139,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 f"Handle Weakrefs Callbacks({gen})",
                 f"gc.weakrefs(gen={gen})",
                 item.ts_handle_weakref_callbacks_start,
-                item.ts_handle_weakref_callbacks_stop - item.ts_handle_weakref_callbacks_start,
+                item.ts_handle_weakref_callbacks_stop,
                 inc_data,
             )
         )
@@ -152,7 +152,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 f"Finalize Garbage({gen})",
                 f"gc.finalize(gen={gen})",
                 item.ts_handle_weakref_callbacks_stop,
-                item.ts_finalize_garbage_stop - item.ts_handle_weakref_callbacks_stop,
+                item.ts_finalize_garbage_stop,
                 inc_data,
             )
         )
@@ -165,7 +165,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 f"Handle Resurrected({gen})",
                 f"gc.resurrect(gen={gen})",
                 item.ts_finalize_garbage_stop,
-                item.ts_handle_resurrected_stop - item.ts_finalize_garbage_stop,
+                item.ts_handle_resurrected_stop,
                 inc_data,
             )
         )
@@ -178,7 +178,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 f"Clear Weakrefs({gen})",
                 f"gc.clear_weakrefs(gen={gen})",
                 item.ts_handle_resurrected_stop,
-                item.ts_clear_weakrefs_stop - item.ts_handle_resurrected_stop,
+                item.ts_clear_weakrefs_stop,
                 inc_data,
             )
         )
@@ -191,7 +191,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
                 f"Delete Garbage({gen})",
                 f"gc.delete(gen={gen})",
                 item.ts_delete_garbage_start,
-                item.ts_delete_garbage_stop - item.ts_delete_garbage_start,
+                item.ts_delete_garbage_stop,
                 inc_data,
             )
         )
@@ -326,7 +326,7 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
     for gen in item.gens:
         args[f"gen{gen.gen}"] = _gen_loss_args(gen)
 
-    return [Slice(track, name, category, item.ts_start, item.ts_stop - item.ts_start, args)]
+    return [Slice(track, name, category, item.ts_start, item.ts_stop, args)]
 
 
 def _loss_in_time_order(items: Sequence[TItem]) -> Sequence[TItem]:

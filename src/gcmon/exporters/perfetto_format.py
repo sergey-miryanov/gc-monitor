@@ -385,7 +385,7 @@ def convert_trace_events_to_perfetto(
         descriptors.extend(_emit_track_descriptors(event.track, state, sequence_id, ranks))
 
         if isinstance(event, Slice):
-            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
+            _maybe_emit_start_process_marker(pid, event.ts_start, state, sequence_id, packets)
             track_uuid = state.get_track_uuid(event.track)
             # An adjacent pair, not interleaved into stack order: the trace
             # processor sorts by timestamp and builds the nesting itself.
@@ -395,7 +395,7 @@ def convert_trace_events_to_perfetto(
             packets.append(
                 build_trace_packet(
                     sequence_id,
-                    timestamp=event.ts,
+                    timestamp=event.ts_start,
                     track_event=_make_slice_begin(
                         track_uuid,
                         event.name,
@@ -407,13 +407,13 @@ def convert_trace_events_to_perfetto(
             packets.append(
                 build_trace_packet(
                     sequence_id,
-                    timestamp=event.ts + event.dur,
+                    timestamp=event.ts_stop,
                     track_event=_make_slice_end(track_uuid),
                 )
             )
 
         elif isinstance(event, Instant):
-            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
+            _maybe_emit_start_process_marker(pid, event.ts, state, sequence_id, packets)
             proc_uuid = state.get_process_track_uuid(pid)
             packets.append(
                 build_trace_packet(
@@ -429,7 +429,7 @@ def convert_trace_events_to_perfetto(
             )
 
         elif isinstance(event, Counter):
-            _maybe_emit_start_process_marker(event, state, sequence_id, packets)
+            _maybe_emit_start_process_marker(pid, event.ts, state, sequence_id, packets)
             ctr_uuid, desc_bytes = _emit_counter_track_descriptor(
                 event.track,
                 event.metric,
@@ -450,18 +450,22 @@ def convert_trace_events_to_perfetto(
 
 
 def _maybe_emit_start_process_marker(
-    event: TraceEvent,
+    pid: int,
+    ts: int,
     state: PerfettoTrackState,
     sequence_id: int,
     packets: list[bytes],
 ) -> None:
-    """Place the pid's ``Start Process`` marker at *event*, if it has not
-    gone out yet.
+    """Place *pid*'s ``Start Process`` marker at *ts*, if it has not gone
+    out yet.
+
+    Takes the timestamp rather than the event, since a `Slice` keeps its
+    in `ts_start` and the other two in `ts`, and the caller is already
+    inside the branch that knows which.
 
     The process track is described by the time this runs whatever the
-    event: the caller emits *event*'s track descriptors first.
+    event: the caller emits its track descriptors first.
     """
-    pid = event.track.pid
     if state.has_start_process_marker(pid):
         return
-    packets.extend(_emit_start_process_marker(pid, event.ts, state, sequence_id))
+    packets.extend(_emit_start_process_marker(pid, ts, state, sequence_id))

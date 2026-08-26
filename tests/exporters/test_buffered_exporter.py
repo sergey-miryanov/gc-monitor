@@ -144,7 +144,7 @@ class TestAddLossEvent:
         )
 
         span = next(e for e in exporter._buffer if isinstance(e, Slice))
-        assert (span.name, span.ts, span.dur) == ("GC Loss(0)", 1_000, 1_000)
+        assert (span.name, span.ts_start, span.ts_stop) == ("GC Loss(0)", 1_000, 2_000)
 
     def test_it_lands_on_the_loss_track(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)

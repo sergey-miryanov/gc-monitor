@@ -85,9 +85,9 @@ an `InterpreterTrack` owns it and it is deliberately drawn a level up.
 **Amended 2026-08-26: a slice is one event.** `SliceBegin` and `SliceEnd` only
 ever went out as a pair, and every end timestamp is known when the begin is
 built: a GC record is finished before it is converted, and a loss interval is
-closed. `Slice(track, name, cat, ts, dur, args)` replaces both, and the
-encoder expands one into the two packets the wire format has. Perfetto has no
-complete-slice event -- `TrackEvent.Type` is `SLICE_BEGIN`, `SLICE_END`,
+closed. `Slice(track, name, cat, ts_start, ts_stop, args)` replaces both, and
+the encoder expands one into the two packets the wire format has. Perfetto has
+no complete-slice event -- `TrackEvent.Type` is `SLICE_BEGIN`, `SLICE_END`,
 `INSTANT`, `COUNTER` -- so the pair survives on the wire and leaves the model.
 
 Nesting needs no reconstruction in gcmon. Perfetto builds the stack itself: it
@@ -120,9 +120,21 @@ one backend ([ADR-0021](0021-write-one-trace-format.md)), and gcmon never put
 metadata on an end. So the derivation reverses -- a pair falls out of a
 duration -- and it happens in the encoder rather than in the converter.
 
-A duration rather than an absolute end, because `combine` shifts every event's
-`ts` to a common origin. A duration is invariant under that shift; an end
-timestamp would need shifting too, and missing it would be silent.
+**Two absolute timestamps, not a start and a duration.** They are the pair a
+record already carries: `ts_start` and `ts_stop` on a GC record, a
+`ts_x_start` / `ts_x_stop` pair on each of its eight sub-phases, and the same
+two on a loss interval. Every producer passes them straight through, where a
+duration made each of the nine subtract one from the other at the call site,
+restating the `stop - start > 0` guard immediately above it.
+
+It costs the one thing a duration was free of. `combine` shifts each pid's
+events to a common origin, and an absolute end has to move with its start; a
+duration would not have. It also costs the uniform `.ts`: a `Slice` is the one
+event whose timestamp is not called that, so the normalizer and the
+`Processes`-span fold ask which kind they are holding. Both are pinned by
+`test_every_kind_of_event_is_shifted`, which asserts the shifted `ts_stop`
+rather than only the start -- shifting half a slice stretches every span back
+to the old origin and fails nothing else.
 
 ## Consequences
 

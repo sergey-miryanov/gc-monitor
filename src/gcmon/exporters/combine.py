@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from ..model.protocol import TItem
-from ..model.trace_event import TraceEvent
+from ..model.trace_event import Slice, TraceEvent
 from .encoder import ProtobufEventEncoder
 from .jsonl_io import normalize_jsonl_timestamps, read_jsonl, write_jsonl
 from .trace_converter import convert_to_trace_format
@@ -13,15 +13,33 @@ __all__ = [
 ]
 
 
+def _starts_at(event: TraceEvent) -> int:
+    """When *event* happens, whichever kind it is.
+
+    A `Slice` spells it `ts_start`, because it also has an end.
+    """
+    return event.ts_start if isinstance(event, Slice) else event.ts
+
+
 def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
+    """Shift each pid's events so its earliest lands at zero.
+
+    Every timestamp on an event moves, not only the one it starts at: a
+    `Slice` carries an absolute end, so leaving `ts_stop` behind would
+    stretch every span back to the old origin without failing anything.
+    """
     by_pid: dict[int, list[TraceEvent]] = {}
     for event in events:
         by_pid.setdefault(event.track.pid, []).append(event)
 
     for timed in by_pid.values():
-        min_ts = min(e.ts for e in timed)
+        min_ts = min(_starts_at(e) for e in timed)
         for e in timed:
-            e.ts = e.ts - min_ts
+            if isinstance(e, Slice):
+                e.ts_start = e.ts_start - min_ts
+                e.ts_stop = e.ts_stop - min_ts
+            else:
+                e.ts = e.ts - min_ts
 
 
 def combine_files(
