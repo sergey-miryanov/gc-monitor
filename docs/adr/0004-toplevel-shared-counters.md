@@ -7,12 +7,11 @@
 > Superseded on 2026-08-26. The single-arg display-name rule and the top-level
 > metric set holding both `heap_size` and `rss` are gone: the converter writes
 > every display name, and a counter a `ProcessTrack` owns parents to the
-> process track by construction. What survives -- one `heap_size` series per
-> `(pid, iid)` and one `rss` per pid, `heap_size` drawn a level up with the
-> dropped-rank trade-off that costs, and `heap_size` staying on the
-> `GC Pause(N)` slice args -- is carried forward in
-> [ADR-0024](0024-an-event-names-the-track-it-is-drawn-on.md). A `heap_size`
-> track is named `Thread {iid} heap_size` now.
+> process track by construction. Three things below still hold: one
+> `heap_size` series per `(pid, iid)` and one `rss` per pid, `heap_size` drawn
+> a level up with the dropped-rank trade-off that costs, and `heap_size`
+> staying on the `GC Pause(N)` slice args. A `heap_size` track is named
+> `Thread {iid} heap_size` now.
 
 ## Context
 

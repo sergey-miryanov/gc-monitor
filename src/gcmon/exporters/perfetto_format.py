@@ -390,8 +390,9 @@ def convert_trace_events_to_perfetto(
             # An adjacent pair, not interleaved into stack order: the trace
             # processor sorts by timestamp and builds the nesting itself.
             # BEGIN first, so a zero-length slice reads as ``dur = 0`` rather
-            # than ``-1``. See ADR-0011 for the pattern and ADR-0024 for why
-            # an anonymous END does not need the naming ADR-0011 relies on.
+            # than ``-1``. See ADR-0011 for the pattern. An END here carries no
+            # name and closes the top of the stack, so it does not need the
+            # naming ADR-0011 relies on.
             packets.append(
                 build_trace_packet(
                     sequence_id,

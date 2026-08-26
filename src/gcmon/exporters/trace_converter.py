@@ -80,7 +80,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
 
     events: list[TraceEvent] = []
     # Ahead of the sub-phases nested inside it, so its BEGIN wins the tie
-    # against a sub-phase starting where the pause does. See ADR-0024.
+    # against a sub-phase starting where the pause does.
     events.append(
         Slice(
             track,

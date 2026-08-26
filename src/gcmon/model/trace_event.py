@@ -69,10 +69,9 @@ type EventArgs = dict[str, int | str | ArgGroup]
 class Slice(msgspec.Struct):
     """One span on *track*, between two absolute timestamps.
 
-    Two absolute timestamps rather than a start and a duration, which
-    makes this the one event whose timestamp is not called `ts`. See
-    ADR-0024, which also covers the encoder expanding this into the
-    BEGIN/END pair the wire format has.
+    The one event whose timestamp is not called `ts`. See ADR-0024 for
+    the encoder expanding this into the BEGIN/END pair the wire format
+    has.
 
     Not frozen: `combine` shifts both ends in place, and it holds every
     event of every capture when it does.

@@ -9,10 +9,10 @@
 > ([ADR-0021](0021-write-one-trace-format.md)), and the pair carrying
 > independent metadata at each end -- the thing a complete event could not
 > express -- was never built, since an end carried only a track. A span is one
-> `Slice` with a duration now, and the encoder derives the pair the wire
-> format still needs. What survives is the consequence this record ends on:
-> duration is a property of the pair on the wire, and nothing downstream had
-> to change.
+> `Slice` carrying both its ends now, and the encoder derives the pair the
+> wire format still needs. What survives is the consequence this record ends
+> on: duration is a property of the pair on the wire, and nothing downstream
+> had to change.
 
 ## Context
 
