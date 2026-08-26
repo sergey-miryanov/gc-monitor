@@ -90,7 +90,7 @@ def _run_two_threads(workers: list[Callable[[], None]]) -> list[BaseException]:
 
 
 def _make_gc_events(n: int, ts_base: int) -> list[TGCStatsInfo]:
-    """N GC events with unique ts_start / iid so we can later assert no overwrites."""
+    """N GC events with unique ``ts_start`` and ``iid``."""
     return [
         create_mock_stats_item(
             gen=0,
@@ -185,7 +185,8 @@ class PerfettoFileCapture(OutputCapture):
 
 
 class _LockingStringIO(io.StringIO):
-    """StringIO subclass that locks every write() so we can detect mid-line interleaving."""
+    """StringIO whose ``write()`` holds a lock: an interleaved line came
+    from the exporter, not from the buffer."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -364,14 +365,8 @@ class TestExporterThreadSafety:
     def test_concurrent_add_event_same_pid(self, exporter_factory: ExporterFactory, tmp_path: Path) -> None:
         """Both threads write to the same new PID concurrently.
 
-        The Perfetto exporter must not emit duplicate track descriptors
-        for the same PID, even when two threads race the first event.
-        Double-checked locking in ``_ensure_cmdline`` guarantees this:
-        only the first thread to acquire ``_lock`` after the cmdline
-        fetch marks the PID and registers the cmdline; the second
-        observes ``has_pid(pid) == True`` and skips registration.
-        Other exporters (JSONL/Stdout) don't have per-PID descriptors,
-        so we only assert event count for them.
+        JSONL and stdout have no per-pid descriptor, so the event count
+        is the whole assertion for them.
         """
         exporter, capture = exporter_factory.build(tmp_path, threshold=10)
         events_a = _make_gc_events(N_GC, 1_500_000_000)
@@ -402,18 +397,11 @@ class TestExporterThreadSafety:
     def test_concurrent_add_event_and_add_instant_event_same_new_pid(
         self, exporter_factory: ExporterFactory, tmp_path: Path
     ) -> None:
-        """One thread calls add_event, the other calls
-        add_instant_event, both for the same brand-new PID. The
-        Perfetto exporter must not emit duplicate process
-        descriptors.
+        """One thread calls ``add_event``, the other
+        ``add_instant_event``, both for the same brand-new PID.
 
-        This complements ``test_concurrent_add_event_same_pid`` by
-        exercising the cross-method DCL contract: the first thread
-        to call ``_ensure_cmdline`` registers the cmdline; the
-        second observes it on the re-check under the lock and skips.
-        The convert then runs once per call, but the process
-        descriptor is built only by the first convert that sees
-        ``has_pid(pid) == False``.
+        The claim ``test_concurrent_add_event_same_pid`` makes, reached
+        through two methods rather than one.
         """
         exporter, capture = exporter_factory.build(tmp_path, threshold=10)
         gc_events = _make_gc_events(N_GC, 1_500_000_000)
@@ -457,11 +445,8 @@ class TestExporterThreadSafety:
     def test_post_close_add_event_does_not_crash(self, exporter_factory: ExporterFactory, tmp_path: Path) -> None:
         """Calling ``add_event`` after ``close()`` must not raise.
 
-        The Perfetto exporter's ``_ensure_cmdline`` does not check
-        ``_closed``; the cmdline-provider call still runs even after
-        close. That call is wasteful but not crashy. This test pins
-        the behavior so a future refactor that adds a ``_closed``
-        check to ``_ensure_cmdline`` does not regress.
+        A dropped event, and not an exception out of a monitoring
+        callback during shutdown. See ADR-0008.
         """
         exporter, _capture = exporter_factory.build(tmp_path, threshold=10)
         exporter.close()
@@ -472,14 +457,11 @@ class TestExporterThreadSafety:
 
 @pytest.mark.stress
 class TestPerfettoExporterCmdlinePath:
-    """Tests that target the cmdline fetch + DCL path in
-    ``PerfettoExporter._ensure_cmdline``."""
+    """The cmdline fetch in ``ProtobufEventEncoder._ensure_cmdline``."""
 
     def test_ensure_cmdline_none_event_still_emitted(self, tmp_path: Path) -> None:
-        """When the cmdline provider returns ``None`` (process gone),
-        the convert still builds a process descriptor (just without
-        a cmdline). The DCL pattern with ``set_cmdline(pid, None)``
-        must be a no-op from the descriptor's perspective.
+        """A pid whose cmdline provider returns ``None`` still gets a
+        process descriptor, with no cmdline entries on it.
         """
         path = tmp_path / "trace.pb"
         exporter = PerfettoExporter(
@@ -496,9 +478,8 @@ class TestPerfettoExporterCmdlinePath:
         assert capture.count_completes() == 2
         assert capture.count_process_descriptors() == 1
 
-        # The process descriptor must have NO cmdline entries. The
-        # process track itself does NOT carry the joined description in
-        # this case (cmdline_provider returned None for every pid).
+        # The process track carries no joined description either: the
+        # provider returned None for every pid.
         for packet in capture._packets():
             if not packet.HasField("track_descriptor"):
                 continue
@@ -508,10 +489,11 @@ class TestPerfettoExporterCmdlinePath:
             assert len(td.process.cmdline) == 0, f"expected no cmdline entries, got {len(td.process.cmdline)}"
 
     def test_concurrent_same_pid_cmdline_provider_raises(self, tmp_path: Path) -> None:
-        """Two threads race on the same new PID when the cmdline
-        provider raises. DCL must still produce exactly one
-        process descriptor (no cmdline), all events must arrive,
-        and no exception must leak to the caller.
+        """Two threads race the same new PID with a cmdline provider
+        that raises.
+
+        A provider failure costs the descriptor its cmdline and nothing
+        else. See ADR-0008.
         """
 
         class _CmdlineError(Exception):

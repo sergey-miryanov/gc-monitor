@@ -31,7 +31,7 @@ TRIALS = 12
 
 
 def _random_spans(rng: random.Random) -> list[tuple[int, int, int]]:
-    """Spans over a deliberately tiny coordinate space, so that equal
+    """Spans over a tiny coordinate space, so that equal
     starts, equal ends and zero-length spans -- the only shapes where
     emission order decides anything -- are common rather than rare."""
     return [

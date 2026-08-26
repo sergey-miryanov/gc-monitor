@@ -124,7 +124,7 @@ class TestTheCombinedRowIsTheLiveRow:
     """The drawing, rebuilt offline, against the drawing made live."""
 
     def test_the_row_comes_back_flat(self, tmp_path: Path) -> None:
-        """The claim JSONL could quietly drop. Depth is the processor's, so a
+        """The claim JSONL could drop. Depth is the processor's, so a
         file whose spans were emitted out of order nests here, and would have
         passed a check that only counted two loss slices."""
         with _combined(tmp_path, _capture(tmp_path)) as tp:
@@ -139,8 +139,8 @@ class TestTheCombinedRowIsTheLiveRow:
             assert _loss_row(tp) == LIVE_ROW
 
     def test_consecutive_spans_still_meet(self, tmp_path: Path) -> None:
-        """Which is the part that has to survive: the intervals tile, so the
-        second span opens exactly where the first closes and nowhere else."""
+        """The intervals tile: the second span opens where the first closes
+        and nowhere else."""
         with _combined(tmp_path, _capture(tmp_path)) as tp:
             first, second = _loss_row(tp)
 

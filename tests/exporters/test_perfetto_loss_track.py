@@ -1,8 +1,8 @@
-"""Does the trace processor draw loss spans where we think it does?
+"""Does the trace processor draw loss spans where gcmon means them to go?
 
 Two claims that nothing at the wire level can settle. First, that a loss span
 lands on a row of its own rather than among the collections, which is the whole
-point of the sentinel tid and of a track descriptor Perfetto could ignore.
+point of the `LossTrack` and of a track descriptor Perfetto could ignore.
 Second, that consecutive poll intervals come back as neighbours on that row
 rather than as one span inside another. Both ask trace processor directly, and
 are marked ``fuzz`` for the cost.
@@ -132,7 +132,7 @@ def _events(*losses: LossMsg) -> list[TraceEvent]:
 
 
 def test_a_loss_span_lands_on_its_own_track(tmp_path: Path) -> None:
-    """The sentinel tid has to survive as a real, named row: the descriptor is
+    """A `LossTrack` has to survive as a real, named row: the descriptor is
     emitted off the slices, and nothing else in the trace refers to it."""
     misplaced, slices = _load(_events(_loss(2_000, 9_000, 500)), tmp_path, "own_track")
 

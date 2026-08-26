@@ -139,7 +139,7 @@ class MockExporter(EventsExporter):
     def add_loss_event(self, pid: int, item: TLossMsg) -> None:
         """Record a loss window the monitor's arithmetic produced.
 
-        Deliberately does not set ``_event_added``: a caller blocking on
+        Does not set ``_event_added``: a caller blocking on
         ``wait_for_event`` is waiting for a GC record, and releasing it on a
         loss record would let it wake and assert against an empty ``events``.
         """

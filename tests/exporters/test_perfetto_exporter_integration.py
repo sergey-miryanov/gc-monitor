@@ -928,7 +928,7 @@ class TestProcessesTrack:
 
         ``misplaced_end_event`` counts every ``TYPE_SLICE_END`` that had
         no slice to close. It is the trace processor reporting data loss
-        directly, rather than us inferring it from the slice table.
+        directly, rather than an inference from the slice table.
         """
         assert _misplaced_end_events(trace_processor) == 0
 
@@ -1169,8 +1169,7 @@ class TestMonitorReportedLiveness:
     ) -> None:
         """``_SECOND_PID`` produced no events at all: no process
         descriptor, no process track, nothing but three liveness
-        observations. Under the old ``has_pid`` filter it had no slice,
-        which is the gap this feature closes."""
+        observations."""
         rows = list(
             liveness_trace_processor.query(
                 f"SELECT s.ts AS ts, s.dur AS dur FROM slice s "
@@ -1578,9 +1577,8 @@ class TestRssCounterTrackIntegration:
         self,
         trace_processor_with_rss: TraceProcessor,
     ) -> None:
-        """The RSS counter track should have the name ``rss`` and its
-        unit column should indicate bytes (unit=None or '' is acceptable
-        since we don't set an explicit unit)."""
+        """The RSS counter track is named ``rss``. Its unit column comes
+        back as ``None`` or ``''``: gcmon sets no explicit unit."""
         rows = list(trace_processor_with_rss.query("SELECT name, unit FROM counter_track WHERE name = 'rss'"))
         assert len(rows) >= 1
         for r in rows:

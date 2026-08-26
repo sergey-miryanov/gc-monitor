@@ -11,7 +11,7 @@ Perfetto exporter, feeds it the `SSL_CONTEXT_SIZE` capture through a scripted
 process tree and clock, and compares the decoded trace to
 `tests/fixtures/monitored_run_perfetto_trace.txt`.
 
-**This test exists to be broken deliberately.** A red run means the trace an
+**This test exists to be broken.** A red run means the trace an
 operator opens is not the trace they opened yesterday. Read the diff, convince
 yourself every changed line is one you meant, then regenerate the fixture with
 
@@ -109,8 +109,8 @@ READ_SLOT_NS = 1 * MS
 # enough that the fixture stays a file somebody can scroll.
 TICKS = 9
 
-# The child's collections, shifted this far later than the target's. Deliberately
-# not a multiple of the tick, so the two pids' rings are never in step.
+# The child's collections, shifted this far later than the target's. Not a
+# multiple of the tick, so the two pids' rings are never in step.
 CHILD_SKEW_NS = 137 * MS
 
 # Ticks the child is missing from the listing. It is polled on 0-3, gone on 4,

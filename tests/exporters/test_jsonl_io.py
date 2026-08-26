@@ -314,7 +314,7 @@ class TestAnOldFormatLossRecord:
     That gcmon flattened three generations into `lost_gen_0`..`lost_gen_2` and
     wrote no `lost_count`, which is the field `from_mapping` now discriminates
     on. Such a line therefore falls through to the GC-record branch, and the
-    danger is that it lands there quietly: an interval gcmon was blind in would
+    danger is that it lands there: an interval gcmon was blind in would
     be read back as a collection it observed, and counted into `--stats` and
     drawn on an interpreter's own row as a `GC Pause`.
 

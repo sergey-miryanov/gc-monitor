@@ -150,7 +150,7 @@ class TestProcessLifetimeState:
         """Order is not part of the contract -- ``_clip_spans_to_laminar``
         sorts what it needs -- so this pins the contents only."""
         state = PerfettoTrackState()
-        # Deliberately inserted out of order, with a tie on start ts
+        # Inserted out of order, with a tie on start ts
         # between pids 300 and 100.
         for pid, start, end in (
             (200, 2_000, 3_000),
