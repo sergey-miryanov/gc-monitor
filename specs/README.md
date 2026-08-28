@@ -42,6 +42,7 @@ This file holds the open set and the order to take it in. The other two:
 | [0061](0061-build-the-statistics-table-from-a-tracefile.md) | Feature (enhancement) | L | The statistics table exists only while gcmon is running; a capture from last week holds every number and offers no way to see them |
 | [0062](0062-name-a-workload-from-a-sanitized-command-line.md) | Feature (enhancement) | M | A pyperformance run prints one `Total` folding sixty benchmarks and hundreds of blocks keyed by a pid that means nothing afterwards; the level anyone asks about is missing |
 | [0063](0063-compare-two-tracefiles.md) | Feature (enhancement) | L | Nothing answers "did GC get worse between these two runs"; two tables side by side works for one row and fails for sixty |
+| [0066](0066-give-each-process-on-a-reused-pid-its-own-track.md) | Feature (enhancement) | M | 0059 separated the spans and left every other row merged: a pid held twice draws one process group whose counter line steps between two processes, and whose `cmdline` names a program the second one never ran |
 
 Every row here has a file. A missing number either retired or never became
 one; [RETIRED.md](RETIRED.md) says which.
@@ -88,6 +89,7 @@ the position. A blank cell means no recorded reason, so that row can move.
 |-------|------|-----|
 | 0050 | 0040 | 0040 derives the option declarations from one table and would otherwise have to carry the alias 0050 introduces through a rewrite of the structure holding it |
 | 0059 | 0061 | Without it a table built from a tracefile cannot say which process held a pid, and the offline table would drop a distinction the live one makes |
+| 0059 | 0066 | 0066 splits what 0059 keyed: it needs the epoch, the disjoint-span invariant and the shared `#N` suffix that spec landed |
 | 0060, 0061, 0062 | 0063 | 0063 builds two of the tables those three produce and diffs them; it computes no statistic of its own |
 
 0042 depends on nothing else here; take it at any time.
