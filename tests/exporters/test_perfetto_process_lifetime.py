@@ -20,7 +20,7 @@ from gcmon.exporters.perfetto_process_lifetime import (
     finalize_perfetto_packets,
 )
 from gcmon.exporters.perfetto_proto import TrackEventType
-from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from gcmon.exporters.perfetto_track_state import PerfettoTrackState, ProcessSpan
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.trace_event import TraceEvent
@@ -106,17 +106,15 @@ def _assert_laminar(intervals: dict[int, tuple[int, int]]) -> None:
             assert disjoint or nested, f"pids {pid_a} [{start_a}, {end_a}] and {pid_b} [{start_b}, {end_b}] cross"
 
 
-def _clip(
-    spans: list[tuple[int, int, int]],
-) -> list[tuple[int, int, int, int, int]]:
+def _clip(spans: list[tuple[int, int, int]]) -> list[tuple[int, int, int, int, int]]:
     """Run ``_clip_spans_to_laminar`` over *spans* -- ``[(pid, start,
     end), ...]``, one process per pid -- and drop the epoch again.
 
     The sweep keys on ``(pid, pid_epoch)``, and a span per pid is the
     shape every case below but the reused-pid ones is about.
     """
-    clipped = _clip_spans_to_laminar([(pid, 1, start, end) for pid, start, end in spans])
-    return [(pid, start, end, real_start, real_end) for pid, _pid_epoch, start, end, real_start, real_end in clipped]
+    clipped = _clip_spans_to_laminar([ProcessSpan(pid, 1, start, end) for pid, start, end in spans])
+    return [(s.pid, s.start_ts, s.end_ts, s.real_start_ts, s.real_end_ts) for s in clipped]
 
 
 class TestClipSpansToLaminar:
@@ -243,7 +241,7 @@ class TestClipSpansToLaminar:
         """A reused pid brings two spans that carry the same number. The
         sweep keys on the process, so the earlier one is clipped back as
         it would be if the crossing span belonged to a different pid."""
-        spans = [(100, 1, 500, 1_500), (100, 2, 1_000, 5_000)]
+        spans = [ProcessSpan(100, 1, 500, 1_500), ProcessSpan(100, 2, 1_000, 5_000)]
         assert _clip_spans_to_laminar(spans) == [
             (100, 1, 500, 999, 500, 1_500),
             (100, 2, 1_000, 5_000, 1_000, 5_000),
@@ -253,7 +251,7 @@ class TestClipSpansToLaminar:
         """The shape reuse actually produces: one process ends before the
         next one starts, so nothing is clipped and each span bounds only
         the process it belongs to."""
-        spans = [(100, 2, 5_000, 9_000), (100, 1, 500, 1_000)]
+        spans = [ProcessSpan(100, 2, 5_000, 9_000), ProcessSpan(100, 1, 500, 1_000)]
         assert _clip_spans_to_laminar(spans) == [
             (100, 1, 500, 1_000, 500, 1_000),
             (100, 2, 5_000, 9_000, 5_000, 9_000),

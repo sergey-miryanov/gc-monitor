@@ -16,12 +16,13 @@ import pytest
 
 from gcmon.exporters.perfetto_builders import build_trace, build_trace_packet, build_track_event
 from gcmon.exporters.perfetto_process_lifetime import (
+    ClippedSpan,
     _clip_spans_to_laminar,
     _emit_process_lifetime_slice,
     _emit_process_lifetime_track_descriptor,
 )
 from gcmon.exporters.perfetto_proto import TrackEventType
-from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from gcmon.exporters.perfetto_track_state import PerfettoTrackState, ProcessSpan
 from tests.helpers import open_trace_processor
 
 pytestmark = pytest.mark.fuzz
@@ -41,27 +42,20 @@ def _random_spans(rng: random.Random) -> list[tuple[int, int, int]]:
     ]
 
 
-def _clip(
-    spans: list[tuple[int, int, int]],
-) -> list[tuple[int, int, int, int, int]]:
-    """Clip *spans* -- ``[(pid, start, end), ...]``, one process per pid --
-    and drop the epoch again.
+def _clip(spans: list[tuple[int, int, int]]) -> list[ClippedSpan]:
+    """Clip *spans* -- ``[(pid, start, end), ...]``, one process per pid.
 
     Emission order is what this file measures, and it does not turn on
     which process of a reused pid a span belongs to.
     """
-    clipped = _clip_spans_to_laminar([(pid, 1, start, end) for pid, start, end in spans])
-    return [(pid, start, end, real_start, real_end) for pid, _pid_epoch, start, end, real_start, real_end in clipped]
+    return _clip_spans_to_laminar([ProcessSpan(pid, 1, start, end) for pid, start, end in spans])
 
 
-def _pairs(clipped: list[tuple[int, int, int, int, int]], state: PerfettoTrackState) -> list[list[bytes]]:
-    return [
-        _emit_process_lifetime_slice(pid, 1, start, end, state, SEQUENCE_ID, real_start, real_end)
-        for pid, start, end, real_start, real_end in clipped
-    ]
+def _pairs(clipped: list[ClippedSpan], state: PerfettoTrackState) -> list[list[bytes]]:
+    return [_emit_process_lifetime_slice(span, state, SEQUENCE_ID) for span in clipped]
 
 
-def _packets_in_order(clipped: list[tuple[int, int, int, int, int]], order: str, rng: random.Random) -> list[bytes]:
+def _packets_in_order(clipped: list[ClippedSpan], order: str, rng: random.Random) -> list[bytes]:
     """Build the ``Processes`` packets, laying the pairs out *order*'s way."""
     state = PerfettoTrackState()
     pairs = _pairs(clipped, state)
@@ -94,8 +88,8 @@ def _slices_as_read_back(packets: list[bytes], tmp_path: Path, name: str) -> tup
     return misplaced, slices
 
 
-def _expected(clipped: list[tuple[int, int, int, int, int]]) -> dict[str, tuple[int, int]]:
-    return {f"Process {pid}": (start, end - start) for pid, start, end, _rs, _re in clipped}
+def _expected(clipped: list[ClippedSpan]) -> dict[str, tuple[int, int]]:
+    return {f"Process {s.pid}": (s.start_ts, s.end_ts - s.start_ts) for s in clipped}
 
 
 @pytest.mark.parametrize("seed", range(TRIALS))
@@ -153,7 +147,7 @@ def test_co_terminating_spans_nest_rather_than_clip() -> None:
     itself so a change there cannot quietly turn them into tests of some
     other shape."""
     spans = _co_terminating(8)
-    assert [(pid, start, end) for pid, start, end, _rs, _re in _clip(spans)] == spans
+    assert [(s.pid, s.start_ts, s.end_ts) for s in _clip(spans)] == spans
 
 
 def test_nesting_pairs_up_to_the_trace_processor_limit(tmp_path: Path) -> None:

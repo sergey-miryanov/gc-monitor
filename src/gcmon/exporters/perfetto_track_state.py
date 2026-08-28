@@ -9,8 +9,23 @@ because splitting the class would leave two halves sharing ``_next_uuid``.
 """
 
 from collections.abc import Set
+from typing import NamedTuple
 
 from ..model.trace_event import Track
+
+
+class ProcessSpan(NamedTuple):
+    """The interval one process was observed over.
+
+    ``pid_epoch`` counts the processes that have held *pid*, from 1, so a
+    pid the operating system handed out twice carries a span per process
+    (ADR-0011).
+    """
+
+    pid: int
+    pid_epoch: int
+    start_ts: int
+    end_ts: int
 
 
 class PerfettoTrackState:
@@ -172,15 +187,14 @@ class PerfettoTrackState:
         """
         return self._process_lifetime_start.get((pid, 1))
 
-    def get_process_lifetimes(self) -> list[tuple[int, int, int, int]]:
-        """Return ``[(pid, pid_epoch, start_ts, end_ts), ...]`` for every
-        process with a recorded span.
+    def get_process_lifetimes(self) -> list[ProcessSpan]:
+        """Every process with a recorded span.
 
         The two dicts carry identical key sets, so this is every process
         ever folded in -- including one known only from liveness.
         """
         return [
-            (pid, pid_epoch, self._process_lifetime_start[(pid, pid_epoch)], end)
+            ProcessSpan(pid, pid_epoch, self._process_lifetime_start[(pid, pid_epoch)], end)
             for (pid, pid_epoch), end in self._process_lifetime_end.items()
         ]
 
