@@ -217,6 +217,12 @@ advances its epoch on the pid leaving the process tree, disagrees. Narrowing
 the rule to the evidence the table uses needs the monitor to report an exit,
 which is a wider change than this one.
 
+**A pid no report has ever named is not closed by one.** It has not dropped
+out of anything: nothing polls it, and its events reach the trace from a
+control client instead. Closed on every tick that omitted it, and reopened by
+its next event, it would draw a process per tick on a run where no pid was
+reused at all.
+
 **Liveness is always on**, with no flag. The cost that justified `--rss`
 ([ADR-0013](0013-rss-sampling.md)) does not transfer: `live_pids` is already
 built by the poll phase, and this is one batched call and two dict comparisons

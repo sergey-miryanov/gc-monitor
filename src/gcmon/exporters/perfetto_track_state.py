@@ -31,9 +31,11 @@ class PerfettoTrackState:
         self._process_lifetime_start: dict[tuple[int, int], int] = {}
         self._process_lifetime_end: dict[tuple[int, int], int] = {}
         # Which process holds each pid, counting from 1; the pids whose span
-        # is still open; and, per pid, the end of the last span that closed.
+        # is still open; the pids a liveness report has ever named; and, per
+        # pid, the end of the last span that closed.
         self._pid_epochs: dict[int, int] = {}
         self._open_pids: set[int] = set()
+        self._reported_live: set[int] = set()
         self._process_lifetime_closed_end: dict[int, int] = {}
         self._process_lifetime_emitted: bool = False
         self._root_descriptor_emitted: bool = False
@@ -181,17 +183,23 @@ class PerfettoTrackState:
 
     def observe_process_liveness(self, pids: Set[int], ts: int) -> None:
         """Fold one tick's liveness observations in, and close the span
-        of every pid the tick did not report.
+        of every pid the tick did not report but an earlier one did.
 
         A pid absent from one report and present in a later one is a new
         process, the rule `StreamingStats` applies to the exits it sees.
         Evidence still to arrive for a closed pid opens a span of its
         own, so the caller has to hand its buffered events over before a
         report that drops one. See ADR-0011.
+
+        A pid no report has ever named is not closed by one. It has not
+        dropped out of anything: nothing polls it, and its events arrive
+        from a control client instead. Closing it on a report it was
+        never in would make a new process of it every tick.
         """
-        for pid in self._open_pids - set(pids):
+        for pid in (self._open_pids & self._reported_live) - pids:
             self._process_lifetime_closed_end[pid] = self._process_lifetime_end[(pid, self._pid_epochs[pid])]
-        self._open_pids.intersection_update(pids)
+            self._open_pids.discard(pid)
+        self._reported_live.update(pids)
         for pid in pids:
             self.update_process_lifetime(pid, ts)
 

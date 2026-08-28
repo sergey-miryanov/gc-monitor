@@ -205,7 +205,7 @@ class TestProcessLifetimeState:
         polls after a pid was handed on opens its own span whether the
         first thing it produces is a liveness report or a GC event."""
         state = PerfettoTrackState()
-        state.update_process_lifetime(100, 1_000)
+        state.observe_process_liveness({100}, 1_000)
         state.observe_process_liveness({200}, 2_000)
         state.update_process_lifetime(100, 3_000)
         state.update_process_lifetime(100, 4_000)
@@ -213,6 +213,38 @@ class TestProcessLifetimeState:
             (100, 1, 1_000, 1_000),
             (100, 2, 3_000, 4_000),
             (200, 1, 2_000, 2_000),
+        ]
+
+    def test_a_pid_no_report_ever_named_is_not_closed_by_one(self) -> None:
+        """A pid nothing polls -- a control client's, reaching the trace
+        through its own events -- has not dropped out of a report it was
+        never in. Closed on every tick that omitted it, it would open a
+        process a tick, each with a track and counter rows of its own,
+        on a run where no pid was reused at all."""
+        state = PerfettoTrackState()
+        state.observe_process_liveness({200}, 1_000)
+        state.update_process_lifetime(100, 1_500)
+        state.observe_process_liveness({200}, 2_000)
+        state.update_process_lifetime(100, 2_500)
+        state.observe_process_liveness({200}, 3_000)
+        state.update_process_lifetime(100, 3_500)
+        assert sorted(state.get_process_lifetimes()) == [
+            (100, 1, 1_500, 3_500),
+            (200, 1, 1_000, 3_000),
+        ]
+
+    def test_a_pid_is_closed_once_a_report_has_named_it(self) -> None:
+        """The other side of it: being reported live once is what makes
+        a later absence mean something."""
+        state = PerfettoTrackState()
+        state.update_process_lifetime(100, 1_000)
+        state.observe_process_liveness({100, 200}, 2_000)
+        state.observe_process_liveness({200}, 3_000)
+        state.update_process_lifetime(100, 4_000)
+        assert sorted(state.get_process_lifetimes()) == [
+            (100, 1, 1_000, 2_000),
+            (100, 2, 4_000, 4_000),
+            (200, 1, 2_000, 3_000),
         ]
 
     def test_evidence_older_than_a_closed_span_belongs_to_it(self) -> None:

@@ -65,7 +65,7 @@ class TestProtobufEventEncoder:
         command line beats a wrong one (ADR-0010)."""
         provider = Mock(return_value=["python", "-m", "successor"])
         enc = ProtobufEventEncoder(cmdline_provider=provider)
-        enc._track_state.update_process_lifetime(1234, 1_000)
+        enc._track_state.observe_process_liveness({1234}, 1_000)
         enc._track_state.observe_process_liveness(set(), 2_000)
 
         enc._ensure_cmdline(1234, 1)
@@ -79,7 +79,7 @@ class TestProtobufEventEncoder:
         run."""
         provider = Mock(return_value=["python", "app.py"])
         enc = ProtobufEventEncoder(cmdline_provider=provider)
-        enc._track_state.update_process_lifetime(1234, 1_000)
+        enc._track_state.observe_process_liveness({1234}, 1_000)
         enc._track_state.observe_process_liveness(set(), 2_000)
 
         enc._ensure_cmdline(1234, 1)
@@ -138,6 +138,7 @@ class TestProtobufEventEncoder:
         enc = ProtobufEventEncoder(cmdline_provider=provider)
         enc.open(tmp_path / "out.perfetto")
 
+        enc.record_process_liveness({1234}, 500)
         enc.write_events([Instant(ProcessTrack(1234), "ev", ts=1_000)])
         enc.record_process_liveness(set(), 2_000)
         enc.write_events([Instant(ProcessTrack(1234), "ev", ts=3_000)])
