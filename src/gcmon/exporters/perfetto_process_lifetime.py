@@ -3,6 +3,8 @@
 One BEGIN/END pair per process on one shared track. See ADR-0011.
 """
 
+from collections.abc import Sequence
+
 from ..model.trace_event import Slice, TraceEvent
 from ..support.pid_epoch import epoch_suffix
 from .perfetto_builders import (
@@ -15,7 +17,7 @@ from .perfetto_builders import (
 from .perfetto_proto import TrackEventType
 from .perfetto_track_state import PerfettoTrackState
 
-__all__ = ["finalize_perfetto_packets"]
+__all__ = ["finalize_perfetto_packets", "record_process_lifetimes"]
 
 
 # Name of the shared top-level Perfetto track that shows one
@@ -98,6 +100,21 @@ def _emit_process_lifetime_slice(
             ),
         ),
     ]
+
+
+def record_process_lifetimes(
+    events: Sequence[TraceEvent],
+    state: PerfettoTrackState,
+) -> None:
+    """Fold a whole batch into the recorded spans, ahead of anything that
+    asks *state* which process an event of it belongs to.
+
+    Folding is a min/max over evidence and re-opens no span for a process
+    already open, so a batch folded here and again inside
+    ``convert_trace_events_to_perfetto`` lands on the same answer.
+    """
+    for event in events:
+        _record_process_lifetime(event, state)
 
 
 def _record_process_lifetime(

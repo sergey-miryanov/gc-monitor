@@ -67,6 +67,31 @@ class TestProtobufEventEncoder:
             Mock(return_value=([], [])),
         )
         enc.write_events([Instant(ProcessTrack(1234), "ev", ts=1_000)])
-        enc.close()
+
+        # Asserted before ``close()``: the event was folded into the span
+        # accumulator on the way in, so closing has a ``Processes`` track
+        # to write whatever the converter returned.
         assert not path.exists()
         assert enc._has_written is False
+
+    def test_a_batch_is_folded_in_before_the_command_line_is_read(self, tmp_path: Path) -> None:
+        """The span accumulator knows about a batch before anything asks
+        it a question about that batch.
+
+        Reading a command line is the first thing ``write_events`` does
+        with a pid, and which process holds that pid is a question only
+        the accumulator can answer. Ask it before the fold and it answers
+        from a trace that has not seen these events.
+        """
+        folded: list[bool] = []
+
+        def provider(pid: int) -> list[str]:
+            folded.append(enc._track_state.has_process_lifetime(pid))
+            return []
+
+        enc = ProtobufEventEncoder(cmdline_provider=provider)
+        enc.open(tmp_path / "out.perfetto")
+
+        enc.write_events([Instant(ProcessTrack(1234), "ev", ts=1_000)])
+
+        assert folded == [True]

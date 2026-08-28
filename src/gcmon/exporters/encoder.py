@@ -21,6 +21,7 @@ from .perfetto_format import (
     TracePacketField,
     convert_trace_events_to_perfetto,
     finalize_perfetto_packets,
+    record_process_lifetimes,
 )
 from .protobuf_encoder import encode_bytes_field
 
@@ -162,8 +163,11 @@ class ProtobufEventEncoder:
         if not events:
             return
         assert self._path is not None, "open() must be called before write_events()"
-        # Ahead of the convert pass, which puts the command line on the
-        # process descriptor it may be about to write.
+        # The fold first: it settles which process each event belongs
+        # to, and the command line is filed under the answer. Then the
+        # read, ahead of the convert pass, which puts the command line on
+        # the process descriptor it may be about to write.
+        record_process_lifetimes(events, self._track_state)
         for event in events:
             self._ensure_cmdline(event.track.pid)
         descriptors, packets = convert_trace_events_to_perfetto(

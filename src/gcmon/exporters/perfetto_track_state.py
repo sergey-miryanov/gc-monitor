@@ -125,14 +125,15 @@ class PerfettoTrackState:
         if end_ts is None or ts > end_ts:
             self._process_lifetime_end[key] = ts
 
-    def _epoch_for(self, pid: int, ts: int) -> int:
-        """Which process holding *pid* evidence at *ts* belongs to.
+    def epoch_at(self, pid: int, ts: int) -> int:
+        """Which process holding *pid* was running at *ts*, counting from
+        1. Read-only: asking opens no process and widens no span.
 
         Evidence later than every span recorded so far extends the one
-        still open, or opens the next one where the last was closed.
-        Evidence no later than a span that has closed belongs to *that*
-        span instead: a pid pruned from the process tree loses its read
-        cursors, so whatever claims it next re-exports records its
+        still open, or belongs to the next process where the last was
+        closed. Evidence no later than a span that has closed belongs to
+        *that* span instead: a pid pruned from the process tree loses its
+        read cursors, so whatever claims it next re-exports records its
         predecessor already produced, and the arrival order of a batch
         says nothing about which process a record came from.
 
@@ -150,9 +151,15 @@ class PerfettoTrackState:
             )
         if pid in self._open_pids:
             return self._pid_epochs[pid]
-        pid_epoch = self._pid_epochs.get(pid, 0) + 1
-        self._pid_epochs[pid] = pid_epoch
-        self._open_pids.add(pid)
+        return self._pid_epochs.get(pid, 0) + 1
+
+    def _epoch_for(self, pid: int, ts: int) -> int:
+        """Which process *ts* belongs to, opening its span where *ts* is
+        the first evidence of a process not seen yet."""
+        pid_epoch = self.epoch_at(pid, ts)
+        if pid_epoch > self._pid_epochs.get(pid, 0):
+            self._pid_epochs[pid] = pid_epoch
+            self._open_pids.add(pid)
         return pid_epoch
 
     def observe_process_liveness(self, pids: Set[int], ts: int) -> None:

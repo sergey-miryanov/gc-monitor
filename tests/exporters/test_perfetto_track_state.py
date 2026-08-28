@@ -277,3 +277,64 @@ class TestProcessLifetimeState:
         assert not state.has_process_lifetime_emitted()
         state.mark_process_lifetime_emitted()
         assert state.has_process_lifetime_emitted()
+
+
+class TestEpochAt:
+    """Which process held a pid at an instant, asked without changing
+    anything.
+
+    The span accumulator answers the same question while folding evidence
+    in, and opens a span as a side effect of answering. The descriptor
+    side needs the answer alone: it draws a row for the process an event
+    belongs to, and drawing must not invent a process.
+    """
+
+    def test_a_pid_with_no_evidence_is_the_first_process(self) -> None:
+        """Nothing has held the pid yet, so whatever arrives next is the
+        first to."""
+        state = PerfettoTrackState()
+        assert state.epoch_at(100, 1_000) == 1
+
+    def test_an_instant_inside_the_open_span_is_the_open_process(self) -> None:
+        state = PerfettoTrackState()
+        state.observe_process_liveness({100}, 1_000)
+        state.observe_process_liveness({100}, 3_000)
+        assert state.epoch_at(100, 2_000) == 1
+        assert state.epoch_at(100, 4_000) == 1
+
+    def test_an_instant_after_a_closed_span_is_the_next_process(self) -> None:
+        """The pid was handed on and nothing has claimed it yet. An event
+        at this instant would open the second span, so the answer names
+        the process that would open it."""
+        state = PerfettoTrackState()
+        state.observe_process_liveness({100}, 1_000)
+        state.observe_process_liveness({200}, 2_000)
+        assert state.epoch_at(100, 3_000) == 2
+
+    def test_an_instant_inside_a_closed_span_is_that_process(self) -> None:
+        """A pid pruned from the process tree loses its read cursors, so
+        the next process re-exports records the one before it produced.
+        They date from the first process wherever they arrive."""
+        state = PerfettoTrackState()
+        state.observe_process_liveness({100}, 1_000)
+        state.observe_process_liveness({100}, 2_000)
+        state.observe_process_liveness({200}, 3_000)
+        state.update_process_lifetime(100, 5_000)
+        assert state.epoch_at(100, 1_500) == 1
+        assert state.epoch_at(100, 5_000) == 2
+
+    def test_asking_opens_no_process_and_widens_no_span(self) -> None:
+        """The whole point of a second method. Ask past the end of a
+        closed span, twice, and the trace still holds one process on that
+        pid until something is folded in."""
+        state = PerfettoTrackState()
+        state.observe_process_liveness({100}, 1_000)
+        state.observe_process_liveness({200}, 2_000)
+        before = sorted(state.get_process_lifetimes())
+
+        assert state.epoch_at(100, 9_000) == 2
+        assert state.epoch_at(100, 9_000) == 2
+
+        assert sorted(state.get_process_lifetimes()) == before
+        state.update_process_lifetime(100, 9_000)
+        assert sorted(state.get_process_lifetimes()) == sorted([*before, (100, 2, 9_000, 9_000)])

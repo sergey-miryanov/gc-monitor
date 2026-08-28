@@ -32,8 +32,8 @@ from .perfetto_builders import (
     build_track_event,
 )
 from .perfetto_process_lifetime import (
-    _record_process_lifetime,
     finalize_perfetto_packets,
+    record_process_lifetimes,
 )
 from .perfetto_proto import (
     ChildTracksOrdering,
@@ -71,6 +71,7 @@ __all__ = [
     "build_track_event",
     "convert_trace_events_to_perfetto",
     "finalize_perfetto_packets",
+    "record_process_lifetimes",
 ]
 
 
@@ -374,8 +375,7 @@ def convert_trace_events_to_perfetto(
     packets: list[bytes] = []
 
     if events:
-        for event in events:
-            _record_process_lifetime(event, state)
+        record_process_lifetimes(events, state)
         descriptors.extend(_emit_root_descriptor(state, sequence_id))
 
     ranks = state.get_process_track_ranks()
