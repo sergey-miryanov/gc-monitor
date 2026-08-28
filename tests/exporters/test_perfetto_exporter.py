@@ -517,6 +517,70 @@ class TestProcessLivenessRoundTrip:
         exporter.close()
         assert not path.exists()
 
+    def test_a_departure_waits_for_events_already_taken_from_the_buffer(self, tmp_path: Path) -> None:
+        """Also by contention, and at the one instant that matters: a
+        producer has taken a batch out of the buffer and has not reached
+        the encoder with it yet.
+
+        A departure closes the pid's span, so an event of that pid's
+        arriving afterwards opens a span for a process nobody ever handed
+        the pid to. The buffer looks empty at that instant, so what keeps
+        the two in order is the producer holding ``_lock`` across the
+        write rather than dropping it first. The second thread is
+        ordinary: `ControlServer` writes instants from its own.
+        """
+        path = tmp_path / "trace.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=1)
+        exporter.add_process_liveness({_QUIET_PID}, 1_000_000_000)
+
+        at_the_lock = threading.Event()
+        go = threading.Event()
+        dropped = threading.Event()
+        real_io_lock = exporter._io_lock
+        writer: list[threading.Thread] = []
+
+        class _Gate:
+            """Stop the flushing thread on its way into the encoder."""
+
+            def __enter__(self) -> bool:
+                if threading.current_thread() is writer[0]:
+                    at_the_lock.set()
+                    assert go.wait(timeout=5.0)
+                return real_io_lock.__enter__()
+
+            def __exit__(self, *exc_info: object) -> None:
+                real_io_lock.release()
+
+        exporter._io_lock = _Gate()  # type: ignore[assignment]
+
+        def _drop() -> None:
+            exporter.add_process_liveness({_OTHER_QUIET_PID}, 1_400_000_000)
+            dropped.set()
+
+        writer.append(
+            threading.Thread(
+                target=exporter.add_instant_event,
+                args=(_QUIET_PID, create_instant_msg(name="late", ts=1_200_000_000)),
+            )
+        )
+        dropper = threading.Thread(target=_drop)
+        writer[0].start()
+        assert at_the_lock.wait(timeout=5.0)
+        dropper.start()
+
+        assert not dropped.wait(timeout=0.2), "the departure went in ahead of events already taken to be written"
+        go.set()
+        writer[0].join(timeout=5.0)
+        dropper.join(timeout=5.0)
+        assert dropped.is_set(), "the departure never completed after the flush let go"
+
+        exporter._io_lock = real_io_lock
+        exporter.close()
+
+        assert f"Process {_QUIET_PID}#2" not in _lifetime_spans(path), (
+            "the late instant opened a second span on a pid that was never handed on"
+        )
+
     def test_liveness_holds_the_io_lock_for_the_duration(self, tmp_path: Path) -> None:
         """Asserted by contention, not by inspection: a second thread
         taking ``_io_lock`` the ordinary way -- through a flush -- must

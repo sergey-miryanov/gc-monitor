@@ -2,8 +2,12 @@
 
 The epoch is counted twice: `StreamingStats` advances it when a pid leaves the
 process tree, and the Perfetto encoder advances it when a pid drops out of a
-liveness report. The same evidence, separate code, and nothing else makes the
-two agree. Without this they can drift and no test fails, leaving a table and
+liveness report. Two triggers, and they are not the same one -- a pid the
+control server suppresses, or one whose read fails once, leaves the live set
+while staying in the tree, and ADR-0011 records what that costs. What this
+file covers is the case both fire on, a process exiting, which is every
+handover gcmon actually reports. Nothing else makes the two counters agree
+there, and without it they can drift with no test failing, leaving a table and
 a trace of one run that disagree about which process a record belonged to. See
 [spec 0059](../../specs/0059-say-which-process-held-a-pid-in-the-trace.md).
 
@@ -37,10 +41,10 @@ TARGET_PID = 5000
 REUSED_PID = 6000
 IID = 0
 
-# The tick the child is missing from the listing: everything gcmon can see of
-# a pid being handed on. The listing is what settles the table's ring, and the
-# liveness report the same tick leaves it out of is what closes the trace's
-# span. One mechanism per output, from one event.
+# The tick the child is missing from the listing: a process exiting, which is
+# all gcmon ever sees of a pid being handed on. The listing is what settles the
+# table's ring, and the liveness report the same tick leaves it out of is what
+# closes the trace's span. One mechanism per output, both fired by this.
 _HANDOVER_TICK = 3
 _TICKS = 7
 _TICK_NS = 500_000_000

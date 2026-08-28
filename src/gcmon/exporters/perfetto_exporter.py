@@ -47,13 +47,24 @@ class PerfettoExporter(EventsExporter):
         self._encoder.open(output_path)
 
     def _enqueue(self, events: list[TraceEvent]) -> None:
-        to_write: list[TraceEvent] = []
+        """Buffer *events*, and hand the buffer to the encoder once it is
+        full enough.
+
+        ``_lock`` is held across the write, not dropped before it. A
+        producer that took a batch out of the buffer and then queued for
+        ``_io_lock`` would leave the buffer looking empty to
+        ``add_process_liveness``, which would report a departure the
+        encoder sees *before* those events -- and the stragglers would
+        open a span for a process nobody ever handed the pid to. The lock
+        order is ``_lock`` then ``_io_lock``, and nothing takes them the
+        other way round.
+        """
         with self._lock:
             self._buffer.extend(events)
-            if len(self._buffer) >= self._flush_threshold:
-                to_write = self._buffer[:]
-                self._buffer.clear()
-        if to_write:
+            if len(self._buffer) < self._flush_threshold:
+                return
+            to_write = self._buffer[:]
+            self._buffer.clear()
             with self._io_lock:
                 self._encoder.write_events(to_write)
 
