@@ -133,8 +133,8 @@ class TestRssCounterTrack:
             Counter(ProcessTrack(100), "rss", "rss", 1_000, 4096),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
-        proc_uuid = state.get_process_track_uuid(100)
-        ctr_key = (ProcessTrack(100), "rss")
+        proc_uuid = state.get_process_track_uuid(100, 1)
+        ctr_key = (ProcessTrack(100), 1, "rss")
         assert state.has_counter_track(*ctr_key)
         ctr_uuid = state.get_or_create_counter_track_uuid(*ctr_key)
         found_ctr = False
@@ -161,7 +161,7 @@ class TestRssCounterTrack:
             Counter(ProcessTrack(100), "rss", "rss", 1_000, 8192),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
-        ctr_key = (ProcessTrack(100), "rss")
+        ctr_key = (ProcessTrack(100), 1, "rss")
         ctr_uuid = state.get_or_create_counter_track_uuid(*ctr_key)
         for d in descriptors:
             td = parse_track_descriptor(d)
@@ -191,11 +191,11 @@ class TestRssCounterTrack:
         ]
         _, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         for pid in (100, 200):
-            ctr_key = (ProcessTrack(pid), "rss")
+            ctr_key = (ProcessTrack(pid), 1, "rss")
             assert state.has_counter_track(*ctr_key), f"no RSS track for pid {pid}"
         # Each RSS counter track is parented to the respective process
         # track, and process tracks have distinct UUIDs.
-        assert state.get_process_track_uuid(100) != state.get_process_track_uuid(200)
+        assert state.get_process_track_uuid(100, 1) != state.get_process_track_uuid(200, 1)
 
     def test_rss_renders_at_top_level(self) -> None:
         """RSS is a top-level counter metric, parented directly to the
@@ -210,10 +210,10 @@ class TestRssCounterTrack:
             Counter(InterpreterTrack(100, 0), "duration", "G0 duration", 1_000, 0.005),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
-        proc_uuid = state.get_process_track_uuid(100)
-        rss_key = (ProcessTrack(100), "rss")
+        proc_uuid = state.get_process_track_uuid(100, 1)
+        rss_key = (ProcessTrack(100), 1, "rss")
         rss_uuid = state.get_or_create_counter_track_uuid(*rss_key)
-        g0_uuid = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "G0 duration")
+        g0_uuid = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), 1, "G0 duration")
         rss_parent = None
         g0_parent = None
         for d in descriptors:

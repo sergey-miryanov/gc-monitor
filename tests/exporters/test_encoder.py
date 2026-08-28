@@ -52,8 +52,8 @@ class TestProtobufEventEncoder:
     def test_ensure_cmdline_skips_already_set(self) -> None:
         provider = Mock(return_value=["python", "app.py"])
         enc = ProtobufEventEncoder(cmdline_provider=provider)
-        enc._ensure_cmdline(1234)
-        enc._ensure_cmdline(1234)
+        enc._ensure_cmdline(1234, 1)
+        enc._ensure_cmdline(1234, 1)
         assert provider.call_count == 1
 
     def test_write_events_returns_early_when_converter_produces_no_output(
@@ -86,7 +86,7 @@ class TestProtobufEventEncoder:
         folded: list[bool] = []
 
         def provider(pid: int) -> list[str]:
-            folded.append(enc._track_state.has_process_lifetime(pid))
+            folded.append(enc._track_state.has_process_lifetime(pid, 1))
             return []
 
         enc = ProtobufEventEncoder(cmdline_provider=provider)

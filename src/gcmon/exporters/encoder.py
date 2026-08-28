@@ -89,7 +89,7 @@ class ProtobufEventEncoder:
         )
         self._has_written: bool = False
         self._codec: Codec = codec if codec is not None else _CODEC
-        self._cmdline_read: set[int] = set()
+        self._cmdline_read: set[tuple[int, int]] = set()
 
     @staticmethod
     def _default_cmdline_provider(pid: int) -> list[str]:
@@ -106,7 +106,7 @@ class ProtobufEventEncoder:
             logger.warning("Could not collect cmdline for PID %s: %s", pid, exc)
             return None
 
-    def _ensure_cmdline(self, pid: int) -> None:
+    def _ensure_cmdline(self, pid: int, pid_epoch: int) -> None:
         """Read *pid*'s command line, once per trace.
 
         Once, and not once per pid per batch: a pid whose command line
@@ -114,12 +114,12 @@ class ProtobufEventEncoder:
         would otherwise cost a failed read and a warning on every flush
         for the rest of the run.
         """
-        if pid in self._cmdline_read:
+        if (pid, pid_epoch) in self._cmdline_read:
             return
-        self._cmdline_read.add(pid)
+        self._cmdline_read.add((pid, pid_epoch))
         cmdline = self._collect_cmdline(pid)
         if cmdline is not None:
-            self._track_state.set_cmdline(pid, cmdline)
+            self._track_state.set_cmdline(pid, pid_epoch, cmdline)
 
     def open(self, path: Path) -> None:
         """Bind this encoder to *path*. One encoder writes one trace.
@@ -169,7 +169,7 @@ class ProtobufEventEncoder:
         # the process descriptor it may be about to write.
         record_process_lifetimes(events, self._track_state)
         for event in events:
-            self._ensure_cmdline(event.track.pid)
+            self._ensure_cmdline(event.track.pid, 1)
         descriptors, packets = convert_trace_events_to_perfetto(
             list(events),
             self._track_state,

@@ -15,14 +15,18 @@ from ..model.trace_event import Track
 
 class PerfettoTrackState:
     def __init__(self) -> None:
-        self._pids: set[int] = set()
-        self._tracks: set[Track] = set()
-        self._cmdlines: dict[int, list[str]] = {}
-        self._counter_tracks: dict[tuple[Track, str], int] = {}
-        self._counter_group_uuids: dict[Track, int] = {}
-        self._pid_uuids: dict[int, int] = {}
-        self._track_uuids: dict[Track, int] = {}
-        self._start_process_marker_emitted: set[int] = set()
+        # Everything the exporter records about a process is keyed on
+        # the process: a pid together with the epoch saying which of the
+        # processes to hold that pid it is. A pid the operating system
+        # handed out twice is two keys.
+        self._pids: set[tuple[int, int]] = set()
+        self._tracks: set[tuple[Track, int]] = set()
+        self._cmdlines: dict[tuple[int, int], list[str]] = {}
+        self._counter_tracks: dict[tuple[Track, int, str], int] = {}
+        self._counter_group_uuids: dict[tuple[Track, int], int] = {}
+        self._pid_uuids: dict[tuple[int, int], int] = {}
+        self._track_uuids: dict[tuple[Track, int], int] = {}
+        self._start_process_marker_emitted: set[tuple[int, int]] = set()
         self._process_lifetime_track_uuid: int | None = None
         self._process_lifetime_start: dict[tuple[int, int], int] = {}
         self._process_lifetime_end: dict[tuple[int, int], int] = {}
@@ -40,56 +44,59 @@ class PerfettoTrackState:
         self._next_uuid += 1
         return uuid
 
-    def has_pid(self, pid: int) -> bool:
-        return pid in self._pids
+    def has_pid(self, pid: int, pid_epoch: int) -> bool:
+        return (pid, pid_epoch) in self._pids
 
-    def mark_pid(self, pid: int) -> None:
-        self._pids.add(pid)
+    def mark_pid(self, pid: int, pid_epoch: int) -> None:
+        self._pids.add((pid, pid_epoch))
 
-    def has_track(self, track: Track) -> bool:
-        return track in self._tracks
+    def has_track(self, track: Track, pid_epoch: int) -> bool:
+        return (track, pid_epoch) in self._tracks
 
-    def mark_track(self, track: Track) -> None:
-        self._tracks.add(track)
+    def mark_track(self, track: Track, pid_epoch: int) -> None:
+        self._tracks.add((track, pid_epoch))
 
-    def set_cmdline(self, pid: int, cmdline: list[str]) -> None:
-        self._cmdlines[pid] = cmdline
+    def set_cmdline(self, pid: int, pid_epoch: int, cmdline: list[str]) -> None:
+        self._cmdlines[(pid, pid_epoch)] = cmdline
 
-    def get_cmdline(self, pid: int) -> list[str] | None:
-        return self._cmdlines.get(pid)
+    def get_cmdline(self, pid: int, pid_epoch: int) -> list[str] | None:
+        return self._cmdlines.get((pid, pid_epoch))
 
-    def get_process_track_uuid(self, pid: int) -> int:
-        if pid not in self._pid_uuids:
-            self._pid_uuids[pid] = self._alloc_uuid()
-        return self._pid_uuids[pid]
+    def get_process_track_uuid(self, pid: int, pid_epoch: int) -> int:
+        key = (pid, pid_epoch)
+        if key not in self._pid_uuids:
+            self._pid_uuids[key] = self._alloc_uuid()
+        return self._pid_uuids[key]
 
-    def get_track_uuid(self, track: Track) -> int:
-        if track not in self._track_uuids:
-            self._track_uuids[track] = self._alloc_uuid()
-        return self._track_uuids[track]
+    def get_track_uuid(self, track: Track, pid_epoch: int) -> int:
+        key = (track, pid_epoch)
+        if key not in self._track_uuids:
+            self._track_uuids[key] = self._alloc_uuid()
+        return self._track_uuids[key]
 
-    def has_counter_track(self, track: Track, display_name: str) -> bool:
-        return (track, display_name) in self._counter_tracks
+    def has_counter_track(self, track: Track, pid_epoch: int, display_name: str) -> bool:
+        return (track, pid_epoch, display_name) in self._counter_tracks
 
-    def get_or_create_counter_track_uuid(self, track: Track, display_name: str) -> int:
-        key = (track, display_name)
+    def get_or_create_counter_track_uuid(self, track: Track, pid_epoch: int, display_name: str) -> int:
+        key = (track, pid_epoch, display_name)
         if key not in self._counter_tracks:
             self._counter_tracks[key] = self._alloc_uuid()
         return self._counter_tracks[key]
 
-    def has_counter_group_track(self, track: Track) -> bool:
-        return track in self._counter_group_uuids
+    def has_counter_group_track(self, track: Track, pid_epoch: int) -> bool:
+        return (track, pid_epoch) in self._counter_group_uuids
 
-    def get_or_create_counter_group_track_uuid(self, track: Track) -> int:
-        if track not in self._counter_group_uuids:
-            self._counter_group_uuids[track] = self._alloc_uuid()
-        return self._counter_group_uuids[track]
+    def get_or_create_counter_group_track_uuid(self, track: Track, pid_epoch: int) -> int:
+        key = (track, pid_epoch)
+        if key not in self._counter_group_uuids:
+            self._counter_group_uuids[key] = self._alloc_uuid()
+        return self._counter_group_uuids[key]
 
-    def has_start_process_marker(self, pid: int) -> bool:
-        return pid in self._start_process_marker_emitted
+    def has_start_process_marker(self, pid: int, pid_epoch: int) -> bool:
+        return (pid, pid_epoch) in self._start_process_marker_emitted
 
-    def mark_start_process_marker(self, pid: int) -> None:
-        self._start_process_marker_emitted.add(pid)
+    def mark_start_process_marker(self, pid: int, pid_epoch: int) -> None:
+        self._start_process_marker_emitted.add((pid, pid_epoch))
 
     def has_process_lifetime_track(self) -> bool:
         return self._process_lifetime_track_uuid is not None
@@ -99,8 +106,8 @@ class PerfettoTrackState:
             self._process_lifetime_track_uuid = self._alloc_uuid()
         return self._process_lifetime_track_uuid
 
-    def has_process_lifetime(self, pid: int) -> bool:
-        return (pid, 1) in self._process_lifetime_start
+    def has_process_lifetime(self, pid: int, pid_epoch: int) -> bool:
+        return (pid, pid_epoch) in self._process_lifetime_start
 
     def update_process_lifetime(self, pid: int, ts: int) -> None:
         """Fold *ts* into the recorded span of whichever process holds
@@ -178,13 +185,10 @@ class PerfettoTrackState:
         for pid in pids:
             self.update_process_lifetime(pid, ts)
 
-    def get_process_lifetime_start_ts(self, pid: int) -> int | None:
-        """When *pid*'s process track opens.
-
-        The track is not split, so it covers every process that held the
-        pid and the first of them is when it opens (ADR-0011).
-        """
-        return self._process_lifetime_start.get((pid, 1))
+    def get_process_lifetime_start_ts(self, pid: int, pid_epoch: int) -> int | None:
+        """When the *pid_epoch*'th process to hold *pid* was first
+        observed, or ``None`` where it has no span."""
+        return self._process_lifetime_start.get((pid, pid_epoch))
 
     def get_process_lifetimes(self) -> list[tuple[int, int, int, int]]:
         """Return ``[(pid, pid_epoch, start_ts, end_ts), ...]`` for every
@@ -204,18 +208,20 @@ class PerfettoTrackState:
     def mark_process_lifetime_emitted(self) -> None:
         self._process_lifetime_emitted = True
 
-    def get_process_track_ranks(self) -> dict[int, int]:
-        """Return ``{pid: rank}``, assigned sequentially from ``0`` by
-        ascending ``(start_ts, pid)`` over the first process to hold each
-        pid. Pids with no recorded start are absent.
+    def get_process_track_ranks(self) -> dict[tuple[int, int], int]:
+        """Return ``{(pid, pid_epoch): rank}``, assigned sequentially from
+        ``0`` by ascending ``(start_ts, pid)`` over the first process to
+        hold each pid. Processes with no recorded start are absent.
 
         Ranked on the same timestamp the track opens at, so a pid handed
         out twice leaves process order as a run without reuse writes it.
         """
-        starts = {pid: ts for (pid, pid_epoch), ts in self._process_lifetime_start.items() if pid_epoch == 1}
+        starts = {
+            (pid, pid_epoch): ts for (pid, pid_epoch), ts in self._process_lifetime_start.items() if pid_epoch == 1
+        }
         if not starts:
             return {}
-        return {pid: rank for rank, pid in enumerate(sorted(starts, key=lambda p: (starts[p], p)))}
+        return {key: rank for rank, key in enumerate(sorted(starts, key=lambda k: (starts[k], k[0])))}
 
     def has_root_descriptor(self) -> bool:
         return self._root_descriptor_emitted

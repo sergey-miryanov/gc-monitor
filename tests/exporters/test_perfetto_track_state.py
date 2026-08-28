@@ -7,60 +7,60 @@ from gcmon.model.trace_event import InterpreterTrack
 class TestPerfettoTrackState:
     def test_init_empty(self) -> None:
         state = PerfettoTrackState()
-        assert not state.has_pid(123)
-        assert not state.has_track(InterpreterTrack(123, 0))
-        assert not state.has_counter_track(InterpreterTrack(123, 0), "G0 collected")
+        assert not state.has_pid(123, 1)
+        assert not state.has_track(InterpreterTrack(123, 0), 1)
+        assert not state.has_counter_track(InterpreterTrack(123, 0), 1, "G0 collected")
 
     def test_pid_tracking(self) -> None:
         state = PerfettoTrackState()
-        assert not state.has_pid(100)
-        state.mark_pid(100)
-        assert state.has_pid(100)
-        assert not state.has_pid(200)
+        assert not state.has_pid(100, 1)
+        state.mark_pid(100, 1)
+        assert state.has_pid(100, 1)
+        assert not state.has_pid(200, 1)
 
     def test_tid_tracking(self) -> None:
         state = PerfettoTrackState()
-        assert not state.has_track(InterpreterTrack(100, 0))
-        state.mark_track(InterpreterTrack(100, 0))
-        assert state.has_track(InterpreterTrack(100, 0))
-        assert not state.has_track(InterpreterTrack(100, 1))
-        assert not state.has_track(InterpreterTrack(200, 0))
+        assert not state.has_track(InterpreterTrack(100, 0), 1)
+        state.mark_track(InterpreterTrack(100, 0), 1)
+        assert state.has_track(InterpreterTrack(100, 0), 1)
+        assert not state.has_track(InterpreterTrack(100, 1), 1)
+        assert not state.has_track(InterpreterTrack(200, 0), 1)
 
     def test_process_track_uuid(self) -> None:
         state = PerfettoTrackState()
-        uuid = state.get_process_track_uuid(12345)
+        uuid = state.get_process_track_uuid(12345, 1)
         assert uuid == 1
 
     def test_thread_track_uuid(self) -> None:
         state = PerfettoTrackState()
-        uuid = state.get_track_uuid(InterpreterTrack(12345, 0))
+        uuid = state.get_track_uuid(InterpreterTrack(12345, 0), 1)
         assert uuid == 1
 
     def test_thread_track_uuid_different_iid(self) -> None:
         state = PerfettoTrackState()
-        uuid0 = state.get_track_uuid(InterpreterTrack(12345, 0))
-        uuid1 = state.get_track_uuid(InterpreterTrack(12345, 1))
+        uuid0 = state.get_track_uuid(InterpreterTrack(12345, 0), 1)
+        uuid1 = state.get_track_uuid(InterpreterTrack(12345, 1), 1)
         assert uuid0 != uuid1
 
     def test_counter_track_uuid_sequential(self) -> None:
         state = PerfettoTrackState()
-        uuid0 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "G0 collected")
-        uuid1 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "heap_size")
+        uuid0 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), 1, "G0 collected")
+        uuid1 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), 1, "heap_size")
         assert uuid0 == 1
         assert uuid1 == 2
 
     def test_counter_track_uuid_idempotent(self) -> None:
         state = PerfettoTrackState()
-        uuid1 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "G0 collected")
-        uuid2 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "G0 collected")
+        uuid1 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), 1, "G0 collected")
+        uuid2 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), 1, "G0 collected")
         assert uuid1 == uuid2
 
     def test_has_counter_track(self) -> None:
         state = PerfettoTrackState()
-        assert not state.has_counter_track(InterpreterTrack(100, 0), "G0 collected")
-        state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "G0 collected")
-        assert state.has_counter_track(InterpreterTrack(100, 0), "G0 collected")
-        assert not state.has_counter_track(InterpreterTrack(100, 0), "G1 collected")
+        assert not state.has_counter_track(InterpreterTrack(100, 0), 1, "G0 collected")
+        state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), 1, "G0 collected")
+        assert state.has_counter_track(InterpreterTrack(100, 0), 1, "G0 collected")
+        assert not state.has_counter_track(InterpreterTrack(100, 0), 1, "G1 collected")
 
 
 class TestProcessLifetimeState:
@@ -76,17 +76,17 @@ class TestProcessLifetimeState:
 
     def test_track_uuid_distinct_from_process_uuid(self) -> None:
         state = PerfettoTrackState()
-        proc_uuid = state.get_process_track_uuid(100)
+        proc_uuid = state.get_process_track_uuid(100, 1)
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
         assert lifetime_uuid != proc_uuid
 
     def test_first_update_seeds_both_ends(self) -> None:
         state = PerfettoTrackState()
-        assert not state.has_process_lifetime(100)
+        assert not state.has_process_lifetime(100, 1)
         state.update_process_lifetime(100, 1_000)
-        assert state.has_process_lifetime(100)
+        assert state.has_process_lifetime(100, 1)
         assert state.get_process_lifetimes() == [(100, 1, 1_000, 1_000)]
-        assert not state.has_process_lifetime(200)
+        assert not state.has_process_lifetime(200, 1)
 
     def test_span_widens_in_both_directions(self) -> None:
         state = PerfettoTrackState()
@@ -116,8 +116,8 @@ class TestProcessLifetimeState:
         state = PerfettoTrackState()
         state.update_process_lifetime(100, 1_000)
         state.update_process_lifetime(100, 7_000)
-        assert state.has_process_lifetime(100)
-        assert state.get_process_lifetime_start_ts(100) == 1_000
+        assert state.has_process_lifetime(100, 1)
+        assert state.get_process_lifetime_start_ts(100, 1) == 1_000
         assert state.get_process_lifetimes() == [(100, 1, 1_000, 7_000)]
 
     def test_a_leading_counter_seeds_the_end(self) -> None:
@@ -172,8 +172,8 @@ class TestProcessLifetimeState:
         state.update_process_lifetime(100, 1_000)
         assert state.get_process_lifetimes() == [(100, 1, 1_000, 1_000)]
         assert state.get_process_lifetimes() == [(100, 1, 1_000, 1_000)]
-        assert state.has_process_lifetime(100)
-        assert state.get_process_lifetime_start_ts(100) == 1_000
+        assert state.has_process_lifetime(100, 1)
+        assert state.get_process_lifetime_start_ts(100, 1) == 1_000
 
     def test_a_pid_reported_live_throughout_keeps_one_span(self) -> None:
         """Every tick reports the pid, so nothing closes and the span
@@ -269,8 +269,8 @@ class TestProcessLifetimeState:
         state.observe_process_liveness({100}, 5_000)
         state.observe_process_liveness({200}, 6_000)
         state.observe_process_liveness({100, 200}, 7_000)
-        assert state.get_process_lifetime_start_ts(100) == 5_000
-        assert state.get_process_track_ranks() == {100: 0, 200: 1}
+        assert state.get_process_lifetime_start_ts(100, 1) == 5_000
+        assert state.get_process_track_ranks() == {(100, 1): 0, (200, 1): 1}
 
     def test_process_lifetime_emitted_flag(self) -> None:
         state = PerfettoTrackState()

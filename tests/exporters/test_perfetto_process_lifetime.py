@@ -370,7 +370,7 @@ class TestProcessLifetimeLaminarClipping:
         state = PerfettoTrackState()
         state.update_process_lifetime(100, 500)
         state.update_process_lifetime(100, 5_000)
-        assert not state.has_pid(100)
+        assert not state.has_pid(100, 1)
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
         packets = finalize_perfetto_packets(state, sequence_id=1)
         assert lifetime_slices(packets, lifetime_uuid) == [
@@ -501,7 +501,7 @@ class TestProcessLifetimeSlices:
         ``real_end_ts``, plus a ``cmdline`` debug annotation joined with
         single spaces when ``state`` has a cmdline recorded for the pid."""
         state = PerfettoTrackState()
-        state.set_cmdline(100, ["python3", "-m", "fake_target"])
+        state.set_cmdline(100, 1, ["python3", "-m", "fake_target"])
         item = GCStatsInfo(
             gen=0,
             iid=0,
@@ -612,8 +612,8 @@ class TestProcessLifetimeSlices:
         a ``cmdline`` annotation reflecting that pid's recorded
         cmdline."""
         state = PerfettoTrackState()
-        state.set_cmdline(100, ["python3", "-m", "early_target"])
-        state.set_cmdline(200, ["python3", "-m", "late_target"])
+        state.set_cmdline(100, 1, ["python3", "-m", "early_target"])
+        state.set_cmdline(200, 1, ["python3", "-m", "late_target"])
         item_late_pid = GCStatsInfo(
             gen=0,
             iid=0,
@@ -685,7 +685,7 @@ class TestProcessLifetimeSlices:
         never cross anything, so the drawn span and the ``real_*``
         annotations agree."""
         state = PerfettoTrackState()
-        state.set_cmdline(100, ["python3", "-m", "fake_target"])
+        state.set_cmdline(100, 1, ["python3", "-m", "fake_target"])
         item1 = GCStatsInfo(
             gen=0,
             iid=0,
