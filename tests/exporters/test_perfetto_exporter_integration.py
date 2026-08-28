@@ -1853,15 +1853,122 @@ class TestReusedPidSpans:
             (_REUSE_TICKS[0], _REUSE_TICKS[-1])
         ]
 
-    def test_the_process_track_opens_with_the_first_process(
+
+class TestAProcessGroupPerProcess:
+    """A pid held twice draws a process group per process, and everything
+    under one belongs to the process it names.
+
+    Before this there was one group for both. Its thread row carried both
+    processes' pauses in one line of slices, its counters stepped from one
+    process's values to the other's with nothing marking where, and its
+    start timestamp was the first process's. See ADR-0011 and spec 0066.
+    """
+
+    def _processes(self, tp: TraceProcessor) -> list[tuple[int, int, str]]:
+        """``(upid, start_ts, name)`` for every process on the reused pid,
+        earliest first."""
+        rows = list(
+            tp.query(
+                f"SELECT upid, start_ts, name FROM process WHERE pid = {DEFAULT_PID} ORDER BY start_ts",
+            )
+        )
+        return [(r.upid, r.start_ts, r.name) for r in rows]
+
+    def test_each_process_gets_its_own_upid(
         self,
         reused_pid_trace_processor: TraceProcessor,
     ) -> None:
-        """One process track covers both, so it starts where the first
-        one did rather than where the last one did."""
+        """Two descriptors carrying one pid do not collapse, so a
+        per-process total is a ``GROUP BY upid`` rather than a join
+        through the ``Processes`` track."""
+        processes = self._processes(reused_pid_trace_processor)
+
+        assert len(processes) == 2
+        assert len({upid for upid, _start, _name in processes}) == 2
+
+    def test_each_group_is_stamped_where_its_process_started(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        starts = [start for _upid, start, _name in self._processes(reused_pid_trace_processor)]
+
+        assert starts == [_REUSE_FIRST_SPAN[0], _REUSE_SECOND_SPAN[0]]
+
+    def test_each_group_is_named_for_its_process(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The same strings the two spans on the ``Processes`` track
+        carry, so an operator matches a group to a span by eye."""
+        names = [name for _upid, _start, name in self._processes(reused_pid_trace_processor)]
+
+        assert names == [f"Process {DEFAULT_PID}", f"Process {DEFAULT_PID}#2"]
+
+    def test_each_process_gets_its_own_thread_row(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """Two thread descriptors carrying one pid and one tid, kept apart
+        by the group each hangs off."""
         rows = list(
             reused_pid_trace_processor.query(
-                f"SELECT start_ts FROM process WHERE pid = {DEFAULT_PID}",
+                f"SELECT utid, upid FROM thread WHERE tid = {DEFAULT_PID}",
             )
         )
-        assert [r.start_ts for r in rows] == [_REUSE_FIRST_SPAN[0]]
+
+        assert len(rows) == 2
+        assert len({r.upid for r in rows}) == 2
+
+    def test_each_process_draws_its_own_pauses(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """One line of slices per process, rather than both processes'
+        pauses interleaved on one."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT s.ts AS ts, th.upid AS upid FROM slice s "
+                f"JOIN thread_track tt ON s.track_id = tt.id "
+                f"JOIN thread th ON tt.utid = th.utid "
+                f"WHERE s.name = '{_PAUSE_NAME}' AND th.tid = {DEFAULT_PID} ORDER BY s.ts"
+            )
+        )
+
+        assert [r.ts for r in rows] == [_REUSE_FIRST_GC[0], _REUSE_SECOND_GC[0]]
+        assert len({r.upid for r in rows}) == 2
+
+    def test_each_process_gets_its_own_counter_rows(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """A step in a counter is a fact about a process now, not an
+        artifact of where one ended and the next began."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT pt.upid AS upid FROM counter_track ct "
+                f"JOIN process_track pt ON ct.parent_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE ct.name = 'G0 collected' AND p.pid = {DEFAULT_PID}"
+            )
+        )
+
+        assert len(rows) == 2
+        assert len({r.upid for r in rows}) == 2
+
+    def test_each_process_gets_its_own_start_marker(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The marker keeps a group's description visible, so a group
+        without one is a row the UI hides."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT s.ts AS ts, pt.upid AS upid FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND p.pid = {DEFAULT_PID} ORDER BY s.ts"
+            )
+        )
+
+        assert [r.ts for r in rows] == [_REUSE_FIRST_GC[0], _REUSE_SECOND_GC[0]]
+        assert len({r.upid for r in rows}) == 2

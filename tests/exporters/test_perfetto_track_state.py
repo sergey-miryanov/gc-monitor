@@ -260,17 +260,17 @@ class TestProcessLifetimeState:
         state.observe_process_liveness({200}, 2_000)
         assert sorted(state.get_process_lifetimes()) == [(100, 1, 1_000, 1_000), (200, 1, 1_000, 2_000)]
 
-    def test_the_process_track_opens_with_the_first_process(self) -> None:
-        """The Perfetto process track is not split, so it covers both
-        processes and opens where the first one did. Its rank follows the
-        same timestamp, leaving process order as a run without reuse
-        writes it."""
+    def test_each_process_opens_its_own_track(self) -> None:
+        """A process track is per process, so the one that took the pid
+        over opens where it started and ranks there rather than
+        inheriting its predecessor's place."""
         state = PerfettoTrackState()
         state.observe_process_liveness({100}, 5_000)
         state.observe_process_liveness({200}, 6_000)
         state.observe_process_liveness({100, 200}, 7_000)
         assert state.get_process_lifetime_start_ts(100, 1) == 5_000
-        assert state.get_process_track_ranks() == {(100, 1): 0, (200, 1): 1}
+        assert state.get_process_lifetime_start_ts(100, 2) == 7_000
+        assert state.get_process_track_ranks() == {(100, 1): 0, (200, 1): 1, (100, 2): 2}
 
     def test_process_lifetime_emitted_flag(self) -> None:
         state = PerfettoTrackState()

@@ -12,7 +12,9 @@
   clock read" narrowed to one *stamping* read 2026-08-20, see
   [ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md); a span became one
   per *process* rather than one per pid 2026-08-28, see
-  [spec 0059](../../specs/0059-say-which-process-held-a-pid-in-the-trace.md))
+  [spec 0059](../../specs/0059-say-which-process-held-a-pid-in-the-trace.md);
+  a process track became one per process too the same day, see
+  [spec 0066](../../specs/0066-give-each-process-on-a-reused-pid-its-own-track.md))
 
 ## Context
 
@@ -66,9 +68,15 @@ zooming to one is looking at an interval its process was alive in.
 `process_ordering = EXPLICIT` and `thread_ordering = EXPLICIT` (fields 19 and
 20) and nothing else: no name, no parent, no sub-message.
 
-**Process tracks are ranked by first event timestamp**, ties broken by
-ascending pid, sequential from 0. Only pids with at least one non-meta event
-get a rank.
+**A process track is per process**, not per pid. A pid the operating system
+hands out twice draws two `ProcessDescriptor` messages, and the second takes
+the same `#N` suffix its span on the `Processes` track takes. Each is stamped
+with its own first observation, and the thread, loss and counter tracks of a
+process hang off the group of the process that produced them.
+
+**Process tracks are ranked by first observation**, ties broken by ascending
+pid and then epoch, sequential from 0. Only processes with at least one
+non-meta event get a rank.
 
 **The whole track is emitted at encoder close**, once per trace; convert
 passes record spans and emit nothing. Two reasons the BEGIN cannot go out
@@ -263,6 +271,11 @@ iteration.
   [ADR-0010](0010-process-identity-cmdline-and-start-marker.md)'s
   `Start Process` marker was invented for. Emitting either for it is out of
   scope.
+- **A recycled pid gives two `upid`s.** Measured against the trace processor
+  the suite pins: two descriptors carrying one pid do not collapse, each keeps
+  its own `start_ts`, and two thread descriptors sharing a pid and a tid stay
+  apart by the group each hangs off. A per-process total is a `GROUP BY upid`
+  rather than a join through the `Processes` track.
 - **Rank gaps.** A zero-GC pid consumes a rank, since ranking sorts the same
   dict liveness writes, but has no descriptor to apply it to, so real pids get
   0, 1, 2, 4, 5. Harmless: `sibling_order_rank` is a sort key, not an index.
@@ -383,10 +396,9 @@ iteration.
   removed, so start and end always carry identical key sets. Both are keyed on
   `(pid, pid_epoch)`; `observe_process_liveness` takes a whole tick's report,
   closes the span of every pid it omits and folds the rest in. It hands the
-  spans back for finalization, ranks them by `(start_ts, pid)` over the first
-  process to hold each pid, and owns the once-per-trace flag that makes
-  finalization safe to call twice, covering the non-idempotent track
-  descriptor too.
+  spans back for finalization, ranks them by `(start_ts, pid, pid_epoch)` over
+  every process, and owns the once-per-trace flag that makes finalization safe
+  to call twice, covering the non-idempotent track descriptor too.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded
   so it goes out once.
 - The liveness path, monitor to accumulator:

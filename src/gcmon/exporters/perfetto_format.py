@@ -21,6 +21,7 @@ from ..model.trace_event import (
     TraceEvent,
     Track,
 )
+from ..support.pid_epoch import epoch_suffix
 from .perfetto_builders import (
     _args_to_debug_annotations,
     _make_counter_event,
@@ -151,8 +152,13 @@ def _emit_process_descriptor(
     ``process_ordering = PROCESS_ORDERING_EXPLICIT``; see
     ``_emit_root_descriptor``.
 
-    *start_timestamp_ns* goes on the ``process`` sub-message. It is *pid*'s
-    first event in nanoseconds, the same timestamp the rank comes from.
+    *start_timestamp_ns* goes on the ``process`` sub-message. It is when
+    this process was first observed, in nanoseconds, the same timestamp the
+    rank comes from.
+
+    The name takes the epoch suffix the process's ``Processes``-track span
+    takes, so an operator matching a group to a span matches identical
+    strings.
     """
     if state.has_pid(pid, pid_epoch):
         return []
@@ -161,7 +167,7 @@ def _emit_process_descriptor(
     cmdline = state.get_cmdline(pid, pid_epoch)
     desc = build_track_descriptor(
         proc_uuid,
-        f"Process {pid}",
+        f"Process {pid}{epoch_suffix(pid_epoch)}",
         pid=pid,
         child_ordering=ChildTracksOrdering.EXPLICIT,
         sibling_order_rank=sibling_order_rank,
@@ -370,12 +376,13 @@ def convert_trace_events_to_perfetto(
     emits the root descriptor.
 
     Each process descriptor carries a ``sibling_order_rank`` and a
-    ``process.start_timestamp_ns``, both taken from the pid's first event.
-    *state* accumulates those across batches, and the pre-pass below folds
-    this batch in before the main loop, so a pid described in this batch is
-    ranked against the events of it. Both fields are always present: a
-    descriptor goes out only for a pid that named a track, which is a pid
-    the pre-pass has folded in.
+    ``process.start_timestamp_ns``, both taken from that process's first
+    observation. *state* accumulates those across batches, and the pre-pass
+    below folds this batch in before the main loop, so a process described
+    in this batch is ranked against the events of it, and every event of it
+    can be asked which process it belongs to. Both fields are always
+    present: a descriptor goes out only for a process that named a track,
+    which is a process the pre-pass has folded in.
 
     ``Processes``-track slices go out at trace close instead, from
     ``finalize_perfetto_packets``.
@@ -391,9 +398,7 @@ def convert_trace_events_to_perfetto(
 
     for event in events:
         pid = event.track.pid
-        # Pinned to the first process to hold the pid, which is what
-        # every one of these keys held before it grew an epoch.
-        pid_epoch = 1
+        pid_epoch = _event_epoch(event, state)
         descriptors.extend(_emit_track_descriptors(event.track, pid_epoch, state, sequence_id, ranks))
 
         if isinstance(event, Slice):
@@ -461,6 +466,18 @@ def convert_trace_events_to_perfetto(
             )
 
     return descriptors, packets
+
+
+def _event_epoch(event: TraceEvent, state: PerfettoTrackState) -> int:
+    """Which process holding the event's pid produced it.
+
+    A slice is asked about its start. Both of its ends are folded into
+    the span accumulator, and a handover between them would otherwise
+    draw one collection under two processes: a collection that began
+    before its process exited belongs to that process.
+    """
+    ts = event.ts_start if isinstance(event, Slice) else event.ts
+    return state.epoch_at(event.track.pid, ts)
 
 
 def _maybe_emit_start_process_marker(

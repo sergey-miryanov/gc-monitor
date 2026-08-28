@@ -18,6 +18,7 @@ from gcmon.model.trace_event import (
     Instant,
     InterpreterTrack,
     ProcessTrack,
+    Slice,
     TraceEvent,
 )
 from tests.exporters.perfetto_helpers import (
@@ -1179,3 +1180,58 @@ class TestTheMissingCollectionsAnnotation:
 
         assert top["lost_count"] == 1
         assert top["seen"] == "75.0% (3 of 4)"
+
+
+class TestASliceThatStraddlesAHandover:
+    """A collection that began before its process exited belongs to that
+    process.
+
+    Both ends of a slice are folded into the span accumulator, so the end
+    of a long one can land after the pid was handed on. Drawn under the
+    process its end falls in, the collection would be attributed to a
+    process that had not started when it began. Spec 0066 settles it on
+    the start.
+    """
+
+    _TRACK = InterpreterTrack(100, 0)
+
+    def _converted(self) -> tuple[PerfettoTrackState, list[bytes]]:
+        """Pid 100 is reported live over ``[1_000, 2_000]`` and then
+        dropped, and the slice runs from inside that span to well past
+        it."""
+        state = PerfettoTrackState()
+        state.observe_process_liveness({100}, 1_000)
+        state.observe_process_liveness({100}, 2_000)
+        state.observe_process_liveness(set(), 3_000)
+        events: list[TraceEvent] = [
+            Slice(self._TRACK, "GC Pause(0)", "gc", ts_start=1_500, ts_stop=4_000, args={}),
+        ]
+        _, packets = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+        return state, packets
+
+    def _slice_track_uuids(self, packets: list[bytes]) -> list[int]:
+        uuids: list[int] = []
+        for raw in packets:
+            packet = TracePacket()
+            packet.ParseFromString(raw)
+            if not packet.HasField("track_event"):
+                continue
+            if packet.track_event.type in (TrackEventType.SLICE_BEGIN, TrackEventType.SLICE_END):
+                uuids.append(packet.track_event.track_uuid)
+        return uuids
+
+    def test_the_run_hands_the_pid_on_between_the_two_ends(self) -> None:
+        """Without this the test would pass on a slice that never
+        straddled anything."""
+        state, _ = self._converted()
+
+        assert state.epoch_at(100, 1_500) == 1
+        assert state.epoch_at(100, 4_000) == 2
+
+    def test_both_ends_are_drawn_on_the_track_of_the_process_it_began_in(self) -> None:
+        state, packets = self._converted()
+
+        drawn = self._slice_track_uuids(packets)
+
+        assert drawn == [state.get_track_uuid(self._TRACK, 1)] * 2
+        assert state.get_track_uuid(self._TRACK, 2) not in drawn

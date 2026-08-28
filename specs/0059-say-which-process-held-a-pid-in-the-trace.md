@@ -104,26 +104,24 @@ later epochs take the `#N` suffix, so the first process on every pid is
 unchanged and an ordinary run writes an unchanged trace. The rule lives in one
 place and both the table and the trace read it.
 
-**The Perfetto process track is not split.** Two `ProcessDescriptor` messages
-carrying one pid may collapse to a single `upid` in the trace processor;
-nothing here has verified which, and the gain would be a UI nicety. Records
-from both processes continue to share the process track, and a reader
-attributes each to a process by which span its timestamp falls in. If someone
-later measures what the trace processor does, splitting the track is a
-separate spec with an answer to point at.
+**The Perfetto process track is split, in
+[0066](0066-give-each-process-on-a-reused-pid-its-own-track.md) rather than
+here.** This spec declined to: two `ProcessDescriptor` messages carrying one
+pid might have collapsed to a single `upid` in the trace processor, nothing
+here had verified which, and the gain looked like a UI nicety. 0066 took the
+measurement and they do not collapse, so each process draws its own group and
+a reader no longer attributes a record to a process by which span its
+timestamp falls in.
 
-**The process descriptor keeps the first epoch on both its fields.**
-`_emit_process_descriptor` reads `start_timestamp_ns` from
+**The process descriptor carries its own epoch's start and rank**, also from
+[0066](0066-give-each-process-on-a-reused-pid-its-own-track.md). This spec had
+it keep the first epoch on both fields, because `_emit_process_descriptor`
+reads `start_timestamp_ns` from
 `PerfettoTrackState.get_process_lifetime_start_ts` and `sibling_order_rank`
-from `get_process_track_ranks`, and once the span key widens neither call has
-an epoch to name. The track is not split, so it covers every process that held
-the pid: the first of them is when it opens, and ranking on that same
-timestamp leaves process order unchanged. A run with no reuse writes what it
-writes today, per story 5.
-
-The consequence is that a recycled pid keeps a process track stamped before
-its later occupant existed. The `Processes` track carries that distinction
-instead.
+from `get_process_track_ranks`, and once the span key widened neither call had
+an epoch to name. One unsplit track covering every process that held the pid
+made the first of them the right answer. Split, each descriptor is stamped and
+ranked where its own process started.
 
 **JSONL is left alone.** A capture carries no epoch and no exit record, so
 `combine` cannot recover one, and a trace built offline will collapse what a
@@ -164,7 +162,9 @@ section 6.
   [ADR-0007](../docs/adr/0007-shared-trace-converter-pipeline.md) is what
   keeps that class of divergence small; this one adds to it knowingly rather
   than growing to cover it.
-- **Splitting the Perfetto process track**, for the reason in section 4.
+- **Splitting the Perfetto process track.** Done in
+  [0066](0066-give-each-process-on-a-reused-pid-its-own-track.md) instead, on
+  the measurement section 4 asked for.
 - **Reading a command line per epoch.** ADR-0010 already reads whatever holds
   the pid at capture time, and a dead predecessor has none to read.
 

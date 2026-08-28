@@ -302,3 +302,48 @@ class TestProcessOrderingByFirstTs:
         tds_2 = _process_descriptor_fields_for_pid(d2, 2)
         assert len(tds_2) == 1
         assert tds_2[0].process.start_timestamp_ns == 5_000
+
+
+class TestAProcessThatTookAPidOver:
+    """A pid held twice draws a descriptor per process, each stamped and
+    ranked where its own process started.
+
+    Before this there was one descriptor for both, stamped at the first
+    process's start: a row the UI sorted into a place the process it drew
+    did not yet exist in. See ADR-0011.
+    """
+
+    def _descriptors_over_a_handover(self) -> list[TrackDescriptor]:
+        """Pid 100 answers a tick, misses one, and is back with an event
+        of its own."""
+        state = PerfettoTrackState()
+        state.observe_process_liveness({100}, 1_000)
+        first, _ = convert_trace_events_to_perfetto(
+            [Instant(ProcessTrack(100), "start", ts=1_500)],
+            state,
+            sequence_id=1,
+        )
+        state.observe_process_liveness(set(), 2_000)
+        second, _ = convert_trace_events_to_perfetto(
+            [Instant(ProcessTrack(100), "start", ts=3_000)],
+            state,
+            sequence_id=1,
+        )
+        return _process_descriptor_fields_for_pid([*first, *second], 100)
+
+    def test_each_process_gets_a_descriptor(self) -> None:
+        assert len(self._descriptors_over_a_handover()) == 2
+
+    def test_each_descriptor_is_named_for_its_process(self) -> None:
+        """The same string the process's span on the Processes track
+        takes, so the two match by eye."""
+        names = [td.name for td in self._descriptors_over_a_handover()]
+        assert names == ["Process 100", "Process 100#2"]
+
+    def test_each_descriptor_is_stamped_where_its_process_started(self) -> None:
+        stamps = [td.process.start_timestamp_ns for td in self._descriptors_over_a_handover()]
+        assert stamps == [1_000, 3_000]
+
+    def test_each_descriptor_ranks_where_its_process_started(self) -> None:
+        ranks = [td.sibling_order_rank for td in self._descriptors_over_a_handover()]
+        assert ranks == [0, 1]

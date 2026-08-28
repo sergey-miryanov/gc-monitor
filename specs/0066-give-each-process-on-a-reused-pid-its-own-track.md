@@ -1,6 +1,6 @@
 # 0066: Give each process on a reused pid its own track
 
-- **Status:** Not started
+- **Status:** In progress
 - **Kind:** feature (enhancement)
 - **Effort:** M
 - **Origin:** measured 2026-08-28 while landing

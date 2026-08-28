@@ -210,18 +210,17 @@ class PerfettoTrackState:
 
     def get_process_track_ranks(self) -> dict[tuple[int, int], int]:
         """Return ``{(pid, pid_epoch): rank}``, assigned sequentially from
-        ``0`` by ascending ``(start_ts, pid)`` over the first process to
-        hold each pid. Processes with no recorded start are absent.
+        ``0`` by ascending ``(start_ts, pid, pid_epoch)`` over every
+        process with a recorded span.
 
-        Ranked on the same timestamp the track opens at, so a pid handed
-        out twice leaves process order as a run without reuse writes it.
+        Ranked on the timestamp its own track opens at, so the process
+        that took a pid over sorts where it started rather than where its
+        predecessor did.
         """
-        starts = {
-            (pid, pid_epoch): ts for (pid, pid_epoch), ts in self._process_lifetime_start.items() if pid_epoch == 1
-        }
+        starts = self._process_lifetime_start
         if not starts:
             return {}
-        return {key: rank for rank, key in enumerate(sorted(starts, key=lambda k: (starts[k], k[0])))}
+        return {key: rank for rank, key in enumerate(sorted(starts, key=lambda k: (starts[k], k[0], k[1])))}
 
     def has_root_descriptor(self) -> bool:
         return self._root_descriptor_emitted
