@@ -56,7 +56,7 @@ def _clip(
 
 def _pairs(clipped: list[tuple[int, int, int, int, int]], state: PerfettoTrackState) -> list[list[bytes]]:
     return [
-        _emit_process_lifetime_slice(pid, start, end, state, SEQUENCE_ID, real_start, real_end)
+        _emit_process_lifetime_slice(pid, 1, start, end, state, SEQUENCE_ID, real_start, real_end)
         for pid, start, end, real_start, real_end in clipped
     ]
 

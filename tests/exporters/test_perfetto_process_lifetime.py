@@ -378,7 +378,7 @@ class TestProcessLifetimeLaminarClipping:
                 500,
                 TrackEventType.SLICE_BEGIN,
                 "Process 100",
-                {"real_start_ts": 500, "real_end_ts": 5_000},
+                {"real_start_ts": 500, "real_end_ts": 5_000, "pid_epoch": 1},
             ),
             (5_000, TrackEventType.SLICE_END, "Process 100", {}),
         ]
@@ -530,7 +530,7 @@ class TestProcessLifetimeSlices:
         assert first_packet.timestamp == 1_000
         assert first_packet.track_event.name == "Process 100"
         annotations = first_packet.track_event.debug_annotations
-        assert [a.name for a in annotations] == ["cmdline", "real_start_ts", "real_end_ts"]
+        assert [a.name for a in annotations] == ["cmdline", "real_start_ts", "real_end_ts", "pid_epoch"]
         assert annotations[0].string_value == "python3 -m fake_target"
         assert annotations[1].int_value == 1_000
         assert annotations[2].int_value == 2_000
@@ -566,7 +566,7 @@ class TestProcessLifetimeSlices:
                 begin_packets.append(packet)
         assert len(begin_packets) == 1
         annotations = begin_packets[0].track_event.debug_annotations
-        assert [a.name for a in annotations] == ["real_start_ts", "real_end_ts"]
+        assert [a.name for a in annotations] == ["real_start_ts", "real_end_ts", "pid_epoch"]
 
     def test_process_lifetime_slice_end_at_last_event_ts(self) -> None:
         """The ``Process <pid>`` slice END is emitted at the ts of the
@@ -660,6 +660,7 @@ class TestProcessLifetimeSlices:
                     "cmdline": "python3 -m early_target",
                     "real_start_ts": 500,
                     "real_end_ts": 1_500,
+                    "pid_epoch": 1,
                 },
             ),
             (999, TrackEventType.SLICE_END, "Process 100", {}),
@@ -671,6 +672,7 @@ class TestProcessLifetimeSlices:
                     "cmdline": "python3 -m late_target",
                     "real_start_ts": 1_000,
                     "real_end_ts": 5_000,
+                    "pid_epoch": 1,
                 },
             ),
             (5_000, TrackEventType.SLICE_END, "Process 200", {}),
@@ -727,6 +729,7 @@ class TestProcessLifetimeSlices:
                     "cmdline": "python3 -m fake_target",
                     "real_start_ts": 1_000,
                     "real_end_ts": 4_000,
+                    "pid_epoch": 1,
                 },
             ),
             (4_000, TrackEventType.SLICE_END, "Process 100", {}),

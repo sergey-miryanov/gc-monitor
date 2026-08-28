@@ -15456,6 +15456,10 @@ track_event {
     int_value: 4801000000
     name: "real_end_ts"
   }
+  debug_annotations {
+    int_value: 1
+    name: "pid_epoch"
+  }
   type: TYPE_SLICE_BEGIN
   track_uuid: 29
   name: "Process 33328"
@@ -15479,6 +15483,10 @@ track_event {
   debug_annotations {
     int_value: 1802000000
     name: "real_end_ts"
+  }
+  debug_annotations {
+    int_value: 1
+    name: "pid_epoch"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 29
@@ -15504,9 +15512,13 @@ track_event {
     int_value: 4802000000
     name: "real_end_ts"
   }
+  debug_annotations {
+    int_value: 2
+    name: "pid_epoch"
+  }
   type: TYPE_SLICE_BEGIN
   track_uuid: 29
-  name: "Process 33512"
+  name: "Process 33512#2"
 }
 --- packet 1187 ---
 timestamp: 4802000000
@@ -15514,5 +15526,5 @@ trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_SLICE_END
   track_uuid: 29
-  name: "Process 33512"
+  name: "Process 33512#2"
 }

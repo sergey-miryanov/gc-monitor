@@ -22,6 +22,7 @@
 - A Perfetto trace is compressed: the same events in a file several times smaller. It opens the same way, and there is nothing to run first
 - `ControlClient.instant_msg` takes a `ts`, so an instant captured in a hot path can be sent after it and still land where it happened
 - The pyperf hook marks where each benchmark ran: `gcmon:`-prefixed begin and end marks per measured region
+- A `Processes` slice says which process held a PID the operating system handed out twice: the second reads `Process 12345#2`, the same way the `--stats` table heads its block. Every slice carries the number as a `pid_epoch` annotation to query on
 
 ### Bugfixes
 

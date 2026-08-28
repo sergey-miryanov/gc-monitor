@@ -1737,8 +1737,8 @@ def _lifetime_spans(tp: TraceProcessor, name: str) -> list[tuple[int, int]]:
 
 class TestReusedPidSpans:
     """A pid the operating system handed out twice draws a span per
-    process, each bounding only the process it belongs to. Both still
-    read ``Process <pid>``; naming them apart comes next. See ADR-0011.
+    process, each bounding only the process it belongs to and named for
+    which process it was. See ADR-0011.
     """
 
     def test_no_misplaced_end_events(self, reused_pid_trace_processor: TraceProcessor) -> None:
@@ -1753,10 +1753,8 @@ class TestReusedPidSpans:
         """Before this, the accumulator folded both processes into one
         min/max and drew a single span from the first observation of the
         first to the last of the second."""
-        assert _lifetime_spans(reused_pid_trace_processor, f"Process {DEFAULT_PID}") == [
-            _REUSE_FIRST_SPAN,
-            _REUSE_SECOND_SPAN,
-        ]
+        assert _lifetime_spans(reused_pid_trace_processor, f"Process {DEFAULT_PID}") == [_REUSE_FIRST_SPAN]
+        assert _lifetime_spans(reused_pid_trace_processor, f"Process {DEFAULT_PID}#2") == [_REUSE_SECOND_SPAN]
 
     def test_neither_span_covers_the_gap_between_the_processes(
         self,
@@ -1766,7 +1764,9 @@ class TestReusedPidSpans:
         proves neither process was running. A single span would have
         covered it, and an operator zooming there would read a process
         with no events and no counters."""
-        spans = _lifetime_spans(reused_pid_trace_processor, f"Process {DEFAULT_PID}")
+        spans = _lifetime_spans(reused_pid_trace_processor, f"Process {DEFAULT_PID}") + _lifetime_spans(
+            reused_pid_trace_processor, f"Process {DEFAULT_PID}#2"
+        )
         gap_tick = _REUSE_TICKS[1]
         assert all(not start <= gap_tick <= end for start, end in spans)
 
@@ -1781,7 +1781,8 @@ class TestReusedPidSpans:
                 f"SELECT s.ts AS ts, a.flat_key AS flat_key, a.int_value AS int_value FROM args a "
                 f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
                 f"JOIN track t ON s.track_id = t.id "
-                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' AND s.name = 'Process {DEFAULT_PID}' "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                f"AND s.name IN ('Process {DEFAULT_PID}', 'Process {DEFAULT_PID}#2') "
                 f"AND a.flat_key IN ('debug.real_start_ts', 'debug.real_end_ts') "
                 f"ORDER BY s.ts, a.flat_key"
             )
@@ -1799,6 +1800,48 @@ class TestReusedPidSpans:
                 "debug.real_end_ts": _REUSE_SECOND_SPAN[1],
             },
         }
+
+    def test_the_second_process_is_named_apart(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """What the operator reads, and the same suffix the `--stats`
+        table prints for the same run. The first process on a pid stays
+        plain, so a run with no reuse reads as it always has."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT s.name AS name, COUNT(*) AS n FROM slice s "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' GROUP BY s.name"
+            )
+        )
+        assert {r.name: r.n for r in rows} == {
+            f"Process {DEFAULT_PID}": 1,
+            f"Process {DEFAULT_PID}#2": 1,
+            f"Process {_SECOND_PID}": 1,
+        }
+
+    def test_a_query_reads_the_epoch_without_parsing_a_name(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The suffix is for an operator; the annotation is for SQL. It
+        is on every slice, the first process on a pid included, so a
+        query filters on a number rather than inferring one from a suffix
+        that is not there."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT s.ts AS ts, EXTRACT_ARG(s.arg_set_id, 'debug.pid_epoch') AS pid_epoch "
+                f"FROM slice s JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                f"ORDER BY s.ts, pid_epoch"
+            )
+        )
+        assert [(r.ts, r.pid_epoch) for r in rows] == [
+            (_REUSE_TICKS[0], 1),
+            (_REUSE_TICKS[0], 1),
+            (_REUSE_SECOND_SPAN[0], 2),
+        ]
 
     def test_a_pid_nobody_reused_still_draws_one_span(
         self,

@@ -4,6 +4,7 @@ One BEGIN/END pair per process on one shared track. See ADR-0011.
 """
 
 from ..model.trace_event import Slice, TraceEvent
+from ..support.pid_epoch import epoch_suffix
 from .perfetto_builders import (
     _build_debug_annotation_int,
     _build_debug_annotation_string,
@@ -37,6 +38,7 @@ def _emit_process_lifetime_track_descriptor(
 
 def _emit_process_lifetime_slice(
     pid: int,
+    pid_epoch: int,
     start_ts: int,
     end_ts: int,
     state: PerfettoTrackState,
@@ -45,7 +47,8 @@ def _emit_process_lifetime_slice(
     real_end_ts: int,
 ) -> list[bytes]:
     """Emit the ``TYPE_SLICE_BEGIN`` / ``TYPE_SLICE_END`` pair drawing
-    *pid*'s slice over ``[start_ts, end_ts]``, BEGIN first: the trace
+    the slice of *pid*'s *pid_epoch*'th process over
+    ``[start_ts, end_ts]``, BEGIN first: the trace
     processor breaks timestamp ties by position in the sequence, so a
     zero-length span with its END first reads as ``dur = -1``.
 
@@ -55,11 +58,16 @@ def _emit_process_lifetime_slice(
     to check whether a clip happened. Where those and the drawn ``ts`` /
     ``dur`` disagree, the annotations are the truth.
 
+    ``pid_epoch`` goes on every slice too, the first process on a pid
+    included, so a query filters on a number rather than reading it off
+    the name. The name carries the same thing for an operator, and only
+    from the second process on: ``Process 12345#2``.
+
     The END repeats the name, and that is load-bearing: the trace
     processor matches a named END to the BEGIN carrying that name,
     force-closing anything above it."""
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
-    name = f"Process {pid}"
+    name = f"Process {pid}{epoch_suffix(pid_epoch)}"
     debug_annotations: list[bytes] = []
     cmdline = state.get_cmdline(pid)
     if cmdline:
@@ -68,6 +76,7 @@ def _emit_process_lifetime_slice(
         )
     debug_annotations.append(_build_debug_annotation_int("real_start_ts", real_start_ts))
     debug_annotations.append(_build_debug_annotation_int("real_end_ts", real_end_ts))
+    debug_annotations.append(_build_debug_annotation_int("pid_epoch", pid_epoch))
     return [
         build_trace_packet(
             sequence_id,
@@ -175,10 +184,11 @@ def finalize_perfetto_packets(
         return []
 
     packets: list[bytes] = []
-    for pid, _pid_epoch, start_ts, end_ts, real_start, real_end in _clip_spans_to_laminar(spans):
+    for pid, pid_epoch, start_ts, end_ts, real_start, real_end in _clip_spans_to_laminar(spans):
         packets.extend(
             _emit_process_lifetime_slice(
                 pid,
+                pid_epoch,
                 start_ts,
                 end_ts,
                 state,

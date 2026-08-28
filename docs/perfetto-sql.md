@@ -122,8 +122,11 @@ every slice carries them whether it was cut or not.
 Every monitored process gets exactly one slice, a process that never collected
 included, so these join to pids one-to-many: a pid the operating system handed
 out twice carries a slice per process that held it, and a record belongs to
-the one its timestamp falls in. A `dur = 0` slice is one observed at a single
-instant, or cut down to nothing.
+the one its timestamp falls in. Which one a slice is for reads off
+`EXTRACT_ARG(s.arg_set_id, 'debug.pid_epoch')`, on every slice and counting
+from 1; the name says the same thing from the second process on,
+`Process 12345#2`. A `dur = 0` slice is one observed at a single instant, or
+cut down to nothing.
 
 Processes still alive when monitoring stops share an end timestamp and nest,
 and the trace processor closes at most **512** nested slices. Past that they

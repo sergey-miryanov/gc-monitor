@@ -32,9 +32,12 @@ A trace carries these, on one track per interpreter:
   `--rss-interval` (default 1s).
 - **`Processes` track**: a minimap of the session, one slice per monitored
   process, so a pid the operating system handed out twice carries one each.
-  Filter on the track name `Processes` in SQL. **Read a process's span from
-  the `real_start_ts` and `real_end_ts` annotations, not from the slice
-  width**, which overlapping processes cut short and sometimes to nothing; see
+  The second process to hold a pid and any after it are named
+  `Process {pid}#2`, matching the `--stats` table, and every slice carries a
+  `pid_epoch` annotation holding the same number. Filter on the track name
+  `Processes` in SQL. **Read a process's span from the `real_start_ts` and
+  `real_end_ts` annotations, not from the slice width**, which overlapping
+  processes cut short and sometimes to nothing; see
   [Perfetto SQL](perfetto-sql.md).
 - **Process ordering**: Perfetto sorts the tracks on first event timestamp, so
   the earliest process sits at the top.
