@@ -1,6 +1,6 @@
 """The shared ``Processes`` track: spans, laminar clipping, emission.
 
-One BEGIN/END pair per pid on one shared track. See ADR-0011.
+One BEGIN/END pair per process on one shared track. See ADR-0011.
 """
 
 from ..model.trace_event import Slice, TraceEvent
@@ -18,7 +18,7 @@ __all__ = ["finalize_perfetto_packets"]
 
 
 # Name of the shared top-level Perfetto track that shows one
-# TYPE_SLICE_BEGIN / TYPE_SLICE_END pair per pid.
+# TYPE_SLICE_BEGIN / TYPE_SLICE_END pair per process.
 _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
 
 
@@ -111,34 +111,38 @@ def _record_process_lifetime(
 
 
 def _clip_spans_to_laminar(
-    spans: list[tuple[int, int, int]],
-) -> list[tuple[int, int, int, int, int]]:
+    spans: list[tuple[int, int, int, int]],
+) -> list[tuple[int, int, int, int, int, int]]:
     """Clip *spans* so any two are disjoint or strictly nested, and
-    return ``[(pid, start, end, real_start, real_end), ...]`` sorted by
-    ascending start, longer span first on a tie, then pid. ``start`` /
-    ``end`` are what the slice draws; ``real_start`` / ``real_end`` are
-    the observed span, carried through untouched. See ADR-0011.
+    return ``[(pid, pid_epoch, start, end, real_start, real_end), ...]``
+    sorted by ascending start, longer span first on a tie, then pid and
+    epoch. ``start`` / ``end`` are what the slice draws; ``real_start`` /
+    ``real_end`` are the observed span, carried through untouched.
+
+    A span belongs to one process, so two of them carrying the same pid
+    are clipped against each other exactly as two on different pids are.
+    See ADR-0011.
     """
-    spans = sorted(spans, key=lambda span: (span[1], -span[2], span[0]))
-    ends: dict[int, int] = {}
-    open_pids: list[int] = []
-    for pid, start, end in spans:
+    spans = sorted(spans, key=lambda span: (span[2], -span[3], span[0], span[1]))
+    ends: dict[tuple[int, int], int] = {}
+    open_keys: list[tuple[int, int]] = []
+    for pid, pid_epoch, start, end in spans:
         # Walk out through the spans still open at *start*, closing the
         # ones that ended before it and clipping the ones it crosses.
         # Only a span that contains this one stops the walk.
-        while open_pids:
-            outer_pid = open_pids[-1]
-            outer_end = ends[outer_pid]
+        while open_keys:
+            outer_key = open_keys[-1]
+            outer_end = ends[outer_key]
             if outer_end < start:
-                open_pids.pop()
+                open_keys.pop()
                 continue
             if outer_end >= end:
                 break
-            ends[outer_pid] = start - 1
-            open_pids.pop()
-        ends[pid] = end
-        open_pids.append(pid)
-    return [(pid, start, ends[pid], start, end) for pid, start, end in spans]
+            ends[outer_key] = start - 1
+            open_keys.pop()
+        ends[(pid, pid_epoch)] = end
+        open_keys.append((pid, pid_epoch))
+    return [(pid, pid_epoch, start, ends[(pid, pid_epoch)], start, end) for pid, pid_epoch, start, end in spans]
 
 
 def finalize_perfetto_packets(
@@ -146,8 +150,9 @@ def finalize_perfetto_packets(
     sequence_id: int,
 ) -> list[bytes]:
     """Emit every ``Processes``-track packet for the whole trace: the
-    track descriptor, then one slice per pid that has a span. Call this
-    once, at the end of the trace (typically the encoder's ``close()``).
+    track descriptor, then one slice per process that has a span. Call
+    this once, at the end of the trace (typically the encoder's
+    ``close()``).
 
     Every pid with a span gets a slice, including one the monitor loop
     only ever reported as live: it has no process descriptor and no
@@ -170,7 +175,7 @@ def finalize_perfetto_packets(
         return []
 
     packets: list[bytes] = []
-    for pid, start_ts, end_ts, real_start, real_end in _clip_spans_to_laminar(spans):
+    for pid, _pid_epoch, start_ts, end_ts, real_start, real_end in _clip_spans_to_laminar(spans):
         packets.extend(
             _emit_process_lifetime_slice(
                 pid,

@@ -26,6 +26,7 @@
 ### Bugfixes
 
 - An instant sent close to the end of a run reaches the trace, where the last one a client sent could be dropped without a word
+- A `Processes` span covers only the process it names. A PID the operating system handed out twice used to draw a single span across both, wide enough to cover a stretch in which neither process was running
 
 ### Internal
 

@@ -10,7 +10,9 @@
   [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md); the RSS round stopped
   adding start jitter the same day, see [ADR-0013](0013-rss-sampling.md); "one
   clock read" narrowed to one *stamping* read 2026-08-20, see
-  [ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md))
+  [ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md); a span became one
+  per *process* rather than one per pid 2026-08-28, see
+  [spec 0059](../../specs/0059-say-which-process-held-a-pid-in-the-trace.md))
 
 ## Context
 
@@ -45,9 +47,11 @@ in the suite passed anyway.
 ## Decision
 
 **A single shared top-level track named `Processes`** holds one
-`TYPE_SLICE_BEGIN`/`TYPE_SLICE_END` pair per pid, named `Process <pid>`,
-spanning `[first observed, last observed]` for that pid (see the liveness
-section below for what counts as an observation).
+`TYPE_SLICE_BEGIN`/`TYPE_SLICE_END` pair per **process**, named
+`Process <pid>`, spanning `[first observed, last observed]` for that process
+(see the liveness section below for what counts as an observation). A pid the
+operating system hands out twice therefore draws two spans, so an operator
+zooming to one is looking at an interval its process was alive in.
 
 - Parented to the trace root, so `parent_uuid` is **absent on the wire**, not
   `0`, which is the reserved root descriptor
@@ -74,8 +78,10 @@ the END, since `BufferedTraceExporter` flushes in chunks of `flush_threshold`
 (default 1000) and Perfetto pairs a BEGIN with the **first** matching END,
 orphaning the rest.
 
-**Spans are clipped to a laminar set.** Sorted by ascending start, ties broken
-by longer span first and then ascending pid, a stack sweep pulls each crossed
+**Spans are clipped to a laminar set.** The sweep keys on `(pid, pid_epoch)`,
+so two spans carrying one pid are made disjoint or nested exactly as two spans
+on different pids are. Sorted by ascending start, ties broken by longer span
+first and then ascending pid and epoch, a stack sweep pulls each crossed
 span's end back to one nanosecond before the span that crosses it. Nesting is
 untouched, so a parent outliving its children costs nothing. Spans that merely
 touch (`A.end == B.start`) count as crossing when B extends past A, because
@@ -158,6 +164,23 @@ observation and an RSS sample from one tick agree. The accumulator folds a
 ADR called provisional is **removed**, since the sampler liveness it kept out
 of the end is now reported directly.
 
+**A gap in the liveness reports is where one process ends and the next
+begins.** The reports arrive once per tick carrying the whole live set, so a
+pid absent from one and present in a later one has been handed on, and the
+accumulator opens a span of its own for whatever holds it next. Evidence of
+either kind opens that span, a GC event as much as a tick, because a poll
+returns collections that already happened and the first thing a new process
+produces may well predate the tick that found it.
+
+The counting is the encoder's own, from evidence it already receives: nothing
+new is plumbed through the exporter protocol and no record grows a field. It
+costs an ordering obligation instead. `PerfettoExporter` buffers events and
+flushes on a threshold, so a report that drops a pid has to be preceded by
+whatever the buffer holds; otherwise a straggler arrives after the span closed
+and opens one the process never had. The exporter hands the buffer over on
+exactly those reports, which is one extra flush per process death rather than
+one per tick.
+
 **Liveness folds in alongside events rather than replacing them.**
 `[first OK, last OK]` was rejected because `get_gc_stats` returns collections
 that *already happened*, so a freshly discovered child's first GC event can
@@ -175,11 +198,16 @@ finalization, so the last `OK` dates the other end. That is the interval the
 slice draws, and it is why an unpolled or never-collecting process still has
 one.
 
-**The span means *liveness*, not *monitoring coverage*.** A pid the control
-server suppresses mid-run is not polled and so not observed, but if re-enabled
-it gets **one continuous span across the gap**, because the accumulator stores
-only a min and a max. Correct under "liveness", wrong under "monitoring
-coverage"; representing the gap as two spans is out of scope.
+**A pid that misses a report reads as two processes.** The control server
+suppressing a pid mid-run is the plain case: it is not polled while
+suppressed, so it drops out of the reports, and re-enabling it opens a second
+span where this ADR used to promise one continuous span across the gap. A read
+that fails once, or a tick where `get_child_pids` answered nothing and no
+child was polled at all, does the same. Each gap is drawn where it happened
+and the count of processes is what is wrong, and the `--stats` table, which
+advances its epoch on the pid leaving the process tree, disagrees. Narrowing
+the rule to the evidence the table uses needs the monitor to report an exit,
+which is a wider change than this one.
 
 **Liveness is always on**, with no flag. The cost that justified `--rss`
 ([ADR-0013](0013-rss-sampling.md)) does not transfer: `live_pids` is already
@@ -222,11 +250,13 @@ iteration.
 - **The drawn duration is a lower bound, never an upper one**, so deaths are
   misreported as early rather than late. `real_end_ts - real_start_ts`
   recovers what was observed; `docs/perfetto-sql.md` carries the query.
-- **Exactly one slice per pid gcmon polled**, so consumers may join
-  `Processes` slices to pids one-to-one. A pid that answered a single poll and
-  never collected gets one; only a pid seen through meta events alone has
-  none. Finalization therefore does *not* filter on a pid having a process
-  descriptor, which would have required an event.
+- **Exactly one slice per process gcmon polled**, so consumers join
+  `Processes` slices to pids one-to-*many*: a reused pid carries a slice per
+  process that held it, and the slice a record belongs to is the one its
+  timestamp falls in. A pid that answered a single poll and never collected
+  gets one; only a pid seen through meta events alone has none. Finalization
+  therefore does *not* filter on a pid having a process descriptor, which
+  would have required an event.
 - **A zero-GC pid's slice carries no cmdline**, since cmdline registration
   hangs off the encoder's write and such a pid never reaches it. It has no
   process track either, which the UI hides anyway, the problem
@@ -350,10 +380,13 @@ iteration.
   ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)).
 - `src/gcmon/exporters/perfetto_track_state.py` holds the span accumulator, a
   plain min/max over `(pid, ts)` with no keyword since the carve-out was
-  removed, so start and end always carry identical key sets. It hands the
-  spans back for finalization, ranks them by `(start_ts, pid)`, and owns the
-  once-per-trace flag that makes finalization safe to call twice, covering the
-  non-idempotent track descriptor too.
+  removed, so start and end always carry identical key sets. Both are keyed on
+  `(pid, pid_epoch)`; `observe_process_liveness` takes a whole tick's report,
+  closes the span of every pid it omits and folds the rest in. It hands the
+  spans back for finalization, ranks them by `(start_ts, pid)` over the first
+  process to hold each pid, and owns the once-per-trace flag that makes
+  finalization safe to call twice, covering the non-idempotent track
+  descriptor too.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded
   so it goes out once.
 - The liveness path, monitor to accumulator:
@@ -369,7 +402,8 @@ iteration.
   `src/gcmon/exporters/exporter.py` holds the no-op base;
   `src/gcmon/exporters/combined_exporter.py` fans it out;
   `src/gcmon/exporters/perfetto_exporter.py` overrides it under the I/O lock,
-  forwarding to `src/gcmon/exporters/encoder.py`.
+  forwarding to `src/gcmon/exporters/encoder.py` and handing over the buffer
+  ahead of a report that drops a pid.
 - Encoder close gates on having packets to emit, not on whether anything was
   written before. That guard meant "no spans exist" while only events could
   create one; liveness reaches the track state without passing through the

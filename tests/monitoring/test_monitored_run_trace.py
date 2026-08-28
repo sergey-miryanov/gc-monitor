@@ -417,10 +417,15 @@ class TestTheScriptIsWorthPinning:
         Liveness reaches the trace only through `add_process_liveness`, and
         only the Perfetto exporter overrides it. A run whose spans went missing
         here would still write every pause and every loss slice.
+
+        The child draws two. It is missing from the listing on tick 4 and back
+        on tick 5, which is all gcmon can see of a pid being handed on, and the
+        `--stats` table settles its ring and advances its epoch on the same
+        evidence. Both spans read `Process {pid}` for now.
         """
         drawn = run.begins_on(run.track_uuid("Processes"))
 
-        assert sorted(drawn) == sorted([f"Process {TARGET_PID}", f"Process {CHILD_PID}"])
+        assert sorted(drawn) == sorted([f"Process {TARGET_PID}", f"Process {CHILD_PID}", f"Process {CHILD_PID}"])
 
     def test_the_clock_was_spent_exactly(self, run: MonitoredRun) -> None:
         """One read to seed the grid, then per tick one to stamp it, two per

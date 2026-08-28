@@ -15453,20 +15453,20 @@ track_event {
     name: "real_start_ts"
   }
   debug_annotations {
-    int_value: 4802000000
+    int_value: 4801000000
     name: "real_end_ts"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 29
-  name: "Process 33512"
+  name: "Process 33328"
 }
 --- packet 1183 ---
-timestamp: 4802000000
+timestamp: 2103194999
 trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_SLICE_END
   track_uuid: 29
-  name: "Process 33512"
+  name: "Process 33328"
 }
 --- packet 1184 ---
 timestamp: 0
@@ -15477,18 +15477,42 @@ track_event {
     name: "real_start_ts"
   }
   debug_annotations {
-    int_value: 4801000000
+    int_value: 1802000000
     name: "real_end_ts"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 29
-  name: "Process 33328"
+  name: "Process 33512"
 }
 --- packet 1185 ---
-timestamp: 4801000000
+timestamp: 1802000000
 trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_SLICE_END
   track_uuid: 29
-  name: "Process 33328"
+  name: "Process 33512"
+}
+--- packet 1186 ---
+timestamp: 2103195000
+trusted_packet_sequence_id: 1
+track_event {
+  debug_annotations {
+    int_value: 2103195000
+    name: "real_start_ts"
+  }
+  debug_annotations {
+    int_value: 4802000000
+    name: "real_end_ts"
+  }
+  type: TYPE_SLICE_BEGIN
+  track_uuid: 29
+  name: "Process 33512"
+}
+--- packet 1187 ---
+timestamp: 4802000000
+trusted_packet_sequence_id: 1
+track_event {
+  type: TYPE_SLICE_END
+  track_uuid: 29
+  name: "Process 33512"
 }

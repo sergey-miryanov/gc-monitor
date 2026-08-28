@@ -42,6 +42,8 @@ class PerfettoExporter(EventsExporter):
         # ``EventEncoder`` protocol. See ADR-0011.
         self._encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider, sequence_id=sequence_id, codec=codec)
         self._closed = False
+        # The previous tick's live set, to spot a pid dropping out of one.
+        self._live_pids: frozenset[int] = frozenset()
         self._encoder.open(output_path)
 
     def _enqueue(self, events: list[TraceEvent]) -> None:
@@ -74,7 +76,14 @@ class PerfettoExporter(EventsExporter):
     @override
     def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
         """Fold one tick's liveness observations into the encoder's span
-        accumulator.
+        accumulator, handing the buffer over first when the tick drops a
+        pid.
+
+        A dropped pid's span closes, and an event of its own reaching the
+        encoder after that opens a span the process never had, so the
+        buffer goes over ahead of the report rather than at the next
+        threshold. A tick that drops nobody, which is every tick of a run
+        with no process churn, leaves the buffering alone.
 
         ``_io_lock`` is not optional: it guards every other touch of the
         encoder, and both a flush and ``close()`` can run on another
@@ -83,7 +92,16 @@ class PerfettoExporter(EventsExporter):
         ``RuntimeError: dictionary changed size during iteration`` out of
         ``get_process_lifetimes``.
         """
+        to_write: list[TraceEvent] = []
+        with self._lock:
+            departed = bool(self._live_pids - pids)
+            self._live_pids = frozenset(pids)
+            if departed:
+                to_write = self._buffer[:]
+                self._buffer.clear()
         with self._io_lock:
+            if to_write:
+                self._encoder.write_events(to_write)
             self._encoder.record_process_liveness(pids, ts_ns)
 
     @override

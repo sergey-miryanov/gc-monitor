@@ -119,9 +119,11 @@ cut each other short, sometimes to a microsecond. `s.dur` is what Perfetto
 could draw; `real_start_ts` and `real_end_ts` are what gcmon observed, and
 every slice carries them whether it was cut or not.
 
-Every monitored process gets exactly one slice, so these join to pids
-one-to-one, a process that never collected included. A `dur = 0` slice is one
-observed at a single instant, or cut down to nothing.
+Every monitored process gets exactly one slice, a process that never collected
+included, so these join to pids one-to-many: a pid the operating system handed
+out twice carries a slice per process that held it, and a record belongs to
+the one its timestamp falls in. A `dur = 0` slice is one observed at a single
+instant, or cut down to nothing.
 
 Processes still alive when monitoring stops share an end timestamp and nest,
 and the trace processor closes at most **512** nested slices. Past that they

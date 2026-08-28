@@ -106,6 +106,19 @@ def _assert_laminar(intervals: dict[int, tuple[int, int]]) -> None:
             assert disjoint or nested, f"pids {pid_a} [{start_a}, {end_a}] and {pid_b} [{start_b}, {end_b}] cross"
 
 
+def _clip(
+    spans: list[tuple[int, int, int]],
+) -> list[tuple[int, int, int, int, int]]:
+    """Run ``_clip_spans_to_laminar`` over *spans* -- ``[(pid, start,
+    end), ...]``, one process per pid -- and drop the epoch again.
+
+    The sweep keys on ``(pid, pid_epoch)``, and a span per pid is the
+    shape every case below but the reused-pid ones is about.
+    """
+    clipped = _clip_spans_to_laminar([(pid, 1, start, end) for pid, start, end in spans])
+    return [(pid, start, end, real_start, real_end) for pid, _pid_epoch, start, end, real_start, real_end in clipped]
+
+
 class TestClipSpansToLaminar:
     """Direct tests for the ``_clip_spans_to_laminar`` sweep.
 
@@ -118,16 +131,16 @@ class TestClipSpansToLaminar:
     """
 
     def test_no_spans(self) -> None:
-        assert _clip_spans_to_laminar([]) == []
+        assert _clip([]) == []
 
     def test_single_span_is_unchanged(self) -> None:
-        assert _clip_spans_to_laminar([(100, 500, 9_000)]) == [(100, 500, 9_000, 500, 9_000)]
+        assert _clip([(100, 500, 9_000)]) == [(100, 500, 9_000, 500, 9_000)]
 
     def test_disjoint_spans_are_unchanged(self) -> None:
         """The first span has closed before the second opens, so the
         sweep pops it and clips nothing."""
         spans = [(100, 500, 1_000), (200, 5_000, 9_000)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (100, 500, 1_000, 500, 1_000),
             (200, 5_000, 9_000, 5_000, 9_000),
         ]
@@ -136,7 +149,7 @@ class TestClipSpansToLaminar:
         """A span contained by the one still open stops the walk, which
         is the common shape of a parent outliving its child."""
         spans = [(100, 500, 9_000), (200, 1_000, 5_000)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (100, 500, 9_000, 500, 9_000),
             (200, 1_000, 5_000, 1_000, 5_000),
         ]
@@ -145,7 +158,7 @@ class TestClipSpansToLaminar:
         """The whole point: the earlier span's end is pulled back to one
         nanosecond before the later one starts."""
         spans = [(100, 500, 1_500), (200, 1_000, 5_000)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (100, 500, 999, 500, 1_500),
             (200, 1_000, 5_000, 1_000, 5_000),
         ]
@@ -154,7 +167,7 @@ class TestClipSpansToLaminar:
         """``A.end == B.start`` is clipped too: the relative order of an
         END and a BEGIN sharing a timestamp is not ours to control."""
         spans = [(100, 500, 1_000), (200, 1_000, 5_000)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (100, 500, 999, 500, 1_000),
             (200, 1_000, 5_000, 1_000, 5_000),
         ]
@@ -164,7 +177,7 @@ class TestClipSpansToLaminar:
         can never cross, which is what keeps ``start - 1`` from landing
         before the clipped span's own start."""
         spans = [(100, 500, 1_000), (200, 500, 9_000)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (200, 500, 9_000, 500, 9_000),
             (100, 500, 1_000, 500, 1_000),
         ]
@@ -174,7 +187,7 @@ class TestClipSpansToLaminar:
         have ended; the sweep unwinds the whole stack in one walk and
         clips neither."""
         spans = [(100, 0, 100), (200, 10, 20), (300, 200, 300)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (100, 0, 100, 0, 100),
             (200, 10, 20, 10, 20),
             (300, 200, 300, 200, 300),
@@ -185,7 +198,7 @@ class TestClipSpansToLaminar:
         inside pid 100, so comparing only adjacent spans would stop there
         and never notice that pid 300 crosses pid 100."""
         spans = [(100, 500, 5_000), (200, 1_000, 2_000), (300, 3_000, 9_000)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (100, 500, 2_999, 500, 5_000),
             (200, 1_000, 2_000, 1_000, 2_000),
             (300, 3_000, 9_000, 3_000, 9_000),
@@ -193,7 +206,7 @@ class TestClipSpansToLaminar:
 
     def test_chain_of_crossings_clips_each_in_turn(self) -> None:
         spans = [(100, 0, 100), (200, 10, 200), (300, 20, 300)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (100, 0, 9, 0, 100),
             (200, 10, 19, 10, 200),
             (300, 20, 300, 20, 300),
@@ -204,7 +217,7 @@ class TestClipSpansToLaminar:
         to draw. The span is still returned -- dropping it is the
         caller's decision, and the caller does not make it."""
         spans = [(100, 500, 5_000), (200, 501, 9_000)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (100, 500, 500, 500, 5_000),
             (200, 501, 9_000, 501, 9_000),
         ]
@@ -213,7 +226,7 @@ class TestClipSpansToLaminar:
         """A pid observed at a single instant arrives zero-length and is
         passed through, not discarded."""
         spans = [(100, 500, 500), (200, 500, 9_000)]
-        assert _clip_spans_to_laminar(spans) == [
+        assert _clip(spans) == [
             (200, 500, 9_000, 500, 9_000),
             (100, 500, 500, 500, 500),
         ]
@@ -224,7 +237,28 @@ class TestClipSpansToLaminar:
         spans = [(100, 0, 100), (200, 10, 200), (300, 20, 300)]
         expected = [100, 200, 300]
         for permuted in ([spans[2], spans[0], spans[1]], list(reversed(spans)), spans):
-            assert [row[0] for row in _clip_spans_to_laminar(permuted)] == expected
+            assert [row[0] for row in _clip(permuted)] == expected
+
+    def test_two_spans_on_one_pid_are_clipped_like_two_pids(self) -> None:
+        """A reused pid brings two spans that carry the same number. The
+        sweep keys on the process, so the earlier one is clipped back
+        exactly as it would be if the crossing span belonged to a
+        different pid."""
+        spans = [(100, 1, 500, 1_500), (100, 2, 1_000, 5_000)]
+        assert _clip_spans_to_laminar(spans) == [
+            (100, 1, 500, 999, 500, 1_500),
+            (100, 2, 1_000, 5_000, 1_000, 5_000),
+        ]
+
+    def test_two_spans_on_one_pid_that_do_not_cross_are_left_alone(self) -> None:
+        """The shape reuse actually produces: one process ends before the
+        next one starts, so nothing is clipped and each span bounds only
+        the process it belongs to."""
+        spans = [(100, 2, 5_000, 9_000), (100, 1, 500, 1_000)]
+        assert _clip_spans_to_laminar(spans) == [
+            (100, 1, 500, 1_000, 500, 1_000),
+            (100, 2, 5_000, 9_000, 5_000, 9_000),
+        ]
 
     @pytest.mark.parametrize("seed", range(50))
     def test_invariants_hold_for_random_spans(self, seed: int) -> None:
@@ -238,7 +272,7 @@ class TestClipSpansToLaminar:
             for start in (rng.randrange(0, 2_000),)
         ]
         rng.shuffle(spans)
-        clipped = _clip_spans_to_laminar(spans)
+        clipped = _clip(spans)
 
         originals = {pid: (start, end) for pid, start, end in spans}
         assert {row[0] for row in clipped} == originals.keys(), "every span survives"

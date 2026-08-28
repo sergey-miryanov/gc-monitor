@@ -1672,3 +1672,153 @@ class TestTwoInterpretersHeapSizes:
     def test_every_other_counter_name_is_what_it_was(self, two_interpreters: TraceProcessor) -> None:
         names = {r.name.strip() for r in two_interpreters.query("SELECT name FROM counter_track")}
         assert {"G0 collected", "G0 candidates", "G0 duration"} <= names
+
+
+# Timestamps for the reused-pid trace, in ns. DEFAULT_PID is handed out
+# twice: a first process that collects once and is then missing from a
+# tick, and a second that collects once and answers two more. Both
+# collections land inside the run, so neither span owes anything to a
+# record predating the poll that read it.
+_REUSE_TICKS: tuple[int, ...] = (200_000_000, 500_000_000, 900_000_000, 1_000_000_000, 1_100_000_000)
+_REUSE_FIRST_GC: tuple[int, int] = (300_000_000, 400_000_000)
+_REUSE_SECOND_GC: tuple[int, int] = (700_000_000, 800_000_000)
+_REUSE_FIRST_SPAN: tuple[int, int] = (_REUSE_TICKS[0], _REUSE_FIRST_GC[1])
+_REUSE_SECOND_SPAN: tuple[int, int] = (_REUSE_SECOND_GC[0], _REUSE_TICKS[3])
+
+
+def _write_reused_pid_trace(tmp: Path) -> Path:
+    """Write a Perfetto trace over a run in which the operating system
+    handed ``DEFAULT_PID`` to a second process.
+
+    Events go in ahead of the tick that reports them, which is the order
+    the monitor produces: the poll phase runs first and the liveness call
+    closes the tick. ``_SECOND_PID`` answers every tick but the ones that
+    drop ``DEFAULT_PID``, so it brackets both processes.
+    """
+    path = tmp / "reused_pid.pb"
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, _REUSE_TICKS[0])
+    exporter.add_event(
+        DEFAULT_PID,
+        create_mock_stats_item(gen=_GEN, iid=_IID, ts_start=_REUSE_FIRST_GC[0], ts_stop=_REUSE_FIRST_GC[1]),
+    )
+    exporter.add_process_liveness({_SECOND_PID}, _REUSE_TICKS[1])
+    exporter.add_event(
+        DEFAULT_PID,
+        create_mock_stats_item(gen=_GEN, iid=_IID, ts_start=_REUSE_SECOND_GC[0], ts_stop=_REUSE_SECOND_GC[1]),
+    )
+    exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, _REUSE_TICKS[2])
+    exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, _REUSE_TICKS[3])
+    exporter.add_process_liveness({_SECOND_PID}, _REUSE_TICKS[4])
+    exporter.close()
+    return path
+
+
+@pytest.fixture
+def reused_pid_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_reused_pid_trace(tmp_path)
+    with open_trace_processor(path) as tp:
+        yield tp
+
+
+def _lifetime_spans(tp: TraceProcessor, name: str) -> list[tuple[int, int]]:
+    """The ``Processes``-track slices named *name*, as drawn, earliest
+    first."""
+    rows = list(
+        tp.query(
+            f"SELECT s.ts AS ts, s.dur AS dur FROM slice s "
+            f"JOIN track t ON s.track_id = t.id "
+            f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' AND s.name = '{name}' "
+            f"ORDER BY s.ts"
+        )
+    )
+    return [(r.ts, r.ts + r.dur) for r in rows]
+
+
+class TestReusedPidSpans:
+    """A pid the operating system handed out twice draws a span per
+    process, each bounding only the process it belongs to. Both still
+    read ``Process <pid>``; naming them apart comes next. See ADR-0011.
+    """
+
+    def test_no_misplaced_end_events(self, reused_pid_trace_processor: TraceProcessor) -> None:
+        """Two spans sharing a name have to pair up: a named END matches
+        the BEGIN carrying that name, and there are two of those."""
+        assert _misplaced_end_events(reused_pid_trace_processor) == 0
+
+    def test_a_reused_pid_draws_a_span_per_process(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """Before this, the accumulator folded both processes into one
+        min/max and drew a single span from the first observation of the
+        first to the last of the second."""
+        assert _lifetime_spans(reused_pid_trace_processor, f"Process {DEFAULT_PID}") == [
+            _REUSE_FIRST_SPAN,
+            _REUSE_SECOND_SPAN,
+        ]
+
+    def test_neither_span_covers_the_gap_between_the_processes(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The tick that dropped the pid is the one instant the run
+        proves neither process was running. A single span would have
+        covered it, and an operator zooming there would read a process
+        with no events and no counters."""
+        spans = _lifetime_spans(reused_pid_trace_processor, f"Process {DEFAULT_PID}")
+        gap_tick = _REUSE_TICKS[1]
+        assert all(not start <= gap_tick <= end for start, end in spans)
+
+    def test_each_span_records_its_own_observed_bounds(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """``real_start_ts`` and ``real_end_ts`` are the truth where a
+        clip moved the drawn ones, so they have to be per process too."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT s.ts AS ts, a.flat_key AS flat_key, a.int_value AS int_value FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' AND s.name = 'Process {DEFAULT_PID}' "
+                f"AND a.flat_key IN ('debug.real_start_ts', 'debug.real_end_ts') "
+                f"ORDER BY s.ts, a.flat_key"
+            )
+        )
+        observed: dict[int, dict[str, int]] = {}
+        for row in rows:
+            observed.setdefault(row.ts, {})[row.flat_key] = row.int_value
+        assert observed == {
+            _REUSE_FIRST_SPAN[0]: {
+                "debug.real_start_ts": _REUSE_FIRST_SPAN[0],
+                "debug.real_end_ts": _REUSE_FIRST_SPAN[1],
+            },
+            _REUSE_SECOND_SPAN[0]: {
+                "debug.real_start_ts": _REUSE_SECOND_SPAN[0],
+                "debug.real_end_ts": _REUSE_SECOND_SPAN[1],
+            },
+        }
+
+    def test_a_pid_nobody_reused_still_draws_one_span(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """``_SECOND_PID`` ran the whole time, so it reads exactly as it
+        did before spans were keyed per process."""
+        assert _lifetime_spans(reused_pid_trace_processor, f"Process {_SECOND_PID}") == [
+            (_REUSE_TICKS[0], _REUSE_TICKS[-1])
+        ]
+
+    def test_the_process_track_opens_with_the_first_process(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """One process track covers both, so it starts where the first
+        one did rather than where the last one did."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT start_ts FROM process WHERE pid = {DEFAULT_PID}",
+            )
+        )
+        assert [r.start_ts for r in rows] == [_REUSE_FIRST_SPAN[0]]

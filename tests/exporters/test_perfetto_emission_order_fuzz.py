@@ -41,6 +41,19 @@ def _random_spans(rng: random.Random) -> list[tuple[int, int, int]]:
     ]
 
 
+def _clip(
+    spans: list[tuple[int, int, int]],
+) -> list[tuple[int, int, int, int, int]]:
+    """Clip *spans* -- ``[(pid, start, end), ...]``, one process per pid --
+    and drop the epoch again.
+
+    Emission order is what this file measures, and it does not turn on
+    which process of a reused pid a span belongs to.
+    """
+    clipped = _clip_spans_to_laminar([(pid, 1, start, end) for pid, start, end in spans])
+    return [(pid, start, end, real_start, real_end) for pid, _pid_epoch, start, end, real_start, real_end in clipped]
+
+
 def _pairs(clipped: list[tuple[int, int, int, int, int]], state: PerfettoTrackState) -> list[list[bytes]]:
     return [
         _emit_process_lifetime_slice(pid, start, end, state, SEQUENCE_ID, real_start, real_end)
@@ -90,7 +103,7 @@ def test_paired_emission_reads_back_exactly(seed: int, tmp_path: Path) -> None:
     """Every span draws the interval the sweep assigned it, with no
     ``misplaced_end_event``, whatever laminar shape went in."""
     rng = random.Random(seed)
-    clipped = _clip_spans_to_laminar(_random_spans(rng))
+    clipped = _clip(_random_spans(rng))
     misplaced, slices = _slices_as_read_back(_packets_in_order(clipped, "paired", rng), tmp_path, f"paired{seed}")
     assert misplaced == 0
     assert slices == _expected(clipped)
@@ -107,7 +120,7 @@ def test_orders_adr_0011_rejects_really_do_break(order: str, tmp_path: Path) -> 
     broken = 0
     for seed in range(TRIALS):
         rng = random.Random(seed)
-        clipped = _clip_spans_to_laminar(_random_spans(rng))
+        clipped = _clip(_random_spans(rng))
         misplaced, slices = _slices_as_read_back(_packets_in_order(clipped, order, rng), tmp_path, f"{order}{seed}")
         if misplaced != 0 or slices != _expected(clipped):
             broken += 1
@@ -140,7 +153,7 @@ def test_co_terminating_spans_nest_rather_than_clip() -> None:
     itself so a change there cannot quietly turn them into tests of some
     other shape."""
     spans = _co_terminating(8)
-    assert [(pid, start, end) for pid, start, end, _rs, _re in _clip_spans_to_laminar(spans)] == spans
+    assert [(pid, start, end) for pid, start, end, _rs, _re in _clip(spans)] == spans
 
 
 def test_nesting_pairs_up_to_the_trace_processor_limit(tmp_path: Path) -> None:
@@ -151,7 +164,7 @@ def test_nesting_pairs_up_to_the_trace_processor_limit(tmp_path: Path) -> None:
     does with it is a different question, since a mispair there is wrong
     data rather than an ugly picture.
     """
-    clipped = _clip_spans_to_laminar(_co_terminating(_PAIRABLE_NESTING_DEPTH))
+    clipped = _clip(_co_terminating(_PAIRABLE_NESTING_DEPTH))
     misplaced, slices = _slices_as_read_back(
         _packets_in_order(clipped, "paired", random.Random(0)),
         tmp_path,
@@ -172,7 +185,7 @@ def test_nesting_past_the_limit_loses_slices_silently(tmp_path: Path) -> None:
     drops the rows instead, and both keep quiet about it.
     """
     depth = _PAIRABLE_NESTING_DEPTH + 8
-    clipped = _clip_spans_to_laminar(_co_terminating(depth))
+    clipped = _clip(_co_terminating(depth))
     misplaced, slices = _slices_as_read_back(
         _packets_in_order(clipped, "paired", random.Random(0)),
         tmp_path,

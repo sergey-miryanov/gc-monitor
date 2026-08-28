@@ -140,9 +140,12 @@ class ProtobufEventEncoder:
         Kept off the ``EventEncoder`` protocol: a liveness observation is
         neither a ``TraceEvent`` nor bytes. See ADR-0011. Writes nothing;
         the observations reach the file at ``close()``.
+
+        A pid missing from *pids* has its span closed, so the caller must
+        have handed over every event it holds for that pid first, or the
+        stragglers open a span the process never had.
         """
-        for pid in pids:
-            self._track_state.update_process_lifetime(pid, ts_ns)
+        self._track_state.observe_process_liveness(pids, ts_ns)
 
     def _write_batch(self, descriptors: Sequence[bytes], packets: Sequence[bytes]) -> None:
         """Append one batch to the trace as a single compressed packet."""
