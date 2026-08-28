@@ -269,6 +269,47 @@ class TestProcessLifetimeState:
             (200, 1, 3_000, 3_000),
         ]
 
+    def test_a_slice_that_outlives_its_process_stays_with_it(self) -> None:
+        """A collection that began before the pid was handed on belongs
+        to the process that began it, both ends of it. Folding the ends
+        one at a time drew a second span out of the tail alone, for a
+        process with no track, no counters and nothing under it."""
+        state = PerfettoTrackState()
+        state.observe_process_liveness({100}, 1_000)
+        state.observe_process_liveness({100}, 2_000)
+        state.observe_process_liveness(set(), 3_000)
+
+        state.update_process_lifetime_span(100, 1_500, 4_000)
+
+        assert state.get_process_lifetimes() == [(100, 1, 1_000, 4_000)]
+
+    def test_a_widened_span_stops_short_of_the_process_after_it(self) -> None:
+        """A straggler read after two handovers: its slice belongs to the
+        first process, but its end lands past the second one's start. The
+        end is held back rather than drawn over a process that was
+        running by then."""
+        state = PerfettoTrackState()
+        state.observe_process_liveness({100}, 1_000)
+        state.observe_process_liveness(set(), 2_000)
+        state.observe_process_liveness({100}, 5_000)
+        state.observe_process_liveness(set(), 6_000)
+
+        state.update_process_lifetime_span(100, 1_000, 9_000)
+
+        assert state.get_process_lifetimes() == [(100, 1, 1_000, 4_999), (100, 2, 5_000, 5_000)]
+
+    def test_widening_a_closed_span_carries_its_close_with_it(self) -> None:
+        """Evidence inside the widened stretch belongs to the process
+        that was widened, not to a new one opening on top of it."""
+        state = PerfettoTrackState()
+        state.observe_process_liveness({100}, 1_000)
+        state.observe_process_liveness(set(), 2_000)
+
+        state.update_process_lifetime_span(100, 1_000, 8_000)
+        state.update_process_lifetime(100, 5_000)
+
+        assert state.get_process_lifetimes() == [(100, 1, 1_000, 8_000)]
+
     def test_two_spans_on_one_pid_never_overlap(self) -> None:
         """Two processes cannot hold one pid at once, and two slices of
         one name cannot be open at once either: a named END would have

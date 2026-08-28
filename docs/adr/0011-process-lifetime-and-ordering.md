@@ -223,6 +223,14 @@ control client instead. Closed on every tick that omitted it, and reopened by
 its next event, it would draw a process per tick on a run where no pid was
 reused at all.
 
+**A slice goes to the process it began in, whole.** A collection that started
+before its process exited belongs to that process, so both ends of the slice
+widen that process's span and the encoder draws it there. Folding the ends one
+at a time filed the tail under whatever took the pid over and drew a span for
+a process that produced nothing. The widened end is held one nanosecond short
+of the next process's start where there is one, so widening a span that has
+already closed cannot make two spans on one pid overlap.
+
 **Liveness is always on**, with no flag. The cost that justified `--rss`
 ([ADR-0013](0013-rss-sampling.md)) does not transfer: `live_pids` is already
 built by the poll phase, and this is one batched call and two dict comparisons
@@ -401,10 +409,12 @@ iteration.
   plain min/max over `(pid, ts)` with no keyword since the carve-out was
   removed, so start and end always carry identical key sets. Both are keyed on
   `(pid, pid_epoch)`; `observe_process_liveness` takes a whole tick's report,
-  closes the span of every pid it omits and folds the rest in. It hands the
-  spans back for finalization, ranks them by `(start_ts, pid, pid_epoch)` over
-  every process, and owns the once-per-trace flag that makes finalization safe
-  to call twice, covering the non-idempotent track descriptor too.
+  closes the span of every pid it omits that an earlier report named, and
+  folds the rest in. `update_process_lifetime_span` folds a slice's whole
+  interval into one process. It hands the spans back for finalization, ranks
+  them by `(start_ts, pid, pid_epoch)` over every process, and owns the
+  once-per-trace flag that makes finalization safe to call twice, covering the
+  non-idempotent track descriptor too.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded
   so it goes out once.
 - The liveness path, monitor to accumulator:

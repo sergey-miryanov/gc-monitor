@@ -1195,14 +1195,19 @@ class TestASliceThatStraddlesAHandover:
 
     _TRACK = InterpreterTrack(100, 0)
 
-    def _converted(self) -> tuple[PerfettoTrackState, list[bytes]]:
+    def _at_the_handover(self) -> PerfettoTrackState:
         """Pid 100 is reported live over ``[1_000, 2_000]`` and then
-        dropped, and the slice runs from inside that span to well past
-        it."""
+        dropped, with the slice not folded in yet."""
         state = PerfettoTrackState()
         state.observe_process_liveness({100}, 1_000)
         state.observe_process_liveness({100}, 2_000)
         state.observe_process_liveness(set(), 3_000)
+        return state
+
+    def _converted(self) -> tuple[PerfettoTrackState, list[bytes]]:
+        """The same run, with a slice running from inside that span to
+        well past it."""
+        state = self._at_the_handover()
         events: list[TraceEvent] = [
             Slice(self._TRACK, "GC Pause(0)", "gc", ts_start=1_500, ts_stop=4_000, args={}),
         ]
@@ -1222,11 +1227,19 @@ class TestASliceThatStraddlesAHandover:
 
     def test_the_run_hands_the_pid_on_between_the_two_ends(self) -> None:
         """Without this the test would pass on a slice that never
-        straddled anything."""
-        state, _ = self._converted()
+        straddled anything. Asked of the run the slice arrives into, its
+        two ends name two different processes."""
+        state = self._at_the_handover()
 
         assert state.epoch_at(100, 1_500) == 1
         assert state.epoch_at(100, 4_000) == 2
+
+    def test_the_whole_slice_widens_the_span_of_the_process_it_began_in(self) -> None:
+        """And no span is drawn for the process its end would otherwise
+        have opened, which would have held nothing at all."""
+        state, _ = self._converted()
+
+        assert state.get_process_lifetimes() == [(100, 1, 1_000, 4_000)]
 
     def test_both_ends_are_drawn_on_the_track_of_the_process_it_began_in(self) -> None:
         state, packets = self._converted()

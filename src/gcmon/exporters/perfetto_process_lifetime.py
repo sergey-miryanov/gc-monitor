@@ -125,13 +125,14 @@ def _record_process_lifetime(
 
     Every event widens the span in both directions, counters included: a
     timestamped event is evidence the process existed at that instant,
-    whatever kind it is. A slice is evidence at both its ends, so it is
-    folded in twice. Emits nothing: spans become packets at close.
+    whatever kind it is. A slice is evidence over its whole interval, and
+    goes to the process that was running when it began, which is the
+    process the encoder draws it under. Emits nothing: spans become
+    packets at close.
     """
     pid = event.track.pid
     if isinstance(event, Slice):
-        state.update_process_lifetime(pid, event.ts_start)
-        state.update_process_lifetime(pid, event.ts_stop)
+        state.update_process_lifetime_span(pid, event.ts_start, event.ts_stop)
     else:
         state.update_process_lifetime(pid, event.ts)
 

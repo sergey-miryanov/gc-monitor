@@ -126,7 +126,33 @@ class PerfettoTrackState:
         out twice keeps a span per process rather than one span across
         both.
         """
-        key = (pid, self._epoch_for(pid, ts))
+        self._fold(pid, self._epoch_for(pid, ts), ts)
+
+    def update_process_lifetime_span(self, pid: int, ts_start: int, ts_stop: int) -> None:
+        """Fold ``[ts_start, ts_stop]`` into the span of the process
+        running at *ts_start*.
+
+        Both ends belong to one process, the same rule the encoder draws
+        a slice by. Folded one end at a time, a collection that outlived
+        the process that started it files its end under whatever took the
+        pid over, and draws a span for a process that produced nothing.
+
+        The end is held short of the next process's start where there is
+        one, so widening a span that has already closed cannot make two
+        spans on one pid overlap.
+        """
+        pid_epoch = self._epoch_for(pid, ts_start)
+        self._fold(pid, pid_epoch, ts_start)
+        next_start = self._process_lifetime_start.get((pid, pid_epoch + 1))
+        end = ts_stop if next_start is None else min(ts_stop, next_start - 1)
+        self._fold(pid, pid_epoch, end)
+        closed_end = self._process_lifetime_closed_end.get(pid)
+        if closed_end is not None and pid not in self._open_pids and pid_epoch == self._pid_epochs[pid]:
+            self._process_lifetime_closed_end[pid] = max(closed_end, end)
+
+    def _fold(self, pid: int, pid_epoch: int, ts: int) -> None:
+        """Widen one process's recorded span to cover *ts*."""
+        key = (pid, pid_epoch)
         start_ts = self._process_lifetime_start.get(key)
         if start_ts is None or ts < start_ts:
             self._process_lifetime_start[key] = ts

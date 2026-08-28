@@ -120,10 +120,11 @@ span. Spans on one pid are disjoint, which
 [0059](0059-say-which-process-held-a-pid-in-the-trace.md) made an invariant,
 so the answer is unambiguous.
 
-**A slice belongs to the epoch of its `ts_start`.** Both ends are folded into
-the accumulator and a handover between them would otherwise split one slice
-across two processes. A collection that began before a process exited belongs
-to that process.
+**A slice belongs to the epoch of its `ts_start`**, and so does the span it
+widens. A collection that began before a process exited belongs to that
+process, so both ends go to it: folding them one at a time would split one
+slice across two processes and draw a span for the second out of the tail
+alone.
 
 **Each descriptor carries its own epoch's start and rank.** Ranking becomes
 over processes rather than pids, so the second process sorts on its own first
