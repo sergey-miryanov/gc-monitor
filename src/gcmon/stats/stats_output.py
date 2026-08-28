@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ..model.run_report import RunReport
+from ..support.pid_epoch import epoch_suffix
 from ..support.time_units import dur_to_ms
 from .metrics import METRICS
 from .stats import Stats
@@ -189,14 +190,9 @@ def summary_lines(
 
 
 def _ring_label(pid: int, iid: int, pid_epoch: int) -> str:
-    """The block's heading.
-
-    A pid the operating system handed out twice carries two blocks, so the
-    second one and any after it say which process they belong to: `12345:0#2`
-    is the second to hold that pid. The first stays plain, which is every
-    block of an ordinary run.
-    """
-    return f"{pid}:{iid}" if pid_epoch == 1 else f"{pid}:{iid}#{pid_epoch}"
+    """The block's heading: `12345:0`, and `12345:0#2` for the second process
+    to hold that pid."""
+    return f"{pid}:{iid}{epoch_suffix(pid_epoch)}"
 
 
 def print_stats(stats: StreamingStats, view: StatsView, table_format: TableFormat = TableFormat.PLAIN) -> None:
