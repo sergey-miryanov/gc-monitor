@@ -169,6 +169,16 @@ class PerfettoTrackState:
             self._open_pids.add(pid)
         return pid_epoch
 
+    def is_process_open(self, pid: int, pid_epoch: int) -> bool:
+        """Whether the *pid_epoch*'th process to hold *pid* is the one
+        holding it now, as far as the trace knows.
+
+        False once a liveness report has closed its span, so a caller
+        that reads the machine about a pid can tell whether it would be
+        reading the process it means or its successor.
+        """
+        return pid in self._open_pids and self._pid_epochs[pid] == pid_epoch
+
     def observe_process_liveness(self, pids: Set[int], ts: int) -> None:
         """Fold one tick's liveness observations in, and close the span
         of every pid the tick did not report.

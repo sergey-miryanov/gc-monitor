@@ -118,10 +118,18 @@ class ProtobufEventEncoder:
         A process that took a pid over is asked in its own right. The
         answer its predecessor gave names a program it never ran, and an
         absent command line beats a wrong one (ADR-0010).
+
+        Which is also why a process whose span has closed is not asked at
+        all: the provider reads whatever holds the pid now, and for a
+        straggling event that is the successor, or nothing. Marked read
+        either way, so a process that cannot be asked costs one check
+        rather than one per flush.
         """
         if (pid, pid_epoch) in self._cmdline_read:
             return
         self._cmdline_read.add((pid, pid_epoch))
+        if not self._track_state.is_process_open(pid, pid_epoch):
+            return
         cmdline = self._collect_cmdline(pid)
         if cmdline is not None:
             self._track_state.set_cmdline(pid, pid_epoch, cmdline)

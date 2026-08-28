@@ -77,7 +77,9 @@ went on the second one's row and named a program it never ran.
   rendering versus the SQL `args` table), and neither can read the other's
   copy.
 - **A row's command line is either its own or absent.** A process gcmon never
-  reached in life gets none, and that is now the only way to get none.
+  read while it was running gets none: one it never reached, and one whose
+  events all arrived after its span had closed. The provider answers about
+  whatever holds the pid now, so asking later would name the successor.
 - A trace carries one extra `Start Process` instant event per process.
   Consumers that enumerate slices must filter it, as the chrome↔perfetto
   equivalence test does, since the marker is Perfetto-only.

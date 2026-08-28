@@ -52,9 +52,40 @@ class TestProtobufEventEncoder:
     def test_ensure_cmdline_skips_already_set(self) -> None:
         provider = Mock(return_value=["python", "app.py"])
         enc = ProtobufEventEncoder(cmdline_provider=provider)
+        enc._track_state.update_process_lifetime(1234, 1_000)
+
         enc._ensure_cmdline(1234, 1)
         enc._ensure_cmdline(1234, 1)
+
         assert provider.call_count == 1
+
+    def test_a_process_whose_span_has_closed_is_not_asked(self) -> None:
+        """The provider reads whatever holds the pid now, which for a
+        process that has exited is its successor or nothing. An absent
+        command line beats a wrong one (ADR-0010)."""
+        provider = Mock(return_value=["python", "-m", "successor"])
+        enc = ProtobufEventEncoder(cmdline_provider=provider)
+        enc._track_state.update_process_lifetime(1234, 1_000)
+        enc._track_state.observe_process_liveness(set(), 2_000)
+
+        enc._ensure_cmdline(1234, 1)
+
+        assert provider.call_count == 0
+        assert enc._track_state.get_cmdline(1234, 1) is None
+
+    def test_a_process_that_cannot_be_asked_is_asked_once(self) -> None:
+        """Skipping the read still marks it done, so a straggling pid
+        costs one check rather than one per flush for the rest of the
+        run."""
+        provider = Mock(return_value=["python", "app.py"])
+        enc = ProtobufEventEncoder(cmdline_provider=provider)
+        enc._track_state.update_process_lifetime(1234, 1_000)
+        enc._track_state.observe_process_liveness(set(), 2_000)
+
+        enc._ensure_cmdline(1234, 1)
+        enc._ensure_cmdline(1234, 1)
+
+        assert provider.call_count == 0
 
     def test_write_events_returns_early_when_converter_produces_no_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

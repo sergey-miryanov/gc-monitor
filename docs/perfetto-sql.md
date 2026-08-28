@@ -84,16 +84,17 @@ The process track's `description` holds the space-joined command line:
 
 ```sql
 -- Command line per process, from the process track description
-SELECT p.pid, a.string_value AS cmdline
+SELECT p.pid, p.name, a.string_value AS cmdline
 FROM args a
 JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id
 JOIN process p ON p.upid = pt.upid
 WHERE a.key = 'description'
-ORDER BY p.pid
+ORDER BY p.pid, p.start_ts
 ```
 
 A pid held twice returns a row per process, each naming the program that
-process ran.
+process ran. `p.name` is what tells them apart: `pid` is the same on both, and
+`Process 12345#2` is the second.
 
 The same string is attached to that process's slice on the `Processes`
 lifetime track as a `cmdline` debug annotation, which pairs it with the
