@@ -1,7 +1,7 @@
 # ADR-0024: An event names the track it is drawn on
 
 - **Status:** Accepted
-- **Date:** 2026-08-26
+- **Date:** 2026-08-26 (`old_work` joined the top-level set 2026-08-28)
 - **Supersedes:** [ADR-0004](0004-toplevel-shared-counters.md),
   [ADR-0006](0006-begin-end-slice-pairs.md)
 
@@ -50,8 +50,10 @@ still does the grouping: it drives the sibling rank and the shared y axis
 ([ADR-0005](0005-counter-y-axis-share-key.md)), so `G0 collected` and
 `G1 collected` keep one scale.
 
-**The converter qualifies `heap_size` with its interpreter.**
-`Thread 0 heap_size`, interpreter 0 included.
+**The converter qualifies a top-level counter with the interpreter that owns
+it.** `Thread 0 heap_size` and `Thread 0 old_work`, interpreter 0 included.
+Which metrics are top-level is a policy in `perfetto_format.py`, not a
+property of the metric.
 
 **A slice is one event, and the encoder expands it.**
 `Slice(track, name, cat, ts_start, ts_stop, args)` replaces `SliceBegin` and

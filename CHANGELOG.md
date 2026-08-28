@@ -22,6 +22,7 @@
 - A Perfetto trace is compressed: the same events in a file several times smaller. It opens the same way, and there is nothing to run first
 - `ControlClient.instant_msg` takes a `ts`, so an instant captured in a hot path can be sent after it and still land where it happened
 - The pyperf hook marks where each benchmark ran: `gcmon:`-prefixed begin and end marks per measured region
+- A capture from the new incremental collector carries the collector's state: `old_work`, `next_gen`, `survivor_count`, `aging_threshold`, `aging_spaces` and `aging_next` on the `GC Pause` args and in a JSONL line. All but `next_gen` draw a counter track too, `old_work` beside `heap_size` and the rest inside `GC Metrics`, joined there by `new_increment_size`
 
 ### Bugfixes
 
