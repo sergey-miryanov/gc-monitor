@@ -1847,8 +1847,8 @@ class TestReusedPidSpans:
         self,
         reused_pid_trace_processor: TraceProcessor,
     ) -> None:
-        """``_SECOND_PID`` ran the whole time, so it reads exactly as it
-        did before spans were keyed per process."""
+        """``_SECOND_PID`` ran the whole time, so it reads as it did
+        before spans were keyed per process."""
         assert _lifetime_spans(reused_pid_trace_processor, f"Process {_SECOND_PID}") == [
             (_REUSE_TICKS[0], _REUSE_TICKS[-1])
         ]

@@ -31,9 +31,9 @@ A trace carries these, on one track per interpreter:
 - **`rss` counter** per PID under `--rss`, in bytes, sampled at
   `--rss-interval` (default 1s).
 - **`Processes` track**: a minimap of the session, one slice per monitored
-  process, so a pid the operating system handed out twice carries one each.
-  The second process to hold a pid and any after it are named
-  `Process {pid}#2`, matching the `--stats` table, and every slice carries a
+  process, so a pid the operating system handed out twice carries a slice per
+  process. The second to hold a pid draws `Process {pid}#2`, the third
+  `Process {pid}#3`, matching the `--stats` table, and every slice carries a
   `pid_epoch` annotation holding the same number. Filter on the track name
   `Processes` in SQL. **Read a process's span from the `real_start_ts` and
   `real_end_ts` annotations, not from the slice width**, which overlapping

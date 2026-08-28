@@ -201,12 +201,13 @@ every pid has one epoch and every key reduces to what it is today.
 ## 7. Further notes
 
 Landing this amends two records. `ADR-0010` gains the per-process command line
-and marker. `ADR-0011` loses the sentence saying two `ProcessDescriptor`s
-carrying one pid may collapse to a single `upid`, which the measurement in
-section 4 answers, and its ranking decision becomes per process.
+and marker. `ADR-0011`'s ranking decision becomes per process, and its
+"exactly one slice per process" consequence gains a process track to match.
 
 It also corrects [0059](0059-say-which-process-held-a-pid-in-the-trace.md) in
-three places: the "not split" decision, the descriptor keeping the first epoch
-on both fields, and the out-of-scope bullet for a command line per epoch. Per
-CONVENTIONS rule on retiring, 0059 is corrected before it is retired rather
-than after.
+three places: the "not split" decision, which rests on two
+`ProcessDescriptor`s carrying one pid possibly collapsing to a single `upid`
+and which the measurement in section 4 answers; the descriptor keeping the
+first epoch on both fields; and the out-of-scope bullet for a command line per
+epoch. Per CONVENTIONS rule on retiring, 0059 is corrected before it is
+retired rather than after.

@@ -241,9 +241,8 @@ class TestClipSpansToLaminar:
 
     def test_two_spans_on_one_pid_are_clipped_like_two_pids(self) -> None:
         """A reused pid brings two spans that carry the same number. The
-        sweep keys on the process, so the earlier one is clipped back
-        exactly as it would be if the crossing span belonged to a
-        different pid."""
+        sweep keys on the process, so the earlier one is clipped back as
+        it would be if the crossing span belonged to a different pid."""
         spans = [(100, 1, 500, 1_500), (100, 2, 1_000, 5_000)]
         assert _clip_spans_to_laminar(spans) == [
             (100, 1, 500, 999, 500, 1_500),

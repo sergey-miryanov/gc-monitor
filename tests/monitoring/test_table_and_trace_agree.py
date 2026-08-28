@@ -6,10 +6,7 @@ liveness report. Two triggers, and they are not the same one -- a pid the
 control server suppresses, or one whose read fails once, leaves the live set
 while staying in the tree, and ADR-0011 records what that costs. What this
 file covers is the case both fire on, a process exiting, which is every
-handover gcmon actually reports. Nothing else makes the two counters agree
-there, and without it they can drift with no test failing, leaving a table and
-a trace of one run that disagree about which process a record belonged to. See
-[spec 0059](../../specs/0059-say-which-process-held-a-pid-in-the-trace.md).
+handover gcmon reports.
 
 The comparison is by interval, not by label. Both sides format their `#N`
 through `epoch_suffix`, so matching the strings would pass while both counters

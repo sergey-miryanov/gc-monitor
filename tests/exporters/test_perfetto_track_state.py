@@ -253,8 +253,7 @@ class TestProcessLifetimeState:
 
     def test_a_pid_that_never_comes_back_keeps_one_span(self) -> None:
         """Closing a span is not what splits it. A process that exits and
-        leaves the pid unclaimed reads exactly as it did before epochs
-        existed."""
+        leaves the pid unclaimed reads as it did before epochs existed."""
         state = PerfettoTrackState()
         state.observe_process_liveness({100, 200}, 1_000)
         state.observe_process_liveness({200}, 2_000)

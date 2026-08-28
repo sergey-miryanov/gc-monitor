@@ -141,9 +141,8 @@ class ProtobufEventEncoder:
         neither a ``TraceEvent`` nor bytes. See ADR-0011. Writes nothing;
         the observations reach the file at ``close()``.
 
-        A pid missing from *pids* has its span closed, so the caller must
-        have handed over every event it holds for that pid first, or the
-        stragglers open a span the process never had.
+        A pid missing from *pids* has its span closed, so the caller hands
+        over every event it holds for that pid first.
         """
         self._track_state.observe_process_liveness(pids, ts_ns)
 

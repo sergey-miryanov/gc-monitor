@@ -22,12 +22,12 @@
 - A Perfetto trace is compressed: the same events in a file several times smaller. It opens the same way, and there is nothing to run first
 - `ControlClient.instant_msg` takes a `ts`, so an instant captured in a hot path can be sent after it and still land where it happened
 - The pyperf hook marks where each benchmark ran: `gcmon:`-prefixed begin and end marks per measured region
-- A `Processes` slice says which process held a PID the operating system handed out twice: the second reads `Process 12345#2`, the same way the `--stats` table heads its block. Every slice carries the number as a `pid_epoch` annotation to query on
+- A `Processes` slice says which process held a reused PID: the second reads `Process 12345#2`, the suffix the `--stats` table already prints, and every slice carries the number as a `pid_epoch` annotation
 
 ### Bugfixes
 
 - An instant sent close to the end of a run reaches the trace, where the last one a client sent could be dropped without a word
-- A `Processes` span covers only the process it names. A PID the operating system handed out twice used to draw a single span across both, wide enough to cover a stretch in which neither process was running
+- A `Processes` span covers only the process it names, where a reused PID used to draw one span across both, wide enough to cover a stretch in which neither process was running
 
 ### Internal
 

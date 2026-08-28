@@ -129,7 +129,7 @@ def _clip_spans_to_laminar(
     ``real_end`` are the observed span, carried through untouched.
 
     A span belongs to one process, so two of them carrying the same pid
-    are clipped against each other exactly as two on different pids are.
+    are clipped against each other as two on different pids are.
     See ADR-0011.
     """
     spans = sorted(spans, key=lambda span: (span[2], -span[3], span[0], span[1]))

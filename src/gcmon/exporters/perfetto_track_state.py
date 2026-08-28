@@ -130,16 +130,8 @@ class PerfettoTrackState:
 
         Evidence later than every span recorded so far extends the one
         still open, or opens the next one where the last was closed.
-        Evidence no later than a span that has closed belongs to *that*
-        span instead: a pid pruned from the process tree loses its read
-        cursors, so whatever claims it next re-exports records its
-        predecessor already produced, and the arrival order of a batch
-        says nothing about which process a record came from.
-
-        Two spans on one pid therefore never overlap. Both carry the same
-        pid in their name, and a named ``TYPE_SLICE_END`` can only pick
-        the right ``TYPE_SLICE_BEGIN`` while no two of that name are open
-        at once (ADR-0011).
+        Evidence no later than a closed span belongs to *that* span, which
+        is what keeps two spans on one pid from overlapping (ADR-0011).
         """
         closed_end = self._process_lifetime_closed_end.get(pid)
         if closed_end is not None and ts <= closed_end:
@@ -160,10 +152,11 @@ class PerfettoTrackState:
         of every pid the tick did not report.
 
         A pid absent from one report and present in a later one is a new
-        process, the rule `StreamingStats` applies to the exits it sees.
-        Evidence still to arrive for a closed pid opens a span of its
-        own, so the caller has to hand its buffered events over before a
-        report that drops one. See ADR-0011.
+        process. `StreamingStats` counts the same processes off a
+        different trigger, the pid leaving the process tree; ADR-0011
+        records where the two diverge. Evidence still to arrive for a
+        closed pid opens a span of its own, so the caller has to hand its
+        buffered events over before a report that drops one.
         """
         for pid in self._open_pids - set(pids):
             self._process_lifetime_closed_end[pid] = self._process_lifetime_end[(pid, self._pid_epochs[pid])]

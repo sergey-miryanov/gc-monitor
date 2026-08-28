@@ -53,9 +53,8 @@ class PerfettoExporter(EventsExporter):
         ``_lock`` is held across the write, not dropped before it. A
         producer that took a batch out of the buffer and then queued for
         ``_io_lock`` would leave the buffer looking empty to
-        ``add_process_liveness``, which would report a departure the
-        encoder sees *before* those events -- and the stragglers would
-        open a span for a process nobody ever handed the pid to. The lock
+        ``add_process_liveness``, and the departure would reach the
+        encoder ahead of events already taken to be written. The lock
         order is ``_lock`` then ``_io_lock``, and nothing takes them the
         other way round.
         """
@@ -90,11 +89,9 @@ class PerfettoExporter(EventsExporter):
         accumulator, handing the buffer over first when the tick drops a
         pid.
 
-        A dropped pid's span closes, and an event of its own reaching the
-        encoder after that opens a span the process never had, so the
-        buffer goes over ahead of the report rather than at the next
-        threshold. A tick that drops nobody, which is every tick of a run
-        with no process churn, leaves the buffering alone.
+        A dropped pid's span closes, so the buffer goes over ahead of the
+        report rather than at the next threshold. A tick that drops
+        nobody leaves the buffering alone.
 
         ``_io_lock`` is not optional: it guards every other touch of the
         encoder, and both a flush and ``close()`` can run on another

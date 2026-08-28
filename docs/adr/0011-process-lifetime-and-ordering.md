@@ -50,8 +50,8 @@ in the suite passed anyway.
 `TYPE_SLICE_BEGIN`/`TYPE_SLICE_END` pair per **process**, named
 `Process <pid>`, spanning `[first observed, last observed]` for that process
 (see the liveness section below for what counts as an observation). A pid the
-operating system hands out twice therefore draws two spans, so an operator
-zooming to one is looking at an interval its process was alive in.
+operating system hands out twice therefore draws two spans, and each covers an
+interval its process was alive in.
 
 - Parented to the trace root, so `parent_uuid` is **absent on the wire**, not
   `0`, which is the reserved root descriptor
@@ -79,8 +79,8 @@ the END, since `BufferedTraceExporter` flushes in chunks of `flush_threshold`
 orphaning the rest.
 
 **Spans are clipped to a laminar set.** The sweep keys on `(pid, pid_epoch)`,
-so two spans carrying one pid are made disjoint or nested exactly as two spans
-on different pids are. Sorted by ascending start, ties broken by longer span
+so two spans carrying one pid are made disjoint or nested as two spans on
+different pids are. Sorted by ascending start, ties broken by longer span
 first and then ascending pid and epoch, a stack sweep pulls each crossed
 span's end back to one nanosecond before the span that crosses it. Nesting is
 untouched, so a parent outliving its children costs nothing. Spans that merely
@@ -172,14 +172,21 @@ either kind opens that span, a GC event as much as a tick, because a poll
 returns collections that already happened and the first thing a new process
 produces may well predate the tick that found it.
 
+**Two spans on one pid never overlap.** Evidence no later than a span that has
+closed belongs to that span rather than to the next: a pid pruned from the
+process tree loses its read cursors, so whatever claims it next re-exports
+records its predecessor already produced, and the arrival order of a batch
+says nothing about which process a record came from. Both spans carry the same
+pid in their name, and a named `TYPE_SLICE_END` can only pick the right
+`TYPE_SLICE_BEGIN` while no two of that name are open at once.
+
 The counting is the encoder's own, from evidence it already receives: nothing
 new is plumbed through the exporter protocol and no record grows a field. It
 costs an ordering obligation instead. `PerfettoExporter` buffers events and
 flushes on a threshold, so a report that drops a pid has to be preceded by
 whatever the buffer holds; otherwise a straggler arrives after the span closed
 and opens one the process never had. The exporter hands the buffer over on
-exactly those reports, which is one extra flush per process death rather than
-one per tick.
+those reports, one extra flush per process death rather than one per tick.
 
 **Liveness folds in alongside events rather than replacing them.**
 `[first OK, last OK]` was rejected because `get_gc_stats` returns collections
@@ -203,11 +210,11 @@ suppressing a pid mid-run is the plain case: it is not polled while
 suppressed, so it drops out of the reports, and re-enabling it opens a second
 span where this ADR used to promise one continuous span across the gap. A read
 that fails once, or a tick where `get_child_pids` answered nothing and no
-child was polled at all, does the same. Each gap is drawn where it happened
-and the count of processes is what is wrong, and the `--stats` table, which
-advances its epoch on the pid leaving the process tree, disagrees. Narrowing
-the rule to the evidence the table uses needs the monitor to report an exit,
-which is a wider change than this one.
+child was polled at all, does the same. Each gap is drawn where it happened;
+what is wrong is the count of processes. The `--stats` table advances its
+epoch on the pid leaving the process tree instead, and disagrees. Narrowing
+the rule to that evidence needs the monitor to report an exit, which is a
+wider change than this one.
 
 **Liveness is always on**, with no flag. The cost that justified `--rss`
 ([ADR-0013](0013-rss-sampling.md)) does not transfer: `live_pids` is already
