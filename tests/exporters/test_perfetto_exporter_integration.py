@@ -1686,6 +1686,28 @@ _REUSE_FIRST_SPAN: tuple[int, int] = (_REUSE_TICKS[0], _REUSE_FIRST_GC[1])
 _REUSE_SECOND_SPAN: tuple[int, int] = (_REUSE_SECOND_GC[0], _REUSE_TICKS[3])
 
 
+# What each process on the recycled pid was running. A provider answers
+# whatever holds the pid when it is asked, so two processes on one pid give
+# two answers.
+_REUSE_CMDLINES: tuple[tuple[str, ...], ...] = (
+    ("python3", "-m", "first_target"),
+    ("python3", "-m", "second_target"),
+)
+
+
+def _reused_pid_cmdline_provider() -> Callable[[int], list[str] | None]:
+    """Hand out ``_REUSE_CMDLINES`` in order for ``DEFAULT_PID``, one per
+    read, and nothing for any other pid."""
+    remaining = list(_REUSE_CMDLINES)
+
+    def provider(pid: int) -> list[str] | None:
+        if pid != DEFAULT_PID or not remaining:
+            return None
+        return list(remaining.pop(0))
+
+    return provider
+
+
 def _write_reused_pid_trace(tmp: Path) -> Path:
     """Write a Perfetto trace over a run in which the operating system
     handed ``DEFAULT_PID`` to a second process.
@@ -1696,7 +1718,11 @@ def _write_reused_pid_trace(tmp: Path) -> Path:
     drop ``DEFAULT_PID``, so it brackets both processes.
     """
     path = tmp / "reused_pid.pb"
-    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter = PerfettoExporter(
+        output_path=path,
+        flush_threshold=1000,
+        cmdline_provider=_reused_pid_cmdline_provider(),
+    )
     exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, _REUSE_TICKS[0])
     exporter.add_event(
         DEFAULT_PID,
@@ -1972,3 +1998,64 @@ class TestAProcessGroupPerProcess:
 
         assert [r.ts for r in rows] == [_REUSE_FIRST_GC[0], _REUSE_SECOND_GC[0]]
         assert len({r.upid for r in rows}) == 2
+
+
+class TestACommandLinePerProcess:
+    """Each row names the program the process it draws was running.
+
+    gcmon read a pid's command line once per trace, during the first
+    process's life, and put that string on every row and every span
+    carrying the pid. Where the pid went to a different program, the
+    ``#2`` row named one that process never ran and nothing in the trace
+    said so. See ADR-0010 and spec 0066.
+    """
+
+    def _expected(self) -> dict[str, str]:
+        return {
+            f"Process {DEFAULT_PID}": " ".join(_REUSE_CMDLINES[0]),
+            f"Process {DEFAULT_PID}#2": " ".join(_REUSE_CMDLINES[1]),
+        }
+
+    def _span_cmdlines(self, tp: TraceProcessor, name_pattern: str) -> dict[str, str | None]:
+        rows = list(
+            tp.query(
+                f"SELECT s.name AS name, EXTRACT_ARG(s.arg_set_id, 'debug.cmdline') AS cmdline "
+                f"FROM slice s JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' AND s.name LIKE '{name_pattern}'"
+            )
+        )
+        return {r.name: r.cmdline for r in rows}
+
+    def test_each_span_names_the_program_its_process_ran(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        assert self._span_cmdlines(reused_pid_trace_processor, f"Process {DEFAULT_PID}%") == self._expected()
+
+    def test_each_group_names_the_program_its_process_ran(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """``description`` on the process track, which is the only place
+        the trace processor surfaces a command line in SQL (ADR-0010)."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT p.name AS name, a.string_value AS description FROM process p "
+                f"JOIN process_track pt ON pt.upid = p.upid "
+                f"LEFT JOIN args a ON a.arg_set_id = pt.source_arg_set_id AND a.key = 'description' "
+                f"WHERE p.pid = {DEFAULT_PID} AND pt.name = p.name"
+            )
+        )
+
+        assert {r.name: r.description for r in rows} == self._expected()
+
+    def test_a_process_gcmon_never_read_carries_none(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """``_SECOND_PID`` was only ever reported live, so nothing asked
+        what it was running. Absent beats wrong, and it is now the only
+        way to get absent."""
+        assert self._span_cmdlines(reused_pid_trace_processor, f"Process {_SECOND_PID}") == {
+            f"Process {_SECOND_PID}": None
+        }

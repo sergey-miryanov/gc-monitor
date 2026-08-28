@@ -20,6 +20,7 @@ from .perfetto_format import (
     TraceField,
     TracePacketField,
     convert_trace_events_to_perfetto,
+    event_epoch,
     finalize_perfetto_packets,
     record_process_lifetimes,
 )
@@ -107,12 +108,16 @@ class ProtobufEventEncoder:
             return None
 
     def _ensure_cmdline(self, pid: int, pid_epoch: int) -> None:
-        """Read *pid*'s command line, once per trace.
+        """Read the command line of the process holding *pid*, once.
 
-        Once, and not once per pid per batch: a pid whose command line
-        cannot be read -- it has already exited, or psutil is missing --
-        would otherwise cost a failed read and a warning on every flush
-        for the rest of the run.
+        Once per process, and not once per process per batch: a command
+        line that cannot be read -- the process has already exited, or
+        psutil is missing -- would otherwise cost a failed read and a
+        warning on every flush for the rest of the run.
+
+        A process that took a pid over is asked in its own right. The
+        answer its predecessor gave names a program it never ran, and an
+        absent command line beats a wrong one (ADR-0010).
         """
         if (pid, pid_epoch) in self._cmdline_read:
             return
@@ -169,7 +174,7 @@ class ProtobufEventEncoder:
         # the process descriptor it may be about to write.
         record_process_lifetimes(events, self._track_state)
         for event in events:
-            self._ensure_cmdline(event.track.pid, 1)
+            self._ensure_cmdline(event.track.pid, event_epoch(event, self._track_state))
         descriptors, packets = convert_trace_events_to_perfetto(
             list(events),
             self._track_state,

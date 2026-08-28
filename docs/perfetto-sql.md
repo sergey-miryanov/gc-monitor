@@ -83,7 +83,7 @@ are reachable from SQL.
 The process track's `description` holds the space-joined command line:
 
 ```sql
--- Command line per PID, from the process track description
+-- Command line per process, from the process track description
 SELECT p.pid, a.string_value AS cmdline
 FROM args a
 JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id
@@ -92,7 +92,10 @@ WHERE a.key = 'description'
 ORDER BY p.pid
 ```
 
-The same string is attached to each `Process {pid}` slice on the `Processes`
+A pid held twice returns a row per process, each naming the program that
+process ran.
+
+The same string is attached to that process's slice on the `Processes`
 lifetime track as a `cmdline` debug annotation, which pairs it with the
 process's start and end times:
 

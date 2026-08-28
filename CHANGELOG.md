@@ -23,11 +23,13 @@
 - `ControlClient.instant_msg` takes a `ts`, so an instant captured in a hot path can be sent after it and still land where it happened
 - The pyperf hook marks where each benchmark ran: `gcmon:`-prefixed begin and end marks per measured region
 - A `Processes` slice says which process held a PID the operating system handed out twice: the second reads `Process 12345#2`, the same way the `--stats` table heads its block. Every slice carries the number as a `pid_epoch` annotation to query on
+- A PID the operating system handed out twice draws a row per process rather than one row for both: `Process 12345` and `Process 12345#2`, each with the thread rows, counter rows, start time and command line of the process it names. In PerfettoSQL they are two `upid`s
 
 ### Bugfixes
 
 - An instant sent close to the end of a run reaches the trace, where the last one a client sent could be dropped without a word
 - A `Processes` span covers only the process it names. A PID the operating system handed out twice used to draw a single span across both, wide enough to cover a stretch in which neither process was running
+- The command line on a row is the one that process was running. A PID handed on to a different program used to carry the first process's command line on every row and every span that shared the PID, naming a program the second process never ran
 
 ### Internal
 

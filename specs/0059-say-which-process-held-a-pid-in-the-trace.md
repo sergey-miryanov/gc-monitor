@@ -165,8 +165,11 @@ section 6.
 - **Splitting the Perfetto process track.** Done in
   [0066](0066-give-each-process-on-a-reused-pid-its-own-track.md) instead, on
   the measurement section 4 asked for.
-- **Reading a command line per epoch.** ADR-0010 already reads whatever holds
-  the pid at capture time, and a dead predecessor has none to read.
+- **Reading a command line per epoch.** Done in
+  [0066](0066-give-each-process-on-a-reused-pid-its-own-track.md) instead,
+  once the split gave the second process a row to put one on. ADR-0010's rule
+  is unchanged: whatever holds the pid at capture time, and a dead predecessor
+  has none to read.
 
 ## 7. Further notes
 

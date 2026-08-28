@@ -95,3 +95,20 @@ class TestProtobufEventEncoder:
         enc.write_events([Instant(ProcessTrack(1234), "ev", ts=1_000)])
 
         assert folded == [True]
+
+    def test_a_command_line_is_read_once_per_process(self, tmp_path: Path) -> None:
+        """A pid handed on is two processes, and each is asked what it was
+        running.
+
+        Read once per trace, the answer the first process gave went on the
+        second one's row, naming a program it never ran.
+        """
+        provider = Mock(return_value=["python", "app.py"])
+        enc = ProtobufEventEncoder(cmdline_provider=provider)
+        enc.open(tmp_path / "out.perfetto")
+
+        enc.write_events([Instant(ProcessTrack(1234), "ev", ts=1_000)])
+        enc.record_process_liveness(set(), 2_000)
+        enc.write_events([Instant(ProcessTrack(1234), "ev", ts=3_000)])
+
+        assert provider.call_count == 2

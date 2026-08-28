@@ -39,6 +39,10 @@ A trace carries these, on one track per interpreter:
   `real_end_ts` annotations, not from the slice width**, which overlapping
   processes cut short and sometimes to nothing; see
   [Perfetto SQL](perfetto-sql.md).
+- **A row per process**: a pid the operating system handed out twice draws
+  two, `Process {pid}` and `Process {pid}#2`, each with the thread rows,
+  counter rows and command line of the process it names. In SQL they are two
+  `upid`s, so a per-process total is a `GROUP BY upid`.
 - **Process ordering**: Perfetto sorts the tracks on first event timestamp, so
   the earliest process sits at the top.
 - **Process command lines**: with the [`[cmdline]`
@@ -115,6 +119,9 @@ both the UI and SQL:
 | `ProcessDescriptor.cmdline` on the process track | argv, one string per argument | Yes | **No**. The trace processor does not surface this field |
 | `description` on the process track | argv joined with single spaces | Yes | Yes, via `args` (key `description`) |
 | `cmdline` debug annotation on the `Process {pid}` slice of the `Processes` track | argv joined with single spaces | Yes, in the slice's details | Yes, via `args` (key `debug.cmdline`) |
+
+A command line is read once per process, while that process is running, so a
+recycled pid carries one per row rather than the first process's on both.
 
 Queries for the latter two are in
 [Trace Analysis with Perfetto SQL](perfetto-sql.md#example-querying-process-command-lines).

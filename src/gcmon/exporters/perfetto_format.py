@@ -71,6 +71,7 @@ __all__ = [
     "build_track_descriptor",
     "build_track_event",
     "convert_trace_events_to_perfetto",
+    "event_epoch",
     "finalize_perfetto_packets",
     "record_process_lifetimes",
 ]
@@ -398,7 +399,7 @@ def convert_trace_events_to_perfetto(
 
     for event in events:
         pid = event.track.pid
-        pid_epoch = _event_epoch(event, state)
+        pid_epoch = event_epoch(event, state)
         descriptors.extend(_emit_track_descriptors(event.track, pid_epoch, state, sequence_id, ranks))
 
         if isinstance(event, Slice):
@@ -468,7 +469,7 @@ def convert_trace_events_to_perfetto(
     return descriptors, packets
 
 
-def _event_epoch(event: TraceEvent, state: PerfettoTrackState) -> int:
+def event_epoch(event: TraceEvent, state: PerfettoTrackState) -> int:
     """Which process holding the event's pid produced it.
 
     A slice is asked about its start. Both of its ends are folded into

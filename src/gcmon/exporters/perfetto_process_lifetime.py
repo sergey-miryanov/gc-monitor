@@ -71,10 +71,7 @@ def _emit_process_lifetime_slice(
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
     name = f"Process {pid}{epoch_suffix(pid_epoch)}"
     debug_annotations: list[bytes] = []
-    # The first process to hold the pid, whichever process this span is:
-    # gcmon reads a command line once per trace, so that is the only one
-    # it has.
-    cmdline = state.get_cmdline(pid, 1)
+    cmdline = state.get_cmdline(pid, pid_epoch)
     if cmdline:
         debug_annotations.append(
             _build_debug_annotation_string("cmdline", " ".join(cmdline)),

@@ -1,7 +1,9 @@
 # ADR-0010: Carry process cmdline in two places, and force the process track to render
 
 - **Status:** Accepted
-- **Date:** 2026-06-08 (`Start Process` marker added 2026-06-27)
+- **Date:** 2026-06-08 (`Start Process` marker added 2026-06-27; both became
+  per *process* rather than per pid 2026-08-28, see
+  [spec 0066](../../specs/0066-give-each-process-on-a-reused-pid-its-own-track.md))
 
 ## Context
 
@@ -45,9 +47,9 @@ description.
 
 **Emit a synthetic zero-duration `TYPE_INSTANT` event named `Start Process`**
 on the process track itself, at the timestamp of the first non-meta event for
-that pid, at most once per pid. This guarantees the track has an event, so the
-track and its description always render. It is the smallest change that fixes
-the visibility problem.
+that process, at most once per process. This guarantees the track has an
+event, so the track and its description always render. It is the smallest
+change that fixes the visibility problem.
 
 **Collection is the exporter's job and degrades silently.** The provider
 imports `psutil` lazily. If it is not installed, or the process is gone or
@@ -60,15 +62,25 @@ the first `TrackDescriptor` for each.
 [ADR-0008](0008-buffered-exporter-and-encoder-protocol.md)'s atomic meta
 building guarantees that happens exactly once.
 
+**A command line is read once per process, not once per pid.** A pid the
+operating system hands out twice is two processes, each with a track of its
+own ([ADR-0011](0011-process-lifetime-and-ordering.md)), and each is asked
+what it was running while it was running. The rule above is unchanged in kind,
+whatever holds the pid at capture time; what changes is that capture time
+comes round once per process. Read once per pid, the first process's answer
+went on the second one's row and named a program it never ran.
+
 ## Consequences
 
 - You can identify processes in the UI and query them from SQL.
 - The cmdline is stored twice. Accepted: the two consumers differ (UI
   rendering versus the SQL `args` table), and neither can read the other's
   copy.
-- A trace carries one extra `Start Process` instant event per pid. Consumers
-  that enumerate slices must filter it, as the chrome↔perfetto equivalence
-  test does, since the marker is Perfetto-only.
+- **A row's command line is either its own or absent.** A process gcmon never
+  reached in life gets none, and that is now the only way to get none.
+- A trace carries one extra `Start Process` instant event per process.
+  Consumers that enumerate slices must filter it, as the chrome↔perfetto
+  equivalence test does, since the marker is Perfetto-only.
 - `psutil` stays an optional dependency (the `cmdline` extra). gcmon works
   without it, minus the cmdline.
 - In a `combine` run the pids are historical and the processes are usually
@@ -105,11 +117,12 @@ building guarantees that happens exactly once.
   field numbers (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`) and
   `TrackDescriptor.description` at field 14.
 - `src/gcmon/exporters/perfetto_format.py` names the `Start Process` marker
-  and emits it at most once per pid.
+  and emits it at most once per process, and answers which process an event
+  belongs to.
 - `src/gcmon/exporters/perfetto_process_lifetime.py` puts the cmdline on the
   `Processes` slice's BEGIN alongside the `real_start_ts` / `real_end_ts`
   annotations ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 - `src/gcmon/exporters/encoder.py` holds the default provider, with its lazy
-  `import psutil`, and registers each pid's cmdline once.
-- `src/gcmon/exporters/perfetto_track_state.py` stores a pid's cmdline and
+  `import psutil`, and registers each process's cmdline once.
+- `src/gcmon/exporters/perfetto_track_state.py` stores a process's cmdline and
   hands it back.

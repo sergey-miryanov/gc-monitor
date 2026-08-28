@@ -1,6 +1,7 @@
 # 0066: Give each process on a reused pid its own track
 
-- **Status:** In progress
+- **Status:** Landed 2026-08-28, to retire with
+  [0059](0059-say-which-process-held-a-pid-in-the-trace.md)
 - **Kind:** feature (enhancement)
 - **Effort:** M
 - **Origin:** measured 2026-08-28 while landing
