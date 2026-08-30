@@ -212,15 +212,9 @@ class ControlServer:
                 break
 
     def _add_event(self, m: str, pid: int, ts: int) -> None:
-        """Draw *m* on the process that held *pid* at *ts*.
-
-        A client names an operating-system pid, and nothing here mints a
-        process for one: a pid the monitor has never polled belongs to no
-        process, and the message goes nowhere (ADR-0025).
-        """
         process = self._processes.at(pid, ts)
         if process is None:
-            logger.debug("No monitored process holds PID %s; dropping control message %r", pid, m)
+            logger.debug("No monitored process holds PID %s at time %s; dropping control message %r", pid, ts, m)
             return
         self._exporter.add_instant_event(process, instant_msg(m, ts))
 

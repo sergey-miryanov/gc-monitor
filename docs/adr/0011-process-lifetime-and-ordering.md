@@ -12,7 +12,7 @@
   clock read" narrowed to one *stamping* read 2026-08-20, see
   [ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md); the span became
   one per process and the liveness stamp moved to the end of the poll phase
-  2026-08-31, see [ADR-0025](0025-mint-every-process-in-one-place.md))
+  2026-08-31, see [ADR-0025](0025-create-every-process-in-one-place.md))
 
 ## Context
 
@@ -260,10 +260,10 @@ iteration.
 - **A span covers only its own process even where the records did not.** A pid
   pruned from the tree loses its read cursor, so a successor re-reads what its
   predecessor produced; each record is drawn on the process that made it
-  ([ADR-0025](0025-mint-every-process-in-one-place.md)), so those timestamps
+  ([ADR-0025](0025-create-every-process-in-one-place.md)), so those timestamps
   widen the predecessor's span.
 - **A zero-GC process's slice carries its command line**, since the monitor
-  reads it where it mints the process rather than on the encoder's write
+  reads it where it creates the process rather than on the encoder's write
   ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)). It still
   has no process track, which the UI hides anyway, the problem ADR-0010's
   `Start Process` marker was invented for. Emitting one for it is out of
@@ -354,8 +354,9 @@ iteration.
   drops.
 - **Deriving the epoch from gaps in the liveness reports**, which reach this
   track already and would have split the spans with nothing new plumbed
-  through. Rejected in [ADR-0025](0025-mint-every-process-in-one-place.md): a
-  pid the control server suppresses produces the same gap as a pid that died.
+  through. Rejected in [ADR-0025](0025-create-every-process-in-one-place.md):
+  a pid the control server suppresses produces the same gap as a pid that
+  died.
 - **Emitting liveness as a `TraceEvent`.** Rejected: at 10 Hz × N pids, a
   60-second run with ten children carries ~6,000 extra events, visible on the
   process tracks, to record two numbers per pid.

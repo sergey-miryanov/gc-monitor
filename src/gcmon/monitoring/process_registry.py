@@ -16,7 +16,7 @@ type CmdlineProvider = Callable[[int], tuple[str, ...] | None]
 def read_cmdline(pid: int) -> tuple[str, ...] | None:
     """What *pid* is running, off psutil.
 
-    Wired in by the caller and not defaulted to here (ADR-0025).
+    `ProcessRegistry` takes it as a provider and defaults to none (ADR-0025).
     """
     import psutil
 
@@ -24,11 +24,10 @@ def read_cmdline(pid: int) -> tuple[str, ...] | None:
 
 
 class ProcessRegistry:
-    """The one place a `Process` comes from (ADR-0025).
+    """The monitor's record of who holds each pid (ADR-0025).
 
     The monitor writes and the control server reads from its own thread,
-    so every access takes the lock. One write per process against one read
-    per control message leaves nothing to contend over.
+    so every access takes the lock.
     """
 
     def __init__(self, cmdline_provider: CmdlineProvider | None = None) -> None:
@@ -39,11 +38,9 @@ class ProcessRegistry:
         self._cmdline_provider = cmdline_provider
 
     def create(self, pid: int, ts: int) -> Process:
-        """Mint the process now holding *pid*, discovered at *ts*.
+        """Create the process now holding *pid*, discovered at *ts*.
 
-        The monitor calls this and nothing else does (ADR-0025). The
-        command line is read here, while the process is running
-        (ADR-0010).
+        The monitor calls this and nothing else does (ADR-0025).
         """
         cmdline = self._read_cmdline(pid)
         with self._lock:
@@ -53,11 +50,7 @@ class ProcessRegistry:
             return process
 
     def _read_cmdline(self, pid: int) -> tuple[str, ...] | None:
-        """Read *pid*'s command line, outside the lock (ADR-0025).
-
-        A provider that fails costs its process a command line and nothing
-        else. The pid has already gone, or psutil is missing.
-        """
+        """Read *pid*'s command line, outside the lock (ADR-0025)."""
         if self._cmdline_provider is None:
             return None
         try:
@@ -69,8 +62,7 @@ class ProcessRegistry:
     def retire(self, pid: int, ts: int) -> None:
         """Note that the process holding *pid* left at *ts*.
 
-        A pid holding no process is not an error: the monitor prunes
-        against a whole child listing, most of which it never minted for.
+        A pid holding no process is not an error.
         """
         with self._lock:
             self._retire_locked(pid, ts)
@@ -99,10 +91,7 @@ class ProcessRegistry:
     def at(self, pid: int, ts: int) -> Process | None:
         """The process that held *pid* at *ts*, or ``None`` where none did.
 
-        Evidence outlives the process it describes, so a *ts* later than
-        every retirement reads as the process running now, or as the last
-        to leave, and one earlier than the first process's ``start_ts``
-        reads as that process (ADR-0025).
+        Evidence outlives the process it describes (ADR-0025).
         """
         with self._lock:
             for process, retired_ts in self._retired.get(pid, ()):

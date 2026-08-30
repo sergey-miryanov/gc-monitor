@@ -35,7 +35,7 @@ class TestAPidHandedOn:
 
     def test_retiring_a_pid_that_holds_nothing_is_no_error(self) -> None:
         """The monitor prunes against a whole child listing, most of which it
-        never minted for."""
+        never created one for."""
         ProcessRegistry().retire(999, 10)
 
 
@@ -109,14 +109,14 @@ class TestEvidenceThatOutlivesItsProcess:
 
         assert registry.at(100, 100) is first
 
-    def test_a_pid_nobody_minted_belongs_to_nobody(self) -> None:
+    def test_a_pid_nobody_created_belongs_to_nobody(self) -> None:
         """The one rule that keeps a stray event from opening a process that
-        was never monitored: only the monitor mints."""
+        was never monitored: only the monitor creates."""
         assert ProcessRegistry().at(999, 10) is None
 
 
 class TestTheCommandLine:
-    def test_it_is_read_when_the_process_is_minted(self) -> None:
+    def test_it_is_read_when_the_process_is_created(self) -> None:
         registry = ProcessRegistry(cmdline_provider=lambda pid: (f"worker-{pid}",))
 
         assert registry.create(100, 0).cmdline == ("worker-100",)

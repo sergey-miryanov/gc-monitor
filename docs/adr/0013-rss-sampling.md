@@ -5,7 +5,7 @@
   nanoseconds, the per-sample clock read removed, and "one clock read per
   tick" narrowed to one *stamping* read, 2026-08-17; `tick` took processes
   rather than pids 2026-08-31, see
-  [ADR-0025](0025-mint-every-process-in-one-place.md))
+  [ADR-0025](0025-create-every-process-in-one-place.md))
 
 ## Context
 

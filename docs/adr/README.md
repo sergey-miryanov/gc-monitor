@@ -85,7 +85,7 @@ module is neither.
 | [0022](0022-compress-each-batch-of-packets.md) | Compress each batch into one `TracePacket.zstd_compressed_packets` field |
 | [0023](0023-the-pyperf-hook-annotates-and-does-not-drive.md) | Mark the benchmark from the pyperf hook, and drive nothing |
 | [0024](0024-an-event-names-the-track-it-is-drawn-on.md) | An event names the track it is drawn on, and the encoder derives the rest |
-| [0025](0025-mint-every-process-in-one-place.md) | Mint every process in one place, and carry it instead of a pid |
+| [0025](0025-create-every-process-in-one-place.md) | Create every process in one place, and carry it instead of a pid |
 
 ## Reading order
 

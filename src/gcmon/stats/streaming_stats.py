@@ -19,9 +19,9 @@ TStatsData = dict[str, dict[int, Stats]]
 
 # (process, iid). One interpreter's sampled metrics, a generation dict per
 # metric. One ring's durations are one of those generations. Keyed on the
-# process, so a successor on a reused pid opens rings of its own, and named
-# for it because a ring's own index is CPython's write cursor into it, which
-# is a different number entirely.
+# process, so a successor on a reused pid opens rings of its own. Named for
+# the process and not for a ring index, which in CPython is the write cursor
+# into the ring.
 type RingKey = tuple[Process, int]
 
 
@@ -41,7 +41,7 @@ class LossTotals(msgspec.Struct):
 
 
 class PauseTotals(msgspec.Struct, frozen=True, gc=False):
-    """One generation's pauses, for one pid or for all of them.
+    """One generation's pauses, for one process or for all of them.
 
     `sampled_*` is what gcmon measured, `lost_*` what the target's counters
     say it missed. ADR-0015 covers why adding them is exact.
@@ -129,9 +129,6 @@ class RingStats(msgspec.Struct):
     thousand values per generation per metric, where `loss` and `cumulative`
     hold two numbers per generation each. A declined ring goes on counting,
     so the run totals and the coverage figures stay whole.
-
-    The ring became `declined` when no room for it in running_rings,
-    stick unless pid is dead.
     """
 
     metrics: TStatsData | None = None
@@ -172,7 +169,7 @@ def _record(stats: TStatsData, item: TGCStatsInfo, metric_name: str) -> None:
 
 class StreamingStats:
     # How many interpreters may hold sample buffers at once, one set per
-    # (pid, iid) covering that interpreter's three generations. A set costs
+    # (process, iid) covering that interpreter's three generations. A set costs
     # what it did when the bound counted processes, so the footprint of the
     # processes bounded then buys several interpreters each now. A process
     # that exits settles its buffers and hands the slots back.
@@ -203,8 +200,7 @@ class StreamingStats:
         self._open_processes: set[Process] = set()
         self._bound_warned = False
         # Process-wide, with no generation and no interpreter affinity
-        # (ADR-0004), so the high-water mark stays keyed on the process. Two
-        # processes that shared a pid keep a mark each.
+        # (ADR-0004).
         self._heap_size: dict[Process, int] = {}
         self._read_time: Stats = Stats()
 
@@ -353,8 +349,8 @@ class StreamingStats:
         `COVERAGE_ADVISORY`, as its interpreter, its generation and its
         coverage. ``None`` on a healthy run.
 
-        Only the rings running now, which are this process's, since the caller
-        polled it.
+        Reads the rings running now and not the settled ones, whose
+        processes have exited.
         """
         worst: tuple[int, int, float] | None = None
         for (ring_process, iid), ring in self._running_rings.items():
@@ -378,9 +374,8 @@ class StreamingStats:
         The target counts both of them cumulatively, so the newest values
         replace the previous ones; this observes a counter rather than
         appending to one, which is what separates it from `record_loss`. A
-        successor on a reused pid writes into an entry of its own, so the fold
-        adds the two rather than losing the larger history to the smaller one
-        that follows it.
+        successor on a reused pid writes into an entry of its own
+        (ADR-0016).
         """
         self._open_processes.add(process)
         self._open_ring(process, iid).cumulative[gen] = CumulativeCounters(collections, duration_s)
@@ -429,8 +424,7 @@ class StreamingStats:
         interpreter's history from a sum over five that started at different
         moments.
 
-        Two processes that shared a pid count as two, since the epoch tells
-        them apart. A pid gcmon never saw exit still counts as one.
+        A pid gcmon never saw exit still counts as one.
         """
         interpreters = {
             key for key, ring in self._keyed_rings() if any(totals.collections for totals in ring.cumulative.values())
@@ -475,8 +469,7 @@ class StreamingStats:
         """Every ring holding sampled metrics, by pid, then epoch, then
         interpreter.
 
-        One entry per process that held the pid, so a reused pid brings one
-        for each. A ring the bound declined holds none and is absent;
+        A ring the bound declined holds none and is absent;
         :meth:`untracked_rings` counts those.
         """
         return sorted(

@@ -1,8 +1,8 @@
 # ADR-0016: Report statistics per ring, and drop the per-process row from the `--stats` table
 
 - **Status:** Accepted
-- **Date:** 2026-08-15 (the epoch moved onto a `Process` minted by the monitor
-  2026-08-31, see [ADR-0025](0025-mint-every-process-in-one-place.md))
+- **Date:** 2026-08-15 (the epoch moved onto a `Process` the monitor creates
+  2026-08-31, see [ADR-0025](0025-create-every-process-in-one-place.md))
 
 ## Context
 
@@ -76,16 +76,17 @@ own lifetime counters. The epoch belongs to the pid rather than the ring
 (`pid_epoch` in the code, since a ring's own index is CPython's write cursor
 into it), so an interpreter a successor creates late counts as the
 successor's. The table prints the first block plain and marks the ones after
-it, `12345:0#2` for the second process to hold the pid. The monitor mints
-those values and nothing here does
-([ADR-0025](0025-mint-every-process-in-one-place.md)).
+it, `12345:0#2` for the second process to hold the pid. The monitor assigns
+the epoch and nothing here does
+([ADR-0025](0025-create-every-process-in-one-place.md)).
 
 **A settled ring turns away a record it has already counted.** A pid pruned
 from the tree loses its read cursor
 ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)), so its successor
 re-reads the ring and the records come back filed under the predecessor
-([ADR-0025](0025-mint-every-process-in-one-place.md)). Folding one in a second
-time would leave the run totals and the ring's percentiles out by a duplicate.
+([ADR-0025](0025-create-every-process-in-one-place.md)). Folding one in a
+second time would leave the run totals and the ring's percentiles out by a
+duplicate.
 
 **A ring gets its row on its first record and keeps it until its process
 exits.** Where no slot is free the ring gets none and its records reach

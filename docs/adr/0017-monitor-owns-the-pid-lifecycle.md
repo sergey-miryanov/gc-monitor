@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-17 (the process registry joined the state the prune owns
-  2026-08-31, see [ADR-0025](0025-mint-every-process-in-one-place.md))
+  2026-08-31, see [ADR-0025](0025-create-every-process-in-one-place.md))
 
 ## Context
 
@@ -31,9 +31,9 @@ that liveness call and nothing else did.
 **Per-pid state has one owner and one prune.** Cursors, poll instant,
 streaming stats, wait policy and the process a pid is currently holding share
 a lifetime, so one pass over one child set drops them together. The monitor is
-therefore the only thing that mints a process or retires one
-([ADR-0025](0025-mint-every-process-in-one-place.md)), and the prune settles a
-departing process's rings before retiring it, since the rings file under the
+therefore the only thing that creates a process or retires one
+([ADR-0025](0025-create-every-process-in-one-place.md)), and the prune settles
+a departing process's rings before retiring it, since the rings file under the
 process that earned them.
 
 **The loop keeps the clock and the stop signal.** It reads the tick instant,
@@ -58,8 +58,9 @@ cursor and re-exports its whole ring.
 - A pid that leaves the tree and returns re-exports whatever its ring still
   holds, since the prune took its cursor. Duplicate slices are the price of
   not fabricating a loss window. They are drawn on the process that produced
-  them ([ADR-0025](0025-mint-every-process-in-one-place.md)), and the settled
-  ring counts them once ([ADR-0016](0016-the-ring-is-the-statistics-unit.md)).
+  them ([ADR-0025](0025-create-every-process-in-one-place.md)), and the
+  settled ring counts them once
+  ([ADR-0016](0016-the-ring-is-the-statistics-unit.md)).
 - The monitor holds more state than it did and is still driven from one loop.
   Nothing here makes it safe to share.
 

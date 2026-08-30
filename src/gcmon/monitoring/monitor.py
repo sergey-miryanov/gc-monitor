@@ -81,7 +81,7 @@ class EventsMonitor:
         the control server has suppressed that pid and it must not be polled.
         ``None`` means no control plane.
 
-        *registry* mints the `Process` every record is filed under, one per
+        *registry* creates the `Process` every record is filed under, one per
         run. A caller with none gets one of its own.
         """
         self._process = process
@@ -284,8 +284,9 @@ class EventsMonitor:
             # A pid pruned from the tree loses its read cursor, so whatever
             # claims it next re-reads records its predecessor produced
             # (ADR-0025).
+            # TODO: .at is not efficient here
             owner = self._processes.at(pid, record.ts_start)
-            assert owner is not None, "tick mints this pid's process before polling it"
+            assert owner is not None, "tick creates this pid's process before polling it"
             self._exporter.add_event(owner, record)
             self._stats.update(owner, record)
 

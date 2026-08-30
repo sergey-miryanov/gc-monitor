@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-06-08 (`Start Process` marker added 2026-06-27; collection
   moved to the monitor and became once per process 2026-08-31, see
-  [ADR-0025](0025-mint-every-process-in-one-place.md))
+  [ADR-0025](0025-create-every-process-in-one-place.md))
 
 ## Context
 
@@ -51,12 +51,12 @@ that pid, at most once per pid. This guarantees the track has an event, so the
 track and its description always render. It is the smallest change that fixes
 the visibility problem.
 
-**A command line is read once per process, where the monitor mints it.**
+**A command line is read once per process, where the monitor creates it.**
 Reading it at the first flush instead cost two things: a process that exited
 between the poll and the flush had none left to read, and a read filed under
 the pid put the first process's program on every later process that held it.
 The monitor discovers a process while it is running, and a `Process` carries
-what was read ([ADR-0025](0025-mint-every-process-in-one-place.md)).
+what was read ([ADR-0025](0025-create-every-process-in-one-place.md)).
 
 **The read degrades silently.** It imports `psutil` lazily. If it is not
 installed, or the process is gone or inaccessible, nothing is read, a warning
@@ -74,7 +74,7 @@ line, and that is the only way to have none.
   test does, since the marker is Perfetto-only.
 - `psutil` stays an optional dependency (the `cmdline` extra). gcmon works
   without it, minus the cmdline.
-- **A `combine` run writes no command line.** Offline conversion mints no
+- **A `combine` run writes no command line.** Offline conversion creates no
   process, so nothing is read.
 - `description` joins the arguments with spaces and no shell quoting,
   favouring readability over round-trippability. The structured form is in

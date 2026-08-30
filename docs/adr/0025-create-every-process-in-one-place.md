@@ -1,4 +1,4 @@
-# ADR-0025: Mint every process in one place, and carry it instead of a pid
+# ADR-0025: Create every process in one place, and carry it instead of a pid
 
 - **Status:** Accepted
 - **Date:** 2026-08-31
@@ -35,7 +35,7 @@ and ordering: a caller holding a pid and an epoch then reaches the rings and
 tracks filed under it without reproducing what gcmon read. Ordering is by pid
 then epoch, which is the order the `--stats` table prints.
 
-**One registry mints them, and the monitor is the only caller that may.**
+**One registry creates them, and the monitor is the only caller that may.**
 `create` is the only thing that makes a `Process`, and the monitor calls it as
 it is about to poll a pid rather than when a listing names one. A pid gcmon
 has never polled is one it knows nothing about, so evidence naming it belongs
@@ -63,8 +63,8 @@ collection older than gcmon's first sight of it.
 
 **The control plane holds a read-only view, not the registry.** A
 `ProcessLookup` protocol carrying `at` and nothing else lives in `model`,
-which every layer may import. Minting stays the monitor's, and `control` does
-not import `monitoring`, which the layer table in
+which every layer may import. Creating one stays the monitor's, and `control`
+does not import `monitoring`, which the layer table in
 `tests/architecture/test_layering.py` forbids.
 
 **One lock, taken on every access.** The monitor writes and the control server
@@ -83,12 +83,12 @@ wait behind it.
   process throughout. ADR-0016 accepted that and the registry inherits it;
   [spec 0052](../../specs/0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md)
   is the related hazard on the read path.
-- **Evidence for a pid nobody minted is dropped without a warning.** The
+- **Evidence for a pid nobody created is dropped without a warning.** The
   ordinary cause is a client naming a pid gcmon never monitored, which is the
   client's error and not gcmon's, so it is a debug log.
 - **A caller cannot reconstruct a command line.** Two `Process` values that
   disagree about it are the same key, so a caller that wants one has to hold
-  the value the registry minted.
+  the value the registry created.
 - **The registry keeps every departure for the life of the run**, one entry
   per process that has left, because that is what `at` answers from.
 
@@ -112,7 +112,7 @@ wait behind it.
 - **Hand the control server the registry itself.** It is one object and the
   control server only reads from it. Rejected: the layer table puts `control`
   below `monitoring`, so the import runs the wrong way, and a handle that can
-  mint is one a later change will mint from.
+  create a process is one a later change will create from.
 - **Move the registry below both layers, into `model` or `support`.** It would
   make the import legal in either direction. Rejected: the layer a thing
   belongs to is the one that writes it, and only the monitor writes here.
@@ -132,7 +132,7 @@ wait behind it.
   in `monitoring` because that is the layer that writes to it, and the
   provider is injected rather than defaulted so a test naming a pid the
   machine does not have reads nothing instead of whatever holds that number.
-- `src/gcmon/monitoring/monitor.py` mints as it polls and retires where it
+- `src/gcmon/monitoring/monitor.py` creates as it polls and retires where it
   drops a pid's state, both halves of
   [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s prune.
 - `src/gcmon/control/control_server.py` resolves the pid on the wire through
@@ -141,7 +141,7 @@ wait behind it.
   has, before the target starts, because the control server has to be
   listening by then.
 - `tests/test_process.py` pins the identity, the ordering and the suffix;
-  `tests/monitoring/test_process_registry.py` pins minting, the prune and what
-  `at` answers on each side of a departure;
+  `tests/monitoring/test_process_registry.py` pins creation, the prune and
+  what `at` answers on each side of a departure;
   `tests/architecture/test_layering.py` is where the `control`-to-`monitoring`
   edge fails, and it is deselected by default.

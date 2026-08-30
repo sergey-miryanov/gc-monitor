@@ -18,8 +18,8 @@
   `Processes` track, its spans and process ordering; this spec amends it),
   [ADR-0024](../docs/adr/0024-an-event-names-the-track-it-is-drawn-on.md) (an
   event names its `Track` and the encoder derives the rest),
-  [ADR-0025](../docs/adr/0025-mint-every-process-in-one-place.md) (a `Process`
-  is what a record is filed under, and only the monitor mints one)
+  [ADR-0025](../docs/adr/0025-create-every-process-in-one-place.md) (a
+  `Process` is what a record is filed under, and only the monitor creates one)
 
 ## 1. Problem statement
 
@@ -105,7 +105,7 @@ pid or a synthetic tid.
 
 **The encoder stops dropping the epoch from its keys.** Every event already
 names a `Process`
-([ADR-0025](../docs/adr/0025-mint-every-process-in-one-place.md)), and
+([ADR-0025](../docs/adr/0025-create-every-process-in-one-place.md)), and
 `PerfettoTrackState` throws that half away before filing anything.
 `_shared_row` rewrites a `Track` to epoch 1 for `has_track`, `get_track_uuid`,
 the counter tracks and the counter group; `get_process_track_uuid`,
@@ -146,7 +146,7 @@ Rejected: **fixing the command line alone**, leaving the group merged. It is
 the cheap half of story 4 and it strands 1, 2, 3 and 5; the same key does all
 of them.
 
-**`combine` is unaffected.** Offline conversion mints no process and builds
+**`combine` is unaffected.** Offline conversion creates no process and builds
 every pid a first process
 ([ADR-0024](../docs/adr/0024-an-event-names-the-track-it-is-drawn-on.md)), so
 every key reduces to what it is today.

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-26 (a track named a process rather than a pid 2026-08-31,
-  see [ADR-0025](0025-mint-every-process-in-one-place.md))
+  see [ADR-0025](0025-create-every-process-in-one-place.md))
 - **Supersedes:** [ADR-0004](0004-toplevel-shared-counters.md),
   [ADR-0006](0006-begin-end-slice-pairs.md)
 
@@ -31,7 +31,7 @@ Three things followed from the Chrome shape:
 `LossTrack(process, iid)`. The `(pid, tid)` pair and the sentinels go.
 `LossTrack` and `InterpreterTrack` carry the same two fields and name
 different rows. The first field is a `Process`
-([ADR-0025](0025-mint-every-process-in-one-place.md)), so a trace can draw two
+([ADR-0025](0025-create-every-process-in-one-place.md)), so a trace can draw two
 processes that shared a pid apart. A capture read back offline carries no
 epoch, so `combine` builds every pid a first process.
 

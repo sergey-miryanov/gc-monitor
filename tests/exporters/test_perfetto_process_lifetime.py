@@ -653,7 +653,7 @@ class TestProcessLifetimeSlices:
         each annotated with the program its own process was running.
 
         The command line comes off the `Process`, read when the monitor
-        minted it, so the second process names what it was running and
+        created it, so the second process names what it was running and
         not what its predecessor was (ADR-0010)."""
         state = PerfettoTrackState()
         first = proc(100, cmdline=("python3", "-m", "first_target"))

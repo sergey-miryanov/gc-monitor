@@ -88,7 +88,7 @@ def monitored(*pids: int) -> ProcessRegistry:
     poll leaves it.
 
     A control-plane message names a process gcmon monitors or has
-    monitored, and nothing but the monitor mints one, so a server under
+    monitored, and nothing but the monitor creates one, so a server under
     test is given the processes its clients will name.
     """
     registry = ProcessRegistry()
@@ -98,9 +98,9 @@ def monitored(*pids: int) -> ProcessRegistry:
 
 
 def polled(monitor: EventsMonitor, pid: int) -> Process:
-    """The process *monitor* polls *pid* as, minted if it has none yet.
+    """The process *monitor* polls *pid* as, created if it has none yet.
 
-    `EventsMonitor.tick` mints one before each poll; a test driving the
+    `EventsMonitor.tick` creates one before each poll; a test driving the
     poll on its own goes through here so the registry agrees with it.
     """
     return monitor._processes.current(pid) or monitor._processes.create(pid, 0)

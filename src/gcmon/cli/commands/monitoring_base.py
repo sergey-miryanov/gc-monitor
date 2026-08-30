@@ -38,9 +38,6 @@ def run_monitoring_loop(
             )
             exporter = exporter_factory()
 
-            # One registry for the run: the monitor mints, the control
-            # server reads. Built here because the control server has to
-            # be listening before the target starts.
             registry = ProcessRegistry(cmdline_provider=read_cmdline)
             control_server = ControlServer(exporter, registry, address=address)
             control_server.start()
