@@ -6,66 +6,61 @@
 ## Context
 
 A pid belongs to the operating system, which hands the same one out again, and
-gcmon monitors a *tree* of short-lived workers. So a record naming a pid does
-not say which process produced it.
+gcmon monitors a tree of short-lived workers. A record naming a pid does not
+say which process produced it.
 
-It already said so in one place.
-[ADR-0016](0016-the-ring-is-the-statistics-unit.md) gave everything a run
-keeps an epoch counting the processes that have held the pid, and the
-`--stats` table prints `12345:0#2` for the second. Nothing else could: the
-exporter protocol, the `Track` an event names
+gcmon already had that answer in one place.
+[ADR-0016](0016-the-ring-is-the-statistics-unit.md) put an epoch on everything
+a run keeps, counting the processes that have held the pid, and the `--stats`
+table prints `12345:0#2` for the second. Nothing else carried it: the exporter
+protocol, the `Track` an event names
 ([ADR-0024](0024-an-event-names-the-track-it-is-drawn-on.md)) and the trace
 itself all carried a number two processes shared.
 
-Closing that gap by counting a second epoch, at the encoder, off the liveness
-reports it already receives, is what [spec 0059](../../specs/RETIRED.md)
-specified first. Two counters over one set of evidence can drift, and the spec
-priced a cross-check in to catch it. Two things it could not do at all: the
-control server takes an operating-system pid off the wire and has to draw an
-instant on a process, and a pid the control server suppresses is absent from
-one liveness report and present in a later one, which is the shape a
-derivation reads as a new process.
+Counting the epoch a second time, at the encoder, would close that with
+nothing new plumbed through. `add_process_liveness` names the live pids once a
+tick, and a pid missing from one report and back in a later one opens a second
+epoch. A gap in those reports is not a departure. The control server
+suppresses a pid and the monitor stops polling it, which drops the pid out of
+every report until it is re-enabled
+([ADR-0011](0011-process-lifetime-and-ordering.md)), and the encoder counts
+one process twice. The control server's own path has no reports to read: it
+takes a pid and a timestamp off the wire and needs the process that held that
+pid then, which may have retired before the message arrived. The epoch would
+also be counted twice over one set of evidence, at the encoder and on
+`StreamingStats`, with nothing but a test to keep the two in step.
 
 ## Decision
 
 **A `Process` is `(pid, pid_epoch)`, and that pair alone is its identity.**
-The epoch counts from 1. What gcmon learned about the process, its discovery
-timestamp and its command line, rides along and stays out of equality, hashing
-and ordering: a caller holding a pid and an epoch then reaches the rings and
-tracks filed under it without reproducing what gcmon read. Ordering is by pid
-then epoch, which is the order the `--stats` table prints.
+The discovery timestamp and the command line ride along outside equality,
+hashing and ordering: a caller holding the pair reaches the rings and tracks
+filed under it without holding what gcmon read.
 
-**One registry creates them, and the monitor is the only caller that may.**
-`create` is the only thing that makes a `Process`, and the monitor calls it as
-it is about to poll a pid rather than when a listing names one. A pid gcmon
-has never polled is one it knows nothing about, so evidence naming it belongs
-to no process and is dropped rather than opening a process that was never
-monitored.
+**Only the monitor calls `ProcessRegistry.create`.** The call comes as it is
+about to poll a pid, not when a listing names one. Evidence naming a pid gcmon
+never polled has no process to belong to.
 
 **Below the registry a pid is an `int`; above it, a `Process`.** The reader,
-the child listing, the attachment
-([ADR-0020](0020-attach-to-a-process-once.md)) and the `psutil` calls take the
-number the operating system gave. `Track`, the exporter protocol, the
-statistics keys and the trace take the process. The registry is the one place
-the two meet, so the boundary is checkable by reading a signature.
+the child listing and the `psutil` calls take the number the operating system
+gave; `Track`, the statistics keys and the trace take the process. The
+registry is the one place the two meet.
 
 **Evidence is filed under `at(pid, ts)`, not under whatever holds the pid
-now.** Evidence outlives the process it describes. A control-plane instant is
-stamped when its sender named no time and can reach gcmon after the pid was
-retired; a poll returns collections that already happened, and a pid pruned
+now.** Evidence outlives the process it describes. A control-plane instant
+carries the time it arrived when its sender named none, which can be after the
+pid retired; a poll returns collections that already happened; a pid pruned
 from the tree loses its read cursor
-([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)), so whatever claims it
+([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)), and whatever claims it
 next re-reads records its predecessor produced. A timestamp inside a closed
-life belongs to the process that lived it. One later than every retirement is
-the process running now, or the last to leave. One earlier than the first
-process's discovery is that first process, since a poll can return a
-collection older than gcmon's first sight of it.
+life belongs to the process that lived it. Past the last retirement, `at`
+answers with the process running now, or with the last to leave. Before the
+first discovery, it answers with that first process.
 
 **The control plane holds a read-only view, not the registry.** A
 `ProcessLookup` protocol carrying `at` and nothing else lives in `model`,
-which every layer may import. Creating one stays the monitor's, and `control`
-does not import `monitoring`, which the layer table in
-`tests/architecture/test_layering.py` forbids.
+which every layer may import. `control` cannot import `monitoring`: the layer
+table in `tests/architecture/test_layering.py` forbids that edge.
 
 **One lock, taken on every access.** The monitor writes and the control server
 reads from its own thread. One write per process against one read per control
@@ -75,22 +70,20 @@ wait behind it.
 
 ## Consequences
 
-- The table and the trace cannot disagree about which process a record
-  belonged to. There is one number, not two counted from the same evidence,
-  and no test has to compare them.
+- The registry assigns every epoch. The table and the trace read the same one,
+  and nothing cross-checks them.
 - **The epoch still depends on gcmon seeing the departure.** A pid recycled
   between two ticks, with the listing never showing it gone, reads as one
   process throughout. ADR-0016 accepted that and the registry inherits it;
-  [spec 0052](../../specs/0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md)
-  is the related hazard on the read path.
-- **Evidence for a pid nobody created is dropped without a warning.** The
-  ordinary cause is a client naming a pid gcmon never monitored, which is the
-  client's error and not gcmon's, so it is a debug log.
-- **A caller cannot reconstruct a command line.** Two `Process` values that
-  disagree about it are the same key, so a caller that wants one has to hold
-  the value the registry created.
-- **The registry keeps every departure for the life of the run**, one entry
-  per process that has left, because that is what `at` answers from.
+  [ADR-0020](0020-attach-to-a-process-once.md) records the related hazard on
+  the read path.
+- **gcmon drops evidence for a pid nobody created, without a warning.** The
+  ordinary cause is a client naming a pid gcmon never monitored. That is the
+  client's error, and the line is logged at debug.
+- **The registry is the only source of a command line.** Identity excludes it:
+  an equal `Process` can still have `cmdline` unset.
+- **The registry keeps every departure for the life of the run**, because that
+  is what `at` answers from.
 
 ## Alternatives considered
 
@@ -100,19 +93,19 @@ wait behind it.
   pid, at the first flush, names the first process's program on every later
   span of that pid
   ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)).
-- **Stamp every record with its epoch at the monitor.** Rejected: it puts the
-  number on the one path where it is never needed, since a record's epoch is
-  implied by which process produced it, and it widens the exporter protocol
-  for every format including the ones that ignore it. Naming the process on
-  the `Track` an event already carries costs one field on a value that exists.
+- **Stamp every record with its epoch at the monitor.** Rejected: a record's
+  epoch is implied by which process produced it. The number would land on the
+  one path that never needs it, and the exporter protocol would widen for
+  every format including the ones that ignore it. Naming the process on the
+  `Track` an event already carries costs one field on a value that exists.
 - **A run-wide process counter instead of a per-pid epoch.** Unique with no
-  registry lookup, and it reads as an opaque number. `#2` means "the second
-  process to hold this pid", which is what a reader of a recycled pid is
-  asking, and what the table has printed since ADR-0016.
+  registry lookup. Rejected: it reads as an opaque number. `#2` means "the
+  second process to hold this pid", which is what a reader of a recycled pid
+  is asking, and what the table has printed since ADR-0016.
 - **Hand the control server the registry itself.** It is one object and the
   control server only reads from it. Rejected: the layer table puts `control`
   below `monitoring`, so the import runs the wrong way, and a handle that can
-  create a process is one a later change will create from.
+  create a process is one a later change can create from.
 - **Move the registry below both layers, into `model` or `support`.** It would
   make the import legal in either direction. Rejected: the layer a thing
   belongs to is the one that writes it, and only the monitor writes here.
@@ -120,8 +113,7 @@ wait behind it.
   epochs, and every test would have to reset it.
 - **Key the statistics on `(pid, iid, epoch)` and leave the exporters on
   pids.** What ADR-0016 shipped. Rejected: three fields where one value does,
-  and the trace still could not say which process a slice belonged to, which
-  is the gap spec 0059 opened with.
+  and the trace still could not say which process a slice belonged to.
 
 ## Implementation
 
