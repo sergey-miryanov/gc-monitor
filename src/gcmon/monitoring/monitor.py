@@ -48,14 +48,14 @@ class PidState(msgspec.Struct):
 class PollReport(msgspec.Struct):
     """What one tick of monitoring found.
 
-    ``live_pids`` answered :attr:`PollStatus.OK`. For a process that never
+    ``live`` answered :attr:`PollStatus.OK`. For a process that never
     collects, a successful read is the only evidence gcmon has that it existed,
     which is what liveness reporting rests on (ADR-0011).
 
     ``keep_running`` is false once no wait policy wants the run to go on.
     """
 
-    live_pids: frozenset[int]
+    live: frozenset[Process]
     keep_running: bool
 
 
@@ -117,7 +117,7 @@ class EventsMonitor:
         if child_pids is not None:
             self._retain(set(children), now_ns)
 
-        live: set[int] = set()
+        live: set[Process] = set()
         keep_running = False
         for pid in children:
             if stop():
@@ -139,20 +139,20 @@ class EventsMonitor:
             keep_waiting = policy.wait(rc)
             keep_running = keep_running or keep_waiting
             if rc == PollStatus.OK:
-                live.add(pid)
+                live.add(process)
             elif not keep_waiting:
                 # The policy stays behind. A fresh one answers True until its
                 # own startup timeout expires, holding the run open.
                 self._forget(pid, now_ns)
 
-        live_pids = frozenset(live)
+        live_processes = frozenset(live)
 
         # After the poll phase, one batched call, skipped on an empty set.
         # ADR-0011 argues all three.
-        if live_pids:
-            self._exporter.add_process_liveness(live_pids, now_ns)
+        if live_processes:
+            self._exporter.add_process_liveness({process.pid for process in live_processes}, now_ns)
 
-        return PollReport(live_pids=live_pids, keep_running=keep_running)
+        return PollReport(live=live_processes, keep_running=keep_running)
 
     def _get_child_pids(self) -> list[int] | None:
         """Every descendant of the target, or ``None`` when the read failed.
@@ -269,11 +269,11 @@ class EventsMonitor:
             # A first poll seeds every ring it touches, and seeding opens no
             # gap, so no interval reaches here on one.
             assert ts_prev_poll is not None
-            self._exporter.add_loss_event(pid, LossMsg(iid=iid, ts_start=ts_prev_poll, ts_stop=ts_poll, gens=gens))
+            self._exporter.add_loss_event(process, LossMsg(iid=iid, ts_start=ts_prev_poll, ts_stop=ts_poll, gens=gens))
 
         # We want to keep exported events in the time order
         for record in sorted(fresh, key=lambda record: (record.iid, record.ts_start)):
-            self._exporter.add_event(pid, record)
+            self._exporter.add_event(process, record)
             self._stats.update(process, record)
 
         self._warn_low_coverage(process)

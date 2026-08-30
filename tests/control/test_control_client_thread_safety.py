@@ -6,6 +6,7 @@ ControlClient connection.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 
@@ -13,7 +14,7 @@ import pytest
 
 from gcmon.control.control_client import ControlClient
 from gcmon.control.control_server import ControlServer
-from tests.helpers import MockExporter
+from tests.helpers import MockExporter, monitored
 
 N_SENDERS = 4
 N_PER_SENDER = 10
@@ -46,7 +47,7 @@ def _wait_for_event_count(exporter: MockExporter, count: int, timeout: float = 2
 def _make_server_with_exporter() -> tuple[ControlServer, MockExporter]:
     """Spin up a real ControlServer with a real MockExporter (collects events)."""
     exporter = MockExporter()
-    server = ControlServer(exporter)
+    server = ControlServer(exporter, monitored(os.getpid()))
     server.start()
     return server, exporter
 

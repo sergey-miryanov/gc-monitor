@@ -19,6 +19,7 @@ from gcmon.exporters.exporter import EventsExporter
 from gcmon.exporters.trace_converter import convert_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.poll_status import PollStatus
+from gcmon.model.process import Process
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TItem, TLossMsg
 from gcmon.model.trace_event import LossTrack, Slice
 from gcmon.monitoring.monitor import EventsMonitor
@@ -50,15 +51,15 @@ class Recorder(EventsExporter):
         self.items: list[TItem] = []
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
         self.items.append(item)
 
     @override
-    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+    def add_loss_event(self, process: Process, item: TLossMsg) -> None:
         self.items.append(item)
 
     @override
-    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+    def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
         self.items.append(item)
 
     @override

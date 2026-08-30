@@ -5,6 +5,7 @@ from collections.abc import Callable, Set
 from pathlib import Path
 from typing import override
 
+from ..model.process import Process
 from ..model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 from ..model.trace_event import Counter, Instant, ProcessTrack, TraceEvent
 from .encoder import Codec, ProtobufEventEncoder
@@ -56,20 +57,20 @@ class PerfettoExporter(EventsExporter):
                 self._encoder.write_events(to_write)
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
-        self._enqueue(convert_item_to_trace_format(pid, item))
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
+        self._enqueue(convert_item_to_trace_format(process.pid, item))
 
     @override
-    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
-        self._enqueue([Instant(ProcessTrack(pid), item.name, item.ts)])
+    def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
+        self._enqueue([Instant(ProcessTrack(process.pid), item.name, item.ts)])
 
     @override
-    def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:
-        self._enqueue([Counter(ProcessTrack(pid), "rss", "rss", ts_ns, rss_bytes)])
+    def add_rss_sample(self, process: Process, rss_bytes: int, ts_ns: int) -> None:
+        self._enqueue([Counter(ProcessTrack(process.pid), "rss", "rss", ts_ns, rss_bytes)])
 
     @override
-    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
-        self._enqueue(convert_loss_to_trace_format(pid, item))
+    def add_loss_event(self, process: Process, item: TLossMsg) -> None:
+        self._enqueue(convert_loss_to_trace_format(process.pid, item))
 
     @override
     def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:

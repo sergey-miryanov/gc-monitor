@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from gcmon.model.data import GCStatsInfo
+from gcmon.model.process import Process
 from gcmon.model.protocol import TGCStatsInfo
 from gcmon.monitoring.events_reader import TargetUnavailable
 from gcmon.monitoring.monitor import EventsMonitor, PollReport
@@ -251,7 +252,7 @@ class TestTheReport:
             rings={12345: [_ring(1)], 999: [_ring(1)]},
         )
 
-        assert reports[0].live_pids == frozenset({12345, 999})
+        assert reports[0].live == frozenset({proc(12345), proc(999)})
 
     def test_a_pid_that_could_not_be_read_is_not_live(self, exporter: MockExporter) -> None:
         """Only ``PollStatus.OK`` is evidence a process was there. A failed
@@ -262,14 +263,14 @@ class TestTheReport:
             rings={12345: [_ring(1)], 999: [TargetUnavailable("no such process")]},
         )
 
-        assert reports[0].live_pids == frozenset({12345})
+        assert reports[0].live == frozenset({proc(12345)})
 
     def test_the_live_set_is_frozen(self, exporter: MockExporter) -> None:
         """Nothing downstream mutates it -- the sampler iterates it and the
         exporter folds it into a min/max -- so it is handed over frozen."""
         reports = _drive(_monitor(exporter), listings=[[]], rings={12345: [_ring(1)]})
 
-        assert isinstance(reports[0].live_pids, frozenset)
+        assert isinstance(reports[0].live, frozenset)
 
     def test_keep_running_while_a_policy_still_waits(self, exporter: MockExporter) -> None:
         reports = _drive(
@@ -308,7 +309,7 @@ class TestTheReport:
         )
 
         assert not reports[0].keep_running
-        assert reports[0].live_pids == frozenset()
+        assert reports[0].live == frozenset()
 
 
 class TestTheControlPlaneVerdict:
@@ -321,7 +322,7 @@ class TestTheControlPlaneVerdict:
             rings={12345: [_ring(1)]},
         )
 
-        assert reports[0].live_pids == frozenset({12345})
+        assert reports[0].live == frozenset({proc(12345)})
         assert 999 not in exporter.events_by_pid
 
 
@@ -337,7 +338,7 @@ class TestTheStopCheck:
             stop=lambda: next(answers),
         )
 
-        assert reports[0].live_pids == frozenset({12345})
+        assert reports[0].live == frozenset({proc(12345)})
         assert 999 not in exporter.events_by_pid
 
 
@@ -610,9 +611,9 @@ class _OrderedExporter(MockExporter):
         self.order: list[str] = []
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
         self.order.append("record")
-        super().add_event(pid, item)
+        super().add_event(process, item)
 
     @override
     def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
@@ -690,7 +691,7 @@ class TestAPidThePolicyGaveUpOn:
             rings={12345: [TargetUnavailable("gone")], 999: [TargetUnavailable("gone too")]},
         )
 
-        assert reports[0].live_pids == frozenset()
+        assert reports[0].live == frozenset()
         assert not reports[0].keep_running
         assert exporter.liveness == [], "an observation of nothing widens no span"
 
@@ -702,7 +703,7 @@ class TestNoWaitPolicyThroughAWholeTick:
     def test_a_successful_poll_keeps_the_run_open(self, exporter: MockExporter) -> None:
         reports = _drive(_monitor(exporter), listings=[[]], rings={12345: [_ring(1)]})
 
-        assert reports[0].live_pids == frozenset({12345})
+        assert reports[0].live == frozenset({proc(12345)})
         assert reports[0].keep_running
 
     def test_a_failed_poll_ends_it(self, exporter: MockExporter) -> None:

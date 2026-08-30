@@ -20,10 +20,11 @@ from gcmon.monitoring.monitor import PollReport
 from gcmon.monitoring.monitor_loop import MonitorLoop
 from gcmon.monitoring.rss_sampler import RssSampler
 from gcmon.monitoring.run_policy import InfinityRunner, Runner
+from tests.helpers import proc
 
 
 def _report(*live: int, keep_running: bool = True) -> PollReport:
-    return PollReport(live_pids=frozenset(live), keep_running=keep_running)
+    return PollReport(live=frozenset(proc(pid) for pid in live), keep_running=keep_running)
 
 
 @pytest.fixture
@@ -155,8 +156,8 @@ class TestRssSamplerInLoop:
         MonitorLoop(mock_monitor, _runner(1), rate=0.01, rss_sampler=rss_sampler).run()
 
         rss_sampler.tick.assert_called_once()
-        _now, live_pids = rss_sampler.tick.call_args[0]
-        assert live_pids == frozenset({12345, 999})
+        _now, live = rss_sampler.tick.call_args[0]
+        assert live == frozenset({proc(12345), proc(999)})
 
     def test_no_sampler_is_not_an_error(self, mock_monitor: MagicMock) -> None:
         MonitorLoop(mock_monitor, _runner(1), rate=0.01).run()
@@ -171,7 +172,7 @@ class TestRssSamplerInLoop:
         with patch("time.monotonic_ns", return_value=42_000_000_000):
             MonitorLoop(mock_monitor, _runner(1), rate=0.01, rss_sampler=rss_sampler).run()
 
-        rss_sampler.tick.assert_called_once_with(42_000_000_000, frozenset({12345}))
+        rss_sampler.tick.assert_called_once_with(42_000_000_000, frozenset({proc(12345)}))
 
     def test_tick_called_each_iteration(self, mock_monitor: MagicMock) -> None:
         rss_sampler = Mock(spec=RssSampler)
@@ -189,8 +190,8 @@ class TestRssSamplerInLoop:
         MonitorLoop(mock_monitor, _runner(1), rate=0.01, rss_sampler=rss_sampler).run()
 
         rss_sampler.tick.assert_called_once()
-        _now, live_pids = rss_sampler.tick.call_args[0]
-        assert live_pids == frozenset()
+        _now, live = rss_sampler.tick.call_args[0]
+        assert live == frozenset()
 
 
 class TestTheTickInstant:

@@ -55,7 +55,7 @@ class MonitorLoop:
                 report = self._monitor.tick(last_ns, self._stop_event.is_set)
 
                 if self._rss_sampler:
-                    self._rss_sampler.tick(last_ns, report.live_pids)
+                    self._rss_sampler.tick(last_ns, report.live)
 
                 if not report.keep_running:
                     break

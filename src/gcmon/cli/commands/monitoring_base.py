@@ -10,6 +10,7 @@ from gcmon.exporters import EventsExporterFactory
 from gcmon.monitoring.events_reader import RemoteEventsReader
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.monitor_loop import MonitorLoop
+from gcmon.monitoring.process_registry import ProcessRegistry
 from gcmon.monitoring.rss_sampler import RssSampler
 from gcmon.monitoring.run_policy import RunnerFactory
 from gcmon.monitoring.target_process import ProcessRunnerFactory
@@ -37,7 +38,11 @@ def run_monitoring_loop(
             )
             exporter = exporter_factory()
 
-            control_server = ControlServer(exporter, address=address)
+            # One registry for the run: the monitor mints, the control
+            # server reads. Built here because the control server has to
+            # be listening before the target starts.
+            registry = ProcessRegistry()
+            control_server = ControlServer(exporter, registry, address=address)
             control_server.start()
             stack.enter_context(control_server)
 
@@ -55,6 +60,7 @@ def run_monitoring_loop(
                 reader=RemoteEventsReader(),
                 wait_policy_factory=wait_policy_factory,
                 is_pid_enabled=control_server.is_enabled,
+                registry=registry,
             )
 
             stack.enter_context(monitor)

@@ -29,6 +29,7 @@ import pytest
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.poll_status import PollStatus
+from gcmon.model.process import Process
 from gcmon.model.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
@@ -70,15 +71,15 @@ class Recorder(EventsExporter):
         self.losses: list[TLossMsg] = []
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
         self.records.append(item)
 
     @override
-    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+    def add_loss_event(self, process: Process, item: TLossMsg) -> None:
         self.losses.append(item)
 
     @override
-    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+    def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
         pass
 
     @override

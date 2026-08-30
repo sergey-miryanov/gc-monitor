@@ -26,7 +26,7 @@ from gcmon.exporters.perfetto_format import (
 )
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg
 from tests.data_helpers import create_instant_msg
-from tests.helpers import JsonlRecord, create_mock_stats_item, perfetto_packets
+from tests.helpers import JsonlRecord, create_mock_stats_item, perfetto_packets, proc
 
 N_GC = 100
 N_INSTANT = 100
@@ -279,11 +279,11 @@ class TestExporterThreadSafety:
 
         def writer_gc() -> None:
             for ev in gc_events:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def writer_inst() -> None:
             for ev in inst_events:
-                exporter.add_instant_event(CTRL_PID, ev)
+                exporter.add_instant_event(proc(CTRL_PID), ev)
 
         captured = _run_two_threads([writer_gc, writer_inst])
         exporter.close()
@@ -314,12 +314,12 @@ class TestExporterThreadSafety:
     ) -> None:
         exporter, capture = exporter_factory.build(tmp_path, threshold=5)
         for ev in _make_gc_events(PRE_FILL, 1_500_000_000):
-            exporter.add_event(MAIN_PID, ev)
+            exporter.add_event(proc(MAIN_PID), ev)
         more = _make_gc_events(N_GC, 1_500_000_000 + 100_000_000)
 
         def writer() -> None:
             for ev in more:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def closer() -> None:
             exporter.close()
@@ -344,7 +344,7 @@ class TestExporterThreadSafety:
     def test_double_close_safe(self, exporter_factory: ExporterFactory, tmp_path: Path) -> None:
         exporter, capture = exporter_factory.build(tmp_path, threshold=1)
         for ev in _make_gc_events(5, 1_500_000_000):
-            exporter.add_event(MAIN_PID, ev)
+            exporter.add_event(proc(MAIN_PID), ev)
 
         def closer_a() -> None:
             exporter.close()
@@ -374,11 +374,11 @@ class TestExporterThreadSafety:
 
         def writer_a() -> None:
             for ev in events_a:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def writer_b() -> None:
             for ev in events_b:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         captured = _run_two_threads([writer_a, writer_b])
         exporter.close()
@@ -409,11 +409,11 @@ class TestExporterThreadSafety:
 
         def writer_gc() -> None:
             for ev in gc_events:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def writer_inst() -> None:
             for ev in inst_events:
-                exporter.add_instant_event(MAIN_PID, ev)
+                exporter.add_instant_event(proc(MAIN_PID), ev)
 
         captured = _run_two_threads([writer_gc, writer_inst])
         exporter.close()
@@ -451,8 +451,8 @@ class TestExporterThreadSafety:
         exporter, _capture = exporter_factory.build(tmp_path, threshold=10)
         exporter.close()
 
-        exporter.add_event(MAIN_PID, create_mock_stats_item(iid=1000))
-        exporter.add_instant_event(MAIN_PID, create_instant_msg(name="post-close", ts=999_999))
+        exporter.add_event(proc(MAIN_PID), create_mock_stats_item(iid=1000))
+        exporter.add_instant_event(proc(MAIN_PID), create_instant_msg(name="post-close", ts=999_999))
 
 
 @pytest.mark.stress
@@ -469,7 +469,7 @@ class TestPerfettoExporterCmdlinePath:
             flush_threshold=1,
             cmdline_provider=lambda pid: None,
         )
-        exporter.add_event(MAIN_PID, create_mock_stats_item())
+        exporter.add_event(proc(MAIN_PID), create_mock_stats_item())
         exporter.close()
 
         capture = PerfettoFileCapture(path)
@@ -513,11 +513,11 @@ class TestPerfettoExporterCmdlinePath:
 
         def writer_a() -> None:
             for ev in events_a:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def writer_b() -> None:
             for ev in events_b:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         captured = _run_two_threads([writer_a, writer_b])
         exporter.close()
@@ -557,11 +557,11 @@ class TestMetaDedupRaceClosed:
 
         def writer_a() -> None:
             for ev in events_a:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def writer_b() -> None:
             for ev in events_b:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         captured = _run_two_threads([writer_a, writer_b])
         exporter.close()

@@ -14,7 +14,7 @@ from gcmon.model.trace_event import (
     ProcessTrack,
     Slice,
 )
-from tests.helpers import create_mock_loss_item, create_mock_stats_item
+from tests.helpers import create_mock_loss_item, create_mock_stats_item, proc
 
 
 class TestTheBufferHoldsNothingButEvents:
@@ -28,13 +28,13 @@ class TestTheBufferHoldsNothingButEvents:
 
     def test_an_rss_sample_buffers_one_event(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
-        exporter.add_rss_sample(100, 4096, 1_000_000)
+        exporter.add_rss_sample(proc(100), 4096, 1_000_000)
         assert len(exporter._buffer) == 1
 
     def test_a_second_rss_sample_buffers_a_second_event(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
-        exporter.add_rss_sample(100, 4096, 1_000_000)
-        exporter.add_rss_sample(100, 8192, 2_000_000)
+        exporter.add_rss_sample(proc(100), 4096, 1_000_000)
+        exporter.add_rss_sample(proc(100), 8192, 2_000_000)
         assert len(exporter._buffer) == 2
 
     def test_a_gc_record_buffers_the_events_the_converter_made(self, tmp_path: Path) -> None:
@@ -51,7 +51,7 @@ class TestTheBufferHoldsNothingButEvents:
             candidates=5,
             duration=0.001,
         )
-        exporter.add_event(100, item)
+        exporter.add_event(proc(100), item)
         assert exporter._buffer == convert_item_to_trace_format(100, item)
         assert {e.track for e in exporter._buffer} == {InterpreterTrack(100, 0)}
 
@@ -59,7 +59,7 @@ class TestTheBufferHoldsNothingButEvents:
 class TestAddRssSample:
     def test_emits_counter_event_with_correct_shape(self, tmp_path: Path) -> None:
         exporter = PerfettoExporter(tmp_path / "test.pb", flush_threshold=1000)
-        exporter.add_rss_sample(100, 4096, 1_000_000)
+        exporter.add_rss_sample(proc(100), 4096, 1_000_000)
         counters = [e for e in exporter._buffer if isinstance(e, Counter)]
         assert len(counters) == 1
         c = counters[0]
@@ -71,8 +71,8 @@ class TestAddRssSample:
 
     def test_two_pids_sample_onto_two_process_rows(self, tmp_path: Path) -> None:
         exporter = PerfettoExporter(tmp_path / "test.pb", flush_threshold=1000)
-        exporter.add_rss_sample(100, 4096, 1_000_000)
-        exporter.add_rss_sample(200, 8192, 2_000_000)
+        exporter.add_rss_sample(proc(100), 4096, 1_000_000)
+        exporter.add_rss_sample(proc(200), 8192, 2_000_000)
         assert {e.track for e in exporter._buffer} == {ProcessTrack(100), ProcessTrack(200)}
 
 
@@ -86,7 +86,8 @@ class TestAddLossEvent:
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_loss_event(
-            100, create_mock_loss_item(iid=0, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
+            proc(100),
+            create_mock_loss_item(iid=0, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200),
         )
 
         span = next(e for e in exporter._buffer if isinstance(e, Slice))
@@ -96,7 +97,8 @@ class TestAddLossEvent:
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_loss_event(
-            100, create_mock_loss_item(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200)
+            proc(100),
+            create_mock_loss_item(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200),
         )
 
         assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {LossTrack(100, 1)}
@@ -106,9 +108,9 @@ class TestAddLossEvent:
         on a row that holds nothing else."""
         exporter = self._make_exporter(tmp_path)
 
-        exporter.add_event(100, create_mock_stats_item(iid=0))
+        exporter.add_event(proc(100), create_mock_stats_item(iid=0))
         exporter.add_loss_event(
-            100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+            proc(100), create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
         assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {
@@ -122,7 +124,7 @@ class TestAddLossEvent:
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_loss_event(
-            100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+            proc(100), create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
         assert {e.track for e in exporter._buffer} == {LossTrack(100, 0)}
@@ -131,10 +133,10 @@ class TestAddLossEvent:
         exporter = self._make_exporter(tmp_path)
 
         exporter.add_loss_event(
-            100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+            proc(100), create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
         exporter.add_loss_event(
-            100, create_mock_loss_item(iid=1, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+            proc(100), create_mock_loss_item(iid=1, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
         assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {
@@ -148,9 +150,9 @@ class TestAddLossEvent:
         cannot be made to collide."""
         exporter = self._make_exporter(tmp_path)
 
-        exporter.add_rss_sample(100, 4096, 1_000)
+        exporter.add_rss_sample(proc(100), 4096, 1_000)
         exporter.add_loss_event(
-            100, create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
+            proc(100), create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
         rss = next(e for e in exporter._buffer if isinstance(e, Counter))

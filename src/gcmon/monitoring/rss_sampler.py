@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable, Set
 
 from ..exporters.exporter import EventsExporter
+from ..model.process import Process
 
 logger = logging.getLogger("gcmon")
 
@@ -49,28 +50,29 @@ class RssSampler:
             else:
                 self._provider = _default_rss_sampler
 
-    def tick(self, now_ns: int, live_pids: Set[int]) -> None:
-        """Sample RSS for *live_pids* if the sampling interval has elapsed.
+    def tick(self, now_ns: int, live: Set[Process]) -> None:
+        """Sample RSS for every process in *live* if the sampling interval
+        has elapsed.
 
         *now_ns* both paces the round and stamps every sample in it, so one
         round lands on one instant.
         """
-        if not self._enabled or not live_pids:
+        if not self._enabled or not live:
             return
         if now_ns - self._last_sample_ns < self._interval_ns:
             return
         self._last_sample_ns = now_ns
-        for pid in live_pids:
-            self._sample(pid, now_ns)
+        for process in live:
+            self._sample(process, now_ns)
 
-    def _sample(self, pid: int, ts_ns: int) -> None:
+    def _sample(self, process: Process, ts_ns: int) -> None:
         try:
-            rss = self._provider(pid)
+            rss = self._provider(process.pid)
         except Exception as exc:
-            logger.debug("Could not sample RSS for PID %s: %s", pid, exc)
+            logger.debug("Could not sample RSS for PID %s: %s", process.pid, exc)
             return
         if rss:
-            self._exporter.add_rss_sample(pid, rss, ts_ns)
+            self._exporter.add_rss_sample(process, rss, ts_ns)
 
 
 def _noop_rss_sampler(pid: int) -> int:

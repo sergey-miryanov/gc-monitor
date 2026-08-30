@@ -1,5 +1,6 @@
 """Tests for the control plane (ControlServer)."""
 
+import os
 import sys
 import threading
 import time
@@ -15,11 +16,13 @@ from gcmon.control.control_server import (
     ControlServer,
     set_control_env,
 )
+from gcmon.monitoring.process_registry import ProcessRegistry
+from tests.helpers import monitored, proc
 
 
 @pytest.fixture
 def server_not_started(mock_exporter: MagicMock) -> Generator[ControlServer]:
-    server = ControlServer(mock_exporter)
+    server = ControlServer(mock_exporter, monitored(42))
     try:
         yield server
     finally:
@@ -87,7 +90,7 @@ class TestControlServerInit:
         assert control_server.is_enabled(0) is True
 
     def test_init_with_custom_name(self) -> None:
-        server = ControlServer(MagicMock(), address="my-name")
+        server = ControlServer(MagicMock(), ProcessRegistry(), address="my-name")
         try:
             assert "gcmon-my-name" in server.address
         finally:
@@ -273,7 +276,7 @@ class TestControlServerExporter:
         from tests.helpers import MockExporter
 
         exporter = MockExporter()
-        server = ControlServer(exporter)
+        server = ControlServer(exporter, monitored(42))
         server.start()
         try:
             _send_msg(server, "stop", 42)
@@ -292,7 +295,7 @@ class TestControlServerExporter:
         from tests.helpers import MockExporter
 
         exporter = MockExporter()
-        server = ControlServer(exporter)
+        server = ControlServer(exporter, monitored(os.getpid()))
         server.start()
         try:
             captured = time.monotonic_ns() - 5_000_000_000
@@ -313,7 +316,7 @@ class TestControlServerExporter:
         from tests.helpers import MockExporter
 
         exporter = MockExporter()
-        server = ControlServer(exporter)
+        server = ControlServer(exporter, monitored(1))
         server.start()
         try:
             _send_msg(server, "stop", 1)
@@ -338,7 +341,7 @@ class TestControlServerInternal:
         server_not_started._add_event("test event", 42, 12345)
         mock_exporter.add_instant_event.assert_called_once()
         args = mock_exporter.add_instant_event.call_args[0]
-        assert args[0] == 42
+        assert args[0] == proc(42)
         assert args[1].name == "test event"
         assert args[1].type == "i"
         assert args[1].ts == 12345
@@ -680,7 +683,7 @@ class TestDrainConnections:
     def test_drain_handle_msg_error_is_nonfatal(self) -> None:
         mock_exporter: MagicMock = MagicMock()
         mock_exporter.add_instant_event.side_effect = ValueError("exporter failure")
-        server_not_started: ControlServer = ControlServer(mock_exporter)
+        server_not_started: ControlServer = ControlServer(mock_exporter, monitored(42))
 
         mock_conn: MagicMock = MagicMock()
         mock_conn.poll.side_effect = [True, False]
@@ -727,7 +730,7 @@ class TestDrainConnections:
 
 class TestControlServerClose:
     def _make_server(self) -> ControlServer:
-        return ControlServer(MagicMock())
+        return ControlServer(MagicMock(), monitored(42))
 
     def test_close_stops_accepting(self) -> None:
         server: ControlServer = self._make_server()

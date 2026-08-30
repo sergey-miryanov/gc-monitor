@@ -34,6 +34,10 @@ class ProcessRegistry:
     def create(self, pid: int, ts: int) -> Process:
         """Mint the process now holding *pid*, discovered at *ts*.
 
+        The monitor calls this, and nothing else does: a process gcmon has
+        not polled is one it knows nothing about, so evidence naming that
+        pid belongs to no process rather than opening one (ADR-0011).
+
         The command line is read here, while the process is running: read
         at the first flush it may be gone, and read once per pid it names
         the first process's program on every later one (ADR-0010).

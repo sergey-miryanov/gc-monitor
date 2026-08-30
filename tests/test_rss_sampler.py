@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gcmon.monitoring.rss_sampler import RssSampler, _default_rss_sampler, _noop_rss_sampler
+from tests.helpers import proc
 
 SEC = 1_000_000_000
 """One second in nanoseconds, the unit `tick` now speaks."""
@@ -44,7 +45,7 @@ class TestRssSampler:
         """No sampling when live_pids is empty."""
         exporter = MagicMock()
         sampler = RssSampler(exporter, interval=0.0, rss_provider=_noop_rss_sampler)
-        sampler.tick(now_ns=1 * SEC, live_pids=set())
+        sampler.tick(now_ns=1 * SEC, live=set())
         exporter.add_rss_sample.assert_not_called()
 
     def test_tick_interval_not_elapsed(self) -> None:
@@ -52,7 +53,7 @@ class TestRssSampler:
         exporter = MagicMock()
         sampler = RssSampler(exporter, interval=10.0, rss_provider=_noop_rss_sampler)
         sampler._last_sample_ns = 100 * SEC
-        sampler.tick(now_ns=105 * SEC, live_pids={1})
+        sampler.tick(now_ns=105 * SEC, live={proc(1)})
         exporter.add_rss_sample.assert_not_called()
 
     def test_tick_samples_at_interval(self) -> None:
@@ -66,14 +67,14 @@ class TestRssSampler:
 
         sampler = RssSampler(exporter, interval=1.0, rss_provider=provider_fn)
         sampler._last_sample_ns = 0
-        sampler.tick(now_ns=2 * SEC, live_pids={101, 102})
+        sampler.tick(now_ns=2 * SEC, live={proc(101), proc(102)})
         assert calls == [101, 102]
         assert exporter.add_rss_sample.call_count == 2
         first_call = exporter.add_rss_sample.call_args_list[0]
-        assert first_call[0][0] == 101
+        assert first_call[0][0] == proc(101)
         assert first_call[0][1] == 42
         second_call = exporter.add_rss_sample.call_args_list[1]
-        assert second_call[0][0] == 102
+        assert second_call[0][0] == proc(102)
         assert second_call[0][1] == 42
 
     def test_tick_respects_timer(self) -> None:
@@ -81,9 +82,9 @@ class TestRssSampler:
         exporter = MagicMock()
         sampler = RssSampler(exporter, interval=5.0, rss_provider=lambda pid: 42)
         sampler._last_sample_ns = 0
-        sampler.tick(now_ns=1 * SEC, live_pids={1})
+        sampler.tick(now_ns=1 * SEC, live={proc(1)})
         exporter.add_rss_sample.assert_not_called()
-        sampler.tick(now_ns=10 * SEC, live_pids={1})
+        sampler.tick(now_ns=10 * SEC, live={proc(1)})
         exporter.add_rss_sample.assert_called_once()
 
     def test_provider_returns_zero_skips_exporter(self) -> None:
@@ -91,7 +92,7 @@ class TestRssSampler:
         exporter = MagicMock()
         sampler = RssSampler(exporter, interval=0.0, rss_provider=_noop_rss_sampler)
         sampler._last_sample_ns = -1 * SEC
-        sampler.tick(now_ns=0, live_pids={1})
+        sampler.tick(now_ns=0, live={proc(1)})
         exporter.add_rss_sample.assert_not_called()
 
     def test_provider_exception_logged(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -105,7 +106,7 @@ class TestRssSampler:
         logger = logging.getLogger("gcmon")
         logger.setLevel(logging.DEBUG)
         sampler._last_sample_ns = -1 * SEC
-        sampler.tick(now_ns=0, live_pids={1})
+        sampler.tick(now_ns=0, live={proc(1)})
         exporter.add_rss_sample.assert_not_called()
         assert "Could not sample RSS for PID 1" in caplog.text
 
@@ -114,7 +115,7 @@ class TestRssSampler:
         exporter = MagicMock()
         sampler = RssSampler(exporter, interval=1.0, rss_provider=lambda pid: 42)
         sampler._last_sample_ns = 0
-        sampler.tick(now_ns=5 * SEC, live_pids={1})
+        sampler.tick(now_ns=5 * SEC, live={proc(1)})
         assert sampler._last_sample_ns == 5 * SEC
 
     def test_sample_carries_the_instant_the_round_was_given(self) -> None:
@@ -123,9 +124,9 @@ class TestRssSampler:
         exporter = MagicMock()
         sampler = RssSampler(exporter, interval=0.0, rss_provider=lambda pid: 42)
 
-        sampler.tick(now_ns=987_654_321, live_pids={42})
+        sampler.tick(now_ns=987_654_321, live={proc(42)})
 
-        exporter.add_rss_sample.assert_called_once_with(42, 42, 987_654_321)
+        exporter.add_rss_sample.assert_called_once_with(proc(42), 42, 987_654_321)
 
     def test_one_round_lands_on_one_instant(self) -> None:
         """Every pid in a round shares a timestamp, so their Perfetto lifetime
@@ -134,7 +135,7 @@ class TestRssSampler:
         exporter = MagicMock()
         sampler = RssSampler(exporter, interval=0.0, rss_provider=lambda pid: 42)
 
-        sampler.tick(now_ns=5 * SEC, live_pids={1, 2, 3, 4})
+        sampler.tick(now_ns=5 * SEC, live={proc(1), proc(2), proc(3), proc(4)})
 
         stamps = {call[0][2] for call in exporter.add_rss_sample.call_args_list}
         assert stamps == {5 * SEC}
@@ -149,7 +150,7 @@ class TestRssSampler:
             rss_provider=lambda pid: results[pid],
         )
         sampler._last_sample_ns = -1 * SEC
-        sampler.tick(now_ns=0, live_pids={1, 2, 3})
+        sampler.tick(now_ns=0, live={proc(1), proc(2), proc(3)})
         assert exporter.add_rss_sample.call_count == 3
 
     def test_enabled_flag(self) -> None:
@@ -157,7 +158,7 @@ class TestRssSampler:
         exporter = MagicMock()
         sampler = RssSampler(exporter, interval=0.0, rss_provider=_noop_rss_sampler)
         sampler._enabled = False
-        sampler.tick(now_ns=0, live_pids={1})
+        sampler.tick(now_ns=0, live={proc(1)})
         exporter.add_rss_sample.assert_not_called()
 
     def test_default_provider_uses_default_rss_sampler(self) -> None:
@@ -177,7 +178,7 @@ class TestRssSampler:
         sampler = RssSampler(exporter, interval=0.0)
         assert not sampler._enabled
         assert sampler._provider is _noop_rss_sampler
-        sampler.tick(now_ns=1 * SEC, live_pids={1})
+        sampler.tick(now_ns=1 * SEC, live={proc(1)})
         exporter.add_rss_sample.assert_not_called()
 
         assert "psutil not available" in caplog.text

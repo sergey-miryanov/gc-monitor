@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Set
 
+from ..model.process import Process
 from ..model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 
 __all__ = ["EventsExporter"]
@@ -12,21 +13,21 @@ class EventsExporter(ABC):
     """Base class for exporters that collect GC events and save them."""
 
     @abstractmethod
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
         """Add a GC monitoring event."""
 
     @abstractmethod
-    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+    def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
         """Add a GC monitoring event."""
 
     @abstractmethod
     def close(self) -> None:
         """Close the exporter and write all events to file."""
 
-    def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:  # noqa: B027
-        """Record an RSS sample for *pid*. No-op in the base class."""
+    def add_rss_sample(self, process: Process, rss_bytes: int, ts_ns: int) -> None:  # noqa: B027
+        """Record an RSS sample for *process*. No-op in the base class."""
 
-    def add_loss_event(self, pid: int, item: TLossMsg) -> None:  # noqa: B027
+    def add_loss_event(self, process: Process, item: TLossMsg) -> None:  # noqa: B027
         """Record a poll interval whose GC records never reached gcmon.
 
         One call per interpreter, whatever went blind in it. No-op in the

@@ -6,6 +6,7 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import TextIO, override
 
+from ..model.process import Process
 from ..model.protocol import JsonlRecord, TGCStatsInfo, TInstantMsg, TLossMsg, to_mapping
 from .exporter import EventsExporter
 
@@ -32,9 +33,9 @@ class JsonlExporter(EventsExporter):
         self._output_path = output_path
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
         event: JsonlRecord = {
-            "pid": pid,
+            "pid": process.pid,
         }
         event.update(to_mapping(item))
 
@@ -51,9 +52,9 @@ class JsonlExporter(EventsExporter):
                 self._flush(events)
 
     @override
-    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+    def add_loss_event(self, process: Process, item: TLossMsg) -> None:
         event: JsonlRecord = {
-            "pid": pid,
+            "pid": process.pid,
         }
         event.update(to_mapping(item))
 
@@ -70,9 +71,9 @@ class JsonlExporter(EventsExporter):
                 self._flush(events)
 
     @override
-    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+    def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
         event: JsonlRecord = {
-            "pid": pid,
+            "pid": process.pid,
         }
         event.update(to_mapping(item))
 

@@ -16,6 +16,7 @@ import msgspec
 
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import instant_msg
+from gcmon.monitoring.process_registry import ProcessRegistry
 
 logger = logging.getLogger("gcmon")
 
@@ -62,13 +63,14 @@ class ControlServer:
     monitoring enabled via start/stop messages.
     """
 
-    def __init__(self, exporter: EventsExporter, address: str | None = None) -> None:
+    def __init__(self, exporter: EventsExporter, registry: ProcessRegistry, address: str | None = None) -> None:
         self._connections: set[TConnection] = set()
         self._enabled: dict[int, bool] = {}
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._running = False
         self._exporter: EventsExporter = exporter
+        self._processes = registry
         self._accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
         self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
 
@@ -210,8 +212,18 @@ class ControlServer:
                 break
 
     def _add_event(self, m: str, pid: int, ts: int) -> None:
-        msg = instant_msg(m, ts)
-        self._exporter.add_instant_event(pid, msg)
+        """Draw *m* on the process that held *pid* at *ts*.
+
+        A client names an operating-system pid, so this is where one is read
+        as a process. Every message is for a process gcmon is monitoring or
+        has monitored, and nothing here mints one: a pid the monitor has
+        never polled belongs to no process, and the message goes nowhere.
+        """
+        process = self._processes.at(pid, ts)
+        if process is None:
+            logger.debug("No monitored process holds PID %s; dropping control message %r", pid, m)
+            return
+        self._exporter.add_instant_event(process, instant_msg(m, ts))
 
     def _safe_wait(self, conns: list[TConnection]) -> list[TConnection]:
         try:

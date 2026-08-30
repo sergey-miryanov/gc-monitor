@@ -17,7 +17,7 @@ from gcmon.model.data import GCStatsInfo
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory
-from tests.helpers import create_mock_incremental_item, create_mock_stats_item, perfetto_packets
+from tests.helpers import create_mock_incremental_item, create_mock_stats_item, perfetto_packets, proc
 
 # Name of the synthetic marker emitted on the process track so the
 # cmdline description is always visible in the Perfetto UI. Must match
@@ -90,7 +90,7 @@ class TestPerfettoExporter:
     def test_flushes_at_threshold(self, mock_stats_item: GCStatsInfo, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter(threshold=10)
         for _ in range(10):
-            exporter.add_event(DEFAULT_PID, mock_stats_item)
+            exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         assert path.exists()
         exporter.close()
         self._verify_event_structure(path, 10)
@@ -98,14 +98,14 @@ class TestPerfettoExporter:
     def test_flush_multiple_times(self, mock_stats_item: GCStatsInfo, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter(threshold=5)
         for _ in range(15):
-            exporter.add_event(DEFAULT_PID, mock_stats_item)
+            exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         assert path.exists()
         exporter.close()
         self._verify_event_structure(path, 15)
 
     def test_close_writes_file(self, mock_stats_item: GCStatsInfo, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         exporter.close()
         assert path.exists()
         assert path.stat().st_size > 0
@@ -130,13 +130,13 @@ class TestPerfettoExporter:
     def test_close_writes_all_events(self, mock_stats_item: GCStatsInfo, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter(threshold=5)
         for _ in range(15):
-            exporter.add_event(DEFAULT_PID, mock_stats_item)
+            exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         exporter.close()
         self._verify_event_structure(path, 15)
 
     def test_timestamp_conversion(self, mock_stats_item: GCStatsInfo, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -150,7 +150,7 @@ class TestPerfettoExporter:
 
     def test_multiple_close_calls(self, mock_stats_item: GCStatsInfo, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         exporter.close()
         exporter.close()
 
@@ -163,7 +163,7 @@ class TestPerfettoExporter:
         exporter, path = perfetto_exporter()
         for gen in range(3):
             item = create_mock_stats_item(gen=gen)
-            exporter.add_event(DEFAULT_PID, item)
+            exporter.add_event(proc(DEFAULT_PID), item)
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -179,7 +179,7 @@ class TestPerfettoExporter:
     def test_add_instant_event_writes_instant_event(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
         instant = create_instant_msg(name="start GC monitor", ts=1_500_000_000)
-        exporter.add_instant_event(DEFAULT_PID, instant)
+        exporter.add_instant_event(proc(DEFAULT_PID), instant)
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -198,7 +198,7 @@ class TestPerfettoExporter:
     def test_multiple_add_instant_event(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
         for ev_name in ("start GC monitor", "stop GC monitor"):
-            exporter.add_instant_event(DEFAULT_PID, create_instant_msg(name=ev_name, ts=1_500_000_000))
+            exporter.add_instant_event(proc(DEFAULT_PID), create_instant_msg(name=ev_name, ts=1_500_000_000))
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -220,7 +220,7 @@ class TestPerfettoExporter:
         self, mock_stats_item: GCStatsInfo, perfetto_exporter: ExporterFactory
     ) -> None:
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -236,7 +236,7 @@ class TestPerfettoExporter:
 
     def test_descriptors_written_before_events(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, create_mock_stats_item())
+        exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item())
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -245,8 +245,8 @@ class TestPerfettoExporter:
     def test_multiple_processes(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
         item = create_mock_stats_item()
-        exporter.add_event(100, item)
-        exporter.add_event(200, item)
+        exporter.add_event(proc(100), item)
+        exporter.add_event(proc(200), item)
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -256,7 +256,7 @@ class TestPerfettoExporter:
     def test_incremental_item_emits_subphases(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
         item = create_mock_incremental_item()
-        exporter.add_event(DEFAULT_PID, item)
+        exporter.add_event(proc(DEFAULT_PID), item)
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -282,7 +282,7 @@ class TestPerfettoExporter:
 
     def test_counter_events_per_metric(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, create_mock_stats_item())
+        exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item())
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -319,7 +319,7 @@ class TestPerfettoExporter:
             candidates=5,
             duration=0.001,
         )
-        exporter.add_event(12345, item)
+        exporter.add_event(proc(12345), item)
         exporter.close()
 
         assert calls == [12345]
@@ -335,11 +335,11 @@ class TestPerfettoExporter:
                 if td.description == "python -u my_script.py":
                     found_description = True
                 if td.HasField("process"):
-                    proc = td.process
-                    if proc.cmdline:
-                        assert proc.cmdline[0] == "python"
-                        assert proc.cmdline[1] == "-u"
-                        assert proc.cmdline[2] == "my_script.py"
+                    descriptor = td.process
+                    if descriptor.cmdline:
+                        assert descriptor.cmdline[0] == "python"
+                        assert descriptor.cmdline[1] == "-u"
+                        assert descriptor.cmdline[2] == "my_script.py"
                         found_cmdline = True
         assert found_cmdline, "cmdline not found in trace"
         assert found_description, "track description should be set when cmdline is present"
@@ -361,7 +361,7 @@ class TestPerfettoExporter:
             candidates=5,
             duration=0.001,
         )
-        exporter.add_event(12345, item)
+        exporter.add_event(proc(12345), item)
         exporter.close()
 
         trace_data = (tmp_path / "test.pb").read_bytes()
@@ -373,13 +373,13 @@ class TestPerfettoExporter:
                 td = packet.track_descriptor
                 assert not td.HasField("description"), "description should be absent when cmdline is unavailable"
                 if td.HasField("process"):
-                    proc = td.process
-                    assert len(proc.cmdline) == 0, "cmdline should be absent when psutil is unavailable"
+                    descriptor = td.process
+                    assert len(descriptor.cmdline) == 0, "cmdline should be absent when psutil is unavailable"
 
     def test_slice_begin_end_matched(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
         for _ in range(5):
-            exporter.add_event(DEFAULT_PID, create_mock_stats_item())
+            exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item())
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -391,7 +391,7 @@ class TestPerfettoExporter:
 class TestRssRoundTrip:
     def test_add_rss_sample_emits_counter_event(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
-        exporter.add_rss_sample(100, 4096, 1_000_000)
+        exporter.add_rss_sample(proc(100), 4096, 1_000_000)
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -412,8 +412,8 @@ class TestRssRoundTrip:
     def test_rss_uses_separate_counter_track(self, perfetto_exporter: ExporterFactory) -> None:
         """RSS counter uses a different track UUID than GC counters."""
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, create_mock_stats_item())
-        exporter.add_rss_sample(DEFAULT_PID, 4096, 2_000_000)
+        exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item())
+        exporter.add_rss_sample(proc(DEFAULT_PID), 4096, 2_000_000)
         exporter.close()
 
         packets = _read_trace_packets(path)
@@ -462,7 +462,7 @@ class TestProcessLivenessRoundTrip:
         """A pid gcmon polled OK for a run that never collected produces
         no events, so under the old rule it reached no track at all."""
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, create_mock_stats_item())
+        exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item())
         for ts in (1_400_000_000, 1_600_000_000, 1_800_000_000):
             exporter.add_process_liveness({_QUIET_PID}, ts)
         exporter.close()
@@ -475,7 +475,7 @@ class TestProcessLivenessRoundTrip:
         happened, so a freshly discovered child's first event can carry
         a timestamp from before gcmon ever saw it."""
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, create_mock_stats_item(ts_start=1_500_000_000, ts_stop=1_505_000_000))
+        exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item(ts_start=1_500_000_000, ts_stop=1_505_000_000))
         exporter.add_process_liveness({DEFAULT_PID}, 1_900_000_000)
         exporter.close()
 
@@ -485,7 +485,7 @@ class TestProcessLivenessRoundTrip:
 
     def test_whole_live_set_lands_in_one_call(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
-        exporter.add_event(DEFAULT_PID, create_mock_stats_item())
+        exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item())
         exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_400_000_000)
         exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_800_000_000)
         exporter.close()
@@ -538,7 +538,7 @@ class TestProcessLivenessRoundTrip:
         def _flush() -> None:
             # flush_threshold=1, so this reaches the encoder under
             # _io_lock rather than only buffering.
-            exporter.add_instant_event(DEFAULT_PID, create_instant_msg(name="contend", ts=1_500_000_000))
+            exporter.add_instant_event(proc(DEFAULT_PID), create_instant_msg(name="contend", ts=1_500_000_000))
             flushed.set()
 
         liveness = threading.Thread(target=exporter.add_process_liveness, args=({_QUIET_PID}, 1_400_000_000))

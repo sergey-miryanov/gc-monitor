@@ -18,6 +18,7 @@ from gcmon.model.process import Process
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 from gcmon.monitoring.events_reader import EventsReader
 from gcmon.monitoring.monitor import EventsMonitor
+from gcmon.monitoring.process_registry import ProcessRegistry
 from tests.perfetto_prebuilt import trace_processor_bin
 
 zstd: ModuleType | None
@@ -49,6 +50,7 @@ __all__ = [
     "create_mock_incremental_item",
     "create_mock_loss_item",
     "create_mock_stats_item",
+    "monitored",
     "open_trace_processor",
     "perfetto_packets",
     "polled",
@@ -59,6 +61,20 @@ __all__ = [
 def proc(pid: int, pid_epoch: int = 1, start_ts: int = 0) -> Process:
     """A `Process` for a test that cares about the pid and not the rest."""
     return Process(pid, pid_epoch, start_ts)
+
+
+def monitored(*pids: int) -> ProcessRegistry:
+    """A registry holding a live process per pid, as the monitor's first
+    poll leaves it.
+
+    A control-plane message names a process gcmon monitors or has
+    monitored, and nothing but the monitor mints one, so a server under
+    test is given the processes its clients will name.
+    """
+    registry = ProcessRegistry()
+    for pid in pids:
+        registry.create(pid, 0)
+    return registry
 
 
 def polled(monitor: EventsMonitor, pid: int) -> Process:
@@ -142,26 +158,26 @@ class MockExporter(EventsExporter):
         self._event_added = threading.Event()
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
         """Add an event to the exporter.
 
         Args:
-            pid: Process ID.
+            process: The process the record came from.
             item: The stats item to add.
         """
         self.events.append(item)
-        self.events_by_pid.setdefault(pid, []).append(item)
+        self.events_by_pid.setdefault(process.pid, []).append(item)
         self._event_added.set()  # Signal that event was added
 
     @override
-    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+    def add_loss_event(self, process: Process, item: TLossMsg) -> None:
         """Record a loss window the monitor's arithmetic produced.
 
         Does not set ``_event_added``: a caller blocking on
         ``wait_for_event`` is waiting for a GC record, and releasing it on a
         loss record would let it wake and assert against an empty ``events``.
         """
-        self.loss_events.append((pid, item))
+        self.loss_events.append((process.pid, item))
 
     @override
     def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
@@ -169,14 +185,14 @@ class MockExporter(EventsExporter):
         self.liveness.append((pids, ts_ns))
 
     @override
-    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+    def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
         """Add an instant event to the exporter.
 
         Args:
-            pid: Process ID.
+            process: The process the mark belongs to.
             item: The instant message to add.
         """
-        self.instant_events.append((pid, item))
+        self.instant_events.append((process.pid, item))
         self._event_added.set()
 
     @override
