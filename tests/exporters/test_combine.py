@@ -19,9 +19,6 @@ from gcmon.model.trace_event import (
     Counter,
     EventArgs,
     Instant,
-    InterpreterTrack,
-    LossTrack,
-    ProcessTrack,
     Slice,
     TraceEvent,
 )
@@ -32,6 +29,9 @@ from tests.helpers import (
     create_jsonl_record,
     create_mock_loss_item,
     create_mock_stats_item,
+    interpreter_track,
+    loss_track,
+    process_track,
 )
 
 
@@ -76,9 +76,9 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts_start=5_000_000, ts_stop=5_001_000, args=args)
+        e1 = Slice(interpreter_track(1, 1), name="e1", cat="c", ts_start=5_000_000, ts_stop=5_001_000, args=args)
         e2 = Counter(
-            InterpreterTrack(1, 1),
+            interpreter_track(1, 1),
             metric="collected",
             display_name="c1 collected",
             ts=3_000_000,
@@ -99,7 +99,7 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts_start=1_000_000, ts_stop=1_001_000, args=args)
+        e1 = Slice(interpreter_track(1, 1), name="e1", cat="c", ts_start=1_000_000, ts_stop=1_001_000, args=args)
         events: list[TraceEvent] = [e1]
         _normalize_trace_timestamps(events)
         assert e1.ts_start == 0
@@ -119,10 +119,10 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts_start=10_000_000, ts_stop=10_001_000, args=args)
-        e2 = Slice(InterpreterTrack(1, 1), name="e2", cat="c", ts_start=12_000_000, ts_stop=12_001_000, args=args)
-        e3 = Slice(InterpreterTrack(2, 1), name="e3", cat="c", ts_start=5_000_000, ts_stop=5_001_000, args=args)
-        e4 = Slice(InterpreterTrack(2, 1), name="e4", cat="c", ts_start=7_000_000, ts_stop=7_001_000, args=args)
+        e1 = Slice(interpreter_track(1, 1), name="e1", cat="c", ts_start=10_000_000, ts_stop=10_001_000, args=args)
+        e2 = Slice(interpreter_track(1, 1), name="e2", cat="c", ts_start=12_000_000, ts_stop=12_001_000, args=args)
+        e3 = Slice(interpreter_track(2, 1), name="e3", cat="c", ts_start=5_000_000, ts_stop=5_001_000, args=args)
+        e4 = Slice(interpreter_track(2, 1), name="e4", cat="c", ts_start=7_000_000, ts_stop=7_001_000, args=args)
         events: list[TraceEvent] = [e1, e2, e3, e4]
         _normalize_trace_timestamps(events)
         assert e1.ts_start == 0  # pid=1: 10_000_000 - 10_000_000
@@ -139,11 +139,11 @@ class TestNormalizeTraceTimestamps:
         shifting only the one it starts at would stretch every span back to
         the old origin without failing anything else.
         """
-        pause = Slice(InterpreterTrack(1, 0), name="GC Pause(0)", cat="gc", ts_start=8_000, ts_stop=9_000, args={})
-        counter = Counter(InterpreterTrack(1, 0), metric="collected", display_name="G0 collected", ts=8_000, value=1)
-        rss = Counter(ProcessTrack(1), metric="rss", display_name="rss", ts=6_000, value=4096)
-        mark = Instant(ProcessTrack(1), name="benchmark", ts=5_000)
-        loss = Slice(LossTrack(1, 0), name="GC Loss(0)", cat="gc.loss", ts_start=5_000, ts_stop=7_000, args={})
+        pause = Slice(interpreter_track(1, 0), name="GC Pause(0)", cat="gc", ts_start=8_000, ts_stop=9_000, args={})
+        counter = Counter(interpreter_track(1, 0), metric="collected", display_name="G0 collected", ts=8_000, value=1)
+        rss = Counter(process_track(1), metric="rss", display_name="rss", ts=6_000, value=4096)
+        mark = Instant(process_track(1), name="benchmark", ts=5_000)
+        loss = Slice(loss_track(1, 0), name="GC Loss(0)", cat="gc.loss", ts_start=5_000, ts_stop=7_000, args={})
         events: list[TraceEvent] = [pause, counter, rss, mark, loss]
 
         _normalize_trace_timestamps(events)
@@ -163,8 +163,8 @@ class TestNormalizeTraceTimestamps:
             "uncollectable": 0,
             "candidates": 5,
         }
-        e1 = Slice(InterpreterTrack(1, 1), name="e1", cat="c", ts_start=-100, ts_stop=900, args=args)
-        e2 = Slice(InterpreterTrack(1, 1), name="e2", cat="c", ts_start=-500, ts_stop=500, args=args)
+        e1 = Slice(interpreter_track(1, 1), name="e1", cat="c", ts_start=-100, ts_stop=900, args=args)
+        e2 = Slice(interpreter_track(1, 1), name="e2", cat="c", ts_start=-500, ts_stop=500, args=args)
         events: list[TraceEvent] = [e1, e2]
         _normalize_trace_timestamps(events)
         assert e1.ts_start == 400  # -100 - (-500)

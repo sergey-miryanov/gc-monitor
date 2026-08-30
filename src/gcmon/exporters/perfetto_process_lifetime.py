@@ -102,7 +102,7 @@ def _record_process_lifetime(
     whatever kind it is. A slice is evidence at both its ends, so it is
     folded in twice. Emits nothing: spans become packets at close.
     """
-    pid = event.track.pid
+    pid = event.track.process.pid
     if isinstance(event, Slice):
         state.update_process_lifetime(pid, event.ts_start)
         state.update_process_lifetime(pid, event.ts_stop)

@@ -33,7 +33,6 @@ from perfetto.trace_processor import TraceProcessor
 from gcmon.exporters.combine import combine_files
 from gcmon.exporters.jsonl_io import read_jsonl, write_jsonl
 from gcmon.model.protocol import TItem, is_loss
-from gcmon.model.trace_event import LossTrack
 from tests.exporters.loss_row import (
     IID,
     PID,
@@ -43,9 +42,9 @@ from tests.exporters.loss_row import (
     loss_slices,
     three_generations,
 )
-from tests.helpers import create_mock_loss_item, open_trace_processor
+from tests.helpers import create_mock_loss_item, loss_track, open_trace_processor
 
-LOSS_ROW = LossTrack(PID, IID)
+LOSS_ROW = loss_track(PID, IID)
 
 LIVE_ROW: list[SliceRow] = [
     ("GC Loss(0,1,2)", 1_000_000, 10_000_000, 0),

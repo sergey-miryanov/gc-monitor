@@ -162,7 +162,7 @@ class ProtobufEventEncoder:
         # Ahead of the convert pass, which puts the command line on the
         # process descriptor it may be about to write.
         for event in events:
-            self._ensure_cmdline(event.track.pid)
+            self._ensure_cmdline(event.track.process.pid)
         descriptors, packets = convert_trace_events_to_perfetto(
             list(events),
             self._track_state,

@@ -537,8 +537,8 @@ class TestMetaDedupRaceClosed:
     the file.
 
     The race this closes was a TOCTOU in the producer, between
-    ``pid not in self._pids`` and ``self._pids.add(pid)``, which could put
-    two process descriptors in a trace under load. It closed by deletion
+    ``pid not in self._pids`` and ``self._pids.add(pid)``, which could put two
+    process descriptors in a trace under load. It closed by deletion
     rather than by locking: no producer decides what a batch's descriptors
     are any more. The dedup lives in ``PerfettoTrackState``, reached only
     through ``write_events`` and ``record_process_liveness``, both already

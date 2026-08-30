@@ -12,7 +12,8 @@ from gcmon.exporters.encoder import (
     ProtobufEventEncoder,
     convert_trace_events_to_perfetto,  # noqa: F401  (used via monkeypatch.setattr)
 )
-from gcmon.model.trace_event import Instant, ProcessTrack
+from gcmon.model.trace_event import Instant
+from tests.helpers import process_track
 
 
 class TestProtobufEventEncoder:
@@ -66,7 +67,7 @@ class TestProtobufEventEncoder:
             "gcmon.exporters.encoder.convert_trace_events_to_perfetto",
             Mock(return_value=([], [])),
         )
-        enc.write_events([Instant(ProcessTrack(1234), "ev", ts=1_000)])
+        enc.write_events([Instant(process_track(1234), "ev", ts=1_000)])
         enc.close()
         assert not path.exists()
         assert enc._has_written is False

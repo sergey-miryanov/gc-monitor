@@ -16,6 +16,7 @@ from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.trace_event import TraceEvent
+from tests.helpers import proc
 
 
 def convert_item(
@@ -30,7 +31,7 @@ def convert_item(
     Unlike ``convert_items``, this finalizes; a test that wants to see
     what convert emitted on its own wants that one instead.
     """
-    gc_events = convert_item_to_trace_format(pid, item)
+    gc_events = convert_item_to_trace_format(proc(pid), item)
     meta: list[TraceEvent] = []
     descriptors, packets = convert_trace_events_to_perfetto(
         meta + gc_events,
@@ -58,7 +59,7 @@ def convert_items(
     for pid, item in items:
         meta: list[TraceEvent] = []
         batch_desc, batch_packets = convert_trace_events_to_perfetto(
-            meta + convert_item_to_trace_format(pid, item),
+            meta + convert_item_to_trace_format(proc(pid), item),
             state,
             sequence_id,
         )

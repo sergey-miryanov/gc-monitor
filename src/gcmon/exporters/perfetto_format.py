@@ -11,6 +11,7 @@ importer needs one name.
 
 from collections.abc import Sequence
 
+from ..model.process import Process
 from ..model.trace_event import (
     Counter,
     Instant,
@@ -135,26 +136,27 @@ def _emit_root_descriptor(
 
 
 def _emit_process_descriptor(
-    pid: int,
+    process: Process,
     state: PerfettoTrackState,
     sequence_id: int,
     sibling_order_rank: int | None = None,
     start_timestamp_ns: int | None = None,
 ) -> list[bytes]:
-    """Build a process track descriptor if not already emitted for *pid*.
+    """Build a process track descriptor if not already emitted for *process*.
 
     *sibling_order_rank* orders this process against the other process
     tracks, which the UI honors only when the root descriptor carries
     ``process_ordering = PROCESS_ORDERING_EXPLICIT``; see
     ``_emit_root_descriptor``.
 
-    *start_timestamp_ns* goes on the ``process`` sub-message. It is *pid*'s
-    first event in nanoseconds, the same timestamp the rank comes from.
+    *start_timestamp_ns* goes on the ``process`` sub-message. It is the
+    pid's first event in nanoseconds, the same timestamp the rank comes from.
     """
-    if state.has_pid(pid):
+    pid = process.pid
+    if state.has_process_descriptor(process):
         return []
-    state.mark_pid(pid)
-    proc_uuid = state.get_process_track_uuid(pid)
+    state.mark_process_descriptor(process)
+    proc_uuid = state.get_process_track_uuid(process)
     cmdline = state.get_cmdline(pid)
     desc = build_track_descriptor(
         proc_uuid,
@@ -170,7 +172,7 @@ def _emit_process_descriptor(
 
 
 def _emit_start_process_marker(
-    pid: int,
+    process: Process,
     ts_ns: int,
     state: PerfettoTrackState,
     sequence_id: int,
@@ -182,10 +184,10 @@ def _emit_start_process_marker(
     track's ``description``, the joined cmdline. One marker keeps the
     description visible however few ``Instant`` the caller sent.
     """
-    if state.has_start_process_marker(pid):
+    if state.has_start_process_marker(process):
         return []
-    state.mark_start_process_marker(pid)
-    proc_uuid = state.get_process_track_uuid(pid)
+    state.mark_start_process_marker(process)
+    proc_uuid = state.get_process_track_uuid(process)
     return [
         build_trace_packet(
             sequence_id,
@@ -212,9 +214,9 @@ def _emit_thread_descriptor(
     desc = build_track_descriptor(
         state.get_track_uuid(track),
         f"Thread {iid}",
-        pid=track.pid,
-        tid=track.pid if iid == 0 else iid,
-        parent_uuid=state.get_process_track_uuid(track.pid),
+        pid=track.process.pid,
+        tid=track.process.pid if iid == 0 else iid,
+        parent_uuid=state.get_process_track_uuid(track.process),
         sibling_order_rank=0,
         thread_name=f"Thread {iid}",
     )
@@ -238,7 +240,7 @@ def _emit_loss_descriptor(
     desc = build_track_descriptor(
         state.get_track_uuid(track),
         f"{_LOSS_TRACK_NAME} {track.iid}",
-        parent_uuid=state.get_process_track_uuid(track.pid),
+        parent_uuid=state.get_process_track_uuid(track.process),
         sibling_order_rank=_LOSS_TRACK_RANK,
     )
     return [build_trace_packet(sequence_id, track_descriptor=desc)]
@@ -263,7 +265,7 @@ def _emit_counter_group_descriptor(
     desc = build_track_descriptor(
         group_uuid,
         _COUNTER_GROUP_NAME,
-        parent_uuid=state.get_process_track_uuid(track.pid),
+        parent_uuid=state.get_process_track_uuid(track.process),
         child_ordering=ChildTracksOrdering.EXPLICIT,
         sibling_order_rank=0,
     )
@@ -295,7 +297,7 @@ def _emit_counter_track_descriptor(
         desc = build_track_descriptor(
             ctr_uuid,
             display_name,
-            parent_uuid=state.get_process_track_uuid(track.pid),
+            parent_uuid=state.get_process_track_uuid(track.process),
             is_counter=True,
             sibling_order_rank=_COUNTER_RANKS.get(metric, 0),
         )
@@ -329,13 +331,13 @@ def _emit_track_descriptors(
     track's own where it has one of its own to write. A ``ProcessTrack`` has
     none: the process descriptor *is* its descriptor.
     """
-    pid = track.pid
+    process = track.process
     descriptors = _emit_process_descriptor(
-        pid,
+        process,
         state,
         sequence_id,
-        sibling_order_rank=ranks.get(pid),
-        start_timestamp_ns=state.get_process_lifetime_start_ts(pid),
+        sibling_order_rank=ranks.get(process.pid),
+        start_timestamp_ns=state.get_process_lifetime_start_ts(process.pid),
     )
     if isinstance(track, InterpreterTrack):
         descriptors.extend(_emit_thread_descriptor(track, state, sequence_id))
@@ -381,11 +383,11 @@ def convert_trace_events_to_perfetto(
     ranks = state.get_process_track_ranks()
 
     for event in events:
-        pid = event.track.pid
+        process = event.track.process
         descriptors.extend(_emit_track_descriptors(event.track, state, sequence_id, ranks))
 
         if isinstance(event, Slice):
-            _maybe_emit_start_process_marker(pid, event.ts_start, state, sequence_id, packets)
+            _maybe_emit_start_process_marker(process, event.ts_start, state, sequence_id, packets)
             track_uuid = state.get_track_uuid(event.track)
             # An adjacent pair, not interleaved into stack order: the trace
             # processor sorts by timestamp and builds the nesting itself.
@@ -414,8 +416,8 @@ def convert_trace_events_to_perfetto(
             )
 
         elif isinstance(event, Instant):
-            _maybe_emit_start_process_marker(pid, event.ts, state, sequence_id, packets)
-            proc_uuid = state.get_process_track_uuid(pid)
+            _maybe_emit_start_process_marker(process, event.ts, state, sequence_id, packets)
+            proc_uuid = state.get_process_track_uuid(process)
             packets.append(
                 build_trace_packet(
                     sequence_id,
@@ -430,7 +432,7 @@ def convert_trace_events_to_perfetto(
             )
 
         elif isinstance(event, Counter):
-            _maybe_emit_start_process_marker(pid, event.ts, state, sequence_id, packets)
+            _maybe_emit_start_process_marker(process, event.ts, state, sequence_id, packets)
             ctr_uuid, desc_bytes = _emit_counter_track_descriptor(
                 event.track,
                 event.metric,
@@ -451,7 +453,7 @@ def convert_trace_events_to_perfetto(
 
 
 def _maybe_emit_start_process_marker(
-    pid: int,
+    process: Process,
     ts: int,
     state: PerfettoTrackState,
     sequence_id: int,
@@ -466,6 +468,6 @@ def _maybe_emit_start_process_marker(
     The process track is described by the time this runs whatever the
     event: the caller emits its track descriptors first.
     """
-    if state.has_start_process_marker(pid):
+    if state.has_start_process_marker(process):
         return
-    packets.extend(_emit_start_process_marker(pid, ts, state, sequence_id))
+    packets.extend(_emit_start_process_marker(process, ts, state, sequence_id))

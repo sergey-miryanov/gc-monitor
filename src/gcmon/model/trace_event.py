@@ -7,6 +7,8 @@ encoder derives every other row of the trace from those.
 
 import msgspec
 
+from .process import Process
+
 __all__ = [
     "ArgGroup",
     "Counter",
@@ -27,7 +29,7 @@ class ProcessTrack(msgspec.Struct, frozen=True):
     Nothing here belongs to an interpreter, so nothing here names one.
     """
 
-    pid: int
+    process: Process
 
 
 class InterpreterTrack(msgspec.Struct, frozen=True):
@@ -39,7 +41,7 @@ class InterpreterTrack(msgspec.Struct, frozen=True):
     draw a row under the process.
     """
 
-    pid: int
+    process: Process
     iid: int
 
 
@@ -52,7 +54,7 @@ class LossTrack(msgspec.Struct, frozen=True):
     overlap.
     """
 
-    pid: int
+    process: Process
     iid: int
 
 

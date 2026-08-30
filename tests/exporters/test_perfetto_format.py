@@ -16,8 +16,6 @@ from gcmon.model.data import GCStatsInfo, LossMsg
 from gcmon.model.trace_event import (
     Counter,
     Instant,
-    InterpreterTrack,
-    ProcessTrack,
     TraceEvent,
 )
 from tests.exporters.perfetto_helpers import (
@@ -25,7 +23,7 @@ from tests.exporters.perfetto_helpers import (
     lifetime_slices,
     parse_track_descriptor,
 )
-from tests.helpers import create_mock_loss_item
+from tests.helpers import create_mock_loss_item, interpreter_track, proc, process_track
 
 # Name of the synthetic marker emitted on the process track so the
 # cmdline description is always visible in the Perfetto UI. Must match
@@ -108,8 +106,8 @@ class TestConvertItemToPerfettoPackets:
         )
         descriptors, _ = convert_item(100, item, state, sequence_id=1)
         assert len(descriptors) >= 2
-        assert state.has_pid(100)
-        assert state.has_track(InterpreterTrack(100, 0))
+        assert state.has_process_descriptor(proc(100))
+        assert state.has_track(interpreter_track(100, 0))
 
     def test_thread_track_has_sibling_order_rank_zero(self) -> None:
         state = PerfettoTrackState()
@@ -126,8 +124,8 @@ class TestConvertItemToPerfettoPackets:
             duration=0.001,
         )
         descriptors, _ = convert_item(100, item, state, sequence_id=1)
-        proc_uuid = state.get_process_track_uuid(100)
-        thread_uuid = state.get_track_uuid(InterpreterTrack(100, 0))
+        proc_uuid = state.get_process_track_uuid(proc(100))
+        thread_uuid = state.get_track_uuid(interpreter_track(100, 0))
         thread_found = False
         for desc_bytes in descriptors:
             packet = TracePacket()
@@ -156,8 +154,8 @@ class TestConvertItemToPerfettoPackets:
             duration=0.001,
         )
         descriptors, _ = convert_item(100, item, state, sequence_id=1)
-        proc_uuid = state.get_process_track_uuid(100)
-        group_uuid = state.get_or_create_counter_group_track_uuid(InterpreterTrack(100, 0))
+        proc_uuid = state.get_process_track_uuid(proc(100))
+        group_uuid = state.get_or_create_counter_group_track_uuid(interpreter_track(100, 0))
         assert group_uuid != proc_uuid
         group_seen = False
         per_metric_parent: dict[str, int] = {}
@@ -619,8 +617,8 @@ class TestConvertItemToPerfettoPackets:
         desc1, _ = convert_item(100, item1, state, sequence_id=1)
         assert len(desc0) >= 2
         assert len(desc1) >= 1
-        assert state.has_track(InterpreterTrack(100, 0))
-        assert state.has_track(InterpreterTrack(100, 1))
+        assert state.has_track(interpreter_track(100, 0))
+        assert state.has_track(interpreter_track(100, 1))
 
     def test_debug_annotation_name_wire_format(self) -> None:
         state = PerfettoTrackState()
@@ -715,18 +713,18 @@ class TestConvertInstantToPerfettoPacket:
     def test_emits_process_descriptor(self) -> None:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            Instant(ProcessTrack(100), "start", ts=5_000),
+            Instant(process_track(100), "start", ts=5_000),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         # 1 root descriptor + 1 process descriptor. The "Processes" track
         # descriptor is emitted at closeout, not here.
         assert len(descriptors) == 2
-        assert state.has_pid(100)
+        assert state.has_process_descriptor(proc(100))
 
     def test_emits_instant_event(self) -> None:
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
-            Instant(ProcessTrack(100), "start GC monitor", ts=5_000),
+            Instant(process_track(100), "start GC monitor", ts=5_000),
         ]
         _, packets = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         # Two packets from the convert call: the synthetic "Start
@@ -764,12 +762,12 @@ class TestConvertInstantToPerfettoPacket:
     def test_reuses_process_descriptor(self) -> None:
         state = PerfettoTrackState()
         desc1, packets1 = convert_trace_events_to_perfetto(
-            [Instant(ProcessTrack(100), "start", ts=5_000)],
+            [Instant(process_track(100), "start", ts=5_000)],
             state,
             sequence_id=1,
         )
         desc2, packets2 = convert_trace_events_to_perfetto(
-            [Instant(ProcessTrack(100), "stop", ts=10_000)],
+            [Instant(process_track(100), "stop", ts=10_000)],
             state,
             sequence_id=1,
         )
@@ -811,7 +809,7 @@ class TestConvertInstantToPerfettoPacket:
         )
         gc_desc, _ = convert_item(100, gc_item, state, sequence_id=1)
         inst_desc, _ = convert_trace_events_to_perfetto(
-            [Instant(ProcessTrack(100), "stop", ts=5_000)],
+            [Instant(process_track(100), "stop", ts=5_000)],
             state,
             sequence_id=1,
         )
@@ -823,7 +821,7 @@ class TestConvertInstantToPerfettoPacket:
         descriptors, _ = convert_trace_events_to_perfetto(
             [
                 Counter(
-                    InterpreterTrack(100, 0),
+                    interpreter_track(100, 0),
                     metric="heap_size",
                     display_name="heap_size",
                     ts=1_000,
@@ -871,9 +869,9 @@ class TestConvertInstantToPerfettoPacket:
             duration=0.001,
         )
         convert_item(100, item_g0, state, sequence_id=1)
-        uuid_after_g0 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "heap_size")
+        uuid_after_g0 = state.get_or_create_counter_track_uuid(interpreter_track(100, 0), "heap_size")
         convert_item(100, item_g1, state, sequence_id=1)
-        uuid_after_g1 = state.get_or_create_counter_track_uuid(InterpreterTrack(100, 0), "heap_size")
+        uuid_after_g1 = state.get_or_create_counter_track_uuid(interpreter_track(100, 0), "heap_size")
         assert uuid_after_g0 == uuid_after_g1
 
 
@@ -899,7 +897,7 @@ class TestAnInstantCanCarryArgs:
 
     def test_the_args_reach_the_packet_as_debug_annotations(self) -> None:
         track_event = self._instant_packet(
-            Instant(ProcessTrack(100), "benchmark", 1_000, {"benchmark": "json_loads", "run": 3})
+            Instant(process_track(100), "benchmark", 1_000, {"benchmark": "json_loads", "run": 3})
         )
         annotations = {
             a.name: (a.string_value or None, a.int_value if a.HasField("int_value") else None)
@@ -910,16 +908,16 @@ class TestAnInstantCanCarryArgs:
     def test_an_instant_with_no_args_writes_no_annotations_field(self) -> None:
         """The bytes an instant produces today, so the field costs a trace
         that does not use it nothing."""
-        bare = self._instant_packet(Instant(ProcessTrack(100), "mark", 1_000))
+        bare = self._instant_packet(Instant(process_track(100), "mark", 1_000))
         assert len(bare.debug_annotations) == 0
         assert (
             bare.SerializeToString()
-            == self._instant_packet(Instant(ProcessTrack(100), "mark", 1_000, {})).SerializeToString()
+            == self._instant_packet(Instant(process_track(100), "mark", 1_000, {})).SerializeToString()
         )
 
     def test_a_nested_group_flattens_the_way_it_does_on_a_slice(self) -> None:
         track_event = self._instant_packet(
-            Instant(ProcessTrack(100), "benchmark", 1_000, {"timing": {"warmup": 5, "unit": "ms"}})
+            Instant(process_track(100), "benchmark", 1_000, {"timing": {"warmup": 5, "unit": "ms"}})
         )
         (group,) = track_event.debug_annotations
         assert group.name == "timing"
@@ -953,7 +951,7 @@ class TestATrackIsDescribedOffTheEventsOnIt:
             candidates=5,
             duration=0.001,
         )
-        return convert_item_to_trace_format(pid, item)
+        return convert_item_to_trace_format(proc(pid), item)
 
     def _named(self, descriptors: list[bytes]) -> list[str]:
         parsed = [parse_track_descriptor(d) for d in descriptors]
@@ -970,7 +968,7 @@ class TestATrackIsDescribedOffTheEventsOnIt:
     def test_an_rss_only_pid_gets_a_process_row_and_no_thread_row(self) -> None:
         state = PerfettoTrackState()
         descriptors, _ = convert_trace_events_to_perfetto(
-            [Counter(ProcessTrack(100), "rss", "rss", 1_000, 4096)],
+            [Counter(process_track(100), "rss", "rss", 1_000, 4096)],
             state,
             sequence_id=1,
         )
@@ -981,7 +979,7 @@ class TestATrackIsDescribedOffTheEventsOnIt:
     def test_a_mark_only_pid_gets_a_process_row_and_no_thread_row(self) -> None:
         state = PerfettoTrackState()
         descriptors, _ = convert_trace_events_to_perfetto(
-            [Instant(ProcessTrack(100), "mark", ts=1_000)],
+            [Instant(process_track(100), "mark", ts=1_000)],
             state,
             sequence_id=1,
         )
@@ -1019,7 +1017,7 @@ class TestLossTrackDescriptor:
     def _convert(self, msgs: list[LossMsg], state: PerfettoTrackState, pid: int = 100) -> list[bytes]:
         events: list[TraceEvent] = []
         for msg in msgs:
-            events.extend(convert_loss_to_trace_format(pid, msg))
+            events.extend(convert_loss_to_trace_format(proc(pid), msg))
         descriptors, _ = convert_trace_events_to_perfetto(events, state, 1)
         return descriptors
 
@@ -1049,7 +1047,7 @@ class TestLossTrackDescriptor:
 
         found = self._loss_descriptors(self._convert([self._msg()], state))
 
-        assert found[0].parent_uuid == state.get_process_track_uuid(100)
+        assert found[0].parent_uuid == state.get_process_track_uuid(proc(100))
 
     def test_it_is_a_plain_custom_track(self) -> None:
         """A ``thread`` sub-message would describe an OS thread that does not
@@ -1101,7 +1099,7 @@ class TestTheMissingCollectionsAnnotation:
     """
 
     def _slice(self, msg: LossMsg) -> TrackEvent:
-        events: list[TraceEvent] = [*convert_loss_to_trace_format(100, msg)]
+        events: list[TraceEvent] = [*convert_loss_to_trace_format(proc(100), msg)]
         _, packets = convert_trace_events_to_perfetto(events, PerfettoTrackState(), 1)
 
         for raw in packets:

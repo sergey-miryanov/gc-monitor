@@ -29,6 +29,7 @@ from tests.exporters.perfetto_helpers import (
     convert_items,
     lifetime_slices,
 )
+from tests.helpers import proc
 
 # Name of the shared top-level Perfetto track that holds one slice per
 # pid spanning the first-to-last non-meta event timestamps for that
@@ -329,14 +330,14 @@ class TestProcessLifetimeLaminarClipping:
         assert _finalize_spans([]) == ({}, {})
 
     def test_pid_without_process_descriptor_still_gets_a_slice(self) -> None:
-        """A span is drawn for a pid that never reached ``mark_pid`` --
+        """A span is drawn for a pid that never reached ``mark_process_descriptor`` --
         one polled OK for a whole run that never collected, so it named
         no track and nothing described it. It has no process track and no
         cmdline, so the slice carries only the ``real_*`` annotations."""
         state = PerfettoTrackState()
         state.update_process_lifetime(100, 500)
         state.update_process_lifetime(100, 5_000)
-        assert not state.has_pid(100)
+        assert not state.has_process_descriptor(proc(100))
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
         packets = finalize_perfetto_packets(state, sequence_id=1)
         assert lifetime_slices(packets, lifetime_uuid) == [
@@ -721,7 +722,7 @@ class TestCloseoutAtFinalize:
             candidates=5,
             duration=0.001,
         )
-        gc_events = convert_item_to_trace_format(100, item)
+        gc_events = convert_item_to_trace_format(proc(100), item)
         meta: list[TraceEvent] = []
         _, packets = convert_trace_events_to_perfetto(
             meta + gc_events,
@@ -790,10 +791,10 @@ class TestCloseoutAtFinalize:
             duration=0.002,
         )
         events1: list[TraceEvent] = [
-            *convert_item_to_trace_format(100, item1),
+            *convert_item_to_trace_format(proc(100), item1),
         ]
         events2: list[TraceEvent] = [
-            *convert_item_to_trace_format(100, item2),
+            *convert_item_to_trace_format(proc(100), item2),
         ]
         _, packets1 = convert_trace_events_to_perfetto(
             events1,

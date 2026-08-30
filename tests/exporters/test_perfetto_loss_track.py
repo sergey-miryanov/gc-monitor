@@ -24,7 +24,7 @@ from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format
 from gcmon.model.data import GCStatsInfo, LossMsg
 from gcmon.model.trace_event import TraceEvent
-from tests.helpers import create_mock_loss_item, open_trace_processor
+from tests.helpers import create_mock_loss_item, open_trace_processor, proc
 
 pytestmark = pytest.mark.fuzz
 
@@ -123,11 +123,11 @@ def _consecutive_intervals() -> list[LossMsg]:
 def _events(*losses: LossMsg) -> list[TraceEvent]:
     """A collection, the gap the losses sit in, then the next collection."""
     events: list[TraceEvent] = [
-        *convert_item_to_trace_format(PID, _pause(1_000, 2_000, 1)),
+        *convert_item_to_trace_format(proc(PID), _pause(1_000, 2_000, 1)),
     ]
     for loss in losses:
-        events.extend(convert_loss_to_trace_format(PID, loss))
-    events.extend(convert_item_to_trace_format(PID, _pause(9_000, 10_000, 3)))
+        events.extend(convert_loss_to_trace_format(proc(PID), loss))
+    events.extend(convert_item_to_trace_format(proc(PID), _pause(9_000, 10_000, 3)))
     return events
 
 

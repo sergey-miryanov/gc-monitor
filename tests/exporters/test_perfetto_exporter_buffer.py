@@ -9,12 +9,16 @@ from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.trace_event import (
     Counter,
-    InterpreterTrack,
-    LossTrack,
-    ProcessTrack,
     Slice,
 )
-from tests.helpers import create_mock_loss_item, create_mock_stats_item, proc
+from tests.helpers import (
+    create_mock_loss_item,
+    create_mock_stats_item,
+    interpreter_track,
+    loss_track,
+    proc,
+    process_track,
+)
 
 
 class TestTheBufferHoldsNothingButEvents:
@@ -52,8 +56,8 @@ class TestTheBufferHoldsNothingButEvents:
             duration=0.001,
         )
         exporter.add_event(proc(100), item)
-        assert exporter._buffer == convert_item_to_trace_format(100, item)
-        assert {e.track for e in exporter._buffer} == {InterpreterTrack(100, 0)}
+        assert exporter._buffer == convert_item_to_trace_format(proc(100), item)
+        assert {e.track for e in exporter._buffer} == {interpreter_track(100, 0)}
 
 
 class TestAddRssSample:
@@ -63,7 +67,7 @@ class TestAddRssSample:
         counters = [e for e in exporter._buffer if isinstance(e, Counter)]
         assert len(counters) == 1
         c = counters[0]
-        assert c.track == ProcessTrack(100)
+        assert c.track == process_track(100)
         assert c.metric == "rss"
         assert c.display_name == "rss"
         assert c.value == 4096
@@ -73,7 +77,7 @@ class TestAddRssSample:
         exporter = PerfettoExporter(tmp_path / "test.pb", flush_threshold=1000)
         exporter.add_rss_sample(proc(100), 4096, 1_000_000)
         exporter.add_rss_sample(proc(200), 8192, 2_000_000)
-        assert {e.track for e in exporter._buffer} == {ProcessTrack(100), ProcessTrack(200)}
+        assert {e.track for e in exporter._buffer} == {process_track(100), process_track(200)}
 
 
 class TestAddLossEvent:
@@ -101,7 +105,7 @@ class TestAddLossEvent:
             create_mock_loss_item(iid=1, gen=0, ts_start=1_000, ts_stop=2_000, lost_count=1, lost_pause_ns=200),
         )
 
-        assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {LossTrack(100, 1)}
+        assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {loss_track(100, 1)}
 
     def test_it_does_not_share_the_track_with_gc_slices(self, tmp_path: Path) -> None:
         """One interpreter, two rows: a reconstructed span is easier to find
@@ -114,8 +118,8 @@ class TestAddLossEvent:
         )
 
         assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {
-            InterpreterTrack(100, 0),
-            LossTrack(100, 0),
+            interpreter_track(100, 0),
+            loss_track(100, 0),
         }
 
     def test_a_loss_event_names_no_interpreter_row(self, tmp_path: Path) -> None:
@@ -127,7 +131,7 @@ class TestAddLossEvent:
             proc(100), create_mock_loss_item(iid=0, gen=0, ts_start=1, ts_stop=2, lost_count=1, lost_pause_ns=1)
         )
 
-        assert {e.track for e in exporter._buffer} == {LossTrack(100, 0)}
+        assert {e.track for e in exporter._buffer} == {loss_track(100, 0)}
 
     def test_two_interpreters_get_two_loss_tracks(self, tmp_path: Path) -> None:
         exporter = self._make_exporter(tmp_path)
@@ -140,8 +144,8 @@ class TestAddLossEvent:
         )
 
         assert {e.track for e in exporter._buffer if isinstance(e, Slice)} == {
-            LossTrack(100, 0),
-            LossTrack(100, 1),
+            loss_track(100, 0),
+            loss_track(100, 1),
         }
 
     def test_the_loss_row_and_the_rss_row_are_not_the_same_row(self, tmp_path: Path) -> None:
@@ -157,5 +161,5 @@ class TestAddLossEvent:
 
         rss = next(e for e in exporter._buffer if isinstance(e, Counter))
         loss = next(e for e in exporter._buffer if isinstance(e, Slice))
-        assert rss.track == ProcessTrack(100)
-        assert loss.track == LossTrack(100, 0)
+        assert rss.track == process_track(100)
+        assert loss.track == loss_track(100, 0)

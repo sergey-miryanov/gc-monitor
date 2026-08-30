@@ -22,12 +22,12 @@ from gcmon.exporters.perfetto_builders import build_trace
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_proto import TrackEventType
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
-from gcmon.model.trace_event import InterpreterTrack, Slice, TraceEvent
+from gcmon.model.trace_event import Slice, TraceEvent
 from tests.exporters.perfetto_helpers import parse_track_descriptor
-from tests.helpers import open_trace_processor
+from tests.helpers import interpreter_track, open_trace_processor
 
 PID = 4242
-ROW = InterpreterTrack(PID, 0)
+ROW = interpreter_track(PID, 0)
 SEQUENCE_ID = 7
 
 # Must match ``_START_PROCESS_INSTANT_NAME`` in ``gcmon.exporters.perfetto_format``.

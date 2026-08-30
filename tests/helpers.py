@@ -16,6 +16,7 @@ from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import GCStatsInfo, GenLoss, LossMsg
 from gcmon.model.process import Process
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
+from gcmon.model.trace_event import InterpreterTrack, LossTrack, ProcessTrack
 from gcmon.monitoring.events_reader import EventsReader
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.process_registry import ProcessRegistry
@@ -50,17 +51,36 @@ __all__ = [
     "create_mock_incremental_item",
     "create_mock_loss_item",
     "create_mock_stats_item",
+    "interpreter_track",
+    "loss_track",
     "monitored",
     "open_trace_processor",
     "perfetto_packets",
     "polled",
     "proc",
+    "process_track",
 ]
 
 
 def proc(pid: int, pid_epoch: int = 1, start_ts: int = 0) -> Process:
     """A `Process` for a test that cares about the pid and not the rest."""
     return Process(pid, pid_epoch, start_ts)
+
+
+def process_track(pid: int, pid_epoch: int = 1) -> ProcessTrack:
+    """The process's own row, for a test that names a pid rather than a
+    process. One place to change when a `Process` gains a field."""
+    return ProcessTrack(proc(pid, pid_epoch))
+
+
+def interpreter_track(pid: int, iid: int, pid_epoch: int = 1) -> InterpreterTrack:
+    """Interpreter *iid*'s row on *pid*. See :func:`process_track`."""
+    return InterpreterTrack(proc(pid, pid_epoch), iid)
+
+
+def loss_track(pid: int, iid: int, pid_epoch: int = 1) -> LossTrack:
+    """Interpreter *iid*'s loss row on *pid*. See :func:`process_track`."""
+    return LossTrack(proc(pid, pid_epoch), iid)
 
 
 def monitored(*pids: int) -> ProcessRegistry:

@@ -58,19 +58,19 @@ class PerfettoExporter(EventsExporter):
 
     @override
     def add_event(self, process: Process, item: TGCStatsInfo) -> None:
-        self._enqueue(convert_item_to_trace_format(process.pid, item))
+        self._enqueue(convert_item_to_trace_format(process, item))
 
     @override
     def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
-        self._enqueue([Instant(ProcessTrack(process.pid), item.name, item.ts)])
+        self._enqueue([Instant(ProcessTrack(process), item.name, item.ts)])
 
     @override
     def add_rss_sample(self, process: Process, rss_bytes: int, ts_ns: int) -> None:
-        self._enqueue([Counter(ProcessTrack(process.pid), "rss", "rss", ts_ns, rss_bytes)])
+        self._enqueue([Counter(ProcessTrack(process), "rss", "rss", ts_ns, rss_bytes)])
 
     @override
     def add_loss_event(self, process: Process, item: TLossMsg) -> None:
-        self._enqueue(convert_loss_to_trace_format(process.pid, item))
+        self._enqueue(convert_loss_to_trace_format(process, item))
 
     @override
     def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:

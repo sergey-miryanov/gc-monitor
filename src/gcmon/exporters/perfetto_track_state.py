@@ -8,12 +8,26 @@ lives here, apart from the emission code in ``perfetto_process_lifetime``,
 because splitting the class would leave two halves sharing ``_next_uuid``.
 """
 
+import msgspec
+
+from ..model.process import Process
 from ..model.trace_event import Track
+
+
+def _shared_row(track: Track) -> Track:
+    """The key *track*'s uuid is filed under.
+
+    Every process that held a pid draws on one set of Perfetto rows, so the
+    epoch is dropped here and two processes on one pid share a thread track,
+    a counter group and its counters. The `Processes` track carries the
+    distinction instead (ADR-0011). Spec 0066 is where the rows split.
+    """
+    return msgspec.structs.replace(track, process=Process(track.process.pid, 1, 0))
 
 
 class PerfettoTrackState:
     def __init__(self) -> None:
-        self._pids: set[int] = set()
+        self._described_pids: set[int] = set()
         self._tracks: set[Track] = set()
         self._cmdlines: dict[int, list[str]] = {}
         self._counter_tracks: dict[tuple[Track, str], int] = {}
@@ -33,17 +47,22 @@ class PerfettoTrackState:
         self._next_uuid += 1
         return uuid
 
-    def has_pid(self, pid: int) -> bool:
-        return pid in self._pids
+    def has_process_descriptor(self, process: Process) -> bool:
+        """Whether *process*'s row has been described.
 
-    def mark_pid(self, pid: int) -> None:
-        self._pids.add(pid)
+        Filed under the pid, like the uuid the descriptor carries: one
+        descriptor covers every process that held it.
+        """
+        return process.pid in self._described_pids
+
+    def mark_process_descriptor(self, process: Process) -> None:
+        self._described_pids.add(process.pid)
 
     def has_track(self, track: Track) -> bool:
-        return track in self._tracks
+        return _shared_row(track) in self._tracks
 
     def mark_track(self, track: Track) -> None:
-        self._tracks.add(track)
+        self._tracks.add(_shared_row(track))
 
     def set_cmdline(self, pid: int, cmdline: list[str]) -> None:
         self._cmdlines[pid] = cmdline
@@ -51,38 +70,47 @@ class PerfettoTrackState:
     def get_cmdline(self, pid: int) -> list[str] | None:
         return self._cmdlines.get(pid)
 
-    def get_process_track_uuid(self, pid: int) -> int:
+    def get_process_track_uuid(self, process: Process) -> int:
+        """The uuid of *process*'s own Perfetto row.
+
+        Filed under the pid, so every process that held it shares one row,
+        which is what :func:`_shared_row` does for the tracks underneath.
+        Spec 0066 is where they split.
+        """
+        pid = process.pid
         if pid not in self._pid_uuids:
             self._pid_uuids[pid] = self._alloc_uuid()
         return self._pid_uuids[pid]
 
     def get_track_uuid(self, track: Track) -> int:
-        if track not in self._track_uuids:
-            self._track_uuids[track] = self._alloc_uuid()
-        return self._track_uuids[track]
+        key = _shared_row(track)
+        if key not in self._track_uuids:
+            self._track_uuids[key] = self._alloc_uuid()
+        return self._track_uuids[key]
 
     def has_counter_track(self, track: Track, display_name: str) -> bool:
-        return (track, display_name) in self._counter_tracks
+        return (_shared_row(track), display_name) in self._counter_tracks
 
     def get_or_create_counter_track_uuid(self, track: Track, display_name: str) -> int:
-        key = (track, display_name)
+        key = (_shared_row(track), display_name)
         if key not in self._counter_tracks:
             self._counter_tracks[key] = self._alloc_uuid()
         return self._counter_tracks[key]
 
     def has_counter_group_track(self, track: Track) -> bool:
-        return track in self._counter_group_uuids
+        return _shared_row(track) in self._counter_group_uuids
 
     def get_or_create_counter_group_track_uuid(self, track: Track) -> int:
-        if track not in self._counter_group_uuids:
-            self._counter_group_uuids[track] = self._alloc_uuid()
-        return self._counter_group_uuids[track]
+        key = _shared_row(track)
+        if key not in self._counter_group_uuids:
+            self._counter_group_uuids[key] = self._alloc_uuid()
+        return self._counter_group_uuids[key]
 
-    def has_start_process_marker(self, pid: int) -> bool:
-        return pid in self._start_process_marker_emitted
+    def has_start_process_marker(self, process: Process) -> bool:
+        return process.pid in self._start_process_marker_emitted
 
-    def mark_start_process_marker(self, pid: int) -> None:
-        self._start_process_marker_emitted.add(pid)
+    def mark_start_process_marker(self, process: Process) -> None:
+        self._start_process_marker_emitted.add(process.pid)
 
     def has_process_lifetime_track(self) -> bool:
         return self._process_lifetime_track_uuid is not None
