@@ -10,7 +10,7 @@ import pytest
 from gcmon.model.data import GCStatsInfo
 from gcmon.stats.stats import Stats
 from gcmon.stats.streaming_stats import StreamingStats
-from tests.helpers import create_mock_incremental_item, create_mock_stats_item
+from tests.helpers import create_mock_incremental_item, create_mock_stats_item, proc
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def streaming_stats_with_pids(
                 ts_stop=1_005_000_000 + gen * 1_000_000,
                 heap_size=1_000_000 * (gen + 1),
             )
-            ss.update(pid, item)
+            ss.update(proc(pid), item)
     return ss
 
 

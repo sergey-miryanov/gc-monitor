@@ -25,7 +25,7 @@ from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
 from gcmon.stats.streaming_stats import StreamingStats
-from tests.helpers import FakeEventsReader, create_mock_stats_item
+from tests.helpers import FakeEventsReader, create_mock_stats_item, polled
 
 PID = 12345
 IID = 0
@@ -98,7 +98,7 @@ def ingest(*batches: Sequence[GCStatsInfo]) -> list[TItem]:
 
     with patch("gcmon.monitoring.monitor.time.monotonic_ns", side_effect=lambda: next(ticks)):
         for _ in batches:
-            assert monitor._poll(PID) is PollStatus.OK
+            assert monitor._poll(polled(monitor, PID)) is PollStatus.OK
 
     return recorder.items
 

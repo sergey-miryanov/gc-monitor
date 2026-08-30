@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+from ..model.process import Process
 from ..model.run_report import RunReport
 from ..support.time_units import dur_to_ms
 from .metrics import METRICS
@@ -188,22 +189,17 @@ def summary_lines(
     return lines
 
 
-def _ring_label(pid: int, iid: int, pid_epoch: int) -> str:
-    """The block's heading.
-
-    A pid the operating system handed out twice carries two blocks, so the
-    second one and any after it say which process they belong to: `12345:0#2`
-    is the second to hold that pid. The first stays plain, which is every
-    block of an ordinary run.
-    """
-    return f"{pid}:{iid}" if pid_epoch == 1 else f"{pid}:{iid}#{pid_epoch}"
+def _ring_label(process: Process, iid: int) -> str:
+    """The block's heading: `12345:0`, and `12345:0#2` for the second process
+    to hold that pid."""
+    return f"{process.pid}:{iid}{process.epoch_suffix}"
 
 
 def print_stats(stats: StreamingStats, view: StatsView, table_format: TableFormat = TableFormat.PLAIN) -> None:
     """Two levels: the run, then one block per ring under `FULL`.
 
-    Rings sort by `(pid, iid)`. `Read Time` belongs to no ring, so its first
-    cell stays empty and it prints under either view.
+    Rings sort by pid, then epoch, then interpreter. `Read Time` belongs to no
+    ring, so its first cell stays empty and it prints under either view.
 
     *view* chooses which blocks print and nothing else. Widths follow the rows
     that print, so ring labels wider than the `PID:IID` header pad `FULL`'s
@@ -225,13 +221,13 @@ def print_stats(stats: StreamingStats, view: StatsView, table_format: TableForma
             has_rows = True
 
     rings = stats.rings() if view is StatsView.FULL else []
-    for pid, iid, pid_epoch in rings:
+    for process, iid in rings:
         all_rows.append(_SEP_GROUP)
-        ring_data = stats.get_ring_stats(pid, iid, pid_epoch)
+        ring_data = stats.get_ring_stats(process, iid)
         if ring_data is None:
             continue
 
-        ring_totals = {gen: stats.pause_totals(pid, iid, gen, pid_epoch) for gen in stats.GENS}
+        ring_totals = {gen: stats.pause_totals(process, iid, gen) for gen in stats.GENS}
         first = True
         has_rows = False
         for metric_key, metric in METRICS.items():
@@ -243,7 +239,7 @@ def print_stats(stats: StreamingStats, view: StatsView, table_format: TableForma
                     # Both parts on every row, `12345:0` on a
                     # single-interpreter run too: dropping the `:0` would
                     # leave a header naming two fields over cells holding one.
-                    all_rows.append([_ring_label(pid, iid, pid_epoch) if first else "", *row])
+                    all_rows.append([_ring_label(process, iid) if first else "", *row])
                     first = False
                 has_rows = True
 

@@ -14,6 +14,7 @@ from pytest_codspeed import BenchmarkFixture
 
 from gcmon.stats.stats import Stats, get_quantile_value
 from gcmon.stats.streaming_stats import StreamingStats
+from tests.helpers import proc
 
 from .conftest import make_gc_event
 
@@ -32,7 +33,7 @@ def test_streaming_stats_update_single_pid(benchmark: BenchmarkFixture) -> None:
     def run() -> StreamingStats:
         stats = StreamingStats()
         for event in events:
-            stats.update(12345, event)
+            stats.update(proc(12345), event)
         return stats
 
     result = benchmark(run)
@@ -49,7 +50,7 @@ def test_streaming_stats_update_many_pids(benchmark: BenchmarkFixture) -> None:
     def run() -> StreamingStats:
         stats = StreamingStats()
         for pid, event in events:
-            stats.update(pid, event)
+            stats.update(proc(pid), event)
         return stats
 
     result = benchmark(run)
@@ -69,7 +70,7 @@ def test_streaming_stats_retain_wide_fan_out(benchmark: BenchmarkFixture) -> Non
         stats = StreamingStats()
         for pid in range(FAN_OUT_FIRST_PID, FAN_OUT_FIRST_PID + FAN_OUT_PIDS):
             for iid in range(FAN_OUT_IIDS):
-                stats.update(pid, make_gc_event(pid + iid, pid=pid, iid=iid))
+                stats.update(proc(pid), make_gc_event(pid + iid, pid=pid, iid=iid))
         return (stats,), {}
 
     def run(stats: StreamingStats) -> StreamingStats:

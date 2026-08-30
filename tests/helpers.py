@@ -14,8 +14,10 @@ from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
 
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import GCStatsInfo, GenLoss, LossMsg
+from gcmon.model.process import Process
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 from gcmon.monitoring.events_reader import EventsReader
+from gcmon.monitoring.monitor import EventsMonitor
 from tests.perfetto_prebuilt import trace_processor_bin
 
 zstd: ModuleType | None
@@ -49,7 +51,23 @@ __all__ = [
     "create_mock_stats_item",
     "open_trace_processor",
     "perfetto_packets",
+    "polled",
+    "proc",
 ]
+
+
+def proc(pid: int, pid_epoch: int = 1, start_ts: int = 0) -> Process:
+    """A `Process` for a test that cares about the pid and not the rest."""
+    return Process(pid, pid_epoch, start_ts)
+
+
+def polled(monitor: EventsMonitor, pid: int) -> Process:
+    """The process *monitor* polls *pid* as, minted if it has none yet.
+
+    `EventsMonitor.tick` mints one before each poll; a test driving the
+    poll on its own goes through here so the registry agrees with it.
+    """
+    return monitor._processes.current(pid) or monitor._processes.create(pid, 0)
 
 
 def no_records(pid: int) -> Sequence[TGCStatsInfo]:

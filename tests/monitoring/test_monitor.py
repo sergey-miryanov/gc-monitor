@@ -11,7 +11,7 @@ from gcmon.monitoring.monitor import EventsMonitor, PollReport
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import WaitPolicy, WaitPolicyFactory, no_wait_policy
 from gcmon.stats.streaming_stats import StreamingStats
-from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
+from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item, polled, proc
 
 
 def _reads(records: Sequence[TGCStatsInfo]) -> Callable[[int], Sequence[TGCStatsInfo]]:
@@ -60,16 +60,16 @@ class TestEventsMonitorExtra:
     def test_poll_updates_stats(
         self, monitor: EventsMonitor, one_record: GCStatsInfo, mock_stats_update: MagicMock
     ) -> None:
-        monitor._poll(12345)
+        monitor._poll(polled(monitor, 12345))
 
-        mock_stats_update.assert_called_once_with(12345, one_record)
+        mock_stats_update.assert_called_once_with(proc(12345), one_record)
 
     def test_poll_skips_invalid_timestamp_event(
         self, monitor: EventsMonitor, exporter: MockExporter, reader: FakeEventsReader
     ) -> None:
         reader.reads = _reads([create_mock_stats_item(ts_start=2_000, ts_stop=1_000)])
 
-        monitor._poll(12345)
+        monitor._poll(polled(monitor, 12345))
 
         assert exporter.events == []
 
@@ -78,7 +78,7 @@ class TestEventsMonitorExtra:
     ) -> None:
         reader.reads = _reads([create_mock_stats_item(ts_start=1_000, ts_stop=1_000)])
 
-        monitor._poll(12345)
+        monitor._poll(polled(monitor, 12345))
 
         assert exporter.events == []
 
@@ -97,8 +97,8 @@ class TestEventsMonitorExtra:
         }
         reader.reads = lambda pid: per_pid[pid]
 
-        monitor._poll(12345)
-        monitor._poll(999)
+        monitor._poll(polled(monitor, 12345))
+        monitor._poll(polled(monitor, 999))
 
         assert [e.ts_start for e in exporter.events] == [5_000, 4_000, 6_000]
 
@@ -107,8 +107,8 @@ class TestEventsMonitorExtra:
     ) -> None:
         reader.reads = _reads([create_mock_stats_item(ts_start=5_000, ts_stop=5_100)])
 
-        monitor._poll(12345)
-        monitor._poll(12345)
+        monitor._poll(polled(monitor, 12345))
+        monitor._poll(polled(monitor, 12345))
 
         assert [e.ts_start for e in exporter.events] == [5_000]
 
