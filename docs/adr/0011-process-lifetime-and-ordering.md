@@ -49,15 +49,14 @@ in the suite passed anyway.
 **A single shared top-level track named `Processes`** holds one
 `TYPE_SLICE_BEGIN`/`TYPE_SLICE_END` pair per process, spanning
 `[first observed, last observed]` for that process (see the liveness section
-below for what counts as an observation). A pid handed on brings one pair per
-process, so a span never covers a stretch in which the process it names did
-not exist.
+below for what counts as an observation). A span never covers a stretch in
+which the process it names did not exist.
 
 **A slice is named for its process**, `Process <pid>` for the first to hold
 the pid and `Process <pid>#N` after it, the suffix the `--stats` table prints
 ([ADR-0016](0016-the-ring-is-the-statistics-unit.md)). The END repeats the
-suffix too, because END matching is by name and without it two spans on one
-pid would share one.
+suffix, since matching is by name and two spans on one pid would otherwise
+share a BEGIN.
 
 - Parented to the trace root, so `parent_uuid` is **absent on the wire**, not
   `0`, which is the reserved root descriptor
@@ -79,12 +78,12 @@ get a rank.
 **The Perfetto process track is not split, and is stamped and ranked from the
 first process to hold the pid.** Two `ProcessDescriptor` messages carrying one
 pid may collapse to a single `upid` in the trace processor, which nothing here
-has measured, so every process that held a pid shares one process track, one
-thread track per interpreter, one counter group and one `Start Process`
-marker, and a reader attributes a record to a process by which `Processes`
-span its timestamp falls in. `start_timestamp_ns` and `sibling_order_rank` are
-the first process's for the same reason: one row covers them all, so a
-successor must not restamp or reorder it.
+has measured. Every process that held a pid therefore shares one process
+track, one thread track per interpreter, one counter group and one
+`Start Process` marker, and a reader attributes a record to a process by which
+`Processes` span its timestamp falls in. One row covers them all:
+`start_timestamp_ns` and `sibling_order_rank` stay the first process's, and a
+successor must not restamp or reorder a row it shares.
 
 **The whole track is emitted at encoder close**, once per trace; convert
 passes record spans and emit nothing. Two reasons the BEGIN cannot go out
@@ -95,16 +94,16 @@ the END, since `BufferedTraceExporter` flushes in chunks of `flush_threshold`
 orphaning the rest.
 
 **Spans are clipped to a laminar set.** Sorted by ascending start, ties broken
-by longer span first and then by process, which orders by ascending pid and
-then epoch, a stack sweep pulls each crossed span's end back to one nanosecond
-before the span that crosses it. Nesting is untouched, so a parent outliving
-its children costs nothing. Spans that merely touch (`A.end == B.start`) count
-as crossing when B extends past A, because the relative order of an END and a
-BEGIN sharing a timestamp is not something the wire format lets us pin down; a
-B that both starts and ends at `A.end` is nested, and is left alone. Sorting
-longer-first on equal starts is what makes the clip safe: two spans with the
-same start always nest, so a clip only happens when `A.start < B.start`, and
-`B.start - 1` never lands before `A.start`.
+by longer span first and then by process, a stack sweep pulls each crossed
+span's end back to one nanosecond before the span that crosses it. Nesting is
+untouched, so a parent outliving its children costs nothing. Spans that merely
+touch (`A.end == B.start`) count as crossing when B extends past A, because
+the relative order of an END and a BEGIN sharing a timestamp is not something
+the wire format lets us pin down; a B that both starts and ends at `A.end` is
+nested, and is left alone. Sorting longer-first on equal starts is what makes
+the clip safe: two spans with the same start always nest, so a clip only
+happens when `A.start < B.start`, and `B.start - 1` never lands before
+`A.start`.
 
 **Each span is emitted as an adjacent BEGIN/END pair, not interleaved into
 stack order.** The trace processor sorts by timestamp and breaks ties by
@@ -178,9 +177,9 @@ carve-out this ADR called provisional is **removed**, since the sampler
 liveness it kept out of the end is now reported directly.
 
 **A liveness report is stamped when the reads that proved it returned**, not
-when the tick opened. A tick polls its pids in sequence, so a process polled
-second is observed later than one polled first, and the report carries the
-instant the tick's last read returned. Every process alive in one tick then
+when the tick opened. A tick polls its pids in sequence, and a process polled
+second is observed later than one polled first. The report carries the instant
+the tick's last successful read returned. Every process alive in one tick then
 shares an end, which the sweep nests rather than clips. `MonitorLoop` still
 takes one stamping clock read per tick and hands it in; that instant opens the
 loss window ([ADR-0015](0015-gc-loss-spans-on-their-own-track.md)) and stamps
@@ -257,13 +256,14 @@ iteration.
   seen through meta events alone has none. Finalization therefore does *not*
   filter on a pid having a process descriptor, which would have required an
   event.
-- **A span covers only its own process even where the records did not.** A pid
-  pruned from the tree loses its read cursor, so a successor re-reads what its
-  predecessor produced; each record is drawn on the process that made it
+- **A span covers only its own process, even where a read crossed the
+  boundary.** A pid pruned from the tree loses its read cursor, and a
+  successor re-reads what its predecessor produced. Each record is drawn on
+  the process that made it
   ([ADR-0025](0025-create-every-process-in-one-place.md)), so those timestamps
-  widen the predecessor's span.
+  land in the predecessor's span.
 - **A zero-GC process's slice carries its command line**, since the monitor
-  reads it where it creates the process rather than on the encoder's write
+  reads it when it creates the process rather than on the encoder's write
   ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)). It still
   has no process track, which the UI hides anyway, the problem ADR-0010's
   `Start Process` marker was invented for. Emitting one for it is out of
@@ -396,8 +396,8 @@ iteration.
   spans back for finalization, ranks the first process on each pid by start
   timestamp and then pid, and owns the once-per-trace flag that makes
   finalization safe to call twice, covering the non-idempotent track
-  descriptor too. Every other key it holds drops the epoch, which is what
-  keeps the rows under a reused pid shared.
+  descriptor too. Every other key it holds drops the epoch, keeping the rows
+  under a reused pid shared.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded
   so it goes out once.
 - The liveness path, monitor to accumulator:
