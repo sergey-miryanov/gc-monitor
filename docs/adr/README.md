@@ -85,6 +85,7 @@ module is neither.
 | [0022](0022-compress-each-batch-of-packets.md) | Compress each batch into one `TracePacket.zstd_compressed_packets` field |
 | [0023](0023-the-pyperf-hook-annotates-and-does-not-drive.md) | Mark the benchmark from the pyperf hook, and drive nothing |
 | [0024](0024-an-event-names-the-track-it-is-drawn-on.md) | An event names the track it is drawn on, and the encoder derives the rest |
+| [0025](0025-mint-every-process-in-one-place.md) | Mint every process in one place, and carry it instead of a pid |
 
 ## Reading order
 
@@ -94,10 +95,12 @@ file. 0006–0009 cover the internal event model, which one encoder now reads,
 and 0024 is what that model became once it had one reader: it supersedes 0004
 and 0006 and amends 0007 and 0013. 0010–0013, 0015 and 0016 and 0018 are
 individual features, and 0021 is what became of 0012. 0014 explains how any of
-it is verified. 0017 and 0019 are about the monitoring loop rather than about
-what reaches a trace: 0017 divides per-pid state from the clock, and 0019 says
-what the loop does with that clock. 0023 is about the pyperf hook, which is an
-entry point rather than a part of the loop.
+it is verified. 0017, 0019 and 0025 are about the monitoring loop rather than
+about what reaches a trace: 0017 divides per-pid state from the clock, 0019
+says what the loop does with that clock, and 0025 is what "per-pid" turned out
+to mean once a reused pid had to be told apart, which amends 0010, 0011, 0013,
+0016, 0017 and 0024. 0023 is about the pyperf hook, which is an entry point
+rather than a part of the loop.
 
 ---
 

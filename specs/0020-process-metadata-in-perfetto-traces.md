@@ -71,9 +71,9 @@ same packet and the same mechanism as `cmdline` under ADR-0010, built in
 | Python version | `python_version` | string | `3.15.0b3 (tags/v3.15.0b3:cf16a33fad1) [MSC v.1943 64 bit (AMD64)]` |
 | GC thresholds | `gc_thresholds` | string, JSON object | `{"0": 700, "1": 10, "2": 10}` |
 
-`PerfettoTrackState` stores both per pid, with getters and setters following
-the existing `set_cmdline` / `get_cmdline` pair. It is not internally
-thread-safe and does not need to be; see
+`PerfettoTrackState` stores both per process, with getters and setters
+following the ones already there for the descriptor and the marker. It is not
+internally thread-safe and does not need to be; see
 [0030](0030-exporter-hygiene-batch.md) section 4.3 for why.
 
 **Each value has exactly one trustworthy source, and they are different

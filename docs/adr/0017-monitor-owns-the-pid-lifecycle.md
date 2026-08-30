@@ -1,7 +1,8 @@
 # ADR-0017: Give the monitor every piece of per-pid state, and leave the loop the clock
 
 - **Status:** Accepted
-- **Date:** 2026-08-17
+- **Date:** 2026-08-17 (the process registry joined the state the prune owns
+  2026-08-31, see [ADR-0025](0025-mint-every-process-in-one-place.md))
 
 ## Context
 
@@ -28,8 +29,12 @@ poll, the policy verdict and the liveness report are all inside it, so
 that liveness call and nothing else did.
 
 **Per-pid state has one owner and one prune.** Cursors, poll instant,
-streaming stats and wait policy share a lifetime, so one pass over one child
-set drops them together.
+streaming stats, wait policy and the process a pid is currently holding share
+a lifetime, so one pass over one child set drops them together. The monitor is
+therefore the only thing that mints a process or retires one
+([ADR-0025](0025-mint-every-process-in-one-place.md)), and the prune settles a
+departing process's rings before retiring it, since the rings file under the
+process that earned them.
 
 **The loop keeps the clock and the stop signal.** It reads the tick instant,
 lends the monitor a read of the `threading.Event` a signal handler sets, and
@@ -52,7 +57,9 @@ cursor and re-exports its whole ring.
   contradicted, and its constraints hold unchanged.
 - A pid that leaves the tree and returns re-exports whatever its ring still
   holds, since the prune took its cursor. Duplicate slices are the price of
-  not fabricating a loss window.
+  not fabricating a loss window. They are drawn on the process that produced
+  them rather than on the one that re-read them, and the settled ring counts
+  them once ([ADR-0016](0016-the-ring-is-the-statistics-unit.md)).
 - The monitor holds more state than it did and is still driven from one loop.
   Nothing here makes it safe to share.
 
@@ -70,11 +77,12 @@ cursor and re-exports its whole ring.
 ## Implementation
 
 - `src/gcmon/monitoring/monitor.py` holds the tick, the prune and
-  `PollReport`. `src/gcmon/monitoring/monitor_loop.py` holds the clock, the
-  stop event, the rate and the sampler call.
-  `src/gcmon/monitoring/wait_policy.py` holds the no-wait factory, a function
-  rather than the class object, which satisfies `WaitPolicyFactory`
-  structurally but not to a type checker.
+  `PollReport`, and is the only caller of
+  `src/gcmon/monitoring/process_registry.py`'s writes.
+  `src/gcmon/monitoring/monitor_loop.py` holds the clock, the stop event, the
+  rate and the sampler call. `src/gcmon/monitoring/wait_policy.py` holds the
+  no-wait factory, a function rather than the class object, which satisfies
+  `WaitPolicyFactory` structurally but not to a type checker.
 - `tests/monitoring/test_monitor.py` drives ticks against a scripted child
   listing and asserts at the exporter. A pid that leaves and returns holding
   an unrelated counter emits records and no loss window; the same ring without

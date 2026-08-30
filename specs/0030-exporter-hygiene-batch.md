@@ -88,12 +88,12 @@ a combine run. It becomes worth doing the moment a caller shares the list;
 until then the honest fix is a docstring saying it mutates, which 4.2's
 reasoning already argues for. Fold it into 4.2.
 
-**Not adopted at all:** importing `psutil` at the top of `encoder.py` and
-making it a hard dependency. Graceful degradation without `psutil` is a
-documented, tested property: the `[cmdline]` extra in
+**Not adopted at all:** importing `psutil` at the top of the module that reads
+a command line, and making it a hard dependency. Graceful degradation without
+`psutil` is a documented, tested property: the `[cmdline]` extra in
 [docs/rss.md](../docs/rss.md), the fallback in
-`ProtobufEventEncoder._default_cmdline_provider`, and the same pattern in
-`rss_sampler`. The lazy import is what makes it work.
+`gcmon.monitoring.process_registry`, and the same pattern in `rss_sampler`.
+The lazy import is what makes it work.
 
 ## 5. Seams and testing decisions
 
