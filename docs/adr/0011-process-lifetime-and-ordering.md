@@ -171,14 +171,14 @@ the process was monitored at all.
 
 **The span is `[min, max]` over every observation, with no event-kind
 exception.** An observation is any non-meta trace event, counters included, or
-a **liveness observation** from `EventsMonitor`: a `(pid, ts)` pair meaning
-gcmon read GC state out of that process at that instant. One tick of
-monitoring is one call on the monitor, which reports the whole `PollStatus.OK`
-set through `add_process_liveness(processes, ts_ns)` once, after its poll
-phase, so the cost is one call per tick rather than one per pid. The
-accumulator folds an observation in as a plain min/max with no keyword: the
-counter carve-out this ADR called provisional is **removed**, since the
-sampler liveness it kept out of the end is now reported directly.
+a **liveness observation** from `EventsMonitor`: a process and an instant,
+meaning gcmon read GC state out of that process then. One tick of monitoring
+is one call on the monitor, which reports the whole `PollStatus.OK` set
+through `add_process_liveness(processes, ts_ns)` once, after its poll phase,
+so the cost is one call per tick rather than one per pid. The accumulator
+folds an observation in as a plain min/max with no keyword: the counter
+carve-out this ADR called provisional is **removed**, since the sampler
+liveness it kept out of the end is now reported directly.
 
 **A liveness report is stamped when the reads that proved it returned**, not
 when the tick opened. A tick polls its pids in sequence, so a process polled

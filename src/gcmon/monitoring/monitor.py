@@ -288,7 +288,7 @@ class EventsMonitor:
             # pruned from the tree loses its read cursor, so whatever claims
             # it next re-reads records its predecessor produced. A record
             # older than a retirement cannot be the successor's: that process
-            # did not exist yet. See ADR-0011.
+            # did not exist yet. See ADR-0025.
             owner = self._processes.at(pid, record.ts_start)
             assert owner is not None, "tick mints this pid's process before polling it"
             self._exporter.add_event(owner, record)

@@ -12,7 +12,7 @@ class Process(msgspec.Struct, frozen=True, eq=False):
 
     ``pid_epoch`` counts the processes that have held *pid*, from 1, so a
     pid the operating system handed out twice is two of these and a
-    successor's figures never land on its predecessor (ADR-0011).
+    successor's figures never land on its predecessor (ADR-0025).
 
     ``start_ts`` is when the monitor discovered the process, not the
     earliest evidence of it: a poll returns collections that already
@@ -72,7 +72,7 @@ class ProcessLookup(Protocol):
 
     Minting is the monitor's alone, so a layer that only has to say which
     process some evidence belongs to is handed this rather than the
-    registry (ADR-0011). `ProcessRegistry` is the implementation, and it
+    registry (ADR-0025). `ProcessRegistry` is the implementation, and it
     lives in `monitoring` because that is who writes to it.
     """
 

@@ -358,7 +358,7 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
 
     A capture carries no exit and no discovery instant, so every pid reads as
     a single process on its first epoch. A live trace separates two processes
-    that shared a pid where this merges them; spec 0059 accepts that.
+    that shared a pid where this merges them; ADR-0024 accepts that.
     """
     events: list[TraceEvent] = []
     for pid, pid_items in items.items():

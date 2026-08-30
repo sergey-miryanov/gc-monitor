@@ -32,7 +32,7 @@ class ProcessRegistry:
     `Process` is gcmon's and never repeats. :meth:`create` is the only
     thing that mints one, so evidence naming a pid nobody created is
     dropped rather than opening a process that was never monitored
-    (ADR-0011).
+    (ADR-0025).
 
     The monitor writes and the control server reads from its own thread,
     so every access takes the lock. One write per process against one read
@@ -51,7 +51,7 @@ class ProcessRegistry:
 
         The monitor calls this, and nothing else does: a process gcmon has
         not polled is one it knows nothing about, so evidence naming that
-        pid belongs to no process rather than opening one (ADR-0011).
+        pid belongs to no process rather than opening one (ADR-0025).
 
         The command line is read here, while the process is running: read
         at the first flush it may be gone, and read once per pid it names

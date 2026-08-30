@@ -155,7 +155,7 @@ class PerfettoTrackState:
 
         The row is not split, so it covers every process that held the
         pid and opens at the first of them: a run with no reuse is
-        stamped exactly as it was (spec 0059).
+        stamped exactly as it was (ADR-0011).
         """
         return self._process_lifetime_start.get(Process(process.pid, 1, 0))
 
