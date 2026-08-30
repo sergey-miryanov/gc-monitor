@@ -10,10 +10,24 @@ because splitting the class would leave two halves sharing ``_next_uuid``.
 
 from typing import NamedTuple
 
-import msgspec
-
 from ..model.process import Process
-from ..model.trace_event import Track
+from ..model.trace_event import InterpreterTrack, LossTrack, Track
+
+# What a row is drawn for, since a pid and an interpreter id do not tell two
+# of the three kinds apart: an interpreter's row and its loss row name the
+# same pair.
+_INTERPRETER_ROW = "interpreter"
+_LOSS_ROW = "loss"
+_PROCESS_ROW = "process"
+
+# The key a row's uuid and its emitted-flag are filed under: what the row is
+# drawn for, the pid, and the interpreter it belongs to where it belongs to
+# one.
+type RowKey = tuple[str, int, int]
+
+# The key a process's span is filed under, which is what `Process.__eq__`
+# compares (ADR-0025).
+type ProcessKey = tuple[int, int]
 
 
 class ProcessSpan(NamedTuple):
@@ -24,27 +38,49 @@ class ProcessSpan(NamedTuple):
     end_ts: int
 
 
-def _shared_row(track: Track) -> Track:
+def _shared_row(track: Track) -> RowKey:
     """The key *track*'s uuid is filed under.
 
-    Every process that held a pid draws on one set of Perfetto rows, and
-    the `Processes` track carries the distinction (ADR-0011).
+    Every process that held a pid draws on one set of Perfetto rows, so the
+    epoch is left out and the `Processes` track carries the distinction
+    (ADR-0011).
+
+    A plain tuple rather than a `Track` with its process replaced: this runs
+    several times for every event the encoder writes, and minting a
+    `Process` only to hash it and drop it made the write path pay for a
+    struct per lookup.
     """
-    return msgspec.structs.replace(track, process=Process(track.process.pid, 1, 0))
+    if isinstance(track, InterpreterTrack):
+        return (_INTERPRETER_ROW, track.process.pid, track.iid)
+    if isinstance(track, LossTrack):
+        return (_LOSS_ROW, track.process.pid, track.iid)
+    return (_PROCESS_ROW, track.process.pid, 0)
+
+
+def _process_key(process: Process) -> ProcessKey:
+    """What *process* is filed under: the pid and the epoch, the pair its
+    own equality is on (ADR-0025).
+
+    Written out rather than keying on the `Process` itself, for the reason
+    :func:`_shared_row` gives: its `__hash__` and `__eq__` are Python, and
+    the span accumulator hits them twice per event.
+    """
+    return (process.pid, process.pid_epoch)
 
 
 class PerfettoTrackState:
     def __init__(self) -> None:
         self._described_pids: set[int] = set()
-        self._tracks: set[Track] = set()
-        self._counter_tracks: dict[tuple[Track, str], int] = {}
-        self._counter_group_uuids: dict[Track, int] = {}
+        self._tracks: set[RowKey] = set()
+        self._counter_tracks: dict[tuple[RowKey, str], int] = {}
+        self._counter_group_uuids: dict[RowKey, int] = {}
         self._pid_uuids: dict[int, int] = {}
-        self._track_uuids: dict[Track, int] = {}
+        self._track_uuids: dict[RowKey, int] = {}
         self._start_process_marker_emitted: set[int] = set()
         self._process_lifetime_track_uuid: int | None = None
-        self._process_lifetime_start: dict[Process, int] = {}
-        self._process_lifetime_end: dict[Process, int] = {}
+        self._processes: dict[ProcessKey, Process] = {}
+        self._process_lifetime_start: dict[ProcessKey, int] = {}
+        self._process_lifetime_end: dict[ProcessKey, int] = {}
         self._process_lifetime_emitted: bool = False
         self._root_descriptor_emitted: bool = False
         self._next_uuid: int = 1
@@ -121,7 +157,7 @@ class PerfettoTrackState:
         return self._process_lifetime_track_uuid
 
     def has_process_lifetime(self, process: Process) -> bool:
-        return process in self._process_lifetime_start
+        return _process_key(process) in self._process_lifetime_start
 
     def update_process_lifetime(self, process: Process, ts: int) -> None:
         """Fold *ts* into the recorded span for *process*: a plain min/max
@@ -131,13 +167,21 @@ class PerfettoTrackState:
         observation from the monitor loop. No event-kind exception: an
         RSS sample is evidence the process existed just as a GC event is.
         See ADR-0011.
+
+        The first fold seeds both ends and files the process itself, which
+        is what ``get_process_lifetimes`` hands back; a later one moves at
+        most one end, since a ts below the start cannot be above the end.
         """
-        start_ts = self._process_lifetime_start.get(process)
-        if start_ts is None or ts < start_ts:
-            self._process_lifetime_start[process] = ts
-        end_ts = self._process_lifetime_end.get(process)
-        if end_ts is None or ts > end_ts:
-            self._process_lifetime_end[process] = ts
+        key = _process_key(process)
+        start_ts = self._process_lifetime_start.get(key)
+        if start_ts is None:
+            self._processes[key] = process
+            self._process_lifetime_start[key] = ts
+            self._process_lifetime_end[key] = ts
+        elif ts < start_ts:
+            self._process_lifetime_start[key] = ts
+        elif ts > self._process_lifetime_end[key]:
+            self._process_lifetime_end[key] = ts
 
     def get_process_lifetime_start_ts(self, process: Process) -> int | None:
         """When the pid's Perfetto row opens.
@@ -145,17 +189,17 @@ class PerfettoTrackState:
         The row is not split, so it covers every process that held the
         pid and opens at the first of them (ADR-0011).
         """
-        return self._process_lifetime_start.get(Process(process.pid, 1, 0))
+        return self._process_lifetime_start.get((process.pid, 1))
 
     def get_process_lifetimes(self) -> list[ProcessSpan]:
         """Every process with a recorded span.
 
-        The two dicts carry identical key sets, so this is every process
+        The three dicts carry identical key sets, so this is every process
         ever folded in -- including one known only from liveness.
         """
         return [
-            ProcessSpan(process, self._process_lifetime_start[process], end)
-            for process, end in self._process_lifetime_end.items()
+            ProcessSpan(self._processes[key], self._process_lifetime_start[key], end)
+            for key, end in self._process_lifetime_end.items()
         ]
 
     def has_process_lifetime_emitted(self) -> bool:
@@ -172,7 +216,7 @@ class PerfettoTrackState:
         Ranked on the first process for the same reason the row is stamped
         from it: one row covers them all (ADR-0011).
         """
-        firsts = {process.pid: ts for process, ts in self._process_lifetime_start.items() if process.pid_epoch == 1}
+        firsts = {pid: ts for (pid, pid_epoch), ts in self._process_lifetime_start.items() if pid_epoch == 1}
         if not firsts:
             return {}
         sorted_pids = sorted(firsts, key=lambda pid: (firsts[pid], pid))
