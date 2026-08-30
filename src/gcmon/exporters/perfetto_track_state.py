@@ -34,7 +34,7 @@ def _shared_row(track: Track) -> Track:
     Every process that held a pid draws on one set of Perfetto rows, so the
     epoch is dropped here and two processes on one pid share a thread track,
     a counter group and its counters. The `Processes` track carries the
-    distinction instead (ADR-0011). Spec 0066 is where the rows split.
+    distinction instead (ADR-0011).
     """
     return msgspec.structs.replace(track, process=Process(track.process.pid, 1, 0))
 
@@ -82,7 +82,6 @@ class PerfettoTrackState:
 
         Filed under the pid, so every process that held it shares one row,
         which is what :func:`_shared_row` does for the tracks underneath.
-        Spec 0066 is where they split.
         """
         pid = process.pid
         if pid not in self._pid_uuids:

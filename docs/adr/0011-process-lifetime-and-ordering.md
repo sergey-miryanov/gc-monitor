@@ -86,8 +86,6 @@ marker, and a reader attributes a record to a process by which `Processes`
 span its timestamp falls in. `start_timestamp_ns` and `sibling_order_rank` are
 the first process's for the same reason: one row covers them all, so a
 successor must not restamp or reorder it.
-[Spec 0066](../../specs/0066-give-each-process-on-a-reused-pid-its-own-track.md)
-takes the measurement and splits the rows.
 
 **The whole track is emitted at encoder close**, once per trace; convert
 passes record spans and emit nothing. Two reasons the BEGIN cannot go out
@@ -400,7 +398,7 @@ iteration.
   timestamp and then pid, and owns the once-per-trace flag that makes
   finalization safe to call twice, covering the non-idempotent track
   descriptor too. Every other key it holds drops the epoch, which is what
-  keeps the rows under a reused pid shared until spec 0066 splits them.
+  keeps the rows under a reused pid shared.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded
   so it goes out once.
 - The liveness path, monitor to accumulator:
