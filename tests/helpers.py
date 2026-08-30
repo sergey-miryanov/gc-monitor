@@ -200,9 +200,9 @@ class MockExporter(EventsExporter):
         self.loss_events.append((process.pid, item))
 
     @override
-    def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
-        """Record one tick's liveness observation."""
-        self.liveness.append((pids, ts_ns))
+    def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
+        """Record one tick's liveness observation, as the pids it named."""
+        self.liveness.append(({process.pid for process in processes}, ts_ns))
 
     @override
     def add_instant_event(self, process: Process, item: TInstantMsg) -> None:

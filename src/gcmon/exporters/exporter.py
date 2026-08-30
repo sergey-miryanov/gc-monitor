@@ -34,11 +34,11 @@ class EventsExporter(ABC):
         base class.
         """
 
-    def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:  # noqa: B027
-        """Record that gcmon read GC state out of every pid in *pids* at
-        *ts_ns*. No-op in the base class.
+    def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:  # noqa: B027
+        """Record that gcmon read GC state out of every process in
+        *processes* at *ts_ns*. No-op in the base class.
 
         One call per monitor tick carries the whole live set. Only the
-        Perfetto path acts on it, widening each pid's ``Processes``-track
-        span; see ADR-0011.
+        Perfetto path acts on it, widening each process's
+        ``Processes``-track span; see ADR-0011.
         """

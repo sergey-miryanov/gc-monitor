@@ -20,14 +20,16 @@ from gcmon.exporters.perfetto_process_lifetime import (
     finalize_perfetto_packets,
 )
 from gcmon.exporters.perfetto_proto import TrackEventType
-from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from gcmon.exporters.perfetto_track_state import PerfettoTrackState, ProcessSpan
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.trace_event import TraceEvent
 from tests.exporters.perfetto_helpers import (
+    clipped_span,
     convert_item,
     convert_items,
     lifetime_slices,
+    span,
 )
 from tests.helpers import proc
 
@@ -39,9 +41,9 @@ _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
 
 
 def _finalize_spans(
-    spans: list[tuple[int, int, int]],
+    spans: list[ProcessSpan],
 ) -> tuple[dict[int, tuple[int, int]], dict[int, tuple[int, int]]]:
-    """Run *spans* -- ``[(pid, start, end), ...]`` -- through
+    """Run *spans* through
     ``finalize_perfetto_packets`` and decode the result.
 
     Returns ``({pid: (ts, end_ts)}, {pid: (real_start_ts, real_end_ts)})``:
@@ -56,9 +58,9 @@ def _finalize_spans(
     whatever sits above the slice it matched.
     """
     state = PerfettoTrackState()
-    for pid, start, end in spans:
-        state.update_process_lifetime(pid, start)
-        state.update_process_lifetime(pid, end)
+    for one in spans:
+        state.update_process_lifetime(one.process, one.start_ts)
+        state.update_process_lifetime(one.process, one.end_ts)
     packets = finalize_perfetto_packets(state, sequence_id=1)
     lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
 
@@ -122,110 +124,110 @@ class TestClipSpansToLaminar:
         assert _clip_spans_to_laminar([]) == []
 
     def test_single_span_is_unchanged(self) -> None:
-        assert _clip_spans_to_laminar([(100, 500, 9_000)]) == [(100, 500, 9_000, 500, 9_000)]
+        assert _clip_spans_to_laminar([span(100, 500, 9_000)]) == [clipped_span(100, 500, 9_000, 500, 9_000)]
 
     def test_disjoint_spans_are_unchanged(self) -> None:
         """The first span has closed before the second opens, so the
         sweep pops it and clips nothing."""
-        spans = [(100, 500, 1_000), (200, 5_000, 9_000)]
+        spans = [span(100, 500, 1_000), span(200, 5_000, 9_000)]
         assert _clip_spans_to_laminar(spans) == [
-            (100, 500, 1_000, 500, 1_000),
-            (200, 5_000, 9_000, 5_000, 9_000),
+            clipped_span(100, 500, 1_000, 500, 1_000),
+            clipped_span(200, 5_000, 9_000, 5_000, 9_000),
         ]
 
     def test_nested_span_is_unchanged(self) -> None:
         """A span contained by the one still open stops the walk, which
         is the common shape of a parent outliving its child."""
-        spans = [(100, 500, 9_000), (200, 1_000, 5_000)]
+        spans = [span(100, 500, 9_000), span(200, 1_000, 5_000)]
         assert _clip_spans_to_laminar(spans) == [
-            (100, 500, 9_000, 500, 9_000),
-            (200, 1_000, 5_000, 1_000, 5_000),
+            clipped_span(100, 500, 9_000, 500, 9_000),
+            clipped_span(200, 1_000, 5_000, 1_000, 5_000),
         ]
 
     def test_crossing_clips_the_outer_end(self) -> None:
         """The whole point: the earlier span's end is pulled back to one
         nanosecond before the later one starts."""
-        spans = [(100, 500, 1_500), (200, 1_000, 5_000)]
+        spans = [span(100, 500, 1_500), span(200, 1_000, 5_000)]
         assert _clip_spans_to_laminar(spans) == [
-            (100, 500, 999, 500, 1_500),
-            (200, 1_000, 5_000, 1_000, 5_000),
+            clipped_span(100, 500, 999, 500, 1_500),
+            clipped_span(200, 1_000, 5_000, 1_000, 5_000),
         ]
 
     def test_touching_is_treated_as_crossing(self) -> None:
         """``A.end == B.start`` is clipped too: the relative order of an
         END and a BEGIN sharing a timestamp is not ours to control."""
-        spans = [(100, 500, 1_000), (200, 1_000, 5_000)]
+        spans = [span(100, 500, 1_000), span(200, 1_000, 5_000)]
         assert _clip_spans_to_laminar(spans) == [
-            (100, 500, 999, 500, 1_000),
-            (200, 1_000, 5_000, 1_000, 5_000),
+            clipped_span(100, 500, 999, 500, 1_000),
+            clipped_span(200, 1_000, 5_000, 1_000, 5_000),
         ]
 
     def test_equal_starts_always_nest(self) -> None:
         """The sweep's own sort puts equal starts longest-first, so they
         can never cross, which is what keeps ``start - 1`` from landing
         before the clipped span's own start."""
-        spans = [(100, 500, 1_000), (200, 500, 9_000)]
+        spans = [span(100, 500, 1_000), span(200, 500, 9_000)]
         assert _clip_spans_to_laminar(spans) == [
-            (200, 500, 9_000, 500, 9_000),
-            (100, 500, 1_000, 500, 1_000),
+            clipped_span(200, 500, 9_000, 500, 9_000),
+            clipped_span(100, 500, 1_000, 500, 1_000),
         ]
 
     def test_walk_pops_every_span_already_closed(self) -> None:
         """Two spans are open and nested when a third starts after both
         have ended; the sweep unwinds the whole stack in one walk and
         clips neither."""
-        spans = [(100, 0, 100), (200, 10, 20), (300, 200, 300)]
+        spans = [span(100, 0, 100), span(200, 10, 20), span(300, 200, 300)]
         assert _clip_spans_to_laminar(spans) == [
-            (100, 0, 100, 0, 100),
-            (200, 10, 20, 10, 20),
-            (300, 200, 300, 200, 300),
+            clipped_span(100, 0, 100, 0, 100),
+            clipped_span(200, 10, 20, 10, 20),
+            clipped_span(300, 200, 300, 200, 300),
         ]
 
     def test_one_span_crossed_by_two_later_spans(self) -> None:
         """The sweep is not a pairwise check of neighbours. Pid 200 nests
         inside pid 100, so comparing only adjacent spans would stop there
         and never notice that pid 300 crosses pid 100."""
-        spans = [(100, 500, 5_000), (200, 1_000, 2_000), (300, 3_000, 9_000)]
+        spans = [span(100, 500, 5_000), span(200, 1_000, 2_000), span(300, 3_000, 9_000)]
         assert _clip_spans_to_laminar(spans) == [
-            (100, 500, 2_999, 500, 5_000),
-            (200, 1_000, 2_000, 1_000, 2_000),
-            (300, 3_000, 9_000, 3_000, 9_000),
+            clipped_span(100, 500, 2_999, 500, 5_000),
+            clipped_span(200, 1_000, 2_000, 1_000, 2_000),
+            clipped_span(300, 3_000, 9_000, 3_000, 9_000),
         ]
 
     def test_chain_of_crossings_clips_each_in_turn(self) -> None:
-        spans = [(100, 0, 100), (200, 10, 200), (300, 20, 300)]
+        spans = [span(100, 0, 100), span(200, 10, 200), span(300, 20, 300)]
         assert _clip_spans_to_laminar(spans) == [
-            (100, 0, 9, 0, 100),
-            (200, 10, 19, 10, 200),
-            (300, 20, 300, 20, 300),
+            clipped_span(100, 0, 9, 0, 100),
+            clipped_span(200, 10, 19, 10, 200),
+            clipped_span(300, 20, 300, 20, 300),
         ]
 
     def test_clip_can_reduce_a_span_to_zero_length(self) -> None:
         """A crossing span starting one nanosecond later leaves nothing
         to draw. The span is still returned -- dropping it is the
         caller's decision, and the caller does not make it."""
-        spans = [(100, 500, 5_000), (200, 501, 9_000)]
+        spans = [span(100, 500, 5_000), span(200, 501, 9_000)]
         assert _clip_spans_to_laminar(spans) == [
-            (100, 500, 500, 500, 5_000),
-            (200, 501, 9_000, 501, 9_000),
+            clipped_span(100, 500, 500, 500, 5_000),
+            clipped_span(200, 501, 9_000, 501, 9_000),
         ]
 
     def test_zero_length_input_survives(self) -> None:
         """A pid observed at a single instant arrives zero-length and is
         passed through, not discarded."""
-        spans = [(100, 500, 500), (200, 500, 9_000)]
+        spans = [span(100, 500, 500), span(200, 500, 9_000)]
         assert _clip_spans_to_laminar(spans) == [
-            (200, 500, 9_000, 500, 9_000),
-            (100, 500, 500, 500, 500),
+            clipped_span(200, 500, 9_000, 500, 9_000),
+            clipped_span(100, 500, 500, 500, 500),
         ]
 
     def test_output_is_sorted_whatever_the_input_order(self) -> None:
         """The result comes back in the sweep's own sort order, not the
         caller's, so ``finalize_perfetto_packets`` can emit it as given."""
-        spans = [(100, 0, 100), (200, 10, 200), (300, 20, 300)]
+        spans = [span(100, 0, 100), span(200, 10, 200), span(300, 20, 300)]
         expected = [100, 200, 300]
         for permuted in ([spans[2], spans[0], spans[1]], list(reversed(spans)), spans):
-            assert [row[0] for row in _clip_spans_to_laminar(permuted)] == expected
+            assert [row.process.pid for row in _clip_spans_to_laminar(permuted)] == expected
 
     @pytest.mark.parametrize("seed", range(50))
     def test_invariants_hold_for_random_spans(self, seed: int) -> None:
@@ -234,23 +236,23 @@ class TestClipSpansToLaminar:
         named by the assertions."""
         rng = random.Random(seed)
         spans = [
-            (pid, start, start + rng.randrange(0, 2_000))
+            span(pid, start, start + rng.randrange(0, 2_000))
             for pid in range(100, 100 + rng.randint(2, 12))
             for start in (rng.randrange(0, 2_000),)
         ]
         rng.shuffle(spans)
         clipped = _clip_spans_to_laminar(spans)
 
-        originals = {pid: (start, end) for pid, start, end in spans}
-        assert {row[0] for row in clipped} == originals.keys(), "every span survives"
-        assert clipped == sorted(clipped, key=lambda row: (row[1], -row[4], row[0])), (
+        originals = {s.process: (s.start_ts, s.end_ts) for s in spans}
+        assert {row.process for row in clipped} == originals.keys(), "every span survives"
+        assert clipped == sorted(clipped, key=lambda row: (row.start_ts, -row.real_end_ts, row.process)), (
             "the sweep sorts its own input, so the result comes back in that order"
         )
-        for pid, start, end, real_start, real_end in clipped:
-            assert (real_start, real_end) == originals[pid], "the observed span is passed through"
-            assert start == real_start, "a start is never moved"
-            assert real_start <= end <= real_end, "an end only ever moves inwards"
-        _assert_laminar({pid: (start, end) for pid, start, end, _rs, _re in clipped})
+        for row in clipped:
+            assert (row.real_start_ts, row.real_end_ts) == originals[row.process], "the observed span is passed through"
+            assert row.start_ts == row.real_start_ts, "a start is never moved"
+            assert row.real_start_ts <= row.end_ts <= row.real_end_ts, "an end only ever moves inwards"
+        _assert_laminar({row.process.pid: (row.start_ts, row.end_ts) for row in clipped})
 
 
 class TestProcessLifetimeLaminarClipping:
@@ -261,7 +263,7 @@ class TestProcessLifetimeLaminarClipping:
     END and discards the later one as a ``misplaced_end_event``."""
 
     def test_crossing_clips_the_earlier_end(self) -> None:
-        intervals, real = _finalize_spans([(100, 500, 1_500), (200, 1_000, 5_000)])
+        intervals, real = _finalize_spans([span(100, 500, 1_500), span(200, 1_000, 5_000)])
         assert intervals == {100: (500, 999), 200: (1_000, 5_000)}
         assert real == {100: (500, 1_500), 200: (1_000, 5_000)}
         _assert_laminar(intervals)
@@ -269,26 +271,26 @@ class TestProcessLifetimeLaminarClipping:
     def test_containment_is_left_alone(self) -> None:
         """A parent outliving its child nests correctly, so the common
         multi-process shape costs nothing."""
-        intervals, real = _finalize_spans([(100, 500, 9_000), (200, 1_000, 5_000)])
+        intervals, real = _finalize_spans([span(100, 500, 9_000), span(200, 1_000, 5_000)])
         assert intervals == {100: (500, 9_000), 200: (1_000, 5_000)}
         assert real == intervals
         _assert_laminar(intervals)
 
     def test_disjoint_is_left_alone(self) -> None:
-        intervals, real = _finalize_spans([(100, 500, 1_000), (200, 5_000, 9_000)])
+        intervals, real = _finalize_spans([span(100, 500, 1_000), span(200, 5_000, 9_000)])
         assert intervals == {100: (500, 1_000), 200: (5_000, 9_000)}
         assert real == intervals
 
     def test_touching_counts_as_crossing(self) -> None:
         """``A.end == B.start`` is clipped too: the relative order of an
         END and a BEGIN sharing a timestamp is not ours to control."""
-        intervals, real = _finalize_spans([(100, 500, 1_000), (200, 1_000, 5_000)])
+        intervals, real = _finalize_spans([span(100, 500, 1_000), span(200, 1_000, 5_000)])
         assert intervals == {100: (500, 999), 200: (1_000, 5_000)}
         assert real == {100: (500, 1_000), 200: (1_000, 5_000)}
 
     def test_equal_starts_nest_longest_first(self) -> None:
         """Spans sharing a start can never cross, so none is clipped."""
-        intervals, real = _finalize_spans([(100, 500, 1_000), (200, 500, 9_000)])
+        intervals, real = _finalize_spans([span(100, 500, 1_000), span(200, 500, 9_000)])
         assert intervals == {200: (500, 9_000), 100: (500, 1_000)}
         assert real == intervals
         _assert_laminar(intervals)
@@ -301,7 +303,7 @@ class TestProcessLifetimeLaminarClipping:
         there and never notice that pid 300 crosses pid 100.
         """
         intervals, real = _finalize_spans(
-            [(100, 500, 5_000), (200, 1_000, 2_000), (300, 3_000, 9_000)],
+            [span(100, 500, 5_000), span(200, 1_000, 2_000), span(300, 3_000, 9_000)],
         )
         assert intervals == {100: (500, 2_999), 200: (1_000, 2_000), 300: (3_000, 9_000)}
         assert real == {100: (500, 5_000), 200: (1_000, 2_000), 300: (3_000, 9_000)}
@@ -312,7 +314,7 @@ class TestProcessLifetimeLaminarClipping:
         rather than nothing. It is the only place the track records that
         the process existed, and omission is the one distortion a reader
         has no way to notice."""
-        intervals, real = _finalize_spans([(100, 500, 500)])
+        intervals, real = _finalize_spans([span(100, 500, 500)])
         assert intervals == {100: (500, 500)}
         assert real == {100: (500, 500)}
 
@@ -321,7 +323,7 @@ class TestProcessLifetimeLaminarClipping:
         nanosecond later. Nothing is left to draw, but the slice is
         emitted anyway and its annotations still carry the real 4.5us
         span."""
-        intervals, real = _finalize_spans([(100, 500, 5_000), (200, 501, 9_000)])
+        intervals, real = _finalize_spans([span(100, 500, 5_000), span(200, 501, 9_000)])
         assert intervals == {100: (500, 500), 200: (501, 9_000)}
         assert real == {100: (500, 5_000), 200: (501, 9_000)}
         _assert_laminar(intervals)
@@ -335,8 +337,8 @@ class TestProcessLifetimeLaminarClipping:
         no track and nothing described it. It has no process track and no
         cmdline, so the slice carries only the ``real_*`` annotations."""
         state = PerfettoTrackState()
-        state.update_process_lifetime(100, 500)
-        state.update_process_lifetime(100, 5_000)
+        state.update_process_lifetime(proc(100), 500)
+        state.update_process_lifetime(proc(100), 5_000)
         assert not state.has_process_descriptor(proc(100))
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
         packets = finalize_perfetto_packets(state, sequence_id=1)
@@ -345,7 +347,7 @@ class TestProcessLifetimeLaminarClipping:
                 500,
                 TrackEventType.SLICE_BEGIN,
                 "Process 100",
-                {"real_start_ts": 500, "real_end_ts": 5_000},
+                {"pid_epoch": 1, "real_start_ts": 500, "real_end_ts": 5_000},
             ),
             (5_000, TrackEventType.SLICE_END, "Process 100", {}),
         ]
@@ -366,8 +368,8 @@ class TestProcessLifetimeLaminarClipping:
         assert finalize_perfetto_packets(state, sequence_id=1) == []
         assert not state.has_process_lifetime_emitted()
 
-        state.update_process_lifetime(100, 500)
-        state.update_process_lifetime(100, 5_000)
+        state.update_process_lifetime(proc(100), 500)
+        state.update_process_lifetime(proc(100), 5_000)
         assert finalize_perfetto_packets(state, sequence_id=1) != []
         assert state.has_process_lifetime_emitted()
 
@@ -377,15 +379,15 @@ class TestProcessLifetimeLaminarClipping:
         BEGIN is closed by its own END, every pid keeps a slice, and
         every slice reports its observed span truthfully."""
         rng = random.Random(seed)
-        spans: list[tuple[int, int, int]] = []
+        spans: list[ProcessSpan] = []
         for pid in range(100, 100 + rng.randint(2, 12)):
             start = rng.randrange(0, 2_000)
-            spans.append((pid, start, start + rng.randrange(0, 2_000)))
+            spans.append(span(pid, start, start + rng.randrange(0, 2_000)))
         intervals, real = _finalize_spans(spans)
         _assert_laminar(intervals)
-        assert intervals.keys() == {pid for pid, _s, _e in spans}, "no pid is ever dropped"
+        assert intervals.keys() == {one.process.pid for one in spans}, "no pid is ever dropped"
         for pid, (start_ts, end_ts) in intervals.items():
-            original = next((s, e) for p, s, e in spans if p == pid)
+            original = next((one.start_ts, one.end_ts) for one in spans if one.process.pid == pid)
             assert real[pid] == original, "the recorded span is the observed one"
             assert start_ts == original[0], "a span's start is never moved"
             assert start_ts <= end_ts <= original[1], "an end is only ever pulled in"
@@ -497,10 +499,11 @@ class TestProcessLifetimeSlices:
         assert first_packet.timestamp == 1_000
         assert first_packet.track_event.name == "Process 100"
         annotations = first_packet.track_event.debug_annotations
-        assert [a.name for a in annotations] == ["cmdline", "real_start_ts", "real_end_ts"]
-        assert annotations[0].string_value == "python3 -m fake_target"
-        assert annotations[1].int_value == 1_000
-        assert annotations[2].int_value == 2_000
+        assert [a.name for a in annotations] == ["cmdline", "pid_epoch", "real_start_ts", "real_end_ts"]
+        by_name = {a.name: a for a in annotations}
+        assert by_name["cmdline"].string_value == "python3 -m fake_target"
+        assert by_name["real_start_ts"].int_value == 1_000
+        assert by_name["real_end_ts"].int_value == 2_000
 
     def test_process_lifetime_slice_begin_no_cmdline_omits_arg(self) -> None:
         """When ``state`` has no cmdline for the pid, the slice BEGIN on
@@ -533,7 +536,7 @@ class TestProcessLifetimeSlices:
                 begin_packets.append(packet)
         assert len(begin_packets) == 1
         annotations = begin_packets[0].track_event.debug_annotations
-        assert [a.name for a in annotations] == ["real_start_ts", "real_end_ts"]
+        assert [a.name for a in annotations] == ["pid_epoch", "real_start_ts", "real_end_ts"]
 
     def test_process_lifetime_slice_end_at_last_event_ts(self) -> None:
         """The ``Process <pid>`` slice END is emitted at the ts of the
@@ -625,6 +628,7 @@ class TestProcessLifetimeSlices:
                 "Process 100",
                 {
                     "cmdline": "python3 -m early_target",
+                    "pid_epoch": 1,
                     "real_start_ts": 500,
                     "real_end_ts": 1_500,
                 },
@@ -636,6 +640,7 @@ class TestProcessLifetimeSlices:
                 "Process 200",
                 {
                     "cmdline": "python3 -m late_target",
+                    "pid_epoch": 1,
                     "real_start_ts": 1_000,
                     "real_end_ts": 5_000,
                 },
@@ -692,6 +697,7 @@ class TestProcessLifetimeSlices:
                 "Process 100",
                 {
                     "cmdline": "python3 -m fake_target",
+                    "pid_epoch": 1,
                     "real_start_ts": 1_000,
                     "real_end_ts": 4_000,
                 },

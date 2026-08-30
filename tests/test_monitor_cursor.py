@@ -13,6 +13,8 @@ import pytest
 
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.poll_status import PollStatus
+from gcmon.model.process import Process
+from gcmon.model.protocol import TGCStatsInfo
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.stats.streaming_stats import StreamingStats
 from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item, polled, proc
@@ -288,16 +290,51 @@ class TestSettlingAnExitedPid:
         self, monitor: EventsMonitor, stats: StreamingStats
     ) -> None:
         """`forget` drops the cursor so the successor's records read as new,
-        and its numbers land beside its predecessor's rather than on them."""
-        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
-        monitor._forget(PID, 0)
+        and its numbers land beside its predecessor's rather than on them.
 
-        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=9_000)])
+        The successor collects after the departure, which is the only way it
+        can: a record older than the retirement belongs to the process that
+        has gone."""
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+        monitor._forget(PID, 5_000)
+
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=10_000, ts_stop=19_000)])
 
         assert stats.rings() == [(proc(PID), 0), (proc(PID, 2), 0)]
         assert stats.pause_totals(proc(PID, 1), 0, 0).sampled_pause_ns == 1_000
         assert stats.pause_totals(proc(PID, 2), 0, 0).sampled_pause_ns == 9_000
         assert stats.untracked_rings() == 0
+
+    def test_a_re_read_record_goes_to_the_process_that_produced_it(
+        self, monitor: EventsMonitor, exporter: MockExporter
+    ) -> None:
+        """A pid pruned from the tree loses its cursor, so its successor
+        re-reads the ring and hands gcmon records the predecessor produced.
+        Each is attributed by its own timestamp: the successor did not exist
+        when they happened (ADR-0011)."""
+        seen: list[Process] = []
+        original = exporter.add_event
+
+        def _watch(process: Process, item: TGCStatsInfo) -> None:
+            seen.append(process)
+            original(process, item)
+
+        exporter.add_event = _watch  # type: ignore[method-assign]
+
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+        monitor._forget(PID, 5_000)
+        ingest(
+            monitor,
+            PID,
+            [
+                create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000),
+                create_mock_stats_item(gen=0, collections=2, ts_start=10_000, ts_stop=19_000),
+            ],
+        )
+
+        assert seen == [proc(PID), proc(PID), proc(PID, 2)], (
+            "the re-read record belongs to the predecessor, the new one to the successor"
+        )
 
     def test_a_pid_polled_after_retain_starts_a_second_block(
         self, monitor: EventsMonitor, stats: StreamingStats
@@ -305,9 +342,9 @@ class TestSettlingAnExitedPid:
         """`retain` is the tick's own listing, so it decides a pid has gone
         the same way `forget` does."""
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
-        monitor._retain({999}, 0)
+        monitor._retain({999}, 5_000)
 
-        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=9_000)])
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=10_000, ts_stop=19_000)])
 
         assert stats.rings() == [(proc(PID), 0), (proc(PID, 2), 0)]
 

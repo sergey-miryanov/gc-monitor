@@ -234,7 +234,14 @@ def _drive(
     _reader_of(monitor).reads = read
 
     reports: list[PollReport] = []
-    with patch("gcmon.monitoring.monitor.get_child_pids", side_effect=list(listings)):
+    now_ns = 0
+    # A tick's reads land on the instant it was given, so a test that says
+    # nothing about the clock gets one stamp per tick. `TestProcessLiveness`
+    # drives the reads apart where the spread is the subject.
+    with (
+        patch("gcmon.monitoring.monitor.get_child_pids", side_effect=list(listings)),
+        patch("gcmon.monitoring.monitor.time.monotonic_ns", lambda: now_ns),
+    ):
         for tick, _ in enumerate(listings, start=1):
             now_ns = tick * TICK_NS
             reports.append(monitor.tick(now_ns, stop))
@@ -548,7 +555,7 @@ class TestProcessLiveness:
             frozenset({12345, 888}),
         ]
 
-    def test_stamped_with_the_instant_the_tick_was_given(self, exporter: MockExporter) -> None:
+    def test_stamped_with_the_instant_the_tick_reached(self, exporter: MockExporter) -> None:
         _drive(
             _monitor(exporter),
             listings=[[], []],
@@ -556,6 +563,23 @@ class TestProcessLiveness:
         )
 
         assert [ts for _pids, ts in exporter.liveness] == [TICK_NS, 2 * TICK_NS]
+
+    def test_stamped_no_earlier_than_the_reads_that_proved_them_alive(self, exporter: MockExporter) -> None:
+        """Two processes alive in one tick have to share an end, so the sweep
+        that draws the `Processes` track sees them nest rather than cross. The
+        opening instant does not do it: reads are sequential, so the pid polled
+        second is observed later, and a long-lived parent would be clipped back
+        to the start of a short child that recycled a pid (ADR-0011)."""
+        monitor = _monitor(exporter)
+        reads = iter([TICK_NS + 10, TICK_NS + 20, TICK_NS + 30, TICK_NS + 40])
+        with (
+            patch("gcmon.monitoring.monitor.get_child_pids", return_value=[999]),
+            patch("gcmon.monitoring.monitor.time.monotonic_ns", side_effect=lambda: next(reads)),
+        ):
+            _reader_of(monitor).reads = lambda pid: [_ring(1)[0]]
+            monitor.tick(TICK_NS, _never_stops)
+
+        assert [ts for _pids, ts in exporter.liveness] == [TICK_NS + 40]
 
     def test_a_pid_that_could_not_be_read_is_not_reported(self, exporter: MockExporter) -> None:
         _drive(
@@ -616,9 +640,9 @@ class _OrderedExporter(MockExporter):
         super().add_event(process, item)
 
     @override
-    def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
+    def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
         self.order.append("liveness")
-        super().add_process_liveness(pids, ts_ns)
+        super().add_process_liveness(processes, ts_ns)
 
 
 class TestTheExporterIsNotReachableThroughTheMonitor:

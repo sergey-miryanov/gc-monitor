@@ -21,10 +21,10 @@ class TestAddProcessLivenessIsPerfettoOnly:
     def _write(self, path: Path, exporter: EventsExporter, *, with_liveness: bool) -> bytes:
         exporter.add_event(proc(100), create_mock_stats_item())
         if with_liveness:
-            exporter.add_process_liveness({100, 200}, 1_400_000_000)
+            exporter.add_process_liveness({proc(100), proc(200)}, 1_400_000_000)
         exporter.add_instant_event(proc(100), create_instant_msg(name="marker", ts=1_600_000_000))
         if with_liveness:
-            exporter.add_process_liveness({100, 200}, 1_800_000_000)
+            exporter.add_process_liveness({proc(100), proc(200)}, 1_800_000_000)
         exporter.close()
         return path.read_bytes()
 
@@ -43,6 +43,6 @@ class TestAddProcessLivenessIsPerfettoOnly:
 
         exporter = StdoutExporter(flush_threshold=1000)
         exporter.add_event(proc(100), create_mock_stats_item())
-        exporter.add_process_liveness({100, 200}, 1_400_000_000)
+        exporter.add_process_liveness({proc(100), proc(200)}, 1_400_000_000)
         exporter.close()
         assert capsys.readouterr().out == without

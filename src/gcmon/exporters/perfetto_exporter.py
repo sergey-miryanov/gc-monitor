@@ -73,7 +73,7 @@ class PerfettoExporter(EventsExporter):
         self._enqueue(convert_loss_to_trace_format(process, item))
 
     @override
-    def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
+    def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
         """Fold one tick's liveness observations into the encoder's span
         accumulator.
 
@@ -85,7 +85,7 @@ class PerfettoExporter(EventsExporter):
         ``get_process_lifetimes``.
         """
         with self._io_lock:
-            self._encoder.record_process_liveness(pids, ts_ns)
+            self._encoder.record_process_liveness(processes, ts_ns)
 
     @override
     def close(self) -> None:

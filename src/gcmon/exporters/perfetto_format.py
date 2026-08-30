@@ -337,7 +337,7 @@ def _emit_track_descriptors(
         state,
         sequence_id,
         sibling_order_rank=ranks.get(process.pid),
-        start_timestamp_ns=state.get_process_lifetime_start_ts(process.pid),
+        start_timestamp_ns=state.get_process_lifetime_start_ts(process),
     )
     if isinstance(track, InterpreterTrack):
         descriptors.extend(_emit_thread_descriptor(track, state, sequence_id))

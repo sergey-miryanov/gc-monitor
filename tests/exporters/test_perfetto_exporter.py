@@ -14,6 +14,7 @@ from gcmon.exporters.perfetto_format import (
     TrackEventType,
 )
 from gcmon.model.data import GCStatsInfo
+from gcmon.model.process import Process
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory
@@ -464,7 +465,7 @@ class TestProcessLivenessRoundTrip:
         exporter, path = perfetto_exporter()
         exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item())
         for ts in (1_400_000_000, 1_600_000_000, 1_800_000_000):
-            exporter.add_process_liveness({_QUIET_PID}, ts)
+            exporter.add_process_liveness({proc(_QUIET_PID)}, ts)
         exporter.close()
 
         assert _lifetime_spans(path)[f"Process {_QUIET_PID}"] == (1_400_000_000, 1_800_000_000)
@@ -476,7 +477,7 @@ class TestProcessLivenessRoundTrip:
         a timestamp from before gcmon ever saw it."""
         exporter, path = perfetto_exporter()
         exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item(ts_start=1_500_000_000, ts_stop=1_505_000_000))
-        exporter.add_process_liveness({DEFAULT_PID}, 1_900_000_000)
+        exporter.add_process_liveness({proc(DEFAULT_PID)}, 1_900_000_000)
         exporter.close()
 
         # The event start is still the start -- it precedes the first
@@ -486,8 +487,8 @@ class TestProcessLivenessRoundTrip:
     def test_whole_live_set_lands_in_one_call(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
         exporter.add_event(proc(DEFAULT_PID), create_mock_stats_item())
-        exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_400_000_000)
-        exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_800_000_000)
+        exporter.add_process_liveness({proc(_QUIET_PID), proc(_OTHER_QUIET_PID)}, 1_400_000_000)
+        exporter.add_process_liveness({proc(_QUIET_PID), proc(_OTHER_QUIET_PID)}, 1_800_000_000)
         exporter.close()
 
         spans = _lifetime_spans(path)
@@ -500,8 +501,8 @@ class TestProcessLivenessRoundTrip:
         skip its closeout in that case, dropping the whole track and the
         file with it."""
         exporter, path = perfetto_exporter()
-        exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_400_000_000)
-        exporter.add_process_liveness({_QUIET_PID, _OTHER_QUIET_PID}, 1_800_000_000)
+        exporter.add_process_liveness({proc(_QUIET_PID), proc(_OTHER_QUIET_PID)}, 1_400_000_000)
+        exporter.add_process_liveness({proc(_QUIET_PID), proc(_OTHER_QUIET_PID)}, 1_800_000_000)
         exporter.close()
 
         assert path.exists(), "a trace with spans and no events must still be written"
@@ -526,10 +527,10 @@ class TestProcessLivenessRoundTrip:
         release = threading.Event()
         real_record = exporter._encoder.record_process_liveness
 
-        def _blocking_record(pids: AbstractSet[int], ts_ns: int) -> None:
+        def _blocking_record(processes: AbstractSet[Process], ts_ns: int) -> None:
             inside.set()
             assert release.wait(timeout=5.0)
-            real_record(pids, ts_ns)
+            real_record(processes, ts_ns)
 
         exporter._encoder.record_process_liveness = _blocking_record  # type: ignore[method-assign]
 
@@ -541,7 +542,7 @@ class TestProcessLivenessRoundTrip:
             exporter.add_instant_event(proc(DEFAULT_PID), create_instant_msg(name="contend", ts=1_500_000_000))
             flushed.set()
 
-        liveness = threading.Thread(target=exporter.add_process_liveness, args=({_QUIET_PID}, 1_400_000_000))
+        liveness = threading.Thread(target=exporter.add_process_liveness, args=({proc(_QUIET_PID)}, 1_400_000_000))
         writer = threading.Thread(target=_flush)
         liveness.start()
         assert inside.wait(timeout=5.0)

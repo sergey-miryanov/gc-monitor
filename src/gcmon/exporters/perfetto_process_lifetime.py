@@ -1,8 +1,11 @@
 """The shared ``Processes`` track: spans, laminar clipping, emission.
 
-One BEGIN/END pair per pid on one shared track. See ADR-0011.
+One BEGIN/END pair per process on one shared track. See ADR-0011.
 """
 
+from typing import NamedTuple
+
+from ..model.process import Process
 from ..model.trace_event import Slice, TraceEvent
 from .perfetto_builders import (
     _build_debug_annotation_int,
@@ -12,13 +15,29 @@ from .perfetto_builders import (
     build_track_event,
 )
 from .perfetto_proto import TrackEventType
-from .perfetto_track_state import PerfettoTrackState
+from .perfetto_track_state import PerfettoTrackState, ProcessSpan
 
 __all__ = ["finalize_perfetto_packets"]
 
 
+class ClippedSpan(NamedTuple):
+    """A :class:`ProcessSpan` as the slice draws it, and as it was
+    observed.
+
+    Clipping moves ``start_ts`` / ``end_ts`` and leaves ``real_start_ts``
+    / ``real_end_ts`` alone, so where the two disagree the observed pair
+    is the truth (ADR-0011).
+    """
+
+    process: Process
+    start_ts: int
+    end_ts: int
+    real_start_ts: int
+    real_end_ts: int
+
+
 # Name of the shared top-level Perfetto track that shows one
-# TYPE_SLICE_BEGIN / TYPE_SLICE_END pair per pid.
+# TYPE_SLICE_BEGIN / TYPE_SLICE_END pair per process.
 _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
 
 
@@ -36,42 +55,43 @@ def _emit_process_lifetime_track_descriptor(
 
 
 def _emit_process_lifetime_slice(
-    pid: int,
-    start_ts: int,
-    end_ts: int,
+    span: ClippedSpan,
     state: PerfettoTrackState,
     sequence_id: int,
-    real_start_ts: int,
-    real_end_ts: int,
 ) -> list[bytes]:
     """Emit the ``TYPE_SLICE_BEGIN`` / ``TYPE_SLICE_END`` pair drawing
-    *pid*'s slice over ``[start_ts, end_ts]``, BEGIN first: the trace
+    *span*, BEGIN first: the trace
     processor breaks timestamp ties by position in the sequence, so a
     zero-length span with its END first reads as ``dur = -1``.
 
     The BEGIN carries a ``cmdline`` annotation when *state* has one, plus
-    *real_start_ts* / *real_end_ts*: the span as observed, annotated on
-    **every** slice rather than only clipped ones so a consumer never has
-    to check whether a clip happened. Where those and the drawn ``ts`` /
-    ``dur`` disagree, the annotations are the truth.
+    ``pid_epoch`` and *real_start_ts* / *real_end_ts*: the span as
+    observed, annotated on **every** slice rather than only clipped ones
+    so a consumer never has to check whether a clip happened. Where those
+    and the drawn ``ts`` / ``dur`` disagree, the annotations are the
+    truth. ``pid_epoch`` goes on every slice for the same reason, so a
+    reader filtering on it needs no string parse of the name.
 
-    The END repeats the name, and that is load-bearing: the trace
-    processor matches a named END to the BEGIN carrying that name,
-    force-closing anything above it."""
+    The name carries the epoch as a ``#N`` suffix from the second process
+    on a pid, and the END repeats the whole name. That is load-bearing
+    twice over: the trace processor matches a named END to the BEGIN
+    carrying that name, force-closing anything above it, so two spans on
+    one pid sharing a name would close each other."""
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
-    name = f"Process {pid}"
+    name = f"Process {span.process}"
     debug_annotations: list[bytes] = []
-    cmdline = state.get_cmdline(pid)
+    cmdline = state.get_cmdline(span.process.pid)
     if cmdline:
         debug_annotations.append(
             _build_debug_annotation_string("cmdline", " ".join(cmdline)),
         )
-    debug_annotations.append(_build_debug_annotation_int("real_start_ts", real_start_ts))
-    debug_annotations.append(_build_debug_annotation_int("real_end_ts", real_end_ts))
+    debug_annotations.append(_build_debug_annotation_int("pid_epoch", span.process.pid_epoch))
+    debug_annotations.append(_build_debug_annotation_int("real_start_ts", span.real_start_ts))
+    debug_annotations.append(_build_debug_annotation_int("real_end_ts", span.real_end_ts))
     return [
         build_trace_packet(
             sequence_id,
-            timestamp=start_ts,
+            timestamp=span.start_ts,
             track_event=build_track_event(
                 type=TrackEventType.SLICE_BEGIN,
                 track_uuid=track_uuid,
@@ -81,7 +101,7 @@ def _emit_process_lifetime_slice(
         ),
         build_trace_packet(
             sequence_id,
-            timestamp=end_ts,
+            timestamp=span.end_ts,
             track_event=build_track_event(
                 type=TrackEventType.SLICE_END,
                 track_uuid=track_uuid,
@@ -102,43 +122,40 @@ def _record_process_lifetime(
     whatever kind it is. A slice is evidence at both its ends, so it is
     folded in twice. Emits nothing: spans become packets at close.
     """
-    pid = event.track.process.pid
+    process = event.track.process
     if isinstance(event, Slice):
-        state.update_process_lifetime(pid, event.ts_start)
-        state.update_process_lifetime(pid, event.ts_stop)
+        state.update_process_lifetime(process, event.ts_start)
+        state.update_process_lifetime(process, event.ts_stop)
     else:
-        state.update_process_lifetime(pid, event.ts)
+        state.update_process_lifetime(process, event.ts)
 
 
-def _clip_spans_to_laminar(
-    spans: list[tuple[int, int, int]],
-) -> list[tuple[int, int, int, int, int]]:
-    """Clip *spans* so any two are disjoint or strictly nested, and
-    return ``[(pid, start, end, real_start, real_end), ...]`` sorted by
-    ascending start, longer span first on a tie, then pid. ``start`` /
-    ``end`` are what the slice draws; ``real_start`` / ``real_end`` are
-    the observed span, carried through untouched. See ADR-0011.
+def _clip_spans_to_laminar(spans: list[ProcessSpan]) -> list[ClippedSpan]:
+    """Clip *spans* so any two are disjoint or strictly nested, sorted by
+    ascending start, longer span first on a tie, then process. The drawn
+    pair moves; the observed pair is carried through untouched. See
+    ADR-0011.
     """
-    spans = sorted(spans, key=lambda span: (span[1], -span[2], span[0]))
-    ends: dict[int, int] = {}
-    open_pids: list[int] = []
-    for pid, start, end in spans:
+    spans = sorted(spans, key=lambda span: (span.start_ts, -span.end_ts, span.process))
+    ends: dict[Process, int] = {}
+    open_processes: list[Process] = []
+    for process, start, end in spans:
         # Walk out through the spans still open at *start*, closing the
         # ones that ended before it and clipping the ones it crosses.
         # Only a span that contains this one stops the walk.
-        while open_pids:
-            outer_pid = open_pids[-1]
-            outer_end = ends[outer_pid]
+        while open_processes:
+            outer = open_processes[-1]
+            outer_end = ends[outer]
             if outer_end < start:
-                open_pids.pop()
+                open_processes.pop()
                 continue
             if outer_end >= end:
                 break
-            ends[outer_pid] = start - 1
-            open_pids.pop()
-        ends[pid] = end
-        open_pids.append(pid)
-    return [(pid, start, ends[pid], start, end) for pid, start, end in spans]
+            ends[outer] = start - 1
+            open_processes.pop()
+        ends[process] = end
+        open_processes.append(process)
+    return [ClippedSpan(process, start, ends[process], start, end) for process, start, end in spans]
 
 
 def finalize_perfetto_packets(
@@ -146,10 +163,11 @@ def finalize_perfetto_packets(
     sequence_id: int,
 ) -> list[bytes]:
     """Emit every ``Processes``-track packet for the whole trace: the
-    track descriptor, then one slice per pid that has a span. Call this
-    once, at the end of the trace (typically the encoder's ``close()``).
+    track descriptor, then one slice per process that has a span. Call
+    this once, at the end of the trace (typically the encoder's
+    ``close()``).
 
-    Every pid with a span gets a slice, including one the monitor loop
+    Every process with a span gets a slice, including one the monitor loop
     only ever reported as live: it has no process descriptor and no
     cmdline, nothing but the span, and drawing it anyway is the point of
     monitor-reported liveness.
@@ -170,18 +188,8 @@ def finalize_perfetto_packets(
         return []
 
     packets: list[bytes] = []
-    for pid, start_ts, end_ts, real_start, real_end in _clip_spans_to_laminar(spans):
-        packets.extend(
-            _emit_process_lifetime_slice(
-                pid,
-                start_ts,
-                end_ts,
-                state,
-                sequence_id,
-                real_start_ts=real_start,
-                real_end_ts=real_end,
-            )
-        )
+    for span in _clip_spans_to_laminar(spans):
+        packets.extend(_emit_process_lifetime_slice(span, state, sequence_id))
 
     descriptor = _emit_process_lifetime_track_descriptor(state, sequence_id)
     state.mark_process_lifetime_emitted()

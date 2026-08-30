@@ -11,12 +11,24 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
 )
 
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
-from gcmon.exporters.perfetto_process_lifetime import finalize_perfetto_packets
-from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from gcmon.exporters.perfetto_process_lifetime import ClippedSpan, finalize_perfetto_packets
+from gcmon.exporters.perfetto_track_state import PerfettoTrackState, ProcessSpan
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.trace_event import TraceEvent
 from tests.helpers import proc
+
+
+def span(pid: int, start_ts: int, end_ts: int, pid_epoch: int = 1) -> ProcessSpan:
+    """A `ProcessSpan` for a test that names a pid rather than a process."""
+    return ProcessSpan(proc(pid, pid_epoch), start_ts, end_ts)
+
+
+def clipped_span(
+    pid: int, start_ts: int, end_ts: int, real_start_ts: int, real_end_ts: int, pid_epoch: int = 1
+) -> ClippedSpan:
+    """A `ClippedSpan` for a test that names a pid. See :func:`span`."""
+    return ClippedSpan(proc(pid, pid_epoch), start_ts, end_ts, real_start_ts, real_end_ts)
 
 
 def convert_item(

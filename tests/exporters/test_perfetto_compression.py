@@ -102,8 +102,8 @@ def _write_liveness_only_trace(path: Path, codec: Codec) -> Path:
         cmdline_provider=lambda _pid: None,
         codec=codec,
     )
-    exporter.add_process_liveness({_PID}, 1_000_000)
-    exporter.add_process_liveness({_PID}, 5_000_000)
+    exporter.add_process_liveness({proc(_PID)}, 1_000_000)
+    exporter.add_process_liveness({proc(_PID)}, 5_000_000)
     exporter.close()
     return path
 

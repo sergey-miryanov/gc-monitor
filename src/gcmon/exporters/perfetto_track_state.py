@@ -8,10 +8,24 @@ lives here, apart from the emission code in ``perfetto_process_lifetime``,
 because splitting the class would leave two halves sharing ``_next_uuid``.
 """
 
+from typing import NamedTuple
+
 import msgspec
 
 from ..model.process import Process
 from ..model.trace_event import Track
+
+
+class ProcessSpan(NamedTuple):
+    """The interval one process was observed over.
+
+    A pid the operating system handed out twice brings one of these per
+    process, so a span covers only the process it names (ADR-0011).
+    """
+
+    process: Process
+    start_ts: int
+    end_ts: int
 
 
 def _shared_row(track: Track) -> Track:
@@ -36,8 +50,8 @@ class PerfettoTrackState:
         self._track_uuids: dict[Track, int] = {}
         self._start_process_marker_emitted: set[int] = set()
         self._process_lifetime_track_uuid: int | None = None
-        self._process_lifetime_start: dict[int, int] = {}
-        self._process_lifetime_end: dict[int, int] = {}
+        self._process_lifetime_start: dict[Process, int] = {}
+        self._process_lifetime_end: dict[Process, int] = {}
         self._process_lifetime_emitted: bool = False
         self._root_descriptor_emitted: bool = False
         self._next_uuid: int = 1
@@ -120,36 +134,48 @@ class PerfettoTrackState:
             self._process_lifetime_track_uuid = self._alloc_uuid()
         return self._process_lifetime_track_uuid
 
-    def has_process_lifetime(self, pid: int) -> bool:
-        return pid in self._process_lifetime_start
+    def has_process_lifetime(self, process: Process) -> bool:
+        return process in self._process_lifetime_start
 
-    def update_process_lifetime(self, pid: int, ts: int) -> None:
-        """Fold *ts* into the recorded span for *pid*: a plain min/max
-        over every piece of evidence that gcmon saw the process.
+    def update_process_lifetime(self, process: Process, ts: int) -> None:
+        """Fold *ts* into the recorded span for *process*: a plain min/max
+        over every piece of evidence that gcmon saw it.
 
         Evidence is any event, counters included, *or* a liveness
         observation from the monitor loop. No event-kind exception: an
         RSS sample is evidence the process existed just as a GC event is.
         See ADR-0011.
+
+        Keyed on the process rather than the pid, so a pid handed on gets
+        a span per process instead of one span across both, wide enough
+        to cover a stretch in which neither was running.
         """
-        start_ts = self._process_lifetime_start.get(pid)
+        start_ts = self._process_lifetime_start.get(process)
         if start_ts is None or ts < start_ts:
-            self._process_lifetime_start[pid] = ts
-        end_ts = self._process_lifetime_end.get(pid)
+            self._process_lifetime_start[process] = ts
+        end_ts = self._process_lifetime_end.get(process)
         if end_ts is None or ts > end_ts:
-            self._process_lifetime_end[pid] = ts
+            self._process_lifetime_end[process] = ts
 
-    def get_process_lifetime_start_ts(self, pid: int) -> int | None:
-        return self._process_lifetime_start.get(pid)
+    def get_process_lifetime_start_ts(self, process: Process) -> int | None:
+        """When the pid's Perfetto row opens.
 
-    def get_process_lifetimes(self) -> list[tuple[int, int, int]]:
-        """Return ``[(pid, start_ts, end_ts), ...]`` for every pid with a
-        recorded span.
-
-        The two dicts carry identical key sets, so this is every pid ever
-        folded in -- including one known only from liveness.
+        The row is not split, so it covers every process that held the
+        pid and opens at the first of them: a run with no reuse is
+        stamped exactly as it was (spec 0059).
         """
-        return [(pid, self._process_lifetime_start[pid], end) for pid, end in self._process_lifetime_end.items()]
+        return self._process_lifetime_start.get(Process(process.pid, 1, 0))
+
+    def get_process_lifetimes(self) -> list[ProcessSpan]:
+        """Every process with a recorded span.
+
+        The two dicts carry identical key sets, so this is every process
+        ever folded in -- including one known only from liveness.
+        """
+        return [
+            ProcessSpan(process, self._process_lifetime_start[process], end)
+            for process, end in self._process_lifetime_end.items()
+        ]
 
     def has_process_lifetime_emitted(self) -> bool:
         return self._process_lifetime_emitted
@@ -159,14 +185,17 @@ class PerfettoTrackState:
 
     def get_process_track_ranks(self) -> dict[int, int]:
         """Return ``{pid: rank}``, assigned sequentially from ``0`` by
-        ascending ``(start_ts, pid)``. Pids with no recorded start are
-        absent."""
-        if not self._process_lifetime_start:
+        ascending ``(start_ts, pid)`` over the first process to hold each
+        pid. Pids with no recorded start are absent.
+
+        Ranked on the first process for the same reason the row is
+        stamped from it: one row covers them all, so a later process on a
+        reused pid does not reorder it.
+        """
+        firsts = {process.pid: ts for process, ts in self._process_lifetime_start.items() if process.pid_epoch == 1}
+        if not firsts:
             return {}
-        sorted_pids = sorted(
-            self._process_lifetime_start.keys(),
-            key=lambda p: (self._process_lifetime_start[p], p),
-        )
+        sorted_pids = sorted(firsts, key=lambda pid: (firsts[pid], pid))
         return {pid: rank for rank, pid in enumerate(sorted_pids)}
 
     def has_root_descriptor(self) -> bool:

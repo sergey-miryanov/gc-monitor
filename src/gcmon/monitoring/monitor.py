@@ -94,6 +94,8 @@ class EventsMonitor:
         self._is_pid_enabled = is_pid_enabled
         self._stats = stats
         self._processes = registry if registry is not None else ProcessRegistry()
+        # The latest clock instant this tick has reached. See :meth:`tick`.
+        self._tick_read_ns = 0
         self._coverage_warned = False
 
     def tick(self, now_ns: int, stop: Callable[[], bool]) -> PollReport:
@@ -116,6 +118,14 @@ class EventsMonitor:
         # listing failed, so prune only when it worked.
         if child_pids is not None:
             self._retain(set(children), now_ns)
+
+        # Liveness is stamped no earlier than the reads that prove these
+        # processes alive, so two alive in one tick share an end. Stamped
+        # with the opening instant instead, the pid polled second outlives
+        # the first by the tick's read spread, and the `Processes` sweep
+        # reads that as a crossing: a long-lived parent gets clipped back
+        # to the start of a short child that recycled a pid (ADR-0011).
+        self._tick_read_ns = now_ns
 
         live: set[Process] = set()
         keep_running = False
@@ -150,7 +160,7 @@ class EventsMonitor:
         # After the poll phase, one batched call, skipped on an empty set.
         # ADR-0011 argues all three.
         if live_processes:
-            self._exporter.add_process_liveness({process.pid for process in live_processes}, now_ns)
+            self._exporter.add_process_liveness(live_processes, self._tick_read_ns)
 
         return PollReport(live=live_processes, keep_running=keep_running)
 
@@ -182,6 +192,7 @@ class EventsMonitor:
             ts_read_start = time.monotonic_ns()
             records = self._reader.read(pid)
             ts_read_stop = time.monotonic_ns()
+            self._tick_read_ns = ts_read_stop
             self._stats.record_read_time(ts_read_stop - ts_read_start)
             self._ingest(process, records, ts_read_start)
 
@@ -273,8 +284,15 @@ class EventsMonitor:
 
         # We want to keep exported events in the time order
         for record in sorted(fresh, key=lambda record: (record.iid, record.ts_start)):
-            self._exporter.add_event(process, record)
-            self._stats.update(process, record)
+            # A poll returns collections that already happened, and a pid
+            # pruned from the tree loses its read cursor, so whatever claims
+            # it next re-reads records its predecessor produced. A record
+            # older than a retirement cannot be the successor's: that process
+            # did not exist yet. See ADR-0011.
+            owner = self._processes.at(pid, record.ts_start)
+            assert owner is not None, "tick mints this pid's process before polling it"
+            self._exporter.add_event(owner, record)
+            self._stats.update(owner, record)
 
         self._warn_low_coverage(process)
 

@@ -975,3 +975,46 @@ class TestAReusedPid:
         totals = self._reused().pause_totals_by_gen()[0]
 
         assert (totals.sampled_count, totals.sampled_pause_ns) == (16, 80_000)
+
+
+class TestASettledRingNeverReopens:
+    """ADR-0016: a ring settles on the exit that ends it and never again.
+
+    A successor on a reused pid re-reads the ring its predecessor left, and
+    the monitor attributes those records to the process that produced them,
+    so they arrive here after that process settled. They were counted when
+    they first came, and counting them again would put the run totals and the
+    ring's own figures out by a duplicate.
+    """
+
+    def _settled_then_late(self) -> StreamingStats:
+        stats = StreamingStats()
+        stats.update(proc(1), create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000, heap_size=4_000))
+        stats.materialize(proc(1))
+
+        stats.update(proc(1), create_mock_stats_item(gen=0, ts_start=0, ts_stop=9_000, heap_size=8_000))
+        return stats
+
+    def test_the_ring_keeps_one_row(self) -> None:
+        """Reopening it filed a second entry under a key `_settled_rings`
+        already held, so the block printed twice."""
+        assert self._settled_then_late().rings() == [(proc(1), 0)]
+
+    def test_the_ring_keeps_its_own_figures(self) -> None:
+        assert self._settled_then_late().pause_totals(proc(1), 0, 0).sampled_pause_ns == 1_000
+
+    def test_the_run_totals_keep_theirs(self) -> None:
+        stats = self._settled_then_late()
+
+        assert (stats.count(), stats.pause_totals_by_gen()[0].sampled_pause_ns) == (1, 1_000)
+
+    def test_the_high_water_heap_size_is_left_alone(self) -> None:
+        assert self._settled_then_late().heap_size_p99() == 4_000
+
+    def test_a_process_that_is_still_running_takes_the_record(self) -> None:
+        """The control: only a settled process turns one away."""
+        stats = StreamingStats()
+        stats.update(proc(1), create_mock_stats_item(gen=0, ts_start=0, ts_stop=1_000))
+        stats.update(proc(1), create_mock_stats_item(gen=0, ts_start=0, ts_stop=9_000))
+
+        assert stats.pause_totals(proc(1), 0, 0).sampled_count == 2

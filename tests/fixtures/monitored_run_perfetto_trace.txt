@@ -165,7 +165,7 @@ track_descriptor {
   process {
     pid: 33512
     process_name: "Process 33512"
-    start_timestamp_ns: 0
+    start_timestamp_ns: 2600000
   }
   child_ordering: EXPLICIT
   sibling_order_rank: 1
@@ -15449,46 +15449,82 @@ timestamp: 0
 trusted_packet_sequence_id: 1
 track_event {
   debug_annotations {
+    int_value: 1
+    name: "pid_epoch"
+  }
+  debug_annotations {
     int_value: 0
     name: "real_start_ts"
   }
   debug_annotations {
-    int_value: 4802000000
+    int_value: 4802600000
     name: "real_end_ts"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 29
-  name: "Process 33512"
+  name: "Process 33328"
 }
 --- packet 1183 ---
-timestamp: 4802000000
+timestamp: 4802600000
+trusted_packet_sequence_id: 1
+track_event {
+  type: TYPE_SLICE_END
+  track_uuid: 29
+  name: "Process 33328"
+}
+--- packet 1184 ---
+timestamp: 2600000
+trusted_packet_sequence_id: 1
+track_event {
+  debug_annotations {
+    int_value: 1
+    name: "pid_epoch"
+  }
+  debug_annotations {
+    int_value: 2600000
+    name: "real_start_ts"
+  }
+  debug_annotations {
+    int_value: 2110778400
+    name: "real_end_ts"
+  }
+  type: TYPE_SLICE_BEGIN
+  track_uuid: 29
+  name: "Process 33512"
+}
+--- packet 1185 ---
+timestamp: 2110778400
 trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_SLICE_END
   track_uuid: 29
   name: "Process 33512"
 }
---- packet 1184 ---
-timestamp: 0
+--- packet 1186 ---
+timestamp: 2497509800
 trusted_packet_sequence_id: 1
 track_event {
   debug_annotations {
-    int_value: 0
+    int_value: 2
+    name: "pid_epoch"
+  }
+  debug_annotations {
+    int_value: 2497509800
     name: "real_start_ts"
   }
   debug_annotations {
-    int_value: 4801000000
+    int_value: 4802600000
     name: "real_end_ts"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 29
-  name: "Process 33328"
+  name: "Process 33512#2"
 }
---- packet 1185 ---
-timestamp: 4801000000
+--- packet 1187 ---
+timestamp: 4802600000
 trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_SLICE_END
   track_uuid: 29
-  name: "Process 33328"
+  name: "Process 33512#2"
 }

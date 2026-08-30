@@ -318,7 +318,7 @@ def _write_liveness_trace(tmp: Path) -> Path:
         ),
     )
     for ts in _LIVE_TICKS:
-        exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, ts)
+        exporter.add_process_liveness({proc(DEFAULT_PID), proc(_SECOND_PID)}, ts)
     exporter.close()
     return path
 
@@ -336,7 +336,7 @@ def _write_liveness_only_trace(tmp: Path) -> Path:
     path = tmp / "liveness_only.pb"
     exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
     for ts in _LIVE_TICKS:
-        exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, ts)
+        exporter.add_process_liveness({proc(DEFAULT_PID), proc(_SECOND_PID)}, ts)
     exporter.close()
     return path
 

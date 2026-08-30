@@ -13,7 +13,7 @@ from gcmon.exporters.encoder import (
     convert_trace_events_to_perfetto,  # noqa: F401  (used via monkeypatch.setattr)
 )
 from gcmon.model.trace_event import Instant
-from tests.helpers import process_track
+from tests.helpers import proc, process_track
 
 
 class TestProtobufEventEncoder:
@@ -32,7 +32,7 @@ class TestProtobufEventEncoder:
         enc = ProtobufEventEncoder()
         path = tmp_path / "out.perfetto"
         enc.open(path)
-        enc.record_process_liveness({1234}, 1_400_000_000)
+        enc.record_process_liveness({proc(1234)}, 1_400_000_000)
         assert enc._has_written is False
         enc.close()
         assert path.exists() and path.stat().st_size > 0

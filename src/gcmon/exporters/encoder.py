@@ -14,6 +14,7 @@ from functools import partial
 from pathlib import Path
 from typing import NamedTuple, Protocol
 
+from ..model.process import Process
 from ..model.trace_event import TraceEvent
 from .perfetto_format import (
     PerfettoTrackState,
@@ -132,17 +133,17 @@ class ProtobufEventEncoder:
         self._path = path
         self._has_written = False
 
-    def record_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
+    def record_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
         """Fold a whole tick's liveness observations into the
-        ``Processes``-track span accumulator: *pids* are the processes
+        ``Processes``-track span accumulator: *processes* are the ones
         gcmon read GC state out of at *ts_ns*.
 
         Kept off the ``EventEncoder`` protocol: a liveness observation is
         neither a ``TraceEvent`` nor bytes. See ADR-0011. Writes nothing;
         the observations reach the file at ``close()``.
         """
-        for pid in pids:
-            self._track_state.update_process_lifetime(pid, ts_ns)
+        for process in processes:
+            self._track_state.update_process_lifetime(process, ts_ns)
 
     def _write_batch(self, descriptors: Sequence[bytes], packets: Sequence[bytes]) -> None:
         """Append one batch to the trace as a single compressed packet."""

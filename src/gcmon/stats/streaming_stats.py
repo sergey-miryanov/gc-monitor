@@ -209,6 +209,14 @@ class StreamingStats:
         self._read_time: Stats = Stats()
 
     def update(self, process: Process, item: TGCStatsInfo) -> None:
+        if (process, item.iid) in self._settled_rings:
+            # A ring settles once and never reopens (ADR-0016), so a record
+            # reaching a process that has exited is one gcmon counted when it
+            # first arrived: its successor re-read the ring and the caller
+            # attributed it back here. Folding it in a second time would put
+            # the run totals and the ring's percentiles out by a duplicate.
+            return
+
         self._count += 1
 
         for metric in METRICS:

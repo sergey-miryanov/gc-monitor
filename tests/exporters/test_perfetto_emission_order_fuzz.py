@@ -16,12 +16,14 @@ import pytest
 
 from gcmon.exporters.perfetto_builders import build_trace, build_trace_packet, build_track_event
 from gcmon.exporters.perfetto_process_lifetime import (
+    ClippedSpan,
     _clip_spans_to_laminar,
     _emit_process_lifetime_slice,
     _emit_process_lifetime_track_descriptor,
 )
 from gcmon.exporters.perfetto_proto import TrackEventType
-from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from gcmon.exporters.perfetto_track_state import PerfettoTrackState, ProcessSpan
+from tests.exporters.perfetto_helpers import span
 from tests.helpers import open_trace_processor
 
 pytestmark = pytest.mark.fuzz
@@ -30,25 +32,22 @@ SEQUENCE_ID = 4242
 TRIALS = 12
 
 
-def _random_spans(rng: random.Random) -> list[tuple[int, int, int]]:
+def _random_spans(rng: random.Random) -> list[ProcessSpan]:
     """Spans over a tiny coordinate space, so that equal
     starts, equal ends and zero-length spans -- the only shapes where
     emission order decides anything -- are common rather than rare."""
     return [
-        (pid, start, start + rng.choice([0, 0, 1, 2, 5, 10]))
+        span(pid, start, start + rng.choice([0, 0, 1, 2, 5, 10]))
         for pid in range(100, 100 + rng.randint(2, 6))
         for start in (rng.randrange(0, 12),)
     ]
 
 
-def _pairs(clipped: list[tuple[int, int, int, int, int]], state: PerfettoTrackState) -> list[list[bytes]]:
-    return [
-        _emit_process_lifetime_slice(pid, start, end, state, SEQUENCE_ID, real_start, real_end)
-        for pid, start, end, real_start, real_end in clipped
-    ]
+def _pairs(clipped: list[ClippedSpan], state: PerfettoTrackState) -> list[list[bytes]]:
+    return [_emit_process_lifetime_slice(one, state, SEQUENCE_ID) for one in clipped]
 
 
-def _packets_in_order(clipped: list[tuple[int, int, int, int, int]], order: str, rng: random.Random) -> list[bytes]:
+def _packets_in_order(clipped: list[ClippedSpan], order: str, rng: random.Random) -> list[bytes]:
     """Build the ``Processes`` packets, laying the pairs out *order*'s way."""
     state = PerfettoTrackState()
     pairs = _pairs(clipped, state)
@@ -81,8 +80,8 @@ def _slices_as_read_back(packets: list[bytes], tmp_path: Path, name: str) -> tup
     return misplaced, slices
 
 
-def _expected(clipped: list[tuple[int, int, int, int, int]]) -> dict[str, tuple[int, int]]:
-    return {f"Process {pid}": (start, end - start) for pid, start, end, _rs, _re in clipped}
+def _expected(clipped: list[ClippedSpan]) -> dict[str, tuple[int, int]]:
+    return {f"Process {one.process}": (one.start_ts, one.end_ts - one.start_ts) for one in clipped}
 
 
 @pytest.mark.parametrize("seed", range(TRIALS))
@@ -124,7 +123,7 @@ def test_orders_adr_0011_rejects_really_do_break(order: str, tmp_path: Path) -> 
 _PAIRABLE_NESTING_DEPTH: int = 512
 
 
-def _co_terminating(depth: int) -> list[tuple[int, int, int]]:
+def _co_terminating(depth: int) -> list[ProcessSpan]:
     """``depth`` spans that all end together, one starting per ns.
 
     The shape monitor-reported liveness makes ordinary: every pid still
@@ -132,7 +131,7 @@ def _co_terminating(depth: int) -> list[tuple[int, int, int]]:
     and co-terminating spans never clip -- the sweep breaks out on
     ``outer_end >= end`` -- so they nest, one level per process.
     """
-    return [(100 + i, i, depth) for i in range(depth)]
+    return [span(100 + i, i, depth) for i in range(depth)]
 
 
 def test_co_terminating_spans_nest_rather_than_clip() -> None:
@@ -140,7 +139,8 @@ def test_co_terminating_spans_nest_rather_than_clip() -> None:
     itself so a change there cannot quietly turn them into tests of some
     other shape."""
     spans = _co_terminating(8)
-    assert [(pid, start, end) for pid, start, end, _rs, _re in _clip_spans_to_laminar(spans)] == spans
+    clipped = _clip_spans_to_laminar(spans)
+    assert [ProcessSpan(one.process, one.start_ts, one.end_ts) for one in clipped] == spans
 
 
 def test_nesting_pairs_up_to_the_trace_processor_limit(tmp_path: Path) -> None:
