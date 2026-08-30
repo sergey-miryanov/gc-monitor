@@ -187,8 +187,7 @@ class TestTwoProcessesOnOnePidShareTheirRows:
     """A `Track` names the process it was drawn for, but the Perfetto rows are
     not split per process: a pid handed on keeps one thread track, one counter
     group and one set of counters, and the `Processes` track carries the
-    distinction (ADR-0011). Spec 0066 is where the rows split, and these are
-    the assertions it has to move."""
+    distinction (ADR-0011). Splitting the rows moves these assertions."""
 
     FIRST = interpreter_track(100, 0, 1)
     SECOND = interpreter_track(100, 0, 2)
