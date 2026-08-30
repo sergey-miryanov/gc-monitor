@@ -16,7 +16,7 @@ import msgspec
 
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import instant_msg
-from gcmon.monitoring.process_registry import ProcessRegistry
+from gcmon.model.process import ProcessLookup
 
 logger = logging.getLogger("gcmon")
 
@@ -63,14 +63,14 @@ class ControlServer:
     monitoring enabled via start/stop messages.
     """
 
-    def __init__(self, exporter: EventsExporter, registry: ProcessRegistry, address: str | None = None) -> None:
+    def __init__(self, exporter: EventsExporter, processes: ProcessLookup, address: str | None = None) -> None:
         self._connections: set[TConnection] = set()
         self._enabled: dict[int, bool] = {}
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._running = False
         self._exporter: EventsExporter = exporter
-        self._processes = registry
+        self._processes = processes
         self._accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
         self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
 

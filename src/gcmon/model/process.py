@@ -1,8 +1,10 @@
 """Which process a record belongs to, which a pid does not say."""
 
+from typing import Protocol
+
 import msgspec
 
-__all__ = ["Process"]
+__all__ = ["Process", "ProcessLookup"]
 
 
 class Process(msgspec.Struct, frozen=True, eq=False):
@@ -63,3 +65,17 @@ class Process(msgspec.Struct, frozen=True, eq=False):
 
     def __str__(self) -> str:
         return f"{self.pid}{self.epoch_suffix}"
+
+
+class ProcessLookup(Protocol):
+    """What a reader of the process registry may ask of it.
+
+    Minting is the monitor's alone, so a layer that only has to say which
+    process some evidence belongs to is handed this rather than the
+    registry (ADR-0011). `ProcessRegistry` is the implementation, and it
+    lives in `monitoring` because that is who writes to it.
+    """
+
+    def at(self, pid: int, ts: int) -> Process | None:
+        """The process that held *pid* at *ts*, or ``None`` where none did."""
+        ...
