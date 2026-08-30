@@ -5,10 +5,9 @@
 
 ## Context
 
-A pid belongs to the operating system, which hands the same one out again.
-gcmon monitors a process *tree* of short-lived workers, so a reused pid is
-ordinary rather than exotic, and gcmon has to say which of the processes that
-held one a record came from.
+A pid belongs to the operating system, which hands the same one out again, and
+gcmon monitors a *tree* of short-lived workers. So a record naming a pid does
+not say which process produced it.
 
 It already said so in one place.
 [ADR-0016](0016-the-ring-is-the-statistics-unit.md) gave everything a run
@@ -48,8 +47,7 @@ the child listing, the attachment
 ([ADR-0020](0020-attach-to-a-process-once.md)) and the `psutil` calls take the
 number the operating system gave. `Track`, the exporter protocol, the
 statistics keys and the trace take the process. The registry is the one place
-the two vocabularies meet, which is what makes the boundary checkable by
-reading a signature.
+the two meet, so the boundary is checkable by reading a signature.
 
 **Evidence is filed under `at(pid, ts)`, not under whatever holds the pid
 now.** Evidence outlives the process it describes. A control-plane instant is
@@ -65,9 +63,9 @@ collection older than gcmon's first sight of it.
 
 **The control plane holds a read-only view, not the registry.** A
 `ProcessLookup` protocol carrying `at` and nothing else lives in `model`,
-which every layer may import. Two rules come out of one type: minting is the
-monitor's, and `control` does not import `monitoring`, which the layer table
-in `tests/architecture/test_layering.py` forbids in that direction.
+which every layer may import. Minting stays the monitor's, and `control` does
+not import `monitoring`, which the layer table in
+`tests/architecture/test_layering.py` forbids.
 
 **One lock, taken on every access.** The monitor writes and the control server
 reads from its own thread. One write per process against one read per control
@@ -78,8 +76,8 @@ wait behind it.
 ## Consequences
 
 - The table and the trace cannot disagree about which process a record
-  belonged to. There is one number rather than two counted from the same
-  evidence, and no test has to compare them.
+  belonged to. There is one number, not two counted from the same evidence,
+  and no test has to compare them.
 - **The epoch still depends on gcmon seeing the departure.** A pid recycled
   between two ticks, with the listing never showing it gone, reads as one
   process throughout. ADR-0016 accepted that and the registry inherits it;
@@ -88,16 +86,11 @@ wait behind it.
 - **Evidence for a pid nobody minted is dropped without a warning.** The
   ordinary cause is a client naming a pid gcmon never monitored, which is the
   client's error and not gcmon's, so it is a debug log.
-- **A `Process` is not evidence of what gcmon read.** Two values that disagree
-  about the command line are the same key. That is what lets a caller build
-  one from a pid and an epoch; it also means a caller wanting the command line
-  has to have the value the registry minted, not one it reconstructed.
+- **A caller cannot reconstruct a command line.** Two `Process` values that
+  disagree about it are the same key, so a caller that wants one has to hold
+  the value the registry minted.
 - **The registry keeps every departure for the life of the run**, one entry
-  per process that has left, because that is what `at` answers from. A run
-  over a wide tree pays a bounded amount of memory it did not pay before.
-- The prune settles a departing process's rings before retiring it, since the
-  rings file under the process that earned them and a retirement takes it out
-  of the live set. The two orderings are not interchangeable.
+  per process that has left, because that is what `at` answers from.
 
 ## Alternatives considered
 
@@ -107,25 +100,22 @@ wait behind it.
   pid, at the first flush, names the first process's program on every later
   span of that pid
   ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)).
-- **Stamp every record with its epoch at the monitor.** Rejected before and
-  still rejected: it puts the number on the one path where it is never needed,
-  since a record's epoch is implied by which process produced it, and it
-  widens the exporter protocol for every format including the ones that ignore
-  it. Naming the process on the `Track` an event already carries costs one
-  field on a value that exists.
+- **Stamp every record with its epoch at the monitor.** Rejected: it puts the
+  number on the one path where it is never needed, since a record's epoch is
+  implied by which process produced it, and it widens the exporter protocol
+  for every format including the ones that ignore it. Naming the process on
+  the `Track` an event already carries costs one field on a value that exists.
 - **A run-wide process counter instead of a per-pid epoch.** Unique with no
   registry lookup, and it reads as an opaque number. `#2` means "the second
-  process to hold this pid", which is the question a reader of a recycled pid
-  arrived with, and it is what the table has printed since ADR-0016.
+  process to hold this pid", which is what a reader of a recycled pid is
+  asking, and what the table has printed since ADR-0016.
 - **Hand the control server the registry itself.** It is one object and the
   control server only reads from it. Rejected: the layer table puts `control`
   below `monitoring`, so the import runs the wrong way, and a handle that can
   mint is one a later change will mint from.
 - **Move the registry below both layers, into `model` or `support`.** It would
   make the import legal in either direction. Rejected: the layer a thing
-  belongs to is the one that writes it, and only the monitor writes here. The
-  protocol puts the *shape* the reader needs in `model` and leaves the state
-  where it is written.
+  belongs to is the one that writes it, and only the monitor writes here.
 - **A module-level registry.** Rejected: two runs in one process would share
   epochs, and every test would have to reset it.
 - **Key the statistics on `(pid, iid, epoch)` and leave the exporters on

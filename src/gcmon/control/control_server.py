@@ -214,10 +214,9 @@ class ControlServer:
     def _add_event(self, m: str, pid: int, ts: int) -> None:
         """Draw *m* on the process that held *pid* at *ts*.
 
-        A client names an operating-system pid, so this is where one is read
-        as a process. Every message is for a process gcmon is monitoring or
-        has monitored, and nothing here mints one: a pid the monitor has
-        never polled belongs to no process, and the message goes nowhere.
+        A client names an operating-system pid, and nothing here mints a
+        process for one: a pid the monitor has never polled belongs to no
+        process, and the message goes nowhere (ADR-0025).
         """
         process = self._processes.at(pid, ts)
         if process is None:

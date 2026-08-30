@@ -19,9 +19,9 @@ TStatsData = dict[str, dict[int, Stats]]
 
 # (process, iid). One interpreter's sampled metrics, a generation dict per
 # metric. One ring's durations are one of those generations. Keyed on the
-# process rather than the pid, so a successor on a reused pid opens rings of
-# its own. Named for the process because a ring's own index is CPython's write
-# cursor into it, which is a different number entirely.
+# process, so a successor on a reused pid opens rings of its own, and named
+# for it because a ring's own index is CPython's write cursor into it, which
+# is a different number entirely.
 type RingKey = tuple[Process, int]
 
 
@@ -210,11 +210,10 @@ class StreamingStats:
 
     def update(self, process: Process, item: TGCStatsInfo) -> None:
         if (process, item.iid) in self._settled_rings:
-            # A ring settles once and never reopens (ADR-0016), so a record
-            # reaching a process that has exited is one gcmon counted when it
-            # first arrived: its successor re-read the ring and the caller
-            # attributed it back here. Folding it in a second time would put
-            # the run totals and the ring's percentiles out by a duplicate.
+            # A record reaching a settled ring is one a successor re-read and
+            # the caller attributed back here. Folding it in twice would put
+            # the run totals and the percentiles out by a duplicate
+            # (ADR-0016).
             return
 
         self._count += 1

@@ -51,19 +51,17 @@ that pid, at most once per pid. This guarantees the track has an event, so the
 track and its description always render. It is the smallest change that fixes
 the visibility problem.
 
-**A command line is read once per process, where the monitor mints it**, and
-never again for that process. Reading it at the first flush instead cost two
-things: a process that exited between the poll and the flush had none left to
-read, and a read filed under the pid put the first process's program on every
-later process that held it. The monitor discovers a process while it is
-running, and a `Process` carries what was read
-([ADR-0025](0025-mint-every-process-in-one-place.md)), so the exporter is
-handed a command line rather than fetching one.
+**A command line is read once per process, where the monitor mints it.**
+Reading it at the first flush instead cost two things: a process that exited
+between the poll and the flush had none left to read, and a read filed under
+the pid put the first process's program on every later process that held it.
+The monitor discovers a process while it is running, and a `Process` carries
+what was read ([ADR-0025](0025-mint-every-process-in-one-place.md)).
 
 **The read degrades silently.** It imports `psutil` lazily. If it is not
-installed, or the process is gone or inaccessible, nothing is read, a debug
-line says so and the trace stays valid. A process gcmon never polled has no
-command line, and that is now the only way to have none.
+installed, or the process is gone or inaccessible, nothing is read, a warning
+says so and the trace stays valid. A process gcmon never polled has no command
+line, and that is the only way to have none.
 
 ## Consequences
 
@@ -76,11 +74,8 @@ command line, and that is now the only way to have none.
   test does, since the marker is Perfetto-only.
 - `psutil` stays an optional dependency (the `cmdline` extra). gcmon works
   without it, minus the cmdline.
-- **A `combine` run writes no command line at all.** Offline conversion has no
-  monitor and mints no process, so there is nothing to read from and nothing
-  is read. It used to ask `psutil` about a historical pid, which answered
-  nothing for a dead one and answered about an unrelated process for a pid the
-  machine had since reissued.
+- **A `combine` run writes no command line.** Offline conversion mints no
+  process, so nothing is read.
 - `description` joins the arguments with spaces and no shell quoting,
   favouring readability over round-trippability. The structured form is in
   `ProcessDescriptor.cmdline`.
@@ -97,9 +92,11 @@ command line, and that is now the only way to have none.
   metadata only the Perfetto format needs, so the JSONL and stdout paths carry
   no `psutil` cost. The original decision, and **reversed**: the exporter
   learns of a process on the first flush that mentions it, which is the wrong
-  moment on both counts above, and the saving was one `psutil` call per
-  process on a path that already reads every process once a tick. The
-  Perfetto-only part that survives is the emission, not the collection.
+  moment on both counts above; offline it asked the local machine about a
+  historical pid, which answers about an unrelated process once the pid has
+  been reissued; and the saving was one `psutil` call per process on a path
+  that already reads every process once a tick. The Perfetto-only part that
+  survives is the emission, not the collection.
 - **Make `psutil` a hard dependency.** Rejected: gcmon is installed next to
   the process it monitors, and graceful degradation costs one `try`/`except`.
 

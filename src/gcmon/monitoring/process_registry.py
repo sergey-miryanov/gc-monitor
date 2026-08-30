@@ -16,9 +16,7 @@ type CmdlineProvider = Callable[[int], tuple[str, ...] | None]
 def read_cmdline(pid: int) -> tuple[str, ...] | None:
     """What *pid* is running, off psutil.
 
-    Wired in by the caller rather than defaulted to here, so a test naming
-    a pid this machine does not have reads nothing instead of whatever
-    happens to hold that number.
+    Wired in by the caller and not defaulted to here (ADR-0025).
     """
     import psutil
 
@@ -26,13 +24,7 @@ def read_cmdline(pid: int) -> tuple[str, ...] | None:
 
 
 class ProcessRegistry:
-    """The one place a `Process` comes from.
-
-    A pid is the operating system's and it hands the same one out again; a
-    `Process` is gcmon's and never repeats. :meth:`create` is the only
-    thing that mints one, so evidence naming a pid nobody created is
-    dropped rather than opening a process that was never monitored
-    (ADR-0025).
+    """The one place a `Process` comes from (ADR-0025).
 
     The monitor writes and the control server reads from its own thread,
     so every access takes the lock. One write per process against one read
@@ -49,13 +41,9 @@ class ProcessRegistry:
     def create(self, pid: int, ts: int) -> Process:
         """Mint the process now holding *pid*, discovered at *ts*.
 
-        The monitor calls this, and nothing else does: a process gcmon has
-        not polled is one it knows nothing about, so evidence naming that
-        pid belongs to no process rather than opening one (ADR-0025).
-
-        The command line is read here, while the process is running: read
-        at the first flush it may be gone, and read once per pid it names
-        the first process's program on every later one (ADR-0010).
+        The monitor calls this and nothing else does (ADR-0025). The
+        command line is read here, while the process is running
+        (ADR-0010).
         """
         cmdline = self._read_cmdline(pid)
         with self._lock:
@@ -65,12 +53,10 @@ class ProcessRegistry:
             return process
 
     def _read_cmdline(self, pid: int) -> tuple[str, ...] | None:
-        """Read *pid*'s command line, outside the lock: the provider reads
-        another process, and a control message about a third would wait
-        behind it.
+        """Read *pid*'s command line, outside the lock (ADR-0025).
 
-        A provider that fails costs its process a command line and
-        nothing else. The pid has already gone, or psutil is missing.
+        A provider that fails costs its process a command line and nothing
+        else. The pid has already gone, or psutil is missing.
         """
         if self._cmdline_provider is None:
             return None
@@ -113,13 +99,10 @@ class ProcessRegistry:
     def at(self, pid: int, ts: int) -> Process | None:
         """The process that held *pid* at *ts*, or ``None`` where none did.
 
-        Evidence outlives the process it describes. A control-plane
-        instant is stamped on arrival when its sender named no time, so it
-        can reach gcmon after the pid was retired and still belong to the
-        process that has gone; later than every retirement it reads as the
-        one running now, or as the last to leave. Earlier than the first
-        process's ``start_ts`` it reads as that process, since a poll
-        returns collections that already happened.
+        Evidence outlives the process it describes, so a *ts* later than
+        every retirement reads as the process running now, or as the last
+        to leave, and one earlier than the first process's ``start_ts``
+        reads as that process (ADR-0025).
         """
         with self._lock:
             for process, retired_ts in self._retired.get(pid, ()):

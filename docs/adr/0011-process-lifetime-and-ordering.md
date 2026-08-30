@@ -56,9 +56,8 @@ not exist.
 **A slice is named for its process**, `Process <pid>` for the first to hold
 the pid and `Process <pid>#N` after it, the suffix the `--stats` table prints
 ([ADR-0016](0016-the-ring-is-the-statistics-unit.md)). The END repeats the
-whole name, suffix included, which is load-bearing twice over: the trace
-processor matches a named END to the BEGIN carrying that name, so two spans on
-one pid sharing a name would close each other.
+suffix too, because END matching is by name and without it two spans on one
+pid would share one.
 
 - Parented to the trace root, so `parent_uuid` is **absent on the wire**, not
   `0`, which is the reserved root descriptor
@@ -262,7 +261,7 @@ iteration.
   pruned from the tree loses its read cursor, so a successor re-reads what its
   predecessor produced; each record is drawn on the process that made it
   ([ADR-0025](0025-mint-every-process-in-one-place.md)), so those timestamps
-  widen the predecessor's span rather than reaching back from the successor's.
+  widen the predecessor's span.
 - **A zero-GC process's slice carries its command line**, since the monitor
   reads it where it mints the process rather than on the encoder's write
   ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)). It still
@@ -355,9 +354,8 @@ iteration.
   drops.
 - **Deriving the epoch from gaps in the liveness reports**, which reach this
   track already and would have split the spans with nothing new plumbed
-  through. Rejected in [ADR-0025](0025-mint-every-process-in-one-place.md),
-  which owns where the epoch comes from: a pid the control server suppresses
-  produces the same gap as a pid that died.
+  through. Rejected in [ADR-0025](0025-mint-every-process-in-one-place.md): a
+  pid the control server suppresses produces the same gap as a pid that died.
 - **Emitting liveness as a `TraceEvent`.** Rejected: at 10 Hz × N pids, a
   60-second run with ten children carries ~6,000 extra events, visible on the
   process tracks, to record two numbers per pid.

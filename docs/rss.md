@@ -26,10 +26,9 @@ pip install gcmon[cmdline]
 ```
 
 When this extra is installed:
-- gcmon reads the command line of each monitored process as it discovers it,
-  and the Perfetto trace records it, where it labels the process track and is
-  queryable from SQL; see
-  [Process command lines](formats.md#process-command-lines).
+- gcmon reads the command line of each monitored process and the Perfetto
+  trace records it, where it labels the process track and is queryable from
+  SQL; see [Process command lines](formats.md#process-command-lines).
 - RSS tracking (`--rss`) can sample Resident Set Size via
   `psutil.Process(pid).memory_info().rss`.
 

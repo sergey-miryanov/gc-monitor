@@ -134,9 +134,7 @@ defaults to 1.0 s, independent of the 0.1 s GC poll rate.
 
 - `src/gcmon/monitoring/rss_sampler.py` holds `RssSampler`, its
   `tick(now_ns, live)` entry point, the interval check, and the default
-  sampler catching `NoSuchProcess` / `AccessDenied`. It is handed the
-  processes the tick found alive and reaches through each for the pid `psutil`
-  wants.
+  sampler catching `NoSuchProcess` / `AccessDenied`.
 - `src/gcmon/exporters/_buffered_exporter.py` holds the `-1` sentinel, the
   `iid >= 0` guard that suppresses thread meta for it, and the exporter's RSS
   sample.

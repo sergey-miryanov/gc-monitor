@@ -78,16 +78,14 @@ into it), so an interpreter a successor creates late counts as the
 successor's. The table prints the first block plain and marks the ones after
 it, `12345:0#2` for the second process to hold the pid. The monitor mints
 those values and nothing here does
-([ADR-0025](0025-mint-every-process-in-one-place.md)), which is the same
-division as the liveness rule above.
+([ADR-0025](0025-mint-every-process-in-one-place.md)).
 
 **A settled ring turns away a record it has already counted.** A pid pruned
 from the tree loses its read cursor
 ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)), so its successor
-re-reads the ring and hands gcmon records the predecessor produced, which
-arrive filed under the predecessor because that is who made them. A ring
-settles once and never reopens, so folding one in a second time would leave
-the run totals and the ring's percentiles out by a duplicate.
+re-reads the ring and the records come back filed under the predecessor
+([ADR-0025](0025-mint-every-process-in-one-place.md)). Folding one in a second
+time would leave the run totals and the ring's percentiles out by a duplicate.
 
 **A ring gets its row on its first record and keeps it until its process
 exits.** Where no slot is free the ring gets none and its records reach

@@ -16,7 +16,7 @@
 - A compressed `.pftrace` needs Perfetto v58 or newer to open. An older Perfetto shows an empty timeline rather than refusing the file
 - A `heap_size` counter track is named `Thread {iid} heap_size`, where it was `heap_size`. Two interpreters in one process drew two sibling rows under the same name; a PerfettoSQL query matching `name = 'heap_size'` now matches nothing. `rss` is unchanged
 - A JSONL capture carries no `tid`, on any kind of line. It was `iid` again on a GC record and `-2 - iid` on a loss one; derive it from `iid` if you read it. gcmon still reads a capture that has it
-- `gcmon combine` writes no command line, on either field. It used to ask the machine running the conversion what held each PID, which answered nothing for a dead one and answered about an unrelated process for a PID since reissued
+- `gcmon combine` writes no command line, on the process descriptor or the track description. It used to read whatever process held that PID on the machine running the conversion
 
 ### Features
 

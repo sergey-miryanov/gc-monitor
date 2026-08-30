@@ -120,11 +120,8 @@ class EventsMonitor:
             self._retain(set(children), now_ns)
 
         # Liveness is stamped no earlier than the reads that prove these
-        # processes alive, so two alive in one tick share an end. Stamped
-        # with the opening instant instead, the pid polled second outlives
-        # the first by the tick's read spread, and the `Processes` sweep
-        # reads that as a crossing: a long-lived parent gets clipped back
-        # to the start of a short child that recycled a pid (ADR-0011).
+        # processes alive, so two alive in one tick share an end
+        # (ADR-0011).
         self._tick_read_ns = now_ns
 
         live: set[Process] = set()
@@ -284,11 +281,9 @@ class EventsMonitor:
 
         # We want to keep exported events in the time order
         for record in sorted(fresh, key=lambda record: (record.iid, record.ts_start)):
-            # A poll returns collections that already happened, and a pid
-            # pruned from the tree loses its read cursor, so whatever claims
-            # it next re-reads records its predecessor produced. A record
-            # older than a retirement cannot be the successor's: that process
-            # did not exist yet. See ADR-0025.
+            # A pid pruned from the tree loses its read cursor, so whatever
+            # claims it next re-reads records its predecessor produced
+            # (ADR-0025).
             owner = self._processes.at(pid, record.ts_start)
             assert owner is not None, "tick mints this pid's process before polling it"
             self._exporter.add_event(owner, record)

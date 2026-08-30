@@ -59,24 +59,20 @@ def _emit_process_lifetime_slice(
     state: PerfettoTrackState,
     sequence_id: int,
 ) -> list[bytes]:
-    """Emit the ``TYPE_SLICE_BEGIN`` / ``TYPE_SLICE_END`` pair drawing
-    *span*, BEGIN first: the trace
-    processor breaks timestamp ties by position in the sequence, so a
-    zero-length span with its END first reads as ``dur = -1``.
+    """Emit the ``TYPE_SLICE_BEGIN`` / ``TYPE_SLICE_END`` pair drawing *span*,
+    BEGIN first: the trace processor breaks timestamp ties by position in
+    the sequence, so a zero-length span with its END first reads as
+    ``dur = -1``.
 
-    The BEGIN carries a ``cmdline`` annotation when the process has one, plus
-    ``pid_epoch`` and *real_start_ts* / *real_end_ts*: the span as
-    observed, annotated on **every** slice rather than only clipped ones
-    so a consumer never has to check whether a clip happened. Where those
-    and the drawn ``ts`` / ``dur`` disagree, the annotations are the
-    truth. ``pid_epoch`` goes on every slice for the same reason, so a
-    reader filtering on it needs no string parse of the name.
+    The BEGIN carries ``pid_epoch``, *real_start_ts* and *real_end_ts*, plus
+    a ``cmdline`` annotation where the process has one. All three go on
+    **every** slice, so a consumer never has to check whether a clip
+    happened; where they and the drawn ``ts`` / ``dur`` disagree, they are
+    the truth.
 
     The name carries the epoch as a ``#N`` suffix from the second process
-    on a pid, and the END repeats the whole name. That is load-bearing
-    twice over: the trace processor matches a named END to the BEGIN
-    carrying that name, force-closing anything above it, so two spans on
-    one pid sharing a name would close each other."""
+    on a pid, and the END repeats it: END matching is by name, so two
+    spans on one pid would otherwise close each other (ADR-0011)."""
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
     name = f"Process {span.process}"
     debug_annotations: list[bytes] = []

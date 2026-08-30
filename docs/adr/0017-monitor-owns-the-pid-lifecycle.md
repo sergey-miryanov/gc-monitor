@@ -58,8 +58,8 @@ cursor and re-exports its whole ring.
 - A pid that leaves the tree and returns re-exports whatever its ring still
   holds, since the prune took its cursor. Duplicate slices are the price of
   not fabricating a loss window. They are drawn on the process that produced
-  them rather than on the one that re-read them, and the settled ring counts
-  them once ([ADR-0016](0016-the-ring-is-the-statistics-unit.md)).
+  them ([ADR-0025](0025-mint-every-process-in-one-place.md)), and the settled
+  ring counts them once ([ADR-0016](0016-the-ring-is-the-statistics-unit.md)).
 - The monitor holds more state than it did and is still driven from one loop.
   Nothing here makes it safe to share.
 

@@ -97,10 +97,10 @@ and 0006 and amends 0007 and 0013. 0010–0013, 0015 and 0016 and 0018 are
 individual features, and 0021 is what became of 0012. 0014 explains how any of
 it is verified. 0017, 0019 and 0025 are about the monitoring loop rather than
 about what reaches a trace: 0017 divides per-pid state from the clock, 0019
-says what the loop does with that clock, and 0025 is what "per-pid" turned out
-to mean once a reused pid had to be told apart, which amends 0010, 0011, 0013,
-0016, 0017 and 0024. 0023 is about the pyperf hook, which is an entry point
-rather than a part of the loop.
+says what the loop does with that clock, and 0025 is what a pid is once two
+processes have held one; it amends 0010, 0011, 0013, 0016, 0017 and 0024. 0023
+is about the pyperf hook, which is an entry point rather than a part of the
+loop.
 
 ---
 

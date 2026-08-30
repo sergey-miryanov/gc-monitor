@@ -10,9 +10,8 @@ __all__ = ["Process", "ProcessLookup"]
 class Process(msgspec.Struct, frozen=True, eq=False):
     """One process gcmon monitored.
 
-    ``pid_epoch`` counts the processes that have held *pid*, from 1, so a
-    pid the operating system handed out twice is two of these and a
-    successor's figures never land on its predecessor (ADR-0025).
+    ``pid_epoch`` counts the processes that have held *pid*, from 1
+    (ADR-0025).
 
     ``start_ts`` is when the monitor discovered the process, not the
     earliest evidence of it: a poll returns collections that already
@@ -29,10 +28,9 @@ class Process(msgspec.Struct, frozen=True, eq=False):
     def __eq__(self, other: object) -> bool:
         """Two of these are the same process when they name the same one.
 
-        ``start_ts`` and ``cmdline`` are what gcmon learned about the
-        process rather than which process it is, so they stay out of this
-        and out of the hash. A caller holding a pid and an epoch can reach
-        the rings filed under it without reproducing what gcmon read.
+        What gcmon learned about it stays out of this and out of the hash,
+        so a caller holding a pid and an epoch reaches the rings filed
+        under it without reproducing the read (ADR-0025).
         """
         if not isinstance(other, Process):
             return NotImplemented
@@ -57,7 +55,7 @@ class Process(msgspec.Struct, frozen=True, eq=False):
     def epoch_suffix(self) -> str:
         """``#2`` for the second process to hold the pid, empty for the first.
 
-        The piece rather than the whole label: the `--stats` table writes it
+        The piece and not the whole label: the `--stats` table writes it
         after the interpreter, `12345:0#2`, and a caller naming the process
         alone writes it after the pid.
         """
@@ -70,10 +68,9 @@ class Process(msgspec.Struct, frozen=True, eq=False):
 class ProcessLookup(Protocol):
     """What a reader of the process registry may ask of it.
 
-    Minting is the monitor's alone, so a layer that only has to say which
-    process some evidence belongs to is handed this rather than the
-    registry (ADR-0025). `ProcessRegistry` is the implementation, and it
-    lives in `monitoring` because that is who writes to it.
+    A layer that only has to say which process some evidence belongs to is
+    handed this, not the registry, which is in `monitoring` because that is
+    who writes to it (ADR-0025).
     """
 
     def at(self, pid: int, ts: int) -> Process | None:

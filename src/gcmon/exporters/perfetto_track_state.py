@@ -17,11 +17,7 @@ from ..model.trace_event import Track
 
 
 class ProcessSpan(NamedTuple):
-    """The interval one process was observed over.
-
-    A pid the operating system handed out twice brings one of these per
-    process, so a span covers only the process it names (ADR-0011).
-    """
+    """The interval one process was observed over (ADR-0011)."""
 
     process: Process
     start_ts: int
@@ -31,10 +27,8 @@ class ProcessSpan(NamedTuple):
 def _shared_row(track: Track) -> Track:
     """The key *track*'s uuid is filed under.
 
-    Every process that held a pid draws on one set of Perfetto rows, so the
-    epoch is dropped here and two processes on one pid share a thread track,
-    a counter group and its counters. The `Processes` track carries the
-    distinction instead (ADR-0011).
+    Every process that held a pid draws on one set of Perfetto rows, and
+    the `Processes` track carries the distinction (ADR-0011).
     """
     return msgspec.structs.replace(track, process=Process(track.process.pid, 1, 0))
 
@@ -78,10 +72,10 @@ class PerfettoTrackState:
         self._tracks.add(_shared_row(track))
 
     def get_process_track_uuid(self, process: Process) -> int:
-        """The uuid of *process*'s own Perfetto row.
+        """The uuid of the row *process* draws on.
 
         Filed under the pid, so every process that held it shares one row,
-        which is what :func:`_shared_row` does for the tracks underneath.
+        as :func:`_shared_row` does for the tracks underneath.
         """
         pid = process.pid
         if pid not in self._pid_uuids:
@@ -137,10 +131,6 @@ class PerfettoTrackState:
         observation from the monitor loop. No event-kind exception: an
         RSS sample is evidence the process existed just as a GC event is.
         See ADR-0011.
-
-        Keyed on the process rather than the pid, so a pid handed on gets
-        a span per process instead of one span across both, wide enough
-        to cover a stretch in which neither was running.
         """
         start_ts = self._process_lifetime_start.get(process)
         if start_ts is None or ts < start_ts:
@@ -153,8 +143,7 @@ class PerfettoTrackState:
         """When the pid's Perfetto row opens.
 
         The row is not split, so it covers every process that held the
-        pid and opens at the first of them: a run with no reuse is
-        stamped exactly as it was (ADR-0011).
+        pid and opens at the first of them (ADR-0011).
         """
         return self._process_lifetime_start.get(Process(process.pid, 1, 0))
 
@@ -180,9 +169,8 @@ class PerfettoTrackState:
         ascending ``(start_ts, pid)`` over the first process to hold each
         pid. Pids with no recorded start are absent.
 
-        Ranked on the first process for the same reason the row is
-        stamped from it: one row covers them all, so a later process on a
-        reused pid does not reorder it.
+        Ranked on the first process for the same reason the row is stamped
+        from it: one row covers them all (ADR-0011).
         """
         firsts = {process.pid: ts for process, ts in self._process_lifetime_start.items() if process.pid_epoch == 1}
         if not firsts:
