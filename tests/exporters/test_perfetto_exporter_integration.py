@@ -6,7 +6,7 @@ and assert on the SQL tables (``slice``, ``args``, ``track``,
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -77,15 +77,6 @@ _START_PROCESS_MARKER_NAME: str = "Start Process"
 _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
 
 
-def _fake_cmdline_provider(pid: int) -> list[str] | None:
-    """Returns a known fake cmdline for the two PIDs the trace uses and
-    ``None`` for any other PID, so the encoder's ``None`` path is also
-    exercised by the same callable."""
-    if pid in (DEFAULT_PID, _SECOND_PID):
-        return list(_FAKE_CMDLINE)
-    return None
-
-
 def _process_filter(pid: int) -> str:
     """SQL fragment to scope a query to a single ``pid``.
 
@@ -115,22 +106,15 @@ def _process_filter_instant(pid: int) -> str:
     )
 
 
-def _write_trace(
-    tmp: Path,
-    cmdline_provider: Callable[[int], list[str] | None] = lambda _pid: None,
-) -> Path:
+def _write_trace(tmp: Path, cmdline: tuple[str, ...] | None = None) -> Path:
     path = tmp / "trace.pb"
-    exporter = PerfettoExporter(
-        output_path=path,
-        flush_threshold=1000,
-        cmdline_provider=cmdline_provider,
-    )
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
     exporter.add_instant_event(
-        proc(DEFAULT_PID),
+        proc(DEFAULT_PID, cmdline=cmdline),
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 1_000_000),
     )
     exporter.add_event(
-        proc(DEFAULT_PID),
+        proc(DEFAULT_PID, cmdline=cmdline),
         create_mock_stats_item(
             gen=_GEN,
             iid=_IID,
@@ -141,9 +125,9 @@ def _write_trace(
             heap_size=_HEAP_SIZE,
         ),
     )
-    exporter.add_event(proc(DEFAULT_PID), create_mock_incremental_item(gen=1, iid=1))
+    exporter.add_event(proc(DEFAULT_PID, cmdline=cmdline), create_mock_incremental_item(gen=1, iid=1))
     exporter.add_event(
-        proc(DEFAULT_PID),
+        proc(DEFAULT_PID, cmdline=cmdline),
         create_mock_stats_item(
             gen=_GEN,
             iid=2,
@@ -155,11 +139,11 @@ def _write_trace(
         ),
     )
     exporter.add_instant_event(
-        proc(_SECOND_PID),
+        proc(_SECOND_PID, cmdline=cmdline),
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 2_000_000),
     )
     exporter.add_event(
-        proc(_SECOND_PID),
+        proc(_SECOND_PID, cmdline=cmdline),
         create_mock_stats_item(
             gen=_GEN,
             iid=0,
@@ -174,16 +158,9 @@ def _write_trace(
     return path
 
 
-def _write_trace_no_instant(
-    tmp: Path,
-    cmdline_provider: Callable[[int], list[str] | None] = lambda _pid: None,
-) -> Path:
+def _write_trace_no_instant(tmp: Path) -> Path:
     path = tmp / "trace.pb"
-    exporter = PerfettoExporter(
-        output_path=path,
-        flush_threshold=1000,
-        cmdline_provider=cmdline_provider,
-    )
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
     exporter.add_event(
         proc(DEFAULT_PID),
         create_mock_stats_item(
@@ -359,7 +336,7 @@ def trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
 def trace_processor_with_cmdline(
     tmp_path: Path,
 ) -> Iterator[TraceProcessor]:
-    path = _write_trace(tmp_path, cmdline_provider=_fake_cmdline_provider)
+    path = _write_trace(tmp_path, cmdline=_FAKE_CMDLINE)
     with open_trace_processor(path) as tp:
         yield tp
 
@@ -1476,11 +1453,7 @@ _RSS_TS_3: int = 2_500_000_000
 
 def _write_trace_with_rss(tmp: Path) -> Path:
     path = tmp / "trace_with_rss.pb"
-    exporter: PerfettoExporter = PerfettoExporter(
-        output_path=path,
-        flush_threshold=1000,
-        cmdline_provider=_fake_cmdline_provider,
-    )
+    exporter: PerfettoExporter = PerfettoExporter(output_path=path, flush_threshold=1000)
     exporter.add_rss_sample(proc(_RSS_PID_1), _RSS_VAL_1, _RSS_TS_1)
     exporter.add_rss_sample(proc(_RSS_PID_2), _RSS_VAL_2, _RSS_TS_2)
     exporter.add_rss_sample(proc(_RSS_PID_1), _RSS_VAL_3, _RSS_TS_3)

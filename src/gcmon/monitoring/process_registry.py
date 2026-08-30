@@ -1,13 +1,28 @@
 """Which process holds a pid now, and which ones held it before."""
 
+import logging
 import threading
 from collections.abc import Callable, Set
 
 from ..model.process import Process
 
-__all__ = ["CmdlineProvider", "ProcessRegistry"]
+__all__ = ["CmdlineProvider", "ProcessRegistry", "read_cmdline"]
+
+logger = logging.getLogger("gcmon")
 
 type CmdlineProvider = Callable[[int], tuple[str, ...] | None]
+
+
+def read_cmdline(pid: int) -> tuple[str, ...] | None:
+    """What *pid* is running, off psutil.
+
+    Wired in by the caller rather than defaulted to here, so a test naming
+    a pid this machine does not have reads nothing instead of whatever
+    happens to hold that number.
+    """
+    import psutil
+
+    return tuple(psutil.Process(pid).cmdline())
 
 
 class ProcessRegistry:
@@ -42,12 +57,28 @@ class ProcessRegistry:
         at the first flush it may be gone, and read once per pid it names
         the first process's program on every later one (ADR-0010).
         """
-        cmdline = self._cmdline_provider(pid) if self._cmdline_provider is not None else None
+        cmdline = self._read_cmdline(pid)
         with self._lock:
             assert pid not in self._live, f"PID {pid} is held by {self._live[pid]}; retire it before creating another"
             process = Process(pid, len(self._retired.get(pid, ())) + 1, ts, cmdline)
             self._live[pid] = process
             return process
+
+    def _read_cmdline(self, pid: int) -> tuple[str, ...] | None:
+        """Read *pid*'s command line, outside the lock: the provider reads
+        another process, and a control message about a third would wait
+        behind it.
+
+        A provider that fails costs its process a command line and
+        nothing else. The pid has already gone, or psutil is missing.
+        """
+        if self._cmdline_provider is None:
+            return None
+        try:
+            return self._cmdline_provider(pid)
+        except Exception as exc:
+            logger.warning("Could not collect cmdline for PID %s: %s", pid, exc)
+            return None
 
     def retire(self, pid: int, ts: int) -> None:
         """Note that the process holding *pid* left at *ts*.

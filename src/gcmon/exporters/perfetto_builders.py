@@ -5,7 +5,7 @@ Plain values in, wire-format bytes out. Nothing here touches
 is what keeps it directly testable against the wire format (ADR-0001).
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from .perfetto_proto import (
     ChildTracksOrdering,
@@ -46,7 +46,7 @@ def build_track_descriptor(
     child_ordering: ChildTracksOrdering | None = None,
     sibling_order_rank: int | None = None,
     thread_name: str | None = None,
-    cmdline: list[str] | None = None,
+    cmdline: Sequence[str] | None = None,
     description: str | None = None,
     process_ordering: ProcessOrdering | None = None,
     thread_ordering: ThreadOrdering | None = None,

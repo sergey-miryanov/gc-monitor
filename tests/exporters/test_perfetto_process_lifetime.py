@@ -416,9 +416,9 @@ class TestProcessLifetimeSlices:
         )
         descriptors, convert_packets, closeout = convert_items(
             [
-                (100, item),
+                (proc(100), item),
                 (
-                    100,
+                    proc(100),
                     GCStatsInfo(
                         gen=1,
                         iid=0,
@@ -468,9 +468,9 @@ class TestProcessLifetimeSlices:
         first non-meta event for the pid, on the shared ``Processes``
         track. It carries the observed span as ``real_start_ts`` /
         ``real_end_ts``, plus a ``cmdline`` debug annotation joined with
-        single spaces when ``state`` has a cmdline recorded for the pid."""
+        single spaces when the process carries one."""
         state = PerfettoTrackState()
-        state.set_cmdline(100, ["python3", "-m", "fake_target"])
+        target = proc(100, cmdline=("python3", "-m", "fake_target"))
         item = GCStatsInfo(
             gen=0,
             iid=0,
@@ -483,7 +483,7 @@ class TestProcessLifetimeSlices:
             candidates=5,
             duration=0.001,
         )
-        _, packets = convert_item(100, item, state, sequence_id=1)
+        _, packets = convert_item(target, item, state, sequence_id=1)
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
         begin_packets: list[TracePacket] = []
         for p in packets:
@@ -506,7 +506,7 @@ class TestProcessLifetimeSlices:
         assert by_name["real_end_ts"].int_value == 2_000
 
     def test_process_lifetime_slice_begin_no_cmdline_omits_arg(self) -> None:
-        """When ``state`` has no cmdline for the pid, the slice BEGIN on
+        """When the process carries no cmdline, the slice BEGIN on
         the ``Processes`` track carries only the observed span: the
         ``cmdline`` annotation is dropped, the ``real_*`` pair is not,
         since every slice records its span whatever else is known."""
@@ -523,7 +523,7 @@ class TestProcessLifetimeSlices:
             candidates=5,
             duration=0.001,
         )
-        _, packets = convert_item(100, item, state, sequence_id=1)
+        _, packets = convert_item(proc(100), item, state, sequence_id=1)
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
         begin_packets: list[TracePacket] = []
         for p in packets:
@@ -555,7 +555,7 @@ class TestProcessLifetimeSlices:
             candidates=5,
             duration=0.001,
         )
-        _, packets = convert_item(100, item, state, sequence_id=1)
+        _, packets = convert_item(proc(100), item, state, sequence_id=1)
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
         end_packets: list[TracePacket] = []
         for p in packets:
@@ -579,11 +579,11 @@ class TestProcessLifetimeSlices:
         BEGINs record their observed span in ``real_start_ts`` /
         ``real_end_ts``, so pid 100's clipped end is recoverable and pid
         200's untouched one reads the same way. Each BEGIN also carries
-        a ``cmdline`` annotation reflecting that pid's recorded
-        cmdline."""
+        a ``cmdline`` annotation reflecting the program that process
+        was running."""
         state = PerfettoTrackState()
-        state.set_cmdline(100, ["python3", "-m", "early_target"])
-        state.set_cmdline(200, ["python3", "-m", "late_target"])
+        early = proc(100, cmdline=("python3", "-m", "early_target"))
+        late = proc(200, cmdline=("python3", "-m", "late_target"))
         item_late_pid = GCStatsInfo(
             gen=0,
             iid=0,
@@ -609,7 +609,7 @@ class TestProcessLifetimeSlices:
             duration=0.001,
         )
         _, convert_packets, closeout = convert_items(
-            [(200, item_late_pid), (100, item_early_pid)],
+            [(late, item_late_pid), (early, item_early_pid)],
             state,
             sequence_id=1,
         )
@@ -648,6 +648,70 @@ class TestProcessLifetimeSlices:
             (5_000, TrackEventType.SLICE_END, "Process 200", {}),
         ]
 
+    def test_two_processes_on_one_pid_name_their_own_programs(self) -> None:
+        """A pid the operating system handed out twice draws two spans,
+        each annotated with the program its own process was running.
+
+        The command line comes off the `Process`, read when the monitor
+        minted it, so the second process names what it was running and
+        not what its predecessor was (ADR-0010)."""
+        state = PerfettoTrackState()
+        first = proc(100, cmdline=("python3", "-m", "first_target"))
+        second = proc(100, pid_epoch=2, cmdline=("python3", "-m", "second_target"))
+        item1 = GCStatsInfo(
+            gen=0,
+            iid=0,
+            ts_start=1_000,
+            ts_stop=2_000,
+            heap_size=1000,
+            collections=1,
+            collected=10,
+            uncollectable=0,
+            candidates=5,
+            duration=0.001,
+        )
+        item2 = GCStatsInfo(
+            gen=0,
+            iid=0,
+            ts_start=3_000,
+            ts_stop=4_000,
+            heap_size=2000,
+            collections=2,
+            collected=20,
+            uncollectable=0,
+            candidates=10,
+            duration=0.002,
+        )
+        _, _, closeout = convert_items([(first, item1), (second, item2)], state, sequence_id=1)
+        lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
+
+        assert lifetime_slices(closeout, lifetime_uuid) == [
+            (
+                1_000,
+                TrackEventType.SLICE_BEGIN,
+                "Process 100",
+                {
+                    "cmdline": "python3 -m first_target",
+                    "pid_epoch": 1,
+                    "real_start_ts": 1_000,
+                    "real_end_ts": 2_000,
+                },
+            ),
+            (2_000, TrackEventType.SLICE_END, "Process 100", {}),
+            (
+                3_000,
+                TrackEventType.SLICE_BEGIN,
+                "Process 100#2",
+                {
+                    "cmdline": "python3 -m second_target",
+                    "pid_epoch": 2,
+                    "real_start_ts": 3_000,
+                    "real_end_ts": 4_000,
+                },
+            ),
+            (4_000, TrackEventType.SLICE_END, "Process 100#2", {}),
+        ]
+
     def test_process_lifetime_idempotent_across_converts(self) -> None:
         """Two convert passes for the same pid produce a single slice
         pair spanning both batches: the second pass widens the recorded
@@ -655,7 +719,7 @@ class TestProcessLifetimeSlices:
         never cross anything, so the drawn span and the ``real_*``
         annotations agree."""
         state = PerfettoTrackState()
-        state.set_cmdline(100, ["python3", "-m", "fake_target"])
+        target = proc(100, cmdline=("python3", "-m", "fake_target"))
         item1 = GCStatsInfo(
             gen=0,
             iid=0,
@@ -681,7 +745,7 @@ class TestProcessLifetimeSlices:
             duration=0.002,
         )
         _, convert_packets, closeout = convert_items(
-            [(100, item1), (100, item2)],
+            [(target, item1), (target, item2)],
             state,
             sequence_id=1,
         )

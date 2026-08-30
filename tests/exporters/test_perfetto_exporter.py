@@ -297,17 +297,8 @@ class TestPerfettoExporter:
         # collected, uncollectable, candidates, heap_size, duration.
         assert len(counter_tracks) == 5
 
-    def test_cmdline_collected_from_psutil(self, tmp_path: Path) -> None:
-        calls: list[int] = []
-
-        def _cmdline_provider(pid: int) -> list[str]:
-            calls.append(pid)
-            return ["python", "-u", "my_script.py"]
-
-        exporter = PerfettoExporter(
-            output_path=tmp_path / "test.pb",
-            cmdline_provider=_cmdline_provider,
-        )
+    def test_cmdline_comes_from_the_process(self, tmp_path: Path) -> None:
+        exporter = PerfettoExporter(output_path=tmp_path / "test.pb")
         item = GCStatsInfo(
             gen=0,
             iid=0,
@@ -320,10 +311,9 @@ class TestPerfettoExporter:
             candidates=5,
             duration=0.001,
         )
-        exporter.add_event(proc(12345), item)
+        exporter.add_event(proc(12345, cmdline=("python", "-u", "my_script.py")), item)
         exporter.close()
 
-        assert calls == [12345]
         trace_data = (tmp_path / "test.pb").read_bytes()
         assert len(trace_data) > 0
 
@@ -345,11 +335,8 @@ class TestPerfettoExporter:
         assert found_cmdline, "cmdline not found in trace"
         assert found_description, "track description should be set when cmdline is present"
 
-    def test_no_psutil_graceful_degradation(self, tmp_path: Path) -> None:
-        exporter = PerfettoExporter(
-            output_path=tmp_path / "test.pb",
-            cmdline_provider=lambda pid: None,
-        )
+    def test_a_process_with_no_cmdline_gets_no_description(self, tmp_path: Path) -> None:
+        exporter = PerfettoExporter(output_path=tmp_path / "test.pb")
         item = GCStatsInfo(
             gen=0,
             iid=0,
@@ -372,10 +359,10 @@ class TestPerfettoExporter:
         for packet in packets:
             if packet.HasField("track_descriptor"):
                 td = packet.track_descriptor
-                assert not td.HasField("description"), "description should be absent when cmdline is unavailable"
+                assert not td.HasField("description"), "description should be absent when the process has no cmdline"
                 if td.HasField("process"):
                     descriptor = td.process
-                    assert len(descriptor.cmdline) == 0, "cmdline should be absent when psutil is unavailable"
+                    assert len(descriptor.cmdline) == 0, "cmdline should be absent when the process has none"
 
     def test_slice_begin_end_matched(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()

@@ -235,11 +235,7 @@ class _PerfettoFactory:
 
     def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:
         path = tmp_path / f"out_{self.name}.pb"
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=threshold,
-            cmdline_provider=lambda pid: ["python", "-u", "script.py"],
-        )
+        exporter = PerfettoExporter(output_path=path, flush_threshold=threshold)
         return exporter, PerfettoFileCapture(path)
 
 
@@ -457,18 +453,14 @@ class TestExporterThreadSafety:
 
 @pytest.mark.stress
 class TestPerfettoExporterCmdlinePath:
-    """The cmdline fetch in ``ProtobufEventEncoder._ensure_cmdline``."""
+    """A process the registry read no command line for."""
 
-    def test_ensure_cmdline_none_event_still_emitted(self, tmp_path: Path) -> None:
-        """A pid whose cmdline provider returns ``None`` still gets a
-        process descriptor, with no cmdline entries on it.
+    def test_a_process_with_no_cmdline_still_gets_a_descriptor(self, tmp_path: Path) -> None:
+        """A process carrying no command line still gets a process
+        descriptor, with no cmdline entries on it.
         """
         path = tmp_path / "trace.pb"
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=1,
-            cmdline_provider=lambda pid: None,
-        )
+        exporter = PerfettoExporter(output_path=path, flush_threshold=1)
         exporter.add_event(proc(MAIN_PID), create_mock_stats_item())
         exporter.close()
 
@@ -478,8 +470,7 @@ class TestPerfettoExporterCmdlinePath:
         assert capture.count_completes() == 2
         assert capture.count_process_descriptors() == 1
 
-        # The process track carries no joined description either: the
-        # provider returned None for every pid.
+        # The process track carries no joined description either.
         for packet in capture._packets():
             if not packet.HasField("track_descriptor"):
                 continue
@@ -487,48 +478,6 @@ class TestPerfettoExporterCmdlinePath:
             if not td.HasField("process"):
                 continue
             assert len(td.process.cmdline) == 0, f"expected no cmdline entries, got {len(td.process.cmdline)}"
-
-    def test_concurrent_same_pid_cmdline_provider_raises(self, tmp_path: Path) -> None:
-        """Two threads race the same new PID with a cmdline provider
-        that raises.
-
-        A provider failure costs the descriptor its cmdline and nothing
-        else. See ADR-0008.
-        """
-
-        class _CmdlineError(Exception):
-            pass
-
-        def _failing_provider(pid: int) -> list[str] | None:
-            raise _CmdlineError(pid)
-
-        path = tmp_path / "trace.pb"
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=10,
-            cmdline_provider=_failing_provider,
-        )
-        events_a = _make_gc_events(N_GC, 1_500_000_000)
-        events_b = _make_gc_events(N_GC, 1_600_000_000)
-
-        def writer_a() -> None:
-            for ev in events_a:
-                exporter.add_event(proc(MAIN_PID), ev)
-
-        def writer_b() -> None:
-            for ev in events_b:
-                exporter.add_event(proc(MAIN_PID), ev)
-
-        captured = _run_two_threads([writer_a, writer_b])
-        exporter.close()
-        for exc in captured:
-            raise exc
-
-        capture = PerfettoFileCapture(path)
-        # 2*N_GC GC pause slice begins on the thread track + 1
-        # Processes-track lifetime begin for the only pid.
-        assert capture.count_completes() == 2 * N_GC + 1
-        assert capture.count_process_descriptors() == 1
 
 
 @pytest.mark.stress
@@ -547,11 +496,7 @@ class TestMetaDedupRaceClosed:
 
     def test_perfetto_two_threads_same_new_pid_produces_single_descriptor(self, tmp_path: Path) -> None:
         path = tmp_path / "out_perfetto.pb"
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=10,
-            cmdline_provider=lambda pid: ["python", "-u", "race_script.py"],
-        )
+        exporter = PerfettoExporter(output_path=path, flush_threshold=10)
         events_a = _make_gc_events(N_GC, 1_500_000_000)
         events_b = _make_gc_events(N_GC, 1_600_000_000)
 

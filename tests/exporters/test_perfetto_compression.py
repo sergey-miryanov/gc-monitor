@@ -76,7 +76,6 @@ def _write_trace(path: Path, codec: Codec) -> Path:
     exporter = PerfettoExporter(
         output_path=path,
         flush_threshold=1,
-        cmdline_provider=lambda _pid: None,
         codec=codec,
     )
     for i in range(_EVENTS - 1):
@@ -99,7 +98,6 @@ def _write_liveness_only_trace(path: Path, codec: Codec) -> Path:
     exporter = PerfettoExporter(
         output_path=path,
         flush_threshold=100,
-        cmdline_provider=lambda _pid: None,
         codec=codec,
     )
     exporter.add_process_liveness({proc(_PID)}, 1_000_000)
@@ -229,7 +227,6 @@ def _write_pauses(path: Path, count: int, codec: Codec) -> Path:
     exporter = PerfettoExporter(
         output_path=path,
         flush_threshold=1,
-        cmdline_provider=lambda _pid: None,
         codec=codec,
     )
     for i in range(count):

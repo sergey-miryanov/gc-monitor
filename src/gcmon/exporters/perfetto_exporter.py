@@ -1,7 +1,7 @@
 """Perfetto binary protobuf exporter for GC monitoring data."""
 
 import threading
-from collections.abc import Callable, Set
+from collections.abc import Set
 from pathlib import Path
 from typing import override
 
@@ -29,7 +29,6 @@ class PerfettoExporter(EventsExporter):
         self,
         output_path: Path,
         flush_threshold: int = 1000,
-        cmdline_provider: Callable[[int], list[str] | None] | None = None,
         sequence_id: int | None = None,
         codec: Codec | None = None,
     ) -> None:
@@ -41,7 +40,7 @@ class PerfettoExporter(EventsExporter):
         self._output_path = output_path
         # Held at its own type: ``record_process_liveness`` is not on the
         # ``EventEncoder`` protocol. See ADR-0011.
-        self._encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider, sequence_id=sequence_id, codec=codec)
+        self._encoder = ProtobufEventEncoder(sequence_id=sequence_id, codec=codec)
         self._closed = False
         self._encoder.open(output_path)
 

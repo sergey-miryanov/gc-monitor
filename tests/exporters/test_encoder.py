@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -45,17 +44,6 @@ class TestProtobufEventEncoder:
         enc.open(tmp_path / "first.perfetto")
         with pytest.raises(AssertionError, match="one encoder writes one trace"):
             enc.open(tmp_path / "second.perfetto")
-
-    def test_default_cmdline_provider_returns_cmdline(self) -> None:
-        result = ProtobufEventEncoder._default_cmdline_provider(os.getpid())
-        assert isinstance(result, list)
-
-    def test_ensure_cmdline_skips_already_set(self) -> None:
-        provider = Mock(return_value=["python", "app.py"])
-        enc = ProtobufEventEncoder(cmdline_provider=provider)
-        enc._ensure_cmdline(1234)
-        enc._ensure_cmdline(1234)
-        assert provider.call_count == 1
 
     def test_write_events_returns_early_when_converter_produces_no_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

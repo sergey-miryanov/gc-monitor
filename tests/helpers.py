@@ -62,9 +62,9 @@ __all__ = [
 ]
 
 
-def proc(pid: int, pid_epoch: int = 1, start_ts: int = 0) -> Process:
+def proc(pid: int, pid_epoch: int = 1, start_ts: int = 0, cmdline: tuple[str, ...] | None = None) -> Process:
     """A `Process` for a test that cares about the pid and not the rest."""
-    return Process(pid, pid_epoch, start_ts)
+    return Process(pid, pid_epoch, start_ts, cmdline)
 
 
 def process_track(pid: int, pid_epoch: int = 1) -> ProcessTrack:

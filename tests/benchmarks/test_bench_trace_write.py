@@ -48,7 +48,7 @@ def test_write_a_run_of_batches(benchmark: BenchmarkFixture, tmp_path: Path) -> 
     path = tmp_path / "bench.pftrace"
 
     def run() -> int:
-        encoder = ProtobufEventEncoder(cmdline_provider=lambda _pid: None, sequence_id=1)
+        encoder = ProtobufEventEncoder(sequence_id=1)
         encoder.open(path)
         for events in batches:
             encoder.write_events(events)

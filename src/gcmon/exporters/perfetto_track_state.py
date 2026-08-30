@@ -43,7 +43,6 @@ class PerfettoTrackState:
     def __init__(self) -> None:
         self._described_pids: set[int] = set()
         self._tracks: set[Track] = set()
-        self._cmdlines: dict[int, list[str]] = {}
         self._counter_tracks: dict[tuple[Track, str], int] = {}
         self._counter_group_uuids: dict[Track, int] = {}
         self._pid_uuids: dict[int, int] = {}
@@ -77,12 +76,6 @@ class PerfettoTrackState:
 
     def mark_track(self, track: Track) -> None:
         self._tracks.add(_shared_row(track))
-
-    def set_cmdline(self, pid: int, cmdline: list[str]) -> None:
-        self._cmdlines[pid] = cmdline
-
-    def get_cmdline(self, pid: int) -> list[str] | None:
-        return self._cmdlines.get(pid)
 
     def get_process_track_uuid(self, process: Process) -> int:
         """The uuid of *process*'s own Perfetto row.

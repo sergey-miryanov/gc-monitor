@@ -45,11 +45,11 @@ recorded. The child replays the same collections `CHILD_SKEW_NS` later, so its
 ring lands on different instants and its loss windows fall elsewhere. Two pids
 with different per-pid state, not one counted twice.
 
-*Neither value the encoder would have invented is left to it.* `sequence_id`
-is passed in rather than derived from `id(self)`, and `cmdline_provider` is a
-stub answering `None`, so psutil is never asked what a pid this machine does
-not have was running. Track uuids count from 1 in allocation order, which the
-script above already fixes.
+*The one value the encoder would have invented is not left to it.*
+`sequence_id` is passed in rather than derived from `id(self)`. Track uuids
+count from 1 in allocation order, which the script above already fixes, and
+the registry the monitor builds for itself has no cmdline provider, so psutil
+is never asked what a pid this machine does not have was running.
 
 *Liveness arrives in the order the script produced.* The `Processes` track
 clips one pid's span against another's, so its slices depend on the sequence of
@@ -132,15 +132,6 @@ FLUSH_THRESHOLD = 1000
 # is `id(self)` masked, which is an address, so it would put this process's
 # memory layout in the fixture.
 SEQUENCE_ID = 1
-
-
-def _no_cmdline(pid: int) -> list[str] | None:
-    """The cmdline provider for a run with no live process behind it.
-
-    The default reads psutil, which on this machine answers for whatever
-    happens to hold pid 33328, and on the next machine answers something else.
-    """
-    return None
 
 
 def _tree(tick: int) -> list[int]:
@@ -340,7 +331,6 @@ def run_monitored(output: Path) -> MonitoredRun:
     exporter = PerfettoExporter(
         output_path=output,
         flush_threshold=FLUSH_THRESHOLD,
-        cmdline_provider=_no_cmdline,
         sequence_id=SEQUENCE_ID,
     )
     monitor = EventsMonitor(

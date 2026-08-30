@@ -1,9 +1,11 @@
 """Who holds a pid, who held it before, and who may say so."""
 
+import os
+
 import pytest
 
 from gcmon.model.process import Process
-from gcmon.monitoring.process_registry import ProcessRegistry
+from gcmon.monitoring.process_registry import ProcessRegistry, read_cmdline
 
 
 class TestAPidHandedOn:
@@ -131,3 +133,17 @@ class TestTheCommandLine:
 
     def test_no_provider_leaves_it_unread(self) -> None:
         assert ProcessRegistry().create(100, 0).cmdline is None
+
+    def test_a_provider_that_raises_leaves_it_unread(self) -> None:
+        """The pid has gone between the poll and the read, or psutil is
+        missing. It costs that process a command line and nothing else."""
+
+        def _raises(pid: int) -> tuple[str, ...] | None:
+            raise RuntimeError(pid)
+
+        assert ProcessRegistry(cmdline_provider=_raises).create(100, 0).cmdline is None
+
+    def test_psutil_reads_the_running_interpreter(self) -> None:
+        """The provider the CLI wires in, against the one process this
+        test knows is alive."""
+        assert read_cmdline(os.getpid())

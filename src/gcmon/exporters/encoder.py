@@ -7,7 +7,6 @@ implementation (ADR-0008).
 
 from __future__ import annotations
 
-import logging
 import zlib
 from collections.abc import Callable, Sequence, Set
 from functools import partial
@@ -24,8 +23,6 @@ from .perfetto_format import (
     finalize_perfetto_packets,
 )
 from .protobuf_encoder import encode_bytes_field
-
-logger = logging.getLogger("gcmon")
 
 _DEFLATE_LEVEL = 6
 _ZSTD_LEVEL = 3
@@ -77,49 +74,14 @@ class ProtobufEventEncoder:
 
     def __init__(
         self,
-        cmdline_provider: Callable[[int], list[str] | None] | None = None,
         sequence_id: int | None = None,
         codec: Codec | None = None,
     ) -> None:
         self._path: Path | None = None
         self._track_state = PerfettoTrackState()
         self._sequence_id: int = sequence_id if sequence_id is not None else id(self) & 0x7FFFFFFF
-        self._cmdline_provider: Callable[[int], list[str] | None] = (
-            cmdline_provider if cmdline_provider is not None else self._default_cmdline_provider
-        )
         self._has_written: bool = False
         self._codec: Codec = codec if codec is not None else _CODEC
-        self._cmdline_read: set[int] = set()
-
-    @staticmethod
-    def _default_cmdline_provider(pid: int) -> list[str]:
-        import psutil
-
-        result = psutil.Process(pid).cmdline()
-        logger.debug("Collected cmdline for PID %s: %s", pid, result)
-        return result
-
-    def _collect_cmdline(self, pid: int) -> list[str] | None:
-        try:
-            return self._cmdline_provider(pid)
-        except Exception as exc:
-            logger.warning("Could not collect cmdline for PID %s: %s", pid, exc)
-            return None
-
-    def _ensure_cmdline(self, pid: int) -> None:
-        """Read *pid*'s command line, once per trace.
-
-        Once, and not once per pid per batch: a pid whose command line
-        cannot be read -- it has already exited, or psutil is missing --
-        would otherwise cost a failed read and a warning on every flush
-        for the rest of the run.
-        """
-        if pid in self._cmdline_read:
-            return
-        self._cmdline_read.add(pid)
-        cmdline = self._collect_cmdline(pid)
-        if cmdline is not None:
-            self._track_state.set_cmdline(pid, cmdline)
 
     def open(self, path: Path) -> None:
         """Bind this encoder to *path*. One encoder writes one trace.
@@ -160,10 +122,6 @@ class ProtobufEventEncoder:
         if not events:
             return
         assert self._path is not None, "open() must be called before write_events()"
-        # Ahead of the convert pass, which puts the command line on the
-        # process descriptor it may be about to write.
-        for event in events:
-            self._ensure_cmdline(event.track.process.pid)
         descriptors, packets = convert_trace_events_to_perfetto(
             list(events),
             self._track_state,

@@ -64,7 +64,7 @@ def _emit_process_lifetime_slice(
     processor breaks timestamp ties by position in the sequence, so a
     zero-length span with its END first reads as ``dur = -1``.
 
-    The BEGIN carries a ``cmdline`` annotation when *state* has one, plus
+    The BEGIN carries a ``cmdline`` annotation when the process has one, plus
     ``pid_epoch`` and *real_start_ts* / *real_end_ts*: the span as
     observed, annotated on **every** slice rather than only clipped ones
     so a consumer never has to check whether a clip happened. Where those
@@ -80,7 +80,7 @@ def _emit_process_lifetime_slice(
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
     name = f"Process {span.process}"
     debug_annotations: list[bytes] = []
-    cmdline = state.get_cmdline(span.process.pid)
+    cmdline = span.process.cmdline
     if cmdline:
         debug_annotations.append(
             _build_debug_annotation_string("cmdline", " ".join(cmdline)),
