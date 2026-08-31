@@ -68,14 +68,9 @@ class TestRssSampler:
         sampler = RssSampler(exporter, interval=1.0, rss_provider=provider_fn)
         sampler._last_sample_ns = 0
         sampler.tick(now_ns=2 * SEC, live={proc(101), proc(102)})
-        assert calls == [101, 102]
-        assert exporter.add_rss_sample.call_count == 2
-        first_call = exporter.add_rss_sample.call_args_list[0]
-        assert first_call[0][0] == proc(101)
-        assert first_call[0][1] == 42
-        second_call = exporter.add_rss_sample.call_args_list[1]
-        assert second_call[0][0] == proc(102)
-        assert second_call[0][1] == 42
+        assert sorted(calls) == [101, 102]
+        sampled = sorted(call.args for call in exporter.add_rss_sample.call_args_list)
+        assert sampled == [(proc(101), 42, 2 * SEC), (proc(102), 42, 2 * SEC)]
 
     def test_tick_respects_timer(self) -> None:
         """Second tick within interval does nothing."""
