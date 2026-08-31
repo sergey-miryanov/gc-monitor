@@ -153,10 +153,6 @@ def _emit_process_descriptor(
     *start_timestamp_ns* goes on the ``process`` sub-message. It is
     *process*'s first event in nanoseconds, the same timestamp the rank comes
     from.
-
-    The name carries the epoch. ``pid`` stays the operating system's, which
-    two processes that held it write alike, and the trace processor splits
-    them anyway (ADR-0011).
     """
     if state.has_process_descriptor(process):
         return []
