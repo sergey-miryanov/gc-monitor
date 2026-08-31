@@ -41,7 +41,6 @@ This file holds the open set and the order to take it in. The other two:
 | [0061](0061-build-the-statistics-table-from-a-tracefile.md) | Feature (enhancement) | L | The statistics table exists only while gcmon is running; a capture from last week holds every number and offers no way to see them |
 | [0062](0062-name-a-workload-from-a-sanitized-command-line.md) | Feature (enhancement) | M | A pyperformance run prints one `Total` folding sixty benchmarks and hundreds of blocks keyed by a pid that means nothing afterwards; the level anyone asks about is missing |
 | [0063](0063-compare-two-tracefiles.md) | Feature (enhancement) | L | Nothing answers "did GC get worse between these two runs"; two tables side by side works for one row and fails for sixty |
-| [0066](0066-give-each-process-on-a-reused-pid-its-own-rows.md) | Feature (enhancement) | M | 0059 split the spans and left every row under them merged: a pid held twice draws one process track whose pause row interleaves two processes, whose counter steps between them, and whose command line names a program the second never ran |
 
 Every row here has a file. A missing number either retired or never became
 one; [RETIRED.md](RETIRED.md) says which.
@@ -67,7 +66,6 @@ one; [RETIRED.md](RETIRED.md) says which.
 | 0061 | Unblocked: 0059 landed, and a trace now says which process held a pid |
 | 0062 | |
 | 0063 | Constrained: after 0060, 0061 and 0062 |
-| 0066 | Unblocked: 0059 landed, and the measurement its section 4 wanted is taken |
 
 Rows run in order, top to bottom. "Constrained" means the table below forces
 the position. A blank cell means no recorded reason, so that row can move.
