@@ -91,8 +91,9 @@ in prose)
 
 **Process track**:
 A process's own row, and what its other rows hang under: its thread rows, its
-loss rows and its counter group. Named `Process 12345`, or `Process 12345#2`
-for the second process to hold the pid.
+loss rows, its counter group, and the counters drawn beside the group rather
+than inside it. Named `Process 12345`, or `Process 12345#2` for the second
+process to hold the pid.
 _Avoid_: process group, pid track, parent track
 
 **Counter group**:

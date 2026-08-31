@@ -28,7 +28,7 @@ A trace carries these, on one track per interpreter:
   `G0 collected`, `G1 collected` and `G2 collected` line up.
 - **`GC Loss` track**: one row per interpreter, `GC Loss {iid}`, under that
   process's own track; see [GC Loss slices](#gc-loss-slices).
-- **`rss` counter** per PID under `--rss`, in bytes, sampled at
+- **`rss` counter** per process under `--rss`, in bytes, sampled at
   `--rss-interval` (default 1s).
 - **`Processes` track**: a minimap of the session, one slice per monitored
   process. A reused PID gets one slice per process, the second named
@@ -118,9 +118,9 @@ both the UI and SQL:
 | `description` on the process track | argv joined with single spaces | Yes | Yes, via `args` (key `description`) |
 | `cmdline` debug annotation on the `Process {pid}` slice of the `Processes` track | argv joined with single spaces | Yes, in the slice's details | Yes, via `args` (key `debug.cmdline`) |
 
-Each is read once, while the process is running. On a reused PID all three
-name the program that process ran, since each process has a process track of
-its own.
+Each is read once, while the process is running, and each process has a
+process track of its own. On a reused PID all three name the program that
+process ran.
 
 Queries for the latter two are in
 [Trace Analysis with Perfetto SQL](perfetto-sql.md#example-querying-process-command-lines).

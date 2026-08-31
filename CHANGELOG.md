@@ -24,13 +24,14 @@
 - `ControlClient.instant_msg` takes a `ts`, so an instant captured in a hot path can be sent after it and still land where it happened
 - The pyperf hook marks where each benchmark ran: `gcmon:`-prefixed begin and end marks per measured region
 - Each process that held a reused PID gets its own slice on the `Processes` track, the second named `Process 12345#2`, matching the `--stats` block. Every slice carries a `pid_epoch` annotation, so a PerfettoSQL query reads the number without parsing the name
-- Each process that held a reused PID draws its own rows: a `Process 12345#2` process track beside `Process 12345`, carrying its own pause row, `GC Loss` row, counters, start time and command line. The two are separate `upid`s, so a per-process figure in PerfettoSQL is a `GROUP BY`
+- Each process that held a reused PID draws its own rows: a `Process 12345#2` process track beside `Process 12345`, with its own pause row, `GC Loss` row and counters. In PerfettoSQL the two are separate `upid`s, and a per-process figure is a `GROUP BY`
 
 ### Bugfixes
 
 - An instant sent close to the end of a run reaches the trace, where the last one a client sent could be dropped without a word
 - A `Processes` slice names the program its own process was running. A reused PID used to put the first process's command line on every slice of that PID, and a process that exited before the first flush got none at all
 - A `Processes` slice covers only the process it names, where a reused PID used to draw one slice spanning both and the stretch between them
+- A process track names the program its own process was running and opens when that process started. A reused PID used to draw one track for both processes, showing the first one's command line and stamped before the second existed
 
 ### Internal
 

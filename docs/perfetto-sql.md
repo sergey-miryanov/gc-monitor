@@ -17,7 +17,8 @@ count is `debug.gen0.lost_count`.
 
 gcmon traces use the standard Perfetto schema:
 
-- **`process`**: one row per monitored process
+- **`process`**: one row per process that drew a row of its own, plus a
+  synthetic `pid = 0` entry the trace processor adds to every trace
   - `upid`, the trace processor's own key and the one to group by; `pid`, the
     operating system's, which two processes share where one was handed on;
     `name` (`"Process 12345"`); `start_ts`
@@ -65,9 +66,9 @@ ORDER BY IF(parent_id IS NULL, 0, 1), name
 Under `--rss`, samples land in the `counter` table on a track named `rss`:
 
 ```sql
--- RSS values per PID (requires --rss)
+-- RSS values per process (requires --rss)
 SELECT
-    p.pid,
+    p.name,
     (c.ts - p.start_ts) / 1e9 AS sec_from_start,
     ROUND(c.value / 1e6, 2) AS rss_mb
 FROM counter c
@@ -124,32 +125,37 @@ could draw; `real_start_ts` and `real_end_ts` are what gcmon observed, and
 every slice carries them whether it was cut or not.
 
 Every monitored process gets one slice, a process that never collected
-included, and one `process` row. **Scope by `upid`**: a reused PID has a row
-per process, so joining on `p.pid` matches all of them and returns each result
-once per process. `pid_epoch` tells the two apart, and so does the name,
-`Process 12345#2` from the second process on. A `dur = 0` slice is one
-observed at a single instant, or cut down to nothing.
+included. Reaching the `process` table takes more than that: a process known
+from liveness alone drew no row of its own and has no entry there, so this
+track is the only place it appears.
 
-A slice and the process it describes carry **the same name**, and that is the
-only join between them. The epoch reaches no column of its own, so nothing
-else pairs a span's drawn and observed durations with a per-process
-aggregate:
+**Scope by `upid`** where a process does have an entry. A reused PID has one
+per process, and a join on `p.pid` matches every process that held it,
+returning each result once per process. `pid_epoch` tells them apart, and so
+does the name, `Process 12345#2` from the second process on. A `dur = 0` slice
+is one observed at a single instant, or cut down to nothing.
+
+A slice and the process it describes carry **the same name**, which is what
+pairs a span's drawn and observed durations with a per-process aggregate:
+`p.pid` matches both processes and the epoch reaches no column of its own.
+Start from the span and left-join the process, so a process with a span and no
+entry keeps its row:
 
 ```sql
 -- Each process's observed lifetime beside the pauses it recorded
 SELECT
-    p.name,
+    span.name,
     COUNT(gc.id) AS pauses,
     EXTRACT_ARG(span.arg_set_id, 'debug.real_end_ts')
         - EXTRACT_ARG(span.arg_set_id, 'debug.real_start_ts') AS observed_dur
-FROM process p
-JOIN slice span ON span.name = p.name
+FROM slice span
 JOIN track spant ON span.track_id = spant.id AND spant.name = 'Processes'
+LEFT JOIN process p ON p.name = span.name
 LEFT JOIN thread th ON th.upid = p.upid
 LEFT JOIN thread_track tt ON tt.utid = th.utid
 LEFT JOIN slice gc ON gc.track_id = tt.id AND gc.name GLOB 'GC Pause*'
-GROUP BY p.upid
-ORDER BY p.start_ts
+GROUP BY span.id
+ORDER BY span.ts
 ```
 
 Processes still alive when monitoring stops share an end timestamp and nest,
