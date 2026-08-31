@@ -2,7 +2,7 @@
 
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from tests.exporters.perfetto_helpers import span
-from tests.helpers import interpreter_track, proc
+from tests.helpers import interpreter_track, loss_track, proc
 
 
 class TestPerfettoTrackState:
@@ -183,39 +183,61 @@ class TestProcessLifetimeState:
         assert state.has_process_lifetime_emitted()
 
 
-class TestTwoProcessesOnOnePidShareTheirRows:
-    """A `Track` names the process it was drawn for, but the Perfetto rows are
-    not split per process: a pid handed on keeps one thread track, one counter
-    group and one set of counters, and the `Processes` track carries the
-    distinction (ADR-0011). Splitting the rows moves these assertions."""
+class TestTwoProcessesOnOnePidGetTheirOwnRows:
+    """A `Track` names the process it was drawn for, and every row the
+    exporter allocates is filed under that process: a pid handed on draws two
+    process tracks, two thread tracks, two loss tracks, two counter groups and
+    two of each counter (ADR-0011)."""
 
     FIRST = interpreter_track(100, 0, 1)
     SECOND = interpreter_track(100, 0, 2)
 
-    def test_the_thread_track_gets_one_uuid(self) -> None:
+    def test_the_process_track_gets_a_uuid_per_process(self) -> None:
         state = PerfettoTrackState()
 
-        assert state.get_track_uuid(self.SECOND) == state.get_track_uuid(self.FIRST)
+        assert state.get_process_track_uuid(proc(100, 2)) != state.get_process_track_uuid(proc(100, 1))
 
-    def test_the_thread_descriptor_goes_out_once(self) -> None:
+    def test_the_process_descriptor_goes_out_per_process(self) -> None:
+        state = PerfettoTrackState()
+        state.mark_process_descriptor(proc(100, 1))
+
+        assert not state.has_process_descriptor(proc(100, 2))
+
+    def test_the_start_process_marker_goes_out_per_process(self) -> None:
+        state = PerfettoTrackState()
+        state.mark_start_process_marker(proc(100, 1))
+
+        assert not state.has_start_process_marker(proc(100, 2))
+
+    def test_the_thread_track_gets_a_uuid_per_process(self) -> None:
+        state = PerfettoTrackState()
+
+        assert state.get_track_uuid(self.SECOND) != state.get_track_uuid(self.FIRST)
+
+    def test_the_thread_descriptor_goes_out_per_process(self) -> None:
         state = PerfettoTrackState()
         state.mark_track(self.FIRST)
 
-        assert state.has_track(self.SECOND)
+        assert not state.has_track(self.SECOND)
 
-    def test_the_counter_group_gets_one_uuid(self) -> None:
+    def test_the_loss_track_gets_a_uuid_per_process(self) -> None:
+        state = PerfettoTrackState()
+
+        assert state.get_track_uuid(loss_track(100, 0, 2)) != state.get_track_uuid(loss_track(100, 0, 1))
+
+    def test_the_counter_group_gets_a_uuid_per_process(self) -> None:
         state = PerfettoTrackState()
         first = state.get_or_create_counter_group_track_uuid(self.FIRST)
 
-        assert state.get_or_create_counter_group_track_uuid(self.SECOND) == first
-        assert state.has_counter_group_track(self.SECOND)
+        assert not state.has_counter_group_track(self.SECOND)
+        assert state.get_or_create_counter_group_track_uuid(self.SECOND) != first
 
-    def test_a_counter_gets_one_uuid(self) -> None:
+    def test_a_counter_gets_a_uuid_per_process(self) -> None:
         state = PerfettoTrackState()
         first = state.get_or_create_counter_track_uuid(self.FIRST, "G0 collected")
 
-        assert state.get_or_create_counter_track_uuid(self.SECOND, "G0 collected") == first
-        assert state.has_counter_track(self.SECOND, "G0 collected")
+        assert not state.has_counter_track(self.SECOND, "G0 collected")
+        assert state.get_or_create_counter_track_uuid(self.SECOND, "G0 collected") != first
 
     def test_two_interpreters_are_still_two_rows(self) -> None:
         """The control: dropping the epoch must not fold anything else."""

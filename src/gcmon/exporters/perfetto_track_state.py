@@ -10,8 +10,6 @@ because splitting the class would leave two halves sharing ``_next_uuid``.
 
 from typing import NamedTuple
 
-import msgspec
-
 from ..model.process import Process
 from ..model.trace_event import Track
 
@@ -24,24 +22,15 @@ class ProcessSpan(NamedTuple):
     end_ts: int
 
 
-def _shared_row(track: Track) -> Track:
-    """The key *track*'s uuid is filed under.
-
-    Every process that held a pid draws on one set of Perfetto rows, and
-    the `Processes` track carries the distinction (ADR-0011).
-    """
-    return msgspec.structs.replace(track, process=Process(track.process.pid, 1))
-
-
 class PerfettoTrackState:
     def __init__(self) -> None:
-        self._described_pids: set[int] = set()
+        self._described_processes: set[Process] = set()
         self._tracks: set[Track] = set()
         self._counter_tracks: dict[tuple[Track, str], int] = {}
         self._counter_group_uuids: dict[Track, int] = {}
-        self._pid_uuids: dict[int, int] = {}
+        self._process_uuids: dict[Process, int] = {}
         self._track_uuids: dict[Track, int] = {}
-        self._start_process_marker_emitted: set[int] = set()
+        self._start_process_marker_emitted: set[Process] = set()
         self._process_lifetime_track_uuid: int | None = None
         self._cmdlines: dict[Process, tuple[str, ...]] = {}
         self._process_lifetime_start: dict[Process, int] = {}
@@ -56,62 +45,49 @@ class PerfettoTrackState:
         return uuid
 
     def has_process_descriptor(self, process: Process) -> bool:
-        """Whether *process*'s row has been described.
-
-        Filed under the pid, like the uuid the descriptor carries: one
-        descriptor covers every process that held it.
-        """
-        return process.pid in self._described_pids
+        return process in self._described_processes
 
     def mark_process_descriptor(self, process: Process) -> None:
-        self._described_pids.add(process.pid)
+        self._described_processes.add(process)
 
     def has_track(self, track: Track) -> bool:
-        return _shared_row(track) in self._tracks
+        return track in self._tracks
 
     def mark_track(self, track: Track) -> None:
-        self._tracks.add(_shared_row(track))
+        self._tracks.add(track)
 
     def get_process_track_uuid(self, process: Process) -> int:
-        """The uuid of the row *process* draws on.
-
-        Filed under the pid, so every process that held it shares one row,
-        as :func:`_shared_row` does for the tracks underneath.
-        """
-        pid = process.pid
-        if pid not in self._pid_uuids:
-            self._pid_uuids[pid] = self._alloc_uuid()
-        return self._pid_uuids[pid]
+        if process not in self._process_uuids:
+            self._process_uuids[process] = self._alloc_uuid()
+        return self._process_uuids[process]
 
     def get_track_uuid(self, track: Track) -> int:
-        key = _shared_row(track)
-        if key not in self._track_uuids:
-            self._track_uuids[key] = self._alloc_uuid()
-        return self._track_uuids[key]
+        if track not in self._track_uuids:
+            self._track_uuids[track] = self._alloc_uuid()
+        return self._track_uuids[track]
 
     def has_counter_track(self, track: Track, display_name: str) -> bool:
-        return (_shared_row(track), display_name) in self._counter_tracks
+        return (track, display_name) in self._counter_tracks
 
     def get_or_create_counter_track_uuid(self, track: Track, display_name: str) -> int:
-        key = (_shared_row(track), display_name)
+        key = (track, display_name)
         if key not in self._counter_tracks:
             self._counter_tracks[key] = self._alloc_uuid()
         return self._counter_tracks[key]
 
     def has_counter_group_track(self, track: Track) -> bool:
-        return _shared_row(track) in self._counter_group_uuids
+        return track in self._counter_group_uuids
 
     def get_or_create_counter_group_track_uuid(self, track: Track) -> int:
-        key = _shared_row(track)
-        if key not in self._counter_group_uuids:
-            self._counter_group_uuids[key] = self._alloc_uuid()
-        return self._counter_group_uuids[key]
+        if track not in self._counter_group_uuids:
+            self._counter_group_uuids[track] = self._alloc_uuid()
+        return self._counter_group_uuids[track]
 
     def has_start_process_marker(self, process: Process) -> bool:
-        return process.pid in self._start_process_marker_emitted
+        return process in self._start_process_marker_emitted
 
     def mark_start_process_marker(self, process: Process) -> None:
-        self._start_process_marker_emitted.add(process.pid)
+        self._start_process_marker_emitted.add(process)
 
     def has_process_lifetime_track(self) -> bool:
         return self._process_lifetime_track_uuid is not None
@@ -155,12 +131,8 @@ class PerfettoTrackState:
             self._process_lifetime_end[process] = ts
 
     def get_process_lifetime_start_ts(self, process: Process) -> int | None:
-        """When the pid's Perfetto row opens.
-
-        The row is not split, so it covers every process that held the
-        pid and opens at the first of them (ADR-0011).
-        """
-        return self._process_lifetime_start.get(Process(process.pid, 1))
+        """When *process*'s Perfetto row opens."""
+        return self._process_lifetime_start.get(process)
 
     def get_process_lifetimes(self) -> list[ProcessSpan]:
         """Every process with a recorded span.
@@ -179,19 +151,17 @@ class PerfettoTrackState:
     def mark_process_lifetime_emitted(self) -> None:
         self._process_lifetime_emitted = True
 
-    def get_process_track_ranks(self) -> dict[int, int]:
-        """Return ``{pid: rank}``, assigned sequentially from ``0`` by
-        ascending ``(start_ts, pid)`` over the first process to hold each
-        pid. Pids with no recorded start are absent.
+    def get_process_track_ranks(self) -> dict[Process, int]:
+        """Return ``{process: rank}``, assigned sequentially from ``0`` by
+        ascending ``(start_ts, process)``. A process with no recorded start
+        is absent.
 
-        Ranked on the first process for the same reason the row is stamped
-        from it: one row covers them all (ADR-0011).
+        A successor on a reused pid draws a row of its own, so it ranks on
+        its own first observation rather than inheriting one (ADR-0011).
         """
-        firsts = {process.pid: ts for process, ts in self._process_lifetime_start.items() if process.pid_epoch == 1}
-        if not firsts:
-            return {}
-        sorted_pids = sorted(firsts, key=lambda pid: (firsts[pid], pid))
-        return {pid: rank for rank, pid in enumerate(sorted_pids)}
+        starts = self._process_lifetime_start
+        ordered = sorted(starts, key=lambda process: (starts[process], process))
+        return {process: rank for rank, process in enumerate(ordered)}
 
     def has_root_descriptor(self) -> bool:
         return self._root_descriptor_emitted

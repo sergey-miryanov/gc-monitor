@@ -17,7 +17,7 @@ from .perfetto_builders import (
 from .perfetto_proto import TrackEventType
 from .perfetto_track_state import PerfettoTrackState, ProcessSpan
 
-__all__ = ["finalize_perfetto_packets"]
+__all__ = ["finalize_perfetto_packets", "process_track_name"]
 
 
 class ClippedSpan(NamedTuple):
@@ -39,6 +39,16 @@ class ClippedSpan(NamedTuple):
 # Name of the shared top-level Perfetto track that shows one
 # TYPE_SLICE_BEGIN / TYPE_SLICE_END pair per process.
 _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
+
+
+def process_track_name(process: Process) -> str:
+    """What *process* is called, on its own row and on its span here.
+
+    The two names have to be equal: the epoch reaches SQL through the
+    name and through no column of its own, so pairing a span with the
+    process track it describes is a string comparison (ADR-0011).
+    """
+    return f"Process {process}"
 
 
 def _emit_process_lifetime_track_descriptor(
@@ -74,7 +84,7 @@ def _emit_process_lifetime_slice(
     on a pid, and the END repeats it: END matching is by name, so two
     spans on one pid would otherwise close each other (ADR-0011)."""
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
-    name = f"Process {span.process}"
+    name = process_track_name(span.process)
     debug_annotations: list[bytes] = []
     cmdline = state.get_cmdline(span.process)
     if cmdline:
