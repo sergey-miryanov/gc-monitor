@@ -30,7 +30,7 @@ def _shared_row(track: Track) -> Track:
     Every process that held a pid draws on one set of Perfetto rows, and
     the `Processes` track carries the distinction (ADR-0011).
     """
-    return msgspec.structs.replace(track, process=Process(track.process.pid, 1, 0))
+    return msgspec.structs.replace(track, process=Process(track.process.pid, 1))
 
 
 class PerfettoTrackState:
@@ -43,6 +43,7 @@ class PerfettoTrackState:
         self._track_uuids: dict[Track, int] = {}
         self._start_process_marker_emitted: set[int] = set()
         self._process_lifetime_track_uuid: int | None = None
+        self._cmdlines: dict[Process, tuple[str, ...]] = {}
         self._process_lifetime_start: dict[Process, int] = {}
         self._process_lifetime_end: dict[Process, int] = {}
         self._process_lifetime_emitted: bool = False
@@ -120,6 +121,20 @@ class PerfettoTrackState:
             self._process_lifetime_track_uuid = self._alloc_uuid()
         return self._process_lifetime_track_uuid
 
+    def set_cmdline(self, process: Process, cmdline: tuple[str, ...] | None) -> None:
+        """Record what *process* is running, for its descriptor and its
+        ``Processes``-track span to name."""
+        if cmdline is not None:
+            self._cmdlines[process] = cmdline
+
+    def get_cmdline(self, process: Process) -> tuple[str, ...] | None:
+        """What *process* is running, or ``None``.
+
+        ``None`` on every offline path: a capture carries no command line
+        and `combine` creates no process (ADR-0024).
+        """
+        return self._cmdlines.get(process)
+
     def has_process_lifetime(self, process: Process) -> bool:
         return process in self._process_lifetime_start
 
@@ -145,7 +160,7 @@ class PerfettoTrackState:
         The row is not split, so it covers every process that held the
         pid and opens at the first of them (ADR-0011).
         """
-        return self._process_lifetime_start.get(Process(process.pid, 1, 0))
+        return self._process_lifetime_start.get(Process(process.pid, 1))
 
     def get_process_lifetimes(self) -> list[ProcessSpan]:
         """Every process with a recorded span.

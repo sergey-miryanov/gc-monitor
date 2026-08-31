@@ -95,6 +95,15 @@ class ProtobufEventEncoder:
         self._path = path
         self._has_written = False
 
+    def record_process_cmdline(self, process: Process, cmdline: tuple[str, ...] | None) -> None:
+        """Keep what *process* is running, for its descriptor and its
+        ``Processes``-track span to name.
+
+        Kept off the ``EventEncoder`` protocol for the reason
+        :meth:`record_process_liveness` gives.
+        """
+        self._track_state.set_cmdline(process, cmdline)
+
     def record_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
         """Fold a whole tick's liveness observations into the
         ``Processes``-track span accumulator: *processes* are the ones

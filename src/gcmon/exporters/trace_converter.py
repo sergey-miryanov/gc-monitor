@@ -362,7 +362,7 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
     """
     events: list[TraceEvent] = []
     for pid, pid_items in items.items():
-        process = Process(pid, 1, 0)
+        process = Process(pid, 1)
         pid_events: list[TraceEvent] = []
         # The guards are mutually exclusive, so the order is free to follow the
         # capture: GC records outnumber the other two by orders of magnitude,

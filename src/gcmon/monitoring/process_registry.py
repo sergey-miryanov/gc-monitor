@@ -6,11 +6,12 @@ from collections.abc import Callable, Set
 
 from ..model.process import Process
 
-__all__ = ["CmdlineProvider", "ProcessRegistry", "read_cmdline"]
+__all__ = ["CmdlineProvider", "CmdlineSink", "ProcessRegistry", "read_cmdline"]
 
 logger = logging.getLogger("gcmon")
 
 type CmdlineProvider = Callable[[int], tuple[str, ...] | None]
+type CmdlineSink = Callable[[Process, tuple[str, ...] | None], None]
 
 
 def read_cmdline(pid: int) -> tuple[str, ...] | None:
@@ -37,16 +38,28 @@ class ProcessRegistry:
         self._retired: dict[int, list[tuple[Process, int]]] = {}
         self._cmdline_provider = cmdline_provider
 
-    def create(self, pid: int, ts: int) -> Process:
-        """Create the process now holding *pid*, discovered at *ts*.
+    def create(self, pid: int, publish: CmdlineSink | None = None) -> Process:
+        """Create the process now holding *pid*, and read what it is running.
 
-        The monitor calls this and nothing else does (ADR-0025).
+        The monitor calls this and nothing else does, and it is the one
+        place a command line enters gcmon (ADR-0025). The registry keeps
+        the read no longer than the call: *publish* is handed the process
+        and the command line, and nothing else can ask for it afterwards.
+
+        *publish* runs under the lock, before any other thread can resolve
+        the process through :meth:`at`. A message naming the pid that
+        arrives in that window waits, and reaches an exporter that already
+        has the command line. Two rules follow: *publish* must not call
+        back into the registry, and nothing holding a lock *publish* takes
+        may go on to take this one.
         """
         cmdline = self._read_cmdline(pid)
         with self._lock:
             assert pid not in self._live, f"PID {pid} is held by {self._live[pid]}; retire it before creating another"
-            process = Process(pid, len(self._retired.get(pid, ())) + 1, ts, cmdline)
+            process = Process(pid, len(self._retired.get(pid, ())) + 1)
             self._live[pid] = process
+            if publish is not None:
+                publish(process, cmdline)
             return process
 
     def _read_cmdline(self, pid: int) -> tuple[str, ...] | None:

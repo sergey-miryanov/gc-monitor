@@ -139,8 +139,9 @@ class EventsMonitor:
 
             # A pid enters the registry when it is about to be polled, not
             # when the listing names it: a suppressed pid produces no
-            # records and needs no process.
-            process = self._processes.current(pid) or self._processes.create(pid, now_ns)
+            # records and needs no process. The exporter is handed the
+            # command line as part of the creation, see ADR-0025.
+            process = self._processes.current(pid) or self._processes.create(pid, self._exporter.add_process_cmdline)
 
             rc = self._poll(process)
             keep_waiting = policy.wait(rc)

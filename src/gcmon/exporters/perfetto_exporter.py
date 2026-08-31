@@ -72,6 +72,15 @@ class PerfettoExporter(EventsExporter):
         self._enqueue(convert_loss_to_trace_format(process, item))
 
     @override
+    def add_process_cmdline(self, process: Process, cmdline: tuple[str, ...] | None) -> None:
+        """Hand the encoder what *process* is running.
+
+        Under ``_io_lock`` for the reason ``add_process_liveness`` gives.
+        """
+        with self._io_lock:
+            self._encoder.record_process_cmdline(process, cmdline)
+
+    @override
     def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
         """Fold one tick's liveness observations into the encoder's span
         accumulator.

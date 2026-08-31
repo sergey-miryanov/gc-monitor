@@ -32,10 +32,12 @@ also be counted twice over one set of evidence, at the encoder and on
 
 ## Decision
 
-**A `Process` is `(pid, pid_epoch)`, and that pair alone is its identity.**
-The discovery timestamp and the command line ride along outside equality,
-hashing and ordering: a caller holding the pair reaches the rings and tracks
-filed under it without holding what gcmon read.
+**A `Process` is `(pid, pid_epoch)` and holds nothing else.** Every field is
+part of identity, and msgspec generates the comparisons and the hash in C. The
+encoder keys a dict on a `Process` several times per event; a field carrying
+what gcmon read would put both back in Python. What was read stays with the
+registry that read it, and a caller holding the pair reaches the rings and
+tracks filed under it.
 
 **Only the monitor calls `ProcessRegistry.create`.** The call comes as it is
 about to poll a pid, not when a listing names one. Evidence naming a pid gcmon
@@ -62,6 +64,14 @@ first discovery, it answers with that first process.
 which every layer may import. `control` cannot import `monitoring`: the layer
 table in `tests/architecture/test_layering.py` forbids that edge.
 
+**A new process reaches the exporter before anything can resolve it.**
+`ProcessRegistry.create` takes the exporter's command-line sink and calls it
+under the lock. A control message naming that pid waits in `at`, and the
+exporter it reaches already knows what the process is running. Handing the
+command line on after `create` returned leaves a window: a flush inside it
+describes the process without one, and a descriptor is emitted once per
+process, which fixes that answer in the trace.
+
 **One lock, taken on every access.** The monitor writes and the control server
 reads from its own thread. One write per process against one read per control
 message leaves nothing to contend over. The command-line read runs outside it:
@@ -80,8 +90,15 @@ wait behind it.
 - **gcmon drops evidence for a pid nobody created, without a warning.** The
   ordinary cause is a client naming a pid gcmon never monitored. That is the
   client's error, and the line is logged at debug.
-- **The registry is the only source of a command line.** Identity excludes it:
-  an equal `Process` can still have `cmdline` unset.
+- **The registry reads the command line and keeps nothing.** `create` hands it
+  to the sink the caller passed and forgets it. The exporter holds it for the
+  rest of the run.
+- **Two locks are ordered by that call.** The sink runs under the registry's
+  lock and takes the exporter's. Nothing running under the exporter's may take
+  the registry's, and the sink may not call back into the registry. The layer
+  table blocks every way of breaking that but one: `ProcessLookup` is in
+  `model`, so an exporter may legally hold a reader of the registry.
+  `tests/architecture/test_lock_order.py` is where that import fails.
 - **The registry keeps every departure for the life of the run**, because that
   is what `at` answers from.
 
@@ -111,6 +128,11 @@ wait behind it.
   belongs to is the one that writes it, and only the monitor writes here.
 - **A module-level registry.** Rejected: two runs in one process would share
   epochs, and every test would have to reset it.
+- **Carry what gcmon read on the `Process`**, a discovery timestamp and a
+  command line beside the pair. What ADR-0010 shipped. Rejected: a `Process`
+  is a dict key on the write path, and a struct whose fields are not all
+  identity needs `__eq__` and `__hash__` written in Python. The discovery
+  timestamp had no reader at all.
 - **Key the statistics on `(pid, iid, epoch)` and leave the exporters on
   pids.** What ADR-0016 shipped. Rejected: three fields where one value does,
   and the trace still could not say which process a slice belonged to.
@@ -124,6 +146,10 @@ wait behind it.
   in `monitoring` because that is the layer that writes to it, and the
   provider is injected rather than defaulted so a test naming a pid the
   machine does not have reads nothing instead of whatever holds that number.
+- `src/gcmon/exporters/exporter.py` carries `add_process_cmdline`, a no-op
+  everywhere but the Perfetto path. `exporters` cannot import `monitoring`:
+  the monitor hands it to the registry as the sink, and `PerfettoTrackState`
+  keeps what arrives until the descriptor and the span are emitted.
 - `src/gcmon/monitoring/monitor.py` creates as it polls and retires where it
   drops a pid's state, both halves of
   [ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)'s prune.
@@ -132,8 +158,9 @@ wait behind it.
 - `src/gcmon/cli/commands/monitoring_base.py` builds the one registry a run
   has, before the target starts, because the control server has to be
   listening by then.
-- `tests/test_process.py` pins the identity, the ordering and the suffix;
-  `tests/monitoring/test_process_registry.py` pins creation, the prune and
-  what `at` answers on each side of a departure;
+- `tests/test_process.py` pins the struct to the pair, the ordering and the
+  suffix; `tests/monitoring/test_process_registry.py` pins creation, the prune
+  and what `at` answers on each side of a departure;
   `tests/architecture/test_layering.py` is where the `control`-to-`monitoring`
-  edge fails, and it is deselected by default.
+  edge fails, and `tests/architecture/test_lock_order.py` is where an exporter
+  naming `ProcessLookup` does. Both are deselected by default.

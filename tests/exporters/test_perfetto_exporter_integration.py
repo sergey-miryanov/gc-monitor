@@ -109,12 +109,14 @@ def _process_filter_instant(pid: int) -> str:
 def _write_trace(tmp: Path, cmdline: tuple[str, ...] | None = None) -> Path:
     path = tmp / "trace.pb"
     exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_process_cmdline(proc(DEFAULT_PID), cmdline)
+    exporter.add_process_cmdline(proc(_SECOND_PID), cmdline)
     exporter.add_instant_event(
-        proc(DEFAULT_PID, cmdline=cmdline),
+        proc(DEFAULT_PID),
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 1_000_000),
     )
     exporter.add_event(
-        proc(DEFAULT_PID, cmdline=cmdline),
+        proc(DEFAULT_PID),
         create_mock_stats_item(
             gen=_GEN,
             iid=_IID,
@@ -125,9 +127,9 @@ def _write_trace(tmp: Path, cmdline: tuple[str, ...] | None = None) -> Path:
             heap_size=_HEAP_SIZE,
         ),
     )
-    exporter.add_event(proc(DEFAULT_PID, cmdline=cmdline), create_mock_incremental_item(gen=1, iid=1))
+    exporter.add_event(proc(DEFAULT_PID), create_mock_incremental_item(gen=1, iid=1))
     exporter.add_event(
-        proc(DEFAULT_PID, cmdline=cmdline),
+        proc(DEFAULT_PID),
         create_mock_stats_item(
             gen=_GEN,
             iid=2,
@@ -139,11 +141,11 @@ def _write_trace(tmp: Path, cmdline: tuple[str, ...] | None = None) -> Path:
         ),
     )
     exporter.add_instant_event(
-        proc(_SECOND_PID, cmdline=cmdline),
+        proc(_SECOND_PID),
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 2_000_000),
     )
     exporter.add_event(
-        proc(_SECOND_PID, cmdline=cmdline),
+        proc(_SECOND_PID),
         create_mock_stats_item(
             gen=_GEN,
             iid=0,

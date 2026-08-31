@@ -34,6 +34,14 @@ class EventsExporter(ABC):
         base class.
         """
 
+    def add_process_cmdline(self, process: Process, cmdline: tuple[str, ...] | None) -> None:  # noqa: B027
+        """Record what *process* is running. No-op in the base class.
+
+        The monitor sends this once, as it creates the process: a
+        `Process` names a process and carries nothing gcmon read about it
+        (ADR-0025).
+        """
+
     def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:  # noqa: B027
         """Record that gcmon read GC state out of every process in
         *processes* at *ts_ns*. No-op in the base class.

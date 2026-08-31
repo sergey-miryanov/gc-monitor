@@ -157,7 +157,7 @@ def _emit_process_descriptor(
         return []
     state.mark_process_descriptor(process)
     proc_uuid = state.get_process_track_uuid(process)
-    cmdline = process.cmdline
+    cmdline = state.get_cmdline(process)
     desc = build_track_descriptor(
         proc_uuid,
         f"Process {pid}",

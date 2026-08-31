@@ -7,38 +7,15 @@ import msgspec
 __all__ = ["Process", "ProcessLookup"]
 
 
-class Process(msgspec.Struct, frozen=True, eq=False):
+class Process(msgspec.Struct, frozen=True, order=True):
     """One process gcmon monitored.
 
     ``pid_epoch`` counts the processes that have held *pid*, from 1;
     `ProcessRegistry` is what assigns it (ADR-0025).
-
-    ``start_ts`` is when the monitor discovered the process, not the
-    earliest evidence of it: a poll returns collections that already
-    happened, so an event may carry a smaller timestamp.
     """
 
     pid: int
     pid_epoch: int
-    start_ts: int
-    cmdline: tuple[str, ...] | None = None
-
-    def __eq__(self, other: object) -> bool:
-        """Two of these are the same process when they name the same one."""
-        if not isinstance(other, Process):
-            return NotImplemented
-        return (self.pid, self.pid_epoch) == (other.pid, other.pid_epoch)
-
-    def __ne__(self, other: object) -> bool:
-        # msgspec keeps a non-negating `__ne__` on the class when `eq=False`.
-        result = self.__eq__(other)
-        return result if result is NotImplemented else not result
-
-    def __hash__(self) -> int:
-        return hash((self.pid, self.pid_epoch))
-
-    def __lt__(self, other: Process) -> bool:
-        return (self.pid, self.pid_epoch) < (other.pid, other.pid_epoch)
 
     @property
     def epoch_suffix(self) -> str:

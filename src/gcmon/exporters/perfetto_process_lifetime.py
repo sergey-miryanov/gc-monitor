@@ -76,7 +76,7 @@ def _emit_process_lifetime_slice(
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
     name = f"Process {span.process}"
     debug_annotations: list[bytes] = []
-    cmdline = span.process.cmdline
+    cmdline = state.get_cmdline(span.process)
     if cmdline:
         debug_annotations.append(
             _build_debug_annotation_string("cmdline", " ".join(cmdline)),

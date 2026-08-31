@@ -62,9 +62,9 @@ __all__ = [
 ]
 
 
-def proc(pid: int, pid_epoch: int = 1, start_ts: int = 0, cmdline: tuple[str, ...] | None = None) -> Process:
-    """A `Process` for a test that cares about the pid and not the rest."""
-    return Process(pid, pid_epoch, start_ts, cmdline)
+def proc(pid: int, pid_epoch: int = 1) -> Process:
+    """A `Process` for a test that cares about the pid and not the epoch."""
+    return Process(pid, pid_epoch)
 
 
 def process_track(pid: int, pid_epoch: int = 1) -> ProcessTrack:
@@ -93,7 +93,7 @@ def monitored(*pids: int) -> ProcessRegistry:
     """
     registry = ProcessRegistry()
     for pid in pids:
-        registry.create(pid, 0)
+        registry.create(pid)
     return registry
 
 
@@ -103,7 +103,7 @@ def polled(monitor: EventsMonitor, pid: int) -> Process:
     `EventsMonitor.tick` creates one before each poll; a test driving the
     poll on its own goes through here so the registry agrees with it.
     """
-    return monitor._processes.current(pid) or monitor._processes.create(pid, 0)
+    return monitor._processes.current(pid) or monitor._processes.create(pid)
 
 
 def no_records(pid: int) -> Sequence[TGCStatsInfo]:

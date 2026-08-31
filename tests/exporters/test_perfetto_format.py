@@ -34,7 +34,8 @@ _START_PROCESS_MARKER_NAME: str = "Start Process"
 class TestConvertItemToPerfettoPackets:
     def test_cmdline_emitted_once_per_pid(self) -> None:
         state = PerfettoTrackState()
-        target = proc(100, cmdline=("python", "script.py"))
+        target = proc(100)
+        state.set_cmdline(target, ("python", "script.py"))
         item = GCStatsInfo(
             gen=0,
             iid=0,

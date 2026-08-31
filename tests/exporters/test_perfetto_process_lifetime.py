@@ -470,7 +470,8 @@ class TestProcessLifetimeSlices:
         ``real_end_ts``, plus a ``cmdline`` debug annotation joined with
         single spaces when the process carries one."""
         state = PerfettoTrackState()
-        target = proc(100, cmdline=("python3", "-m", "fake_target"))
+        target = proc(100)
+        state.set_cmdline(target, ("python3", "-m", "fake_target"))
         item = GCStatsInfo(
             gen=0,
             iid=0,
@@ -582,8 +583,9 @@ class TestProcessLifetimeSlices:
         a ``cmdline`` annotation reflecting the program that process
         was running."""
         state = PerfettoTrackState()
-        early = proc(100, cmdline=("python3", "-m", "early_target"))
-        late = proc(200, cmdline=("python3", "-m", "late_target"))
+        early, late = proc(100), proc(200)
+        state.set_cmdline(early, ("python3", "-m", "early_target"))
+        state.set_cmdline(late, ("python3", "-m", "late_target"))
         item_late_pid = GCStatsInfo(
             gen=0,
             iid=0,
@@ -652,12 +654,13 @@ class TestProcessLifetimeSlices:
         """A pid the operating system handed out twice draws two spans,
         each annotated with the program its own process was running.
 
-        The command line comes off the `Process`, read when the monitor
-        created it, so the second process names what it was running and
-        not what its predecessor was (ADR-0010)."""
+        The monitor sends the command line as it creates the process, so
+        the second names what it was running and not what its predecessor
+        was (ADR-0010)."""
         state = PerfettoTrackState()
-        first = proc(100, cmdline=("python3", "-m", "first_target"))
-        second = proc(100, pid_epoch=2, cmdline=("python3", "-m", "second_target"))
+        first, second = proc(100), proc(100, pid_epoch=2)
+        state.set_cmdline(first, ("python3", "-m", "first_target"))
+        state.set_cmdline(second, ("python3", "-m", "second_target"))
         item1 = GCStatsInfo(
             gen=0,
             iid=0,
@@ -719,7 +722,8 @@ class TestProcessLifetimeSlices:
         never cross anything, so the drawn span and the ``real_*``
         annotations agree."""
         state = PerfettoTrackState()
-        target = proc(100, cmdline=("python3", "-m", "fake_target"))
+        target = proc(100)
+        state.set_cmdline(target, ("python3", "-m", "fake_target"))
         item1 = GCStatsInfo(
             gen=0,
             iid=0,

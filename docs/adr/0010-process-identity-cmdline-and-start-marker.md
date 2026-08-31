@@ -55,8 +55,10 @@ the visibility problem.
 Reading it at the first flush instead cost two things: a process that exited
 between the poll and the flush had none left to read, and a read filed under
 the pid put the first process's program on every later process that held it.
-The monitor discovers a process while it is running, and a `Process` carries
-what was read ([ADR-0025](0025-create-every-process-in-one-place.md)).
+The monitor discovers a process while it is running. `create` hands the read
+back with the process and the monitor forwards it to the exporter, because a
+`Process` holds its identity and nothing else
+([ADR-0025](0025-create-every-process-in-one-place.md)).
 
 **The read degrades silently.** It imports `psutil` lazily. If it is not
 installed, or the process is gone or inaccessible, nothing is read, a warning
@@ -112,5 +114,6 @@ line, and that is the only way to have none.
   annotations ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 - `src/gcmon/monitoring/process_registry.py` holds the read, with its lazy
   `import psutil`, behind a provider the CLI wires in.
-- `src/gcmon/model/process.py` is what carries the result to both emission
-  sites.
+- `src/gcmon/monitoring/monitor.py` sends the result to the exporter as it
+  creates the process, and `src/gcmon/exporters/perfetto_track_state.py` keeps
+  it for both emission sites.

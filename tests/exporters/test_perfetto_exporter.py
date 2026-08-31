@@ -311,7 +311,8 @@ class TestPerfettoExporter:
             candidates=5,
             duration=0.001,
         )
-        exporter.add_event(proc(12345, cmdline=("python", "-u", "my_script.py")), item)
+        exporter.add_process_cmdline(proc(12345), ("python", "-u", "my_script.py"))
+        exporter.add_event(proc(12345), item)
         exporter.close()
 
         trace_data = (tmp_path / "test.pb").read_bytes()
