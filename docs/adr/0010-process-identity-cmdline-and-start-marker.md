@@ -3,7 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-06-08 (`Start Process` marker added 2026-06-27; collection
   moved to the monitor and became once per process 2026-08-31, see
-  [ADR-0025](0025-create-every-process-in-one-place.md))
+  [ADR-0025](0025-create-every-process-in-one-place.md); the descriptor and
+  the marker became per process 2026-08-31, see
+  [ADR-0011](0011-process-lifetime-and-ordering.md))
 
 ## Context
 
@@ -47,9 +49,14 @@ description.
 
 **Emit a synthetic zero-duration `TYPE_INSTANT` event named `Start Process`**
 on the process track itself, at the timestamp of the first non-meta event for
-that pid, at most once per pid. This guarantees the track has an event, so the
-track and its description always render. It is the smallest change that fixes
-the visibility problem.
+that process, at most once per process. This guarantees the track has an
+event, so the track and its description always render. It is the smallest
+change that fixes the visibility problem.
+
+**A process descriptor and a marker belong to a process, not to a pid.** A pid
+handed on in a worker tree names two processes, each with its own command line
+to render ([ADR-0011](0011-process-lifetime-and-ordering.md)), so each gets a
+descriptor and a marker of its own.
 
 **A command line is read once per process, where the monitor creates it.**
 Reading it at the first flush instead cost two things: a process that exited
@@ -71,9 +78,10 @@ line, and that is the only way to have none.
 - The cmdline is stored twice. Accepted: the two consumers differ (UI
   rendering versus the SQL `args` table), and neither can read the other's
   copy.
-- A trace carries one extra `Start Process` instant event per pid. Consumers
-  that enumerate slices must filter it, as the chrome↔perfetto equivalence
-  test does, since the marker is Perfetto-only.
+- A trace carries one extra `Start Process` instant event per process, so a
+  reused pid carries one per process that held it. Consumers that enumerate
+  slices must filter it, as the chrome↔perfetto equivalence test does, since
+  the marker is Perfetto-only.
 - `psutil` stays an optional dependency (the `cmdline` extra). gcmon works
   without it, minus the cmdline.
 - **A `combine` run writes no command line.** Offline conversion creates no
@@ -108,7 +116,8 @@ line, and that is the only way to have none.
   field numbers (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`) and
   `TrackDescriptor.description` at field 14.
 - `src/gcmon/exporters/perfetto_format.py` names the `Start Process` marker
-  and emits it at most once per pid.
+  and emits it at most once per process, alongside the process descriptor it
+  keeps visible.
 - `src/gcmon/exporters/perfetto_process_lifetime.py` puts the cmdline on the
   `Processes` slice's BEGIN alongside the `real_start_ts` / `real_end_ts`
   annotations ([ADR-0011](0011-process-lifetime-and-ordering.md)).

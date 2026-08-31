@@ -12,7 +12,9 @@
   clock read" narrowed to one *stamping* read 2026-08-20, see
   [ADR-0019](0019-schedule-tick-starts-on-a-fixed-grid.md); the span became
   one per process and the liveness stamp moved to the end of the poll phase
-  2026-08-31, see [ADR-0025](0025-create-every-process-in-one-place.md))
+  2026-08-31, see [ADR-0025](0025-create-every-process-in-one-place.md); the
+  process track was split per process and the collapse question measured
+  2026-08-31)
 
 ## Context
 
@@ -72,18 +74,30 @@ share a BEGIN.
 20) and nothing else: no name, no parent, no sub-message.
 
 **Process tracks are ranked by first event timestamp**, ties broken by
-ascending pid, sequential from 0. Only pids with at least one non-meta event
-get a rank.
+ascending process, sequential from 0. Only a process with at least one
+non-meta event gets a rank.
 
-**The Perfetto process track is not split, and is stamped and ranked from the
-first process to hold the pid.** Two `ProcessDescriptor` messages carrying one
-pid may collapse to a single `upid` in the trace processor, which nothing here
-has measured. Every process that held a pid therefore shares one process
-track, one thread track per interpreter, one counter group and one
-`Start Process` marker, and a reader attributes a record to a process by which
-`Processes` span its timestamp falls in. One row covers them all:
-`start_timestamp_ns` and `sibling_order_rank` stay the first process's, and a
-successor must not restamp or reorder a row it shares.
+**The Perfetto process track is split per process, each row stamped and ranked
+from its own first observation.** Two `ProcessDescriptor` messages carrying
+one pid give two `upid`s: the trace processor keys `upid` on the track uuid,
+so two descriptors on one pid split whether they share a `start_timestamp_ns`,
+share a name, or carry no `start_timestamp_ns` at all, and no non-info stat is
+raised. That is measured against the trace processor the suite pins in
+`tests.perfetto_prebuilt`. Every process that held a pid therefore draws its
+own process track, its own thread track per interpreter, its own `GC Loss`
+track, its own counter group and its own `Start Process` marker, named
+`Process <pid>` and `Process <pid>#N` to match its `Processes` span.
+`start_timestamp_ns` earns its place by stamping a row where its process
+started, not by making the split work.
+
+**The epoch reaches a `process` row through its name and nowhere else.**
+`TrackDescriptor` has no free-form args field left to spend: `description` is
+the command line
+([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)), and
+`ProcessDescriptor` carries only `pid`, `cmdline`, `process_name` and
+`start_timestamp_ns`. `pid` stays the operating system's pid, which two rows
+now share, so a SQL reader takes the epoch from `process.name` or from the
+span's `pid_epoch` annotation.
 
 **The whole track is emitted at encoder close**, once per trace; convert
 passes record spans and emit nothing. Two reasons the BEGIN cannot go out
@@ -273,8 +287,8 @@ iteration.
   0, 1, 2, 4, 5. Harmless: `sibling_order_rank` is a sort key, not an index.
   Splitting the accumulator to keep ranks event-derived would add a second
   exception to it in the change that deletes the first, for a cosmetic gain. A
-  successor on a reused pid consumes none, since ranking reads the first
-  process on each pid.
+  successor on a reused pid consumes one of its own, since ranking is per
+  process.
 - **Deep nesting is now the normal shape.** Processes still alive when the
   loop stops share an end timestamp, and the sweep breaks out on
   `outer_end >= end`, so co-terminating spans nest one level per process
@@ -357,6 +371,33 @@ iteration.
   through. Rejected in [ADR-0025](0025-create-every-process-in-one-place.md):
   a pid the control server suppresses produces the same gap as a pid that
   died.
+- **Sharing one process track across every process that held a pid**, on the
+  grounds that two descriptors on one pid might collapse to a single `upid`.
+  The original decision here, and **reversed**: the measurement above shows
+  they do not collapse, and the cost of the doubt was a row whose thread
+  events interleaved two processes, whose counters stepped between them with
+  nothing marking where, and whose start stamp predated the successor it
+  covered.
+- **Resolving the epoch inside the encoder**, asking a `ProcessLookup` which
+  process held the pid at a record's timestamp. Rejected: the monitor already
+  decided that when it created the process
+  ([ADR-0025](0025-create-every-process-in-one-place.md)), so a second answer
+  computed downstream can only disagree with the first, and a boundary
+  timestamp is where it would.
+- **Keeping one process track and annotating each counter with the epoch.**
+  Rejected: an annotation on a counter is not a row, so the UI still draws one
+  line stepping between two processes, which is the reading this exists to
+  prevent. It also leaves the start stamp, the marker and the command line
+  wrong.
+- **Writing a synthetic pid for a successor**, so the split falls out of the
+  `pid` field. Rejected: `pid` is the operating system's, a trace-wide
+  identifier a reader joins on and correlates against other tools, and
+  fabricating one trades a merged row for a fictional process.
+- **Fixing the command line alone**, the one field that was wrong rather than
+  merged: the `#2` span and the track above it named different programs.
+  Rejected: there is no correct value to write into a field two processes
+  share, and the thread row, the counters, the start stamp and the marker stay
+  merged behind it.
 - **Emitting liveness as a `TraceEvent`.** Rejected: at 10 Hz × N pids, a
   60-second run with ten children carries ~6,000 extra events, visible on the
   process tracks, to record two numbers per pid.
@@ -393,11 +434,10 @@ iteration.
 - `src/gcmon/exporters/perfetto_track_state.py` holds the span accumulator, a
   plain min/max keyed on the process with no keyword since the carve-out was
   removed, so start and end always carry identical key sets. It hands the
-  spans back for finalization, ranks the first process on each pid by start
-  timestamp and then pid, and owns the once-per-trace flag that makes
-  finalization safe to call twice, covering the non-idempotent track
-  descriptor too. Every other key it holds drops the epoch, keeping the rows
-  under a reused pid shared.
+  spans back for finalization, ranks each process by start timestamp and then
+  process, and owns the once-per-trace flag that makes finalization safe to
+  call twice, covering the non-idempotent track descriptor too. Every key it
+  holds is filed under the process, so the rows under a reused pid split.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded
   so it goes out once.
 - The liveness path, monitor to accumulator:

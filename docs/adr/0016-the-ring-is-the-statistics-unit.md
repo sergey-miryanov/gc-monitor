@@ -2,17 +2,19 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-15 (the epoch moved onto a `Process` the monitor creates
-  2026-08-31, see [ADR-0025](0025-create-every-process-in-one-place.md))
+  2026-08-31, see [ADR-0025](0025-create-every-process-in-one-place.md); the
+  track keys it cites became per process 2026-08-31, see
+  [ADR-0011](0011-process-lifetime-and-ordering.md))
 
 ## Context
 
 Every interpreter in a target keeps its own collector, its own rings and its
 own cumulative counters. The trace side has said so since
 [ADR-0015](0015-gc-loss-spans-on-their-own-track.md): records go on a thread
-track per `(pid, iid)`, loss spans on a `GC Loss` track per `(pid, iid)`, and
-[ADR-0003](0003-gc-metrics-group-track.md)'s counter group is per `(pid, iid)`
-too. Open a trace of a process running three interpreters and you see three
-rows.
+track per `(process, iid)`, loss spans on a `GC Loss` track per
+`(process, iid)`, and [ADR-0003](0003-gc-metrics-group-track.md)'s counter
+group is per `(process, iid)` too. Open a trace of a process running three
+interpreters and you see three rows.
 
 The statistics side kept an older key. Sampled durations accumulated per pid
 and loss per `(pid, gen)`, so two interpreters' gaps landed in one slot with

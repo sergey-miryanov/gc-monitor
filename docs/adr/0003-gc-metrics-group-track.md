@@ -1,7 +1,8 @@
 # ADR-0003: Parent per-generation counters to a non-OS-scoped `GC Metrics` group track
 
 - **Status:** Accepted
-- **Date:** 2026-06-27
+- **Date:** 2026-06-27 (the track key became per process 2026-08-31, see
+  [ADR-0011](0011-process-lifetime-and-ordering.md))
 
 ## Context
 
@@ -35,7 +36,7 @@ ranking, not the rank field.**
 ## Decision
 
 Insert an intermediate **non-OS-scoped grouping track named `GC Metrics`**,
-one per `(pid, iid)`, parented to the process track, carrying
+one per `(process, iid)`, parented to the process track, carrying
 `child_ordering = EXPLICIT` and no `process` / `thread` / `counter`
 sub-message. Every per-generation counter track's `parent_uuid` points at this
 group instead of at the process track.
@@ -86,8 +87,8 @@ the relative order matters.
 ## Implementation
 
 - `src/gcmon/exporters/perfetto_format.py` names the group track, emits its
-  descriptor once per `(pid, iid)` with a docstring recording *why* the group
-  is a plain custom track, holds the rank table, and parents each
+  descriptor once per `(process, iid)` with a docstring recording *why* the
+  group is a plain custom track, holds the rank table, and parents each
   per-generation counter to the group UUID.
 - Tests: `tests/exporters/test_perfetto_format.py` covers the parenting;
   `tests/exporters/test_perfetto_exporter_integration.py` asserts the counter
