@@ -41,7 +41,10 @@ gcmon traces use the standard Perfetto schema:
 
 ## Example: Replicating the Stats Table
 
-SQL reproduces the [`--stats` table](statistics.md):
+SQL reproduces the [`--stats` table](statistics.md). `gc.loss` is left out: a
+loss span's width is an interval gcmon went blind for rather than a pause it
+measured, so the two share no distribution
+([GC Loss slices](formats.md#gc-loss-slices)).
 
 ```sql
 -- GC pause statistics
@@ -56,7 +59,7 @@ name,
     ROUND(PERCENTILE(dur, 95) / 1e6, 4) AS P95_dur_ms,
     ROUND(PERCENTILE(dur, 99) / 1e6, 4) AS P99_dur_ms
 FROM slice
-WHERE category IS NOT NULL
+WHERE category IS NOT NULL AND category != 'gc.loss'
 GROUP BY name
 ORDER BY IF(parent_id IS NULL, 0, 1), name
 ```
