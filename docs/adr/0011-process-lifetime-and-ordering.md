@@ -82,18 +82,16 @@ from its own first observation.** Two `ProcessDescriptor` messages carrying
 one pid give two `upid`s: the trace processor keys `upid` on the track uuid,
 so two descriptors on one pid split whether they share a `start_timestamp_ns`,
 share a name, or carry no `start_timestamp_ns` at all, and no non-info stat is
-raised. That is measured against the trace processor the suite pins in
+raised. Measured against the trace processor the suite pins in
 `tests.perfetto_prebuilt`. Every process that held a pid therefore draws its
-own process track, its own thread track per interpreter, its own `GC Loss`
-track, its own counter group and its own `Start Process` marker, named
-`Process <pid>` and `Process <pid>#N` to match its `Processes` span.
-`start_timestamp_ns` earns its place by stamping a row where its process
-started, not by making the split work.
+own process track, thread track per interpreter, `GC Loss` track, counter
+group and `Start Process` marker, named `Process <pid>` and `Process <pid>#N`
+to match its `Processes` span. `start_timestamp_ns` stamps a row where its
+process started; the split does not depend on it.
 
 **The epoch reaches a `process` row through its name and nowhere else.**
-`TrackDescriptor` has no free-form args field left to spend: `description` is
-the command line
-([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)), and
+`TrackDescriptor` has no free-form args field: `description` is the command
+line ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)), and
 `ProcessDescriptor` carries only `pid`, `cmdline`, `process_name` and
 `start_timestamp_ns`. `pid` stays the operating system's pid, which two rows
 now share, so a SQL reader takes the epoch from `process.name` or from the
@@ -374,10 +372,9 @@ iteration.
 - **Sharing one process track across every process that held a pid**, on the
   grounds that two descriptors on one pid might collapse to a single `upid`.
   The original decision here, and **reversed**: the measurement above shows
-  they do not collapse, and the cost of the doubt was a row whose thread
-  events interleaved two processes, whose counters stepped between them with
-  nothing marking where, and whose start stamp predated the successor it
-  covered.
+  they do not collapse, and the shared row interleaved two processes' thread
+  events, stepped its counters between them with nothing marking where, and
+  carried a start stamp that predated the successor.
 - **Resolving the epoch inside the encoder**, asking a `ProcessLookup` which
   process held the pid at a record's timestamp. Rejected: the monitor already
   decided that when it created the process
@@ -386,9 +383,8 @@ iteration.
   timestamp is where it would.
 - **Keeping one process track and annotating each counter with the epoch.**
   Rejected: an annotation on a counter is not a row, so the UI still draws one
-  line stepping between two processes, which is the reading this exists to
-  prevent. It also leaves the start stamp, the marker and the command line
-  wrong.
+  line stepping between two processes. It also leaves the start stamp, the
+  marker and the command line wrong.
 - **Writing a synthetic pid for a successor**, so the split falls out of the
   `pid` field. Rejected: `pid` is the operating system's, a trace-wide
   identifier a reader joins on and correlates against other tools, and

@@ -154,9 +154,9 @@ def _emit_process_descriptor(
     *process*'s first event in nanoseconds, the same timestamp the rank comes
     from.
 
-    The name carries the epoch and ``pid`` does not: ``pid`` is the operating
-    system's, so two processes that held it write the same one and the trace
-    processor still gives each row its own ``upid`` (ADR-0011).
+    The name carries the epoch. ``pid`` stays the operating system's, which
+    two processes that held it write alike, and the trace processor splits
+    them anyway (ADR-0011).
     """
     if state.has_process_descriptor(process):
         return []

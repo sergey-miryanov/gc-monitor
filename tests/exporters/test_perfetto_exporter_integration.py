@@ -1310,10 +1310,9 @@ class TestReusedPidDrawsTwoOfEveryRow:
     """A pid held twice reaches a reader as two processes.
 
     The wire-level tests pin the bytes gcmon writes. This class asks the
-    trace processor what it made of them, which is the question the
-    feature turns on: two ``ProcessDescriptor`` messages carrying one pid
-    could have collapsed to a single ``upid``, and every byte assertion in
-    the suite would still have passed (ADR-0011).
+    trace processor what it made of them: two ``ProcessDescriptor`` messages
+    carrying one pid could have collapsed to a single ``upid``, and every
+    byte assertion in the suite would still have passed (ADR-0011).
 
     Every query here scopes on ``upid`` or on the process name. Scoping on
     ``pid`` cannot tell a split from a merge, since the pid is equal by
@@ -1331,8 +1330,8 @@ class TestReusedPidDrawsTwoOfEveryRow:
         self,
         reused_pid_trace_processor: TraceProcessor,
     ) -> None:
-        """The load-bearing one. Two rows in ``process`` for one pid is
-        two ``upid``s, since ``upid`` is that table's key, and each opens
+        """Two rows in ``process`` for one pid is two ``upid``s, since
+        ``upid`` is that table's key, and each opens
         where its own process was first observed rather than where the
         pid was. A merge leaves one row here and every other test in the
         class red."""
@@ -1510,7 +1509,7 @@ class TestReusedPidDrawsTwoOfEveryRow:
         reused_pid_trace_processor: TraceProcessor,
     ) -> None:
         """The trace processor accepts what gcmon now writes: no END
-        dropped, no descriptor rejected, nothing parsed and discarded.
+        dropped and no descriptor rejected.
 
         It says nothing about the merge. A merge raises no stat, which is
         why every other test here reads a table instead.

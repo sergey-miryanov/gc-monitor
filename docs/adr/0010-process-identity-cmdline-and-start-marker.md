@@ -54,9 +54,8 @@ event, so the track and its description always render. It is the smallest
 change that fixes the visibility problem.
 
 **A process descriptor and a marker belong to a process, not to a pid.** A pid
-handed on in a worker tree names two processes, each with its own command line
-to render ([ADR-0011](0011-process-lifetime-and-ordering.md)), so each gets a
-descriptor and a marker of its own.
+handed on names two processes, each with its own command line to render
+([ADR-0011](0011-process-lifetime-and-ordering.md)).
 
 **A command line is read once per process, where the monitor creates it.**
 Reading it at the first flush instead cost two things: a process that exited
@@ -78,10 +77,9 @@ line, and that is the only way to have none.
 - The cmdline is stored twice. Accepted: the two consumers differ (UI
   rendering versus the SQL `args` table), and neither can read the other's
   copy.
-- A trace carries one extra `Start Process` instant event per process, so a
-  reused pid carries one per process that held it. Consumers that enumerate
-  slices must filter it, as the chrome↔perfetto equivalence test does, since
-  the marker is Perfetto-only.
+- A trace carries one extra `Start Process` instant event per process.
+  Consumers that enumerate slices must filter it, as the chrome↔perfetto
+  equivalence test does, since the marker is Perfetto-only.
 - `psutil` stays an optional dependency (the `cmdline` extra). gcmon works
   without it, minus the cmdline.
 - **A `combine` run writes no command line.** Offline conversion creates no

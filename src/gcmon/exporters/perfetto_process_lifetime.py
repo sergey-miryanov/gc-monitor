@@ -44,9 +44,8 @@ _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
 def process_track_name(process: Process) -> str:
     """What *process* is called, on its own row and on its span here.
 
-    The two names have to be equal: the epoch reaches SQL through the
-    name and through no column of its own, so pairing a span with the
-    process track it describes is a string comparison (ADR-0011).
+    The two have to be equal: the epoch reaches SQL through the name and
+    through no column of its own (ADR-0011).
     """
     return f"Process {process}"
 

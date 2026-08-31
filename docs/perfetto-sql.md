@@ -18,7 +18,7 @@ count is `debug.gen0.lost_count`.
 gcmon traces use the standard Perfetto schema:
 
 - **`process`**: one row per process that drew a row of its own, plus a
-  synthetic `pid = 0` entry the trace processor adds to every trace
+  synthetic `pid = 0` entry the trace processor adds
   - `upid`, the trace processor's own key and the one to group by; `pid`, the
     operating system's, which two processes share where one was handed on;
     `name` (`"Process 12345"`); `start_ts`
@@ -125,20 +125,18 @@ could draw; `real_start_ts` and `real_end_ts` are what gcmon observed, and
 every slice carries them whether it was cut or not.
 
 Every monitored process gets one slice, a process that never collected
-included. Reaching the `process` table takes more than that: a process known
-from liveness alone drew no row of its own and has no entry there, so this
-track is the only place it appears.
+included. A process known from liveness alone drew no row of its own and has
+no `process` entry at all, so this track is the only place it appears.
 
-**Scope by `upid`** where a process does have an entry. A reused PID has one
-per process, and a join on `p.pid` matches every process that held it,
-returning each result once per process. `pid_epoch` tells them apart, and so
-does the name, `Process 12345#2` from the second process on. A `dur = 0` slice
-is one observed at a single instant, or cut down to nothing.
+**Scope by `upid`.** A reused PID has one entry per process, and a join on
+`p.pid` matches every process that held it, returning each result once per
+process. `pid_epoch` tells them apart, and so does the name, `Process 12345#2`
+from the second process on. A `dur = 0` slice is one observed at a single
+instant, or cut down to nothing.
 
-A slice and the process it describes carry **the same name**, which is what
-pairs a span's drawn and observed durations with a per-process aggregate:
-`p.pid` matches both processes and the epoch reaches no column of its own.
-Start from the span and left-join the process, so a process with a span and no
+A slice and the process it describes carry **the same name**. That is the
+pairing: `p.pid` matches both processes and the epoch reaches no column of its
+own. Start from the span and left-join the process, so one with a span and no
 entry keeps its row:
 
 ```sql

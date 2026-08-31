@@ -157,7 +157,7 @@ class PerfettoTrackState:
         is absent.
 
         A successor on a reused pid draws a row of its own, so it ranks on
-        its own first observation rather than inheriting one (ADR-0011).
+        its own first observation (ADR-0011).
         """
         starts = self._process_lifetime_start
         ordered = sorted(starts, key=lambda process: (starts[process], process))

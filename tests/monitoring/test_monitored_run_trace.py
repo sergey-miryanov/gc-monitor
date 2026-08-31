@@ -257,9 +257,9 @@ class MonitoredRun:
     def text(self) -> str:
         """The whole trace as text, one stanza per packet.
 
-        The stanzas are unnumbered. A packet inserted anywhere would
-        renumber every packet after it, and a change that adds twelve
-        would read as a rewrite of three quarters of the file.
+        The stanzas are unnumbered: a packet inserted anywhere renumbers
+        every packet after it, and the change disappears into the
+        renumbering.
         """
         return "".join(f"--- packet ---\n{packet}" for packet in self.packets())
 
