@@ -32,7 +32,7 @@ _START_PROCESS_MARKER_NAME: str = "Start Process"
 
 
 class TestConvertItemToPerfettoPackets:
-    def test_cmdline_emitted_once_per_pid(self) -> None:
+    def test_cmdline_emitted_once_per_process(self) -> None:
         state = PerfettoTrackState()
         target = proc(100)
         state.set_cmdline(target, ("python", "script.py"))
@@ -90,6 +90,47 @@ class TestConvertItemToPerfettoPackets:
             packet.ParseFromString(desc_bytes)
             if packet.HasField("track_descriptor"):
                 assert not packet.track_descriptor.HasField("process")
+
+    def test_two_processes_on_one_pid_carry_their_own_cmdlines(self) -> None:
+        """``ProcessDescriptor.cmdline`` reaches no SQL column
+        (ADR-0010), so the descriptor is where a successor's command
+        line can be checked at all. Before the split it had nowhere to
+        go: one descriptor went out for the pid, carrying the first
+        process's program.
+        """
+        state = PerfettoTrackState()
+        first, second = proc(100, 1), proc(100, 2)
+        state.set_cmdline(first, ("python", "first.py"))
+        state.set_cmdline(second, ("python", "second.py"))
+
+        cmdlines: dict[str, tuple[str, ...]] = {}
+        for process, ts in ((first, 1_000), (second, 3_000)):
+            descriptors, _ = convert_item(
+                process,
+                GCStatsInfo(
+                    gen=0,
+                    iid=0,
+                    ts_start=ts,
+                    ts_stop=ts + 1_000,
+                    heap_size=1000,
+                    collections=1,
+                    collected=10,
+                    uncollectable=0,
+                    candidates=5,
+                    duration=0.001,
+                ),
+                state,
+                sequence_id=1,
+            )
+            for desc_bytes in descriptors:
+                td = parse_track_descriptor(desc_bytes)
+                if td is not None and td.HasField("process"):
+                    cmdlines[td.name] = tuple(td.process.cmdline)
+
+        assert cmdlines == {
+            "Process 100": ("python", "first.py"),
+            "Process 100#2": ("python", "second.py"),
+        }
 
     def test_basic_item_emits_descriptors(self) -> None:
         state = PerfettoTrackState()

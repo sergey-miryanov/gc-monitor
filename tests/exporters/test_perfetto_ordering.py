@@ -303,3 +303,73 @@ class TestProcessOrderingByFirstTs:
         tds_2 = _process_descriptor_fields_for_pid(d2, 2)
         assert len(tds_2) == 1
         assert tds_2[0].process.start_timestamp_ns == 5_000
+
+
+class TestReusedPidRanksAndStampsPerProcess:
+    """A pid held twice gets a rank and a start stamp per process.
+
+    Neither field reaches SQL: ``sibling_order_rank`` is a UI hint with no
+    column, and ``start_timestamp_ns`` arrives as ``process.start_ts``,
+    which cannot say which of two rows on one pid it belongs to without
+    the name. So this is where they are asserted, on the wire, and
+    ``TestReusedPidDrawsTwoOfEveryRow`` in the integration tests reads
+    back what a reader makes of them.
+    """
+
+    def _by_name(self, descriptors: list[bytes]) -> dict[str, TrackDescriptor]:
+        return {td.name: td for pid in (10, 20) for td in _process_descriptor_fields_for_pid(descriptors, pid)}
+
+    def test_a_successor_ranks_on_its_own_first_observation(self) -> None:
+        """The successor's first event falls between the two other
+        processes', so it ranks between them. Ranking on the first
+        process to hold a pid would give it its predecessor's rank, and
+        appending it would put it last.
+        """
+        state = PerfettoTrackState()
+        events: list[TraceEvent] = [
+            Instant(process_track(10, 1), "first", ts=1_000),
+            Instant(process_track(20, 1), "other", ts=3_000),
+            Instant(process_track(10, 2), "second", ts=2_000),
+        ]
+
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+
+        assert {name: td.sibling_order_rank for name, td in self._by_name(descriptors).items()} == {
+            "Process 10": 0,
+            "Process 10#2": 1,
+            "Process 20": 2,
+        }
+
+    def test_a_successor_is_stamped_with_its_own_first_observation(self) -> None:
+        """The stamp orders the row in the UI and dates it for a reader.
+        Taken from the pid it would put the successor's row before the
+        successor existed.
+        """
+        state = PerfettoTrackState()
+        events: list[TraceEvent] = [
+            Instant(process_track(10, 1), "first", ts=1_000),
+            Instant(process_track(10, 2), "second", ts=2_000),
+        ]
+
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+
+        assert {name: td.process.start_timestamp_ns for name, td in self._by_name(descriptors).items()} == {
+            "Process 10": 1_000,
+            "Process 10#2": 2_000,
+        }
+
+    def test_both_descriptors_carry_the_operating_system_pid(self) -> None:
+        """The epoch is in the name and nowhere else, so a reader
+        filtering on ``pid`` still finds both (ADR-0011)."""
+        state = PerfettoTrackState()
+        events: list[TraceEvent] = [
+            Instant(process_track(10, 1), "first", ts=1_000),
+            Instant(process_track(10, 2), "second", ts=2_000),
+        ]
+
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+
+        assert {name: td.process.pid for name, td in self._by_name(descriptors).items()} == {
+            "Process 10": 10,
+            "Process 10#2": 10,
+        }

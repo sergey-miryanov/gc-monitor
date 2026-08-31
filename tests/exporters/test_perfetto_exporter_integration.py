@@ -6,6 +6,7 @@ and assert on the SQL tables (``slice``, ``args``, ``track``,
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -84,6 +85,10 @@ def _process_filter(pid: int) -> str:
     ``thread_track``/``thread`` views. ``slice.track_id`` is the same track id
     for both ``thread_track`` and ``process_track`` views; the view that
     matches a given slice row is determined by the track's type.
+
+    Every fixture using this holds one process per pid. A run that handed
+    a pid on has two, and a query scoped this way would return both;
+    ``TestReusedPidDrawsTwoOfEveryRow`` scopes on ``upid`` instead.
     """
     return (
         f"JOIN thread_track tt ON s.track_id = tt.id "
@@ -323,6 +328,58 @@ def _write_liveness_only_trace(tmp: Path) -> Path:
 @pytest.fixture
 def liveness_only_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_liveness_only_trace(tmp_path)
+    with open_trace_processor(path) as tp:
+        yield tp
+
+
+# A pid the operating system handed out twice. The first process collects
+# and dies; the second claims the pid and collects again, running a
+# different program. Every value below differs between the two, so an
+# assertion that reads one where it should read the other fails rather
+# than passing on a number they happen to share.
+_REUSED_PID: int = 24680
+_REUSE_FIRST_CMDLINE: tuple[str, ...] = ("python3", "-m", "first_target")
+_REUSE_SECOND_CMDLINE: tuple[str, ...] = ("python3", "-m", "second_target")
+_REUSE_FIRST_START: int = 100_000_000
+_REUSE_FIRST_STOP: int = 140_000_000
+_REUSE_SECOND_START: int = 300_000_000
+_REUSE_SECOND_STOP: int = 340_000_000
+_REUSE_FIRST_COLLECTED: int = 11
+_REUSE_SECOND_COLLECTED: int = 22
+
+_REUSE_FIRST_NAME: str = f"Process {_REUSED_PID}"
+_REUSE_SECOND_NAME: str = f"Process {_REUSED_PID}#2"
+
+
+def _write_reused_pid_trace(tmp: Path) -> Path:
+    """Write a Perfetto trace for a run where one pid named two
+    processes."""
+    path = tmp / "reused.pb"
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    first, second = proc(_REUSED_PID, 1), proc(_REUSED_PID, 2)
+    exporter.add_process_cmdline(first, _REUSE_FIRST_CMDLINE)
+    exporter.add_process_cmdline(second, _REUSE_SECOND_CMDLINE)
+    for process, ts_start, ts_stop, collected in (
+        (first, _REUSE_FIRST_START, _REUSE_FIRST_STOP, _REUSE_FIRST_COLLECTED),
+        (second, _REUSE_SECOND_START, _REUSE_SECOND_STOP, _REUSE_SECOND_COLLECTED),
+    ):
+        exporter.add_event(
+            process,
+            create_mock_stats_item(
+                gen=_GEN,
+                iid=_IID,
+                ts_start=ts_start,
+                ts_stop=ts_stop,
+                collected=collected,
+            ),
+        )
+    exporter.close()
+    return path
+
+
+@pytest.fixture
+def reused_pid_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_reused_pid_trace(tmp_path)
     with open_trace_processor(path) as tp:
         yield tp
 
@@ -712,13 +769,19 @@ class TestCmdlineEncoding:
     per-argv ``ProcessDescriptor.CMDLINE`` repeated fields in its SQL
     tables, so the description is the only SQL-visible check."""
 
-    def _description(self, trace_processor: TraceProcessor, pid: int) -> str | None:
+    def _description(self, trace_processor: TraceProcessor, name: str) -> str | None:
+        """The description on the process track called *name*.
+
+        Scoped on the name rather than the pid, which two processes share
+        where one was handed on. ``TestReusedPidDrawsTwoOfEveryRow``
+        covers that case; this one asks about a single process.
+        """
         rows = list(
             trace_processor.query(
                 f"SELECT a.string_value FROM args a "
                 f"JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
                 f"JOIN process p ON p.upid = pt.upid "
-                f"WHERE p.pid = {pid} AND a.key = 'description'"
+                f"WHERE p.name = '{name}' AND a.key = 'description'"
             )
         )
         return rows[0].string_value if rows else None
@@ -727,21 +790,21 @@ class TestCmdlineEncoding:
         self,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
-        assert self._description(trace_processor_with_cmdline, DEFAULT_PID) == _FAKE_CMDLINE_JOINED
-        assert self._description(trace_processor_with_cmdline, _SECOND_PID) == _FAKE_CMDLINE_JOINED
+        assert self._description(trace_processor_with_cmdline, f"Process {DEFAULT_PID}") == _FAKE_CMDLINE_JOINED
+        assert self._description(trace_processor_with_cmdline, f"Process {_SECOND_PID}") == _FAKE_CMDLINE_JOINED
 
     def test_cmdline_absent_for_pid_outside_provider(
         self,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
-        assert self._description(trace_processor_with_cmdline, 1) is None
+        assert self._description(trace_processor_with_cmdline, "Process 1") is None
 
     def test_cmdline_none_for_unknown_pid(
         self,
         trace_processor: TraceProcessor,
     ) -> None:
-        assert self._description(trace_processor, DEFAULT_PID) is None
-        assert self._description(trace_processor, _SECOND_PID) is None
+        assert self._description(trace_processor, f"Process {DEFAULT_PID}") is None
+        assert self._description(trace_processor, f"Process {_SECOND_PID}") is None
 
 
 class TestStartProcessMarker:
@@ -916,9 +979,8 @@ class TestProcessesTrack:
         trace_processor: TraceProcessor,
     ) -> None:
         """Every slice name on the ``Processes`` track matches the
-        ``Process <pid>`` pattern."""
-        import re
-
+        ``Process <pid>`` pattern, with the ``#N`` a successor on a
+        reused pid carries."""
         rows = list(
             trace_processor.query(
                 f"SELECT s.name FROM slice s "
@@ -926,10 +988,11 @@ class TestProcessesTrack:
                 f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}'"
             )
         )
-        pat = re.compile(r"^Process \d+$")
+        pat = re.compile(r"^Process \d+(#\d+)?$")
         for r in rows:
             assert pat.match(r.name), (
-                f"slice name {r.name!r} on the {_PROCESS_LIFETIME_TRACK_NAME!r} track must match 'Process <pid>'"
+                f"slice name {r.name!r} on the {_PROCESS_LIFETIME_TRACK_NAME!r} track "
+                f"must match 'Process <pid>' or 'Process <pid>#N'"
             )
 
     def test_begin_end_match_first_last_event(
@@ -1224,6 +1287,196 @@ class TestLivenessOnlyTrace:
             f"Process {DEFAULT_PID}": span,
             f"Process {_SECOND_PID}": span,
         }
+
+
+class TestReusedPidDrawsTwoOfEveryRow:
+    """A pid held twice reaches a reader as two processes.
+
+    The wire-level tests pin the bytes gcmon writes. This class asks the
+    trace processor what it made of them, which is the question the
+    feature turns on: two ``ProcessDescriptor`` messages carrying one pid
+    could have collapsed to a single ``upid``, and every byte assertion in
+    the suite would still have passed (ADR-0011).
+
+    Every query here scopes on ``upid`` or on the process name. Scoping on
+    ``pid`` cannot tell a split from a merge, since the pid is equal by
+    construction, and neither can counting rows.
+    """
+
+    def _processes(self, tp: TraceProcessor) -> dict[str, tuple[int, int]]:
+        """``{name: (upid, start_ts)}`` for the reused pid's processes."""
+        return {
+            r.name: (r.upid, r.start_ts)
+            for r in tp.query(f"SELECT upid, name, start_ts FROM process WHERE pid = {_REUSED_PID}")
+        }
+
+    def test_the_pid_gives_two_upids_each_with_its_own_start(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The load-bearing one. Two descriptors on one pid do not
+        collapse, and each row opens where its own process was first
+        observed rather than where the pid was."""
+        processes = self._processes(reused_pid_trace_processor)
+
+        assert sorted(processes) == [_REUSE_FIRST_NAME, _REUSE_SECOND_NAME]
+        upids = {upid for upid, _ in processes.values()}
+        assert len(upids) == 2, f"expected two upids for one pid, got {processes}"
+        assert {name: start for name, (_, start) in processes.items()} == {
+            _REUSE_FIRST_NAME: _REUSE_FIRST_START,
+            _REUSE_SECOND_NAME: _REUSE_SECOND_START,
+        }
+
+    def test_each_process_draws_its_pauses_on_its_own_thread_row(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """Both threads carry ``tid = pid``, so the split cannot be
+        coming from the tid."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT p.name AS pname, th.utid AS utid, th.tid AS tid, s.ts AS ts "
+                f"FROM slice s "
+                f"JOIN thread_track tt ON s.track_id = tt.id "
+                f"JOIN thread th ON tt.utid = th.utid "
+                f"JOIN process p ON th.upid = p.upid "
+                f"WHERE s.name = '{_PAUSE_NAME}' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.ts) for r in rows] == [
+            (_REUSE_FIRST_NAME, _REUSE_FIRST_START),
+            (_REUSE_SECOND_NAME, _REUSE_SECOND_START),
+        ]
+        assert len({r.utid for r in rows}) == 2, f"expected a thread row per process, got {rows}"
+        assert {r.tid for r in rows} == {_REUSED_PID}
+
+    def test_each_process_draws_its_counters_on_its_own_tracks(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The two ``G0 collected`` values are apart, so a merged row
+        would show one line stepping between them."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                "SELECT p.name AS pname, ct.id AS ctrack_id, c.value AS value "
+                "FROM counter c "
+                "JOIN process_counter_track ct ON c.track_id = ct.id "
+                "JOIN process p ON p.upid = ct.upid "
+                "WHERE ct.name = 'G0 collected' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.value) for r in rows] == [
+            (_REUSE_FIRST_NAME, float(_REUSE_FIRST_COLLECTED)),
+            (_REUSE_SECOND_NAME, float(_REUSE_SECOND_COLLECTED)),
+        ]
+        assert len({r.ctrack_id for r in rows}) == 2, f"expected a counter track per process, got {rows}"
+
+    def test_each_process_gets_its_own_start_process_marker(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT p.name AS pname, s.ts AS ts FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.ts) for r in rows] == [
+            (_REUSE_FIRST_NAME, _REUSE_FIRST_START),
+            (_REUSE_SECOND_NAME, _REUSE_SECOND_START),
+        ]
+
+    def test_each_process_track_carries_its_own_command_line(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The field that was wrong rather than merged: one command line
+        was read per process all along, and the successor's had nowhere
+        to go."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                "SELECT p.name AS pname, a.string_value AS description FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE a.key = 'description' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.description) for r in rows] == [
+            (_REUSE_FIRST_NAME, " ".join(_REUSE_FIRST_CMDLINE)),
+            (_REUSE_SECOND_NAME, " ".join(_REUSE_SECOND_CMDLINE)),
+        ]
+
+    def test_a_process_track_and_its_span_name_the_same_program(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The two disagreed before the split. A command line was read
+        per process all along and the span drew the right one, while the
+        single process track above both spans named the first process's
+        program.
+        """
+        on_the_track = {
+            r.pname: r.cmdline
+            for r in reused_pid_trace_processor.query(
+                "SELECT p.name AS pname, a.string_value AS cmdline FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "JOIN process p ON p.upid = pt.upid WHERE a.key = 'description'"
+            )
+        }
+        on_the_span = {
+            r.sname: r.cmdline
+            for r in reused_pid_trace_processor.query(
+                f"SELECT s.name AS sname, a.string_value AS cmdline FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                f"AND a.flat_key = '{_ARG_PREFIX}.cmdline'"
+            )
+        }
+
+        assert on_the_span == {
+            _REUSE_FIRST_NAME: " ".join(_REUSE_FIRST_CMDLINE),
+            _REUSE_SECOND_NAME: " ".join(_REUSE_SECOND_CMDLINE),
+        }
+        assert on_the_track == on_the_span
+
+    def test_a_span_pairs_with_its_process_track_by_name(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """Equal names are the whole of the pairing. The epoch reaches no
+        column of its own, so this is how a reader joins a span's drawn
+        duration to a per-process aggregate (ADR-0011)."""
+        spans = {
+            r.name
+            for r in reused_pid_trace_processor.query(
+                f"SELECT s.name FROM slice s JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}'"
+            )
+        }
+
+        assert spans == set(self._processes(reused_pid_trace_processor))
+
+    def test_no_non_info_stat_is_raised(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The failure this feature guards against is quiet. A merge, a
+        dropped END or a rejected descriptor would show up here before it
+        showed up in any table above."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                "SELECT name, severity, value FROM stats WHERE value != 0 AND severity != 'info'"
+            )
+        )
+
+        assert [(r.name, r.severity, r.value) for r in rows] == []
 
 
 @pytest.mark.stress
