@@ -1,7 +1,8 @@
 # 0066: Give each process on a reused pid its own rows
 
-- **Status:** **Pinned**
-  (`tests/exporters/test_perfetto_track_state.py::TestTwoProcessesOnOnePidShareTheirRows`)
+- **Status:** **Landed** 2026-08-31. The pin inverted:
+  `tests/exporters/test_perfetto_track_state.py::TestTwoProcessesOnOnePidShareTheirRows`
+  became `TestTwoProcessesOnOnePidGetTheirOwnRows`.
 - **Kind:** feature (enhancement)
 - **Effort:** M
 - **Origin:** spec 0059, retired, see [RETIRED.md](RETIRED.md); it separated
@@ -84,6 +85,11 @@ Where no pid was reused there is nothing to split, and the trace is unchanged.
 [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) reverses "the
 Perfetto process track is not split", takes the measurement it left open, and
 records that the epoch cannot reach a `process` row as a column of its own.
+The measurement came back stronger than this section assumed: the trace
+processor keys `upid` on the track uuid, so two descriptors on one pid split
+whether they share a `start_timestamp_ns`, share a name, or carry none at all.
+`start_timestamp_ns` therefore earns its place by stamping a row where its
+process started, not by making the split work.
 [ADR-0010](../docs/adr/0010-process-identity-cmdline-and-start-marker.md)
 gains the per-process descriptor and marker. ADR-0003, ADR-0005, ADR-0015 and
 ADR-0016 each state a track key as `(pid, iid)` and become `(process, iid)`.
@@ -162,12 +168,16 @@ writing a synthetic pid for a successor, and fixing the command line alone.
   the SQL asserts what the trace means rather than that the bytes
   round-tripped: a byte assertion passes on two descriptors the trace
   processor merged back into one.
-- **New seam needed:** one fixture.
-  `tests/exporters/test_perfetto_exporter_integration.py` builds a trace per
-  shape it needs to observe and drives the real processor over it; this wants
-  one more, a run that hands a pid on, beside the crossing and liveness ones.
-  `proc`, `interpreter_track` and `loss_track` in `tests/helpers.py` already
-  take a `pid_epoch`, so the fixture needs no new helper.
+- **New seam needed:** one fixture, and wire-level tests beside it. The
+  fixture landed in `tests/exporters/test_perfetto_exporter_integration.py`, a
+  run that hands a pid on beside the crossing and liveness ones, needing no
+  new helper. Two of this spec's claims reach no SQL column, though:
+  `sibling_order_rank` has none at all, and `ProcessDescriptor.cmdline` is not
+  surfaced
+  ([ADR-0010](../docs/adr/0010-process-identity-cmdline-and-start-marker.md)).
+  Those are asserted on the wire, the rank and the stamp in
+  `test_perfetto_ordering.py` and the per-process cmdline in
+  `test_perfetto_format.py`.
 - **What makes a good test here:** query `upid` and assert each process's
   slices and counters hang off its own, and that the two `start_ts` differ.
   Counting rows alone passes on two descriptors the processor collapsed, and
@@ -178,7 +188,8 @@ writing a synthetic pid for a successor, and fixing the command line alone.
   `start_timestamp_ns`.
 - **Cases:**
   1. A pid held twice gives two `upid`s, each with its own `start_ts`, its own
-     thread row and its own counter tracks, with the counter values apart.
+     thread row, its own `GC Loss` row and its own counter tracks, with the
+     counter values apart.
   2. Each `Start Process` marker, `ProcessDescriptor.cmdline` and
      `description` belongs to the process it is drawn under, and a process
      track's command line equals the one on its own `Processes` span. This
@@ -200,6 +211,11 @@ writing a synthetic pid for a successor, and fixing the command line alone.
   6. JSONL output is byte-identical, and needs no test to say so.
      `jsonl_exporter` imports nothing from any `perfetto_` module, so the
      change cannot reach it.
+
+Twelve of the thirteen tests these became fail against the encoder as it stood
+after the records landed. The thirteenth asserts no non-info stat is raised,
+which was true before the split too: a merge raises none, and that is why the
+whole seam reads tables rather than the `stats` one.
 
 ## 6. Out of scope
 
@@ -232,4 +248,22 @@ is many-to-one; after the split `p.pid` matches a process row per process, so
 the warning becomes "scope by `upid`", and the page gains the key that pairs a
 span with its process track: their names are equal. `CONTEXT.md` has no entry
 for either container and gains two, a process track and a counter group,
-naming each other. The CHANGELOG gains a line.
+naming each other.
+
+Three things that pass turned up on the way, none of them foreseen here.
+
+The golden fixture numbered its packets, so inserting twelve renumbered the
+876 after them and three quarters of the diff was noise. The numbering went in
+a commit of its own, ahead of the pages, which is what makes case 5's reading
+of that diff worth anything on the next change.
+
+The SQL page carried two false claims about the `process` table that predate
+this spec: a process known from liveness alone draws no row of its own and has
+no entry there, and every trace carries a synthetic `pid = 0` row besides. The
+example query added here inner-joined on the first of them and dropped exactly
+those processes until it was rewritten to start from the span.
+
+The CHANGELOG gained two lines rather than one. The rows are a feature; the
+process track showing the first process's program was a defect an operator
+saw, and `docs/agents/prose.md` routes that to `Bugfixes`, where the sibling
+line about the `Processes` span already sat.
