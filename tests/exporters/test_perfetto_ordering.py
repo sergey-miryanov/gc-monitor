@@ -317,7 +317,15 @@ class TestReusedPidRanksAndStampsPerProcess:
     """
 
     def _by_name(self, descriptors: list[bytes]) -> dict[str, TrackDescriptor]:
-        return {td.name: td for pid in (10, 20) for td in _process_descriptor_fields_for_pid(descriptors, pid)}
+        """Every process descriptor in *descriptors*, keyed on its name.
+
+        Raises rather than deduplicating: a name arriving twice is a
+        process described twice, which last-write-wins would hide.
+        """
+        found = [td for pid in (10, 20) for td in _process_descriptor_fields_for_pid(descriptors, pid)]
+        names = [td.name for td in found]
+        assert len(set(names)) == len(names), f"a process was described more than once: {names}"
+        return {td.name: td for td in found}
 
     def test_a_successor_ranks_on_its_own_first_observation(self) -> None:
         """The successor's first event falls between the two other

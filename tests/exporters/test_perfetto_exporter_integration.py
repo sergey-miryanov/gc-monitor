@@ -16,7 +16,13 @@ from perfetto.trace_processor import TraceProcessor
 from gcmon.exporters import PerfettoExporter
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
-from tests.helpers import create_mock_incremental_item, create_mock_stats_item, open_trace_processor, proc
+from tests.helpers import (
+    create_mock_incremental_item,
+    create_mock_loss_item,
+    create_mock_stats_item,
+    open_trace_processor,
+    proc,
+)
 
 _PAUSE_NAME: str = "GC Pause(0)"
 _INSTANT_NAME: str = "GC monitor started"
@@ -346,6 +352,7 @@ _REUSE_SECOND_START: int = 300_000_000
 _REUSE_SECOND_STOP: int = 340_000_000
 _REUSE_FIRST_COLLECTED: int = 11
 _REUSE_SECOND_COLLECTED: int = 22
+_REUSE_LOSS_WINDOW_NS: int = 10_000_000
 
 _REUSE_FIRST_NAME: str = f"Process {_REUSED_PID}"
 _REUSE_SECOND_NAME: str = f"Process {_REUSED_PID}#2"
@@ -371,6 +378,16 @@ def _write_reused_pid_trace(tmp: Path) -> Path:
                 ts_start=ts_start,
                 ts_stop=ts_stop,
                 collected=collected,
+            ),
+        )
+        exporter.add_loss_event(
+            process,
+            create_mock_loss_item(
+                iid=_IID,
+                gen=_GEN,
+                ts_start=ts_stop,
+                ts_stop=ts_stop + _REUSE_LOSS_WINDOW_NS,
+                lost_count=collected,
             ),
         )
     exporter.close()
@@ -1314,14 +1331,14 @@ class TestReusedPidDrawsTwoOfEveryRow:
         self,
         reused_pid_trace_processor: TraceProcessor,
     ) -> None:
-        """The load-bearing one. Two descriptors on one pid do not
-        collapse, and each row opens where its own process was first
-        observed rather than where the pid was."""
+        """The load-bearing one. Two rows in ``process`` for one pid is
+        two ``upid``s, since ``upid`` is that table's key, and each opens
+        where its own process was first observed rather than where the
+        pid was. A merge leaves one row here and every other test in the
+        class red."""
         processes = self._processes(reused_pid_trace_processor)
 
         assert sorted(processes) == [_REUSE_FIRST_NAME, _REUSE_SECOND_NAME]
-        upids = {upid for upid, _ in processes.values()}
-        assert len(upids) == 2, f"expected two upids for one pid, got {processes}"
         assert {name: start for name, (_, start) in processes.items()} == {
             _REUSE_FIRST_NAME: _REUSE_FIRST_START,
             _REUSE_SECOND_NAME: _REUSE_SECOND_START,
@@ -1372,6 +1389,31 @@ class TestReusedPidDrawsTwoOfEveryRow:
             (_REUSE_SECOND_NAME, float(_REUSE_SECOND_COLLECTED)),
         ]
         assert len({r.ctrack_id for r in rows}) == 2, f"expected a counter track per process, got {rows}"
+
+    def test_each_process_tiles_its_blind_intervals_on_its_own_loss_row(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """One `GC Loss` row per process, so no span holds across the
+        handover. The two windows carry different counts, which a shared
+        row would draw as one sequence."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                "SELECT p.name AS pname, s.track_id AS track_id, s.ts AS ts, "
+                "EXTRACT_ARG(s.arg_set_id, 'debug.lost_count') AS lost "
+                "FROM slice s "
+                "JOIN process_track pt ON s.track_id = pt.id "
+                "JOIN process p ON pt.upid = p.upid "
+                "JOIN track t ON t.id = s.track_id "
+                "WHERE t.name LIKE 'GC Loss%' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.ts, r.lost) for r in rows] == [
+            (_REUSE_FIRST_NAME, _REUSE_FIRST_STOP, _REUSE_FIRST_COLLECTED),
+            (_REUSE_SECOND_NAME, _REUSE_SECOND_STOP, _REUSE_SECOND_COLLECTED),
+        ]
+        assert len({r.track_id for r in rows}) == 2, f"expected a loss row per process, got {rows}"
 
     def test_each_process_gets_its_own_start_process_marker(
         self,
@@ -1467,9 +1509,12 @@ class TestReusedPidDrawsTwoOfEveryRow:
         self,
         reused_pid_trace_processor: TraceProcessor,
     ) -> None:
-        """The failure this feature guards against is quiet. A merge, a
-        dropped END or a rejected descriptor would show up here before it
-        showed up in any table above."""
+        """The trace processor accepts what gcmon now writes: no END
+        dropped, no descriptor rejected, nothing parsed and discarded.
+
+        It says nothing about the merge. A merge raises no stat, which is
+        why every other test here reads a table instead.
+        """
         rows = list(
             reused_pid_trace_processor.query(
                 "SELECT name, severity, value FROM stats WHERE value != 0 AND severity != 'info'"
