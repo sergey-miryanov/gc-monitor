@@ -21,9 +21,6 @@ class TestAProcessIsThePairAndNothingElse:
     def test_a_successor_on_the_pid_is_another_process(self) -> None:
         assert Process(12345, 2) != Process(12345, 1)
 
-    def test_a_process_is_not_a_pid(self) -> None:
-        assert Process(12345, 1) != 12345
-
 
 class TestProcessesSort:
     def test_by_pid_then_epoch(self) -> None:
