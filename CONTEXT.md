@@ -89,6 +89,18 @@ interpreter's collections, or that interpreter's **loss** row.
 _Avoid_: lane, thread (none of the three is one), tid, row (in output; fine
 in prose)
 
+**Process track**:
+A process's own row, and what its other rows hang under: its thread rows, its
+loss rows and its counter group. Named `Process 12345`, or `Process 12345#2`
+for the second process to hold the pid.
+_Avoid_: process group, pid track, parent track
+
+**Counter group**:
+The `GC Metrics` row a process's per-generation counters hang under, one per
+interpreter, itself under the process track.
+_Avoid_: metrics track, group (unqualified), counter track (that is one
+counter's own row)
+
 **Capture**:
 The JSONL file gcmon writes: one JSON object per line, holding the records
 gcmon read and the loss windows between them. A **trace** holds events drawn
