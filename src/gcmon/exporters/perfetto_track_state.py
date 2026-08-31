@@ -3,9 +3,7 @@
 ``PerfettoTrackState`` keeps descriptor emission idempotent across the
 many convert calls a buffered export makes.
 
-The ``Processes``-track span accumulator is ADR-0011 subject matter but
-lives here, apart from the emission code in ``perfetto_process_lifetime``,
-because splitting the class would leave two halves sharing ``_next_uuid``.
+It also holds the ``Processes``-track span accumulator (ADR-0011).
 """
 
 from typing import NamedTuple
@@ -116,12 +114,8 @@ class PerfettoTrackState:
 
     def update_process_lifetime(self, process: Process, ts: int) -> None:
         """Fold *ts* into the recorded span for *process*: a plain min/max
-        over every piece of evidence that gcmon saw it.
-
-        Evidence is any event, counters included, *or* a liveness
-        observation from the monitor loop. No event-kind exception: an
-        RSS sample is evidence the process existed just as a GC event is.
-        See ADR-0011.
+        over every event and every liveness observation, with no
+        event-kind exception (ADR-0011).
         """
         start_ts = self._process_lifetime_start.get(process)
         if start_ts is None or ts < start_ts:

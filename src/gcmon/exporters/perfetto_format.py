@@ -114,15 +114,8 @@ def _emit_root_descriptor(
 ) -> list[bytes]:
     """Build the root ``TrackDescriptor`` (``uuid = 0``), once per trace.
 
-    Its ``process_ordering`` and ``thread_ordering`` hints are what make the
-    Perfetto UI honor ``sibling_order_rank`` on top-level process and thread
-    tracks. It carries no ``name`` and no ``process``, ``thread`` or
-    ``counter`` sub-message, so the trace processor draws no row for it.
-
-    The UI reads the hints only on the canary channel of ``ui.perfetto.dev``
-    (Flags -> Release channel -> Canary), and a trace processor older than
-    0.57 ignores them and falls back to its own ordering. gcmon writes them
-    whatever the reader, so a trace stays forward-compatible.
+    It carries no ``name`` and no ``process``, ``thread`` or ``counter``
+    sub-message, so the trace processor draws no row for it (ADR-0011).
     """
     if state.has_root_descriptor():
         return []
@@ -256,11 +249,8 @@ def _emit_counter_group_descriptor(
 ) -> tuple[int, list[bytes]]:
     """Build *track*'s GC Metrics grouping track descriptor.
 
-    The trace processor ignores ``child_ordering`` and ``sibling_order_rank``
-    on an OS-scoped process or thread track and honors them on a plain custom
-    one. So the group carries no ``process`` or ``thread`` field, the counter
-    tracks hang off the group, and the group hangs off the process track
-    (ADR-0003).
+    It carries no ``process`` or ``thread`` field: the trace processor honors
+    ordering on a plain custom track and not on an OS-scoped one (ADR-0003).
     """
     if state.has_counter_group_track(track):
         return state.get_or_create_counter_group_track_uuid(track), []

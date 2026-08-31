@@ -71,7 +71,11 @@ share a BEGIN.
 
 **A root `TrackDescriptor` at `uuid = 0`** is emitted once per trace with
 `process_ordering = EXPLICIT` and `thread_ordering = EXPLICIT` (fields 19 and
-20) and nothing else: no name, no parent, no sub-message.
+20) and nothing else: no name, no parent, no sub-message. The UI reads the two
+hints only on the canary channel of `ui.perfetto.dev` (Flags -> Release
+channel -> Canary), and a trace processor older than 0.57 ignores them and
+orders tracks its own way. gcmon writes them whatever the reader, so a trace
+stays forward-compatible.
 
 **Process tracks are ranked by first event timestamp**, ties broken by
 ascending process, sequential from 0. Only a process with at least one
@@ -429,11 +433,13 @@ iteration.
   ([ADR-0001](0001-hand-rolled-perfetto-protobuf-encoder.md)).
 - `src/gcmon/exporters/perfetto_track_state.py` holds the span accumulator, a
   plain min/max keyed on the process with no keyword since the carve-out was
-  removed, so start and end always carry identical key sets. It hands the
-  spans back for finalization, ranks each process by start timestamp and then
-  process, and owns the once-per-trace flag that makes finalization safe to
-  call twice, covering the non-idempotent track descriptor too. Every key it
-  holds is filed under the process, so the rows under a reused pid split.
+  removed, so start and end always carry identical key sets. It sits there
+  rather than beside the emission code in `perfetto_process_lifetime` because
+  splitting the class would leave two halves sharing `_next_uuid`. It hands
+  the spans back for finalization, ranks each process by start timestamp and
+  then process, and owns the once-per-trace flag that makes finalization safe
+  to call twice, covering the non-idempotent track descriptor too. Every key
+  it holds is filed under the process, so the rows under a reused pid split.
 - `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded
   so it goes out once.
 - The liveness path, monitor to accumulator:
