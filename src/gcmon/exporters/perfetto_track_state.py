@@ -32,6 +32,9 @@ class PerfettoTrackState:
         self._process_lifetime_track_uuid: int | None = None
         self._cmdlines: dict[Process, tuple[str, ...]] = {}
         self._process_lifetime_start: dict[Process, int] = {}
+        self._sampled_counts: dict[Process, int] = {}
+        self._lost_counts: dict[Process, int] = {}
+        self._lost_pause_ns: dict[Process, int] = {}
         self._process_ranks: dict[Process, int] = {}
         self._next_rank: int = 0
         self._process_lifetime_end: dict[Process, int] = {}
@@ -75,6 +78,39 @@ class PerfettoTrackState:
         interpreter that produced nothing reaches no part of the exporter.
         """
         return sum(1 for track in self._tracks if isinstance(track, InterpreterTrack) and track.process == process)
+
+    def record_sampled(self, process: Process) -> None:
+        """Count one more record read for *process*.
+
+        One call per record, not per event: a record becomes a pause slice,
+        its sub-phase slices and its counters, and counting those would count
+        phases.
+        """
+        self._sampled_counts[process] = self._sampled_counts.get(process, 0) + 1
+
+    def get_sampled_count(self, process: Process) -> int:
+        """How many records gcmon read for *process*."""
+        return self._sampled_counts.get(process, 0)
+
+    def record_loss(self, process: Process, lost_count: int, lost_pause_ns: int) -> None:
+        """Fold one poll interval's loss into *process*'s totals.
+
+        `EventsMonitor` reports an interval only where something went
+        missing, so no call here is a no-op, though a `lost_pause_ns` of
+        zero is ordinary. Every interval is one interpreter's, so the totals
+        sum across a process's interpreters as well as across its polls.
+        """
+        self._lost_counts[process] = self._lost_counts.get(process, 0) + lost_count
+        self._lost_pause_ns[process] = self._lost_pause_ns.get(process, 0) + lost_pause_ns
+
+    def get_lost_count(self, process: Process) -> int:
+        """How many of *process*'s records were overwritten before gcmon
+        reached them."""
+        return self._lost_counts.get(process, 0)
+
+    def get_lost_pause_ns(self, process: Process) -> int:
+        """How much GC pause sits inside the records *process* lost."""
+        return self._lost_pause_ns.get(process, 0)
 
     def has_counter_track(self, track: Track, display_name: str) -> bool:
         return (track, display_name) in self._counter_tracks

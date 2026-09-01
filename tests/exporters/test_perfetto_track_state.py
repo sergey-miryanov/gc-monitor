@@ -355,3 +355,70 @@ class TestTwoProcessesOnOnePidGetTheirOwnRows:
         state = PerfettoTrackState()
 
         assert state.get_track_uuid(interpreter_track(100, 1, 1)) != state.get_track_uuid(self.FIRST)
+
+
+class TestCaptureTotals:
+    """What gcmon read for a process and what it never got to read.
+
+    Both are running totals over the whole trace, folded in one record and
+    one loss interval at a time.
+    """
+
+    def test_a_process_nothing_was_recorded_for_reads_zero(self) -> None:
+        state = PerfettoTrackState()
+        assert state.get_sampled_count(proc(100)) == 0
+        assert state.get_lost_count(proc(100)) == 0
+        assert state.get_lost_pause_ns(proc(100)) == 0
+
+    def test_each_record_counts_one(self) -> None:
+        state = PerfettoTrackState()
+        for _ in range(3):
+            state.record_sampled(proc(100))
+        assert state.get_sampled_count(proc(100)) == 3
+
+    def test_loss_intervals_add_up(self) -> None:
+        state = PerfettoTrackState()
+        state.record_loss(proc(100), lost_count=4, lost_pause_ns=1_000)
+        state.record_loss(proc(100), lost_count=6, lost_pause_ns=2_500)
+        assert state.get_lost_count(proc(100)) == 10
+        assert state.get_lost_pause_ns(proc(100)) == 3_500
+
+    def test_an_interval_that_lost_nothing_leaves_the_totals_alone(self) -> None:
+        """The fold is additive, so a zero cannot clear what is there.
+
+        `EventsMonitor` sends no such interval, and this holds the
+        accumulator to arithmetic rather than to that guarantee.
+        """
+        state = PerfettoTrackState()
+        state.record_loss(proc(100), lost_count=4, lost_pause_ns=1_000)
+        state.record_loss(proc(100), lost_count=0, lost_pause_ns=0)
+        assert state.get_lost_count(proc(100)) == 4
+        assert state.get_lost_pause_ns(proc(100)) == 1_000
+
+    def test_records_and_losses_are_counted_apart(self) -> None:
+        state = PerfettoTrackState()
+        state.record_sampled(proc(100))
+        state.record_loss(proc(100), lost_count=7, lost_pause_ns=99)
+        assert state.get_sampled_count(proc(100)) == 1
+        assert state.get_lost_count(proc(100)) == 7
+
+    def test_each_process_keeps_its_own_totals(self) -> None:
+        state = PerfettoTrackState()
+        state.record_sampled(proc(100))
+        state.record_sampled(proc(200))
+        state.record_sampled(proc(200))
+        state.record_loss(proc(200), lost_count=3, lost_pause_ns=50)
+        assert state.get_sampled_count(proc(100)) == 1
+        assert state.get_lost_count(proc(100)) == 0
+        assert state.get_sampled_count(proc(200)) == 2
+        assert state.get_lost_count(proc(200)) == 3
+
+    def test_two_processes_on_one_pid_keep_their_own_totals(self) -> None:
+        """A reused pid draws two rows, and each bar counts its own life."""
+        state = PerfettoTrackState()
+        state.record_sampled(proc(100, 1))
+        state.record_loss(proc(100, 2), lost_count=5, lost_pause_ns=10)
+        assert state.get_sampled_count(proc(100, 1)) == 1
+        assert state.get_lost_count(proc(100, 1)) == 0
+        assert state.get_sampled_count(proc(100, 2)) == 0
+        assert state.get_lost_count(proc(100, 2)) == 5

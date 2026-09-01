@@ -9,7 +9,7 @@ the process's own row. See ADR-0011.
 from typing import NamedTuple
 
 from ..model.process import Process
-from ..model.trace_event import Slice, TraceEvent
+from ..model.trace_event import LossTrack, Slice, TraceEvent
 from .perfetto_builders import (
     _build_debug_annotation_bool,
     _build_debug_annotation_int,
@@ -25,6 +25,7 @@ from .perfetto_proto import (
     TrackEventType,
 )
 from .perfetto_track_state import PerfettoTrackState, ProcessSpan
+from .trace_converter import GC_PAUSE_CATEGORY, duration_text
 
 __all__ = ["emit_retired_process_row", "finalize_perfetto_packets", "process_track_name"]
 
@@ -211,10 +212,15 @@ def _emit_process_row_lifetime_slice(
         return []
     state.mark_process_row_drawn(span.process)
     track_uuid = state.get_process_track_uuid(span.process)
+    lost_pause_ns = state.get_lost_pause_ns(span.process)
     debug_annotations = [
         *_cmdline_annotation(span.process, state),
         _build_debug_annotation_int("pid_epoch", span.process.pid_epoch),
         _build_debug_annotation_int("interpreters", state.get_interpreter_count(span.process)),
+        _build_debug_annotation_int("sampled_count", state.get_sampled_count(span.process)),
+        _build_debug_annotation_int("lost_count", state.get_lost_count(span.process)),
+        _build_debug_annotation_string("lost_pause", duration_text(lost_pause_ns)),
+        _build_debug_annotation_int("lost_pause_ns", lost_pause_ns),
     ]
     return [
         build_trace_packet(
@@ -298,6 +304,43 @@ def _record_process_lifetime(
         state.update_process_lifetime(process, event.ts_stop)
     else:
         state.update_process_lifetime(process, event.ts)
+
+
+def _record_capture_totals(
+    event: TraceEvent,
+    state: PerfettoTrackState,
+) -> None:
+    """Fold *event* into its process's ``sampled_count`` and loss totals.
+
+    Two of the events a batch carries stand for exactly one thing gcmon
+    read: the ``GC Pause`` slice is one record, and a slice on a
+    ``LossTrack`` is one poll interval. Every other event is a phase or a
+    counter belonging to a record already counted here, and folding those
+    in would count phases.
+
+    Counted in the convert pass rather than at ``add_event``, which is where
+    the records arrive but which holds no encoder lock and would need a
+    second acquisition on the hot path. This runs where the caller already
+    holds it, and it is also the one pass a capture read back from JSONL
+    goes through, so ``gcmon combine`` fills the same annotations a live run
+    does. Emits nothing: the totals become annotations when the bar is
+    drawn.
+    """
+    if not isinstance(event, Slice):
+        return
+    if isinstance(event.track, LossTrack):
+        # Read off the args `convert_loss_to_trace_format` just built, which
+        # is where the per-interval sums already are. It writes both
+        # unconditionally and as ints, so anything else is a bug rather than
+        # a shape to tolerate.
+        lost_count = event.args["lost_count"]
+        lost_pause_ns = event.args["lost_pause_ns"]
+        assert isinstance(lost_count, int) and isinstance(lost_pause_ns, int), (
+            f"a GC Loss slice must carry integer totals, got {lost_count!r} and {lost_pause_ns!r}"
+        )
+        state.record_loss(event.track.process, lost_count, lost_pause_ns)
+    elif event.cat.startswith(GC_PAUSE_CATEGORY):
+        state.record_sampled(event.track.process)
 
 
 def _clip_spans_to_laminar(spans: list[ProcessSpan]) -> list[ClippedSpan]:

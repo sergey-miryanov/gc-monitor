@@ -26,7 +26,13 @@ from gcmon.exporters.perfetto_format import (
 )
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg
 from tests.data_helpers import create_instant_msg
-from tests.helpers import JsonlRecord, create_mock_stats_item, perfetto_packets, proc
+from tests.helpers import (
+    JsonlRecord,
+    create_mock_loss_item,
+    create_mock_stats_item,
+    perfetto_packets,
+    proc,
+)
 
 N_GC = 100
 N_INSTANT = 100
@@ -497,3 +503,96 @@ class TestMetaDedupRaceClosed:
         capture = PerfettoFileCapture(path)
         proc_descs = capture.count_process_descriptors()
         assert proc_descs == 1, f"expected exactly 1 process descriptor, got {proc_descs}"
+
+
+@pytest.mark.stress
+class TestCaptureTotalsUnderLoad:
+    """``sampled_count`` and ``lost_count`` on the ``Lifetime`` bar count
+    what reached the trace, whatever thread put it there.
+
+    Both are folded in during the convert pass, which runs under
+    ``_io_lock``, so a record and a loss interval arriving on two threads
+    take the same route as the events they came in with.
+    """
+
+    _LOST_PER_INTERVAL = 3
+
+    def _bar_totals(self, path: Path) -> tuple[int, int]:
+        """``(sampled_count, lost_count)`` off the one ``Lifetime`` BEGIN."""
+        totals: list[tuple[int, int]] = []
+        for packet in perfetto_packets(path.read_bytes()):
+            track_event = _get_track_event(packet)
+            if track_event is None or track_event.name != "Lifetime":
+                continue
+            annotations = {ann.name: ann.int_value for ann in track_event.debug_annotations}
+            totals.append((annotations["sampled_count"], annotations["lost_count"]))
+        assert len(totals) == 1, f"expected one Lifetime bar, got {len(totals)}"
+        return totals[0]
+
+    def _count_pauses_before_the_bar(self, path: Path) -> int:
+        """The ``GC Pause`` BEGINs written ahead of the ``Lifetime`` bar.
+
+        One per record, and every batch is appended under ``_io_lock``, so
+        file order is the order the encoder converted them in. A writer that
+        outran ``close()`` puts its records past the bar, where they are in
+        the trace and outside the count by construction.
+        """
+        pauses = 0
+        for packet in perfetto_packets(path.read_bytes()):
+            track_event = _get_track_event(packet)
+            if track_event is None:
+                continue
+            if track_event.name == "Lifetime":
+                return pauses
+            if track_event.type == TrackEventType.SLICE_BEGIN and track_event.name.startswith("GC Pause"):
+                pauses += 1
+        raise AssertionError("the trace carries no Lifetime bar")
+
+    def test_records_and_losses_on_two_threads_lose_no_increment(self, tmp_path: Path) -> None:
+        path = tmp_path / "totals.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=5)
+        events = _make_gc_events(N_GC, 1_500_000_000)
+        losses = [
+            create_mock_loss_item(ts_start=ts, ts_stop=ts + 1_000, lost_count=self._LOST_PER_INTERVAL)
+            for ts in range(1_500_000_000, 1_500_000_000 + N_GC * 1_000, 1_000)
+        ]
+
+        def writer() -> None:
+            for ev in events:
+                exporter.add_event(proc(MAIN_PID), ev)
+
+        def loser() -> None:
+            for loss in losses:
+                exporter.add_loss_event(proc(MAIN_PID), loss)
+
+        captured = _run_two_threads([writer, loser])
+        exporter.close()
+        for exc in captured:
+            raise exc
+
+        assert self._bar_totals(path) == (N_GC, N_GC * self._LOST_PER_INTERVAL)
+
+    def test_a_close_racing_the_writer_counts_every_record_it_drew_over(self, tmp_path: Path) -> None:
+        """Whatever the close beat the writer to, the bar counts exactly the
+        records converted ahead of it: no increment dropped and none counted
+        twice."""
+        path = tmp_path / "raced.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=5)
+        for ev in _make_gc_events(PRE_FILL, 1_500_000_000):
+            exporter.add_event(proc(MAIN_PID), ev)
+        more = _make_gc_events(N_GC, 1_500_000_000 + 100_000_000)
+
+        def writer() -> None:
+            for ev in more:
+                exporter.add_event(proc(MAIN_PID), ev)
+
+        def closer() -> None:
+            exporter.close()
+
+        captured = _run_two_threads([writer, closer])
+        for exc in captured:
+            raise exc
+
+        sampled, _lost = self._bar_totals(path)
+        assert sampled == self._count_pauses_before_the_bar(path)
+        assert PRE_FILL <= sampled <= PRE_FILL + N_GC

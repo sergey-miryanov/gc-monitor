@@ -213,6 +213,25 @@ goes on every slice, true or false. The bar cannot carry it: a retired
 process's row is drawn at the next flush and the sweep has decided nothing
 yet.
 
+**How much of the process gcmon read is counted in the convert pass.** The bar
+says `sampled_count` against `lost_count`, and the exporter's entry points are
+the obvious place to count them: `add_event` takes one record and
+`add_loss_event` one poll interval. Neither holds the encoder lock, and the
+accumulators are read under it, so counting there means a second acquisition
+per record on the hot path. Counting in the convert pass costs nothing, since
+its caller already holds the lock, and it also covers `gcmon combine`, which
+builds a trace from a capture without an exporter.
+
+The pass sees events rather than records, so it counts the two that stand for
+one thing each: the `GC Pause` slice, which every record produces exactly one
+of, and a slice on a `LossTrack`, which is one interval. Every other event is
+a phase or a counter of a record already counted.
+
+`sampled_count` cannot be summed off the `GC Loss` slices. `EventsMonitor`
+reports an interval only when it lost something, so the `observed_count`
+riding there covers lossy intervals alone; a process that lost nothing has no
+slice to sum and would read as one gcmon never sampled.
+
 **A retired process's row goes out at the next flush; the shared slice waits
 for close.** Once gcmon lets go of a pid the process's span is final: a record
 read afterwards is filed under whatever holds the pid now

@@ -34,6 +34,7 @@ from .perfetto_builders import (
 from .perfetto_process_lifetime import (
     _emit_process_descriptor,
     _emit_root_descriptor,
+    _record_capture_totals,
     _record_process_lifetime,
     emit_retired_process_row,
     finalize_perfetto_packets,
@@ -281,6 +282,7 @@ def convert_trace_events_to_perfetto(
     if events:
         for event in events:
             _record_process_lifetime(event, state)
+            _record_capture_totals(event, state)
         descriptors.extend(_emit_root_descriptor(state, sequence_id))
 
     # Ranked after the pre-pass folded the batch in, so the processes this

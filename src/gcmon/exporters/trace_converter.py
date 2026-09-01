@@ -33,10 +33,16 @@ from ..model.trace_event import (
 )
 
 __all__ = [
+    "GC_PAUSE_CATEGORY",
     "convert_item_to_trace_format",
     "convert_loss_to_trace_format",
     "convert_to_trace_format",
 ]
+
+# The category of the one slice every record produces, whatever phases it
+# ran. It is what lets a reader of the event stream count records: the
+# sub-phase slices and the counters are per record too, but conditional.
+GC_PAUSE_CATEGORY: str = "gc.pause"
 
 
 def convert_item_to_trace_format(process: Process, item: TGCStatsInfo) -> list[TraceEvent]:
@@ -86,7 +92,7 @@ def convert_item_to_trace_format(process: Process, item: TGCStatsInfo) -> list[T
         Slice(
             track,
             f"GC Pause({gen})",
-            f"gc.pause(gen={gen})",
+            f"{GC_PAUSE_CATEGORY}(gen={gen})",
             ts_start_ns,
             ts_stop_ns,
             pause_data,

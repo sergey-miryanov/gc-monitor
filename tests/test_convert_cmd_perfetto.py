@@ -420,6 +420,25 @@ class TestCombinedTraceIsStructurallyComplete:
         )
         assert described == []
 
+    def test_a_converted_capture_says_how_much_of_it_was_read(
+        self,
+        loaded_trace_processor: TraceProcessor,
+    ) -> None:
+        """No exporter ran here: `combine` hands its events straight to the
+        encoder. The count is taken in the convert pass, which is the one
+        stage both paths share, so a converted capture reads its own records
+        rather than reporting none."""
+        rows = list(
+            loaded_trace_processor.query(
+                "SELECT p.name AS pname, a.int_value AS sampled FROM args a "
+                "JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                "JOIN process_track pt ON s.track_id = pt.id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE s.name = 'Lifetime' AND a.flat_key = 'debug.sampled_count'"
+            )
+        )
+        assert {r.pname: r.sampled for r in rows} == {f"Process {_PID_A}": 3, f"Process {_PID_B}": 1}
+
     def test_thread_tracks_present(
         self,
         loaded_trace_processor: TraceProcessor,

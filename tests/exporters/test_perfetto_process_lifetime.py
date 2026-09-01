@@ -23,8 +23,13 @@ from gcmon.exporters.perfetto_process_lifetime import (
 )
 from gcmon.exporters.perfetto_proto import ProcessOrdering, TrackEventType
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState, ProcessSpan
-from gcmon.exporters.trace_converter import convert_item_to_trace_format
+from gcmon.exporters.trace_converter import (
+    convert_item_to_trace_format,
+    convert_loss_to_trace_format,
+    duration_text,
+)
 from gcmon.model.data import GCStatsInfo
+from gcmon.model.process import Process
 from gcmon.model.trace_event import TraceEvent
 from tests.exporters.perfetto_helpers import (
     clipped_span,
@@ -34,7 +39,12 @@ from tests.exporters.perfetto_helpers import (
     parse_track_descriptor,
     span,
 )
-from tests.helpers import proc
+from tests.helpers import (
+    create_mock_incremental_item,
+    create_mock_loss_item,
+    create_mock_stats_item,
+    proc,
+)
 
 # Name of the shared top-level Perfetto track that holds one slice per
 # pid spanning the first-to-last non-meta event timestamps for that
@@ -1127,6 +1137,163 @@ class TestWhatCloseAlreadyKnows:
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
 
         assert "interpreters" not in self._begin(closeout, lifetime_uuid)
+
+
+class TestWhatGcmonReadAndMissed:
+    """How complete the capture is for one process, on its own bar:
+    ``sampled_count`` against ``lost_count``, and the pause inside what was
+    missed.
+
+    Counted in the convert pass, so a trace built by ``gcmon combine`` from
+    a capture reads the same as a live one.
+    """
+
+    BUSY = proc(100)
+    OTHER = proc(200)
+
+    def _bar(self, packets: list[bytes], state: PerfettoTrackState, process: Process) -> dict[str, str | int]:
+        """The annotations on *process*'s ``Lifetime`` BEGIN."""
+        begins = [
+            annotations
+            for _ts, event_type, _name, annotations in lifetime_slices(packets, state.get_process_track_uuid(process))
+            if event_type == TrackEventType.SLICE_BEGIN
+        ]
+        assert len(begins) == 1, f"expected one bar for {process}, got {len(begins)}"
+        return begins[0]
+
+    def _convert(self, state: PerfettoTrackState, events: list[TraceEvent]) -> None:
+        convert_trace_events_to_perfetto(events, state, sequence_id=1)
+
+    def _records(self, process: Process, count: int) -> list[TraceEvent]:
+        events: list[TraceEvent] = []
+        for index in range(count):
+            item = create_mock_stats_item(ts_start=1_000 * (index + 1), ts_stop=1_000 * (index + 1) + 100)
+            events.extend(convert_item_to_trace_format(process, item))
+        return events
+
+    def test_the_bar_counts_every_record_read(self) -> None:
+        state = PerfettoTrackState()
+        self._convert(state, self._records(self.BUSY, 3))
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        assert self._bar(closeout, state, self.BUSY)["sampled_count"] == 3
+
+    def test_a_process_that_lost_nothing_carries_its_whole_count(self) -> None:
+        """The case the loss path gets wrong: ``observed_count`` rides on a
+        ``GC Loss`` slice, and a process that lost nothing has none, so
+        summing those would say gcmon read nothing here."""
+        state = PerfettoTrackState()
+        self._convert(state, self._records(self.BUSY, 5))
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        bar = self._bar(closeout, state, self.BUSY)
+        assert bar["sampled_count"] == 5
+        assert bar["lost_count"] == 0
+        assert bar["lost_pause_ns"] == 0
+        assert bar["lost_pause"] == "0ns"
+
+    def test_the_sub_phases_of_a_record_do_not_inflate_the_count(self) -> None:
+        """One record is many slices and many counters. The count is of
+        records."""
+        state = PerfettoTrackState()
+        self._convert(state, convert_item_to_trace_format(self.BUSY, create_mock_incremental_item()))
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        assert self._bar(closeout, state, self.BUSY)["sampled_count"] == 1
+
+    def test_a_process_gcmon_read_nothing_from_reads_zero(self) -> None:
+        state = PerfettoTrackState()
+        for ts in (500, 5_000):
+            state.update_process_lifetime(self.BUSY, ts)
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        bar = self._bar(closeout, state, self.BUSY)
+        assert bar["sampled_count"] == 0
+        assert bar["lost_count"] == 0
+
+    def test_loss_intervals_sum_across_the_interpreters(self) -> None:
+        state = PerfettoTrackState()
+        self._convert(
+            state,
+            [
+                *convert_loss_to_trace_format(self.BUSY, create_mock_loss_item(iid=0, lost_count=4)),
+                *convert_loss_to_trace_format(self.BUSY, create_mock_loss_item(iid=1, lost_count=6)),
+            ],
+        )
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        assert self._bar(closeout, state, self.BUSY)["lost_count"] == 10
+
+    def test_lost_pause_reads_the_way_the_loss_slice_writes_it(self) -> None:
+        """Same helper, so an operator reading a ``GC Loss`` bar and a
+        process bar reads one format."""
+        state = PerfettoTrackState()
+        self._convert(
+            state,
+            convert_loss_to_trace_format(self.BUSY, create_mock_loss_item(lost_count=2, lost_pause_ns=3_316_458_100)),
+        )
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        bar = self._bar(closeout, state, self.BUSY)
+        assert bar["lost_pause_ns"] == 3_316_458_100
+        assert bar["lost_pause"] == duration_text(3_316_458_100)
+
+    def test_the_totals_run_across_batches(self) -> None:
+        """A buffered export converts in flushes, and the bar goes out
+        after the last of them."""
+        state = PerfettoTrackState()
+        self._convert(state, self._records(self.BUSY, 2))
+        self._convert(state, self._records(self.BUSY, 3))
+        self._convert(state, convert_loss_to_trace_format(self.BUSY, create_mock_loss_item(lost_count=8)))
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        bar = self._bar(closeout, state, self.BUSY)
+        assert bar["sampled_count"] == 5
+        assert bar["lost_count"] == 8
+
+    def test_each_process_carries_its_own_totals(self) -> None:
+        state = PerfettoTrackState()
+        self._convert(
+            state,
+            [
+                *self._records(self.BUSY, 1),
+                *self._records(self.OTHER, 4),
+                *convert_loss_to_trace_format(self.OTHER, create_mock_loss_item(lost_count=2)),
+            ],
+        )
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        assert self._bar(closeout, state, self.BUSY)["sampled_count"] == 1
+        assert self._bar(closeout, state, self.BUSY)["lost_count"] == 0
+        assert self._bar(closeout, state, self.OTHER)["sampled_count"] == 4
+        assert self._bar(closeout, state, self.OTHER)["lost_count"] == 2
+
+    def test_a_retired_process_carries_them_on_its_early_bar(self) -> None:
+        """The bar leaves before close, and all four are final the moment
+        gcmon lets go of the pid."""
+        state = PerfettoTrackState()
+        self._convert(state, self._records(self.BUSY, 3))
+        self._convert(state, convert_loss_to_trace_format(self.BUSY, create_mock_loss_item(lost_count=9)))
+        early = emit_retired_process_row(self.BUSY, state, sequence_id=1)
+
+        bar = self._bar(early, state, self.BUSY)
+        assert bar["sampled_count"] == 3
+        assert bar["lost_count"] == 9
+
+    def test_the_shared_slice_carries_none_of_them(self) -> None:
+        """One reading per process, on the row that is the process."""
+        state = PerfettoTrackState()
+        self._convert(state, self._records(self.BUSY, 1))
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+        lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
+
+        shared = next(
+            annotations
+            for _ts, event_type, _name, annotations in lifetime_slices(closeout, lifetime_uuid)
+            if event_type == TrackEventType.SLICE_BEGIN
+        )
+        assert "sampled_count" not in shared
+        assert "lost_count" not in shared
 
 
 class TestCloseoutAtFinalize:

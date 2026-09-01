@@ -14,6 +14,7 @@ import pytest
 from perfetto.trace_processor import TraceProcessor
 
 from gcmon.exporters import PerfettoExporter
+from gcmon.exporters.trace_converter import duration_text
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
 from tests.helpers import (
@@ -430,6 +431,7 @@ _REUSE_SECOND_STOP: int = 340_000_000
 _REUSE_FIRST_COLLECTED: int = 11
 _REUSE_SECOND_COLLECTED: int = 22
 _REUSE_LOSS_WINDOW_NS: int = 10_000_000
+_REUSE_LOST_PAUSE_NS: int = 3_316_458_100
 
 _REUSE_FIRST_NAME: str = f"Process {_REUSED_PID}"
 _REUSE_SECOND_NAME: str = f"Process {_REUSED_PID}#2"
@@ -465,6 +467,7 @@ def _write_reused_pid_trace(tmp: Path) -> Path:
                 ts_start=ts_stop,
                 ts_stop=ts_stop + _REUSE_LOSS_WINDOW_NS,
                 lost_count=collected,
+                lost_pause_ns=_REUSE_LOST_PAUSE_NS,
             ),
         )
     exporter.close()
@@ -991,12 +994,17 @@ class TestProcessRowLifetimeSlice:
             )
         )
         assert {(r.name, r.flat_key) for r in rows} == {
-            (f"Process {DEFAULT_PID}", f"{_ARG_PREFIX}.cmdline"),
-            (f"Process {DEFAULT_PID}", f"{_ARG_PREFIX}.pid_epoch"),
-            (f"Process {DEFAULT_PID}", f"{_ARG_PREFIX}.interpreters"),
-            (f"Process {_SECOND_PID}", f"{_ARG_PREFIX}.cmdline"),
-            (f"Process {_SECOND_PID}", f"{_ARG_PREFIX}.pid_epoch"),
-            (f"Process {_SECOND_PID}", f"{_ARG_PREFIX}.interpreters"),
+            (f"Process {pid}", f"{_ARG_PREFIX}.{key}")
+            for pid in (DEFAULT_PID, _SECOND_PID)
+            for key in (
+                "cmdline",
+                "pid_epoch",
+                "interpreters",
+                "sampled_count",
+                "lost_count",
+                "lost_pause",
+                "lost_pause_ns",
+            )
         }
         # Read each annotation out of the column its type puts it in, so a
         # `pid_epoch` written as a string reads back as a missing int.
@@ -1030,6 +1038,60 @@ class TestProcessRowLifetimeSlice:
             f"Process {DEFAULT_PID}": 3,
             f"Process {_SECOND_PID}": 1,
         }
+
+    def test_carries_what_gcmon_read_and_what_it_missed(
+        self,
+        trace_processor: TraceProcessor,
+    ) -> None:
+        """The completeness of the capture, per process. This run lost
+        nothing, so each bar has to say how much it read rather than the
+        zero a count summed off the ``GC Loss`` rows would give."""
+        rows = list(
+            trace_processor.query(
+                f"SELECT p.name AS name, a.flat_key AS flat_key, "
+                f"a.int_value AS int_value, a.string_value AS string_value "
+                f"FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"AND a.flat_key LIKE '{_ARG_PREFIX}.%'"
+            )
+        )
+        counts = {(r.name, r.flat_key.rsplit(".", 1)[1]): r.int_value for r in rows}
+        assert counts[(f"Process {DEFAULT_PID}", "sampled_count")] == 3
+        assert counts[(f"Process {_SECOND_PID}", "sampled_count")] == 1
+        assert counts[(f"Process {DEFAULT_PID}", "lost_count")] == 0
+        assert counts[(f"Process {DEFAULT_PID}", "lost_pause_ns")] == 0
+        text = {(r.name, r.flat_key.rsplit(".", 1)[1]): r.string_value for r in rows}
+        assert text[(f"Process {DEFAULT_PID}", "lost_pause")] == "0ns"
+
+    def test_two_processes_on_one_pid_count_their_own_capture(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The totals follow the process, not the pid. Each of the two ran
+        one collection and went blind over its own interval."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT p.name AS name, a.flat_key AS flat_key, "
+                f"a.int_value AS int_value, a.string_value AS string_value "
+                f"FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"AND a.flat_key LIKE '{_ARG_PREFIX}.%'"
+            )
+        )
+        counts = {(r.name, r.flat_key.rsplit(".", 1)[1]): r.int_value for r in rows}
+        assert counts[(_REUSE_FIRST_NAME, "sampled_count")] == 1
+        assert counts[(_REUSE_SECOND_NAME, "sampled_count")] == 1
+        assert counts[(_REUSE_FIRST_NAME, "lost_count")] == _REUSE_FIRST_COLLECTED
+        assert counts[(_REUSE_SECOND_NAME, "lost_count")] == _REUSE_SECOND_COLLECTED
+        assert counts[(_REUSE_FIRST_NAME, "lost_pause_ns")] == _REUSE_LOST_PAUSE_NS
+        text = {(r.name, r.flat_key.rsplit(".", 1)[1]): r.string_value for r in rows}
+        assert text[(_REUSE_FIRST_NAME, "lost_pause")] == duration_text(_REUSE_LOST_PAUSE_NS)
 
     def test_no_cmdline_annotation_without_a_cmdline(
         self,

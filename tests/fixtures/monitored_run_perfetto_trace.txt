@@ -15325,6 +15325,22 @@ track_event {
     int_value: 1
     name: "interpreters"
   }
+  debug_annotations {
+    int_value: 37
+    name: "sampled_count"
+  }
+  debug_annotations {
+    int_value: 3
+    name: "lost_count"
+  }
+  debug_annotations {
+    string_value: "17ms 398µs 300ns"
+    name: "lost_pause"
+  }
+  debug_annotations {
+    int_value: 17398300
+    name: "lost_pause_ns"
+  }
   type: TYPE_SLICE_BEGIN
   track_uuid: 15
   name: "Lifetime"
@@ -15385,6 +15401,22 @@ track_event {
   debug_annotations {
     int_value: 1
     name: "interpreters"
+  }
+  debug_annotations {
+    int_value: 99
+    name: "sampled_count"
+  }
+  debug_annotations {
+    int_value: 16
+    name: "lost_count"
+  }
+  debug_annotations {
+    string_value: "63ms 256µs"
+    name: "lost_pause"
+  }
+  debug_annotations {
+    int_value: 63256000
+    name: "lost_pause_ns"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 1
@@ -15472,6 +15504,22 @@ track_event {
   debug_annotations {
     int_value: 1
     name: "interpreters"
+  }
+  debug_annotations {
+    int_value: 49
+    name: "sampled_count"
+  }
+  debug_annotations {
+    int_value: 3
+    name: "lost_count"
+  }
+  debug_annotations {
+    string_value: "19ms 997µs 300ns"
+    name: "lost_pause"
+  }
+  debug_annotations {
+    int_value: 19997300
+    name: "lost_pause_ns"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 29

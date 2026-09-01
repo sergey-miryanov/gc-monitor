@@ -135,9 +135,9 @@ zero-length span emitted END-first reads as `dur = -1`.
 **A process with a span and no descriptor gets one.** `finalize` walks every
 process with a recorded span, including one known only from
 `add_process_liveness`. Where such a process has no `ProcessDescriptor`,
-`finalize` calls `_emit_process_descriptor` for it. `get_process_track_ranks`
-already ranks from `_process_lifetime_start`, which liveness observations fold
-into. The rank and the `start_timestamp_ns` are in hand.
+`finalize` calls `_emit_process_descriptor` for it. `rank_processes` ranks
+from `_process_lifetime_start`, which liveness observations fold into. The
+rank and the `start_timestamp_ns` are in hand.
 
 **The `Lifetime` BEGIN carries seven annotations.**
 
@@ -146,8 +146,8 @@ into. The rank and the `start_timestamp_ns` are in hand.
 | `cmdline` | string | `state.get_cmdline`, space-joined |
 | `pid_epoch` | int | `Process.pid_epoch` |
 | `interpreters` | int | count of `InterpreterTrack` in `state._tracks` |
-| `sampled_count` | int | new accumulator, `add_event` |
-| `lost_count` | int | new accumulator, `add_loss_event` |
+| `sampled_count` | int | new accumulator, the convert pass |
+| `lost_count` | int | new accumulator, the convert pass |
 | `lost_pause_ns` + `lost_pause` | int + string | same accumulator |
 
 `lost_pause_ns` and `lost_pause` are the ns-for-SQL and readable pair
@@ -164,9 +164,21 @@ carry the verdict: a retired process's row goes out at the flush after its
 retirement, before the sweep has run.
 
 **Two new per-process accumulators on `PerfettoTrackState`.**
-`record_sampled(process)` counts one record per `add_event`, and
-`record_loss_totals(process, lost_count, lost_pause_ns)` sums a `LossMsg`'s
-`gens`. Both are read at close.
+`record_sampled(process)` counts one record and
+`record_loss(process, lost_count, lost_pause_ns)` one poll interval. Both are
+read when the bar is drawn.
+
+Both are fed from the convert pass rather than from `add_event` and
+`add_loss_event`. Those two are where the records arrive, but they hold no
+encoder lock, and taking `_io_lock` there puts a second acquisition on the hot
+path. The convert pass runs under the lock its caller already holds, and it is
+also the one pass a capture read back from JSONL goes through, so
+`gcmon combine` fills the same annotations a live run does.
+
+The pass sees events rather than records, so it counts the two events that
+stand for one thing each: the `GC Pause` slice is one record, and a slice on a
+`LossTrack` is one poll interval. `trace_converter` names the pause category
+in a constant for the count to key on.
 
 `sampled_count` cannot come from the loss path. `EventsMonitor` emits a
 `LossMsg` only for a poll interval that lost something, and the
