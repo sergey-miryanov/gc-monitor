@@ -1,8 +1,9 @@
-"""Process spans: the shared ``Processes`` track and the ``Lifetime`` bar
-on each process's own row.
+"""Everything that draws a process: its row, its name, and its two spans.
 
-One BEGIN/END pair per process on the shared track, clipped laminar, and
-one over the observed interval on the process's own. See ADR-0011.
+The root descriptor that makes process order explicit, one process
+descriptor per process, one BEGIN/END pair per process on the shared
+``Processes`` track clipped laminar, and one over the observed interval on
+the process's own row. See ADR-0011.
 """
 
 from typing import NamedTuple
@@ -16,7 +17,12 @@ from .perfetto_builders import (
     build_track_descriptor,
     build_track_event,
 )
-from .perfetto_proto import TrackEventType
+from .perfetto_proto import (
+    ChildTracksOrdering,
+    ProcessOrdering,
+    ThreadOrdering,
+    TrackEventType,
+)
 from .perfetto_track_state import PerfettoTrackState, ProcessSpan
 
 __all__ = ["finalize_perfetto_packets", "process_track_name"]
@@ -49,6 +55,63 @@ _PROCESS_ROW_SLICE_NAME: str = "Lifetime"
 def process_track_name(process: Process) -> str:
     """What *process* is called (ADR-0011)."""
     return f"Process {process}"
+
+
+def _emit_root_descriptor(
+    state: PerfettoTrackState,
+    sequence_id: int,
+) -> list[bytes]:
+    """Build the root ``TrackDescriptor`` (``uuid = 0``), once per trace.
+
+    It carries no ``name`` and no ``process``, ``thread`` or ``counter``
+    sub-message, so the trace processor draws no row for it (ADR-0011).
+    """
+    if state.has_root_descriptor():
+        return []
+    state.mark_root_descriptor_emitted()
+    desc = build_track_descriptor(
+        uuid=0,
+        name="",
+        process_ordering=ProcessOrdering.EXPLICIT,
+        thread_ordering=ThreadOrdering.EXPLICIT,
+    )
+    return [build_trace_packet(sequence_id, track_descriptor=desc)]
+
+
+def _emit_process_descriptor(
+    process: Process,
+    state: PerfettoTrackState,
+    sequence_id: int,
+    sibling_order_rank: int | None = None,
+    start_timestamp_ns: int | None = None,
+) -> list[bytes]:
+    """Build a process track descriptor if not already emitted for *process*.
+
+    *sibling_order_rank* orders this process against the other process
+    tracks, which the UI honors only when the root descriptor carries
+    ``process_ordering = PROCESS_ORDERING_EXPLICIT``; see
+    ``_emit_root_descriptor``.
+
+    *start_timestamp_ns* goes on the ``process`` sub-message. It is
+    *process*'s first event in nanoseconds, the same timestamp the rank comes
+    from.
+    """
+    if state.has_process_descriptor(process):
+        return []
+    state.mark_process_descriptor(process)
+    proc_uuid = state.get_process_track_uuid(process)
+    cmdline = state.get_cmdline(process)
+    desc = build_track_descriptor(
+        proc_uuid,
+        process_track_name(process),
+        pid=process.pid,
+        child_ordering=ChildTracksOrdering.EXPLICIT,
+        sibling_order_rank=sibling_order_rank,
+        cmdline=cmdline,
+        description=" ".join(cmdline) if cmdline else None,
+        start_timestamp_ns=start_timestamp_ns,
+    )
+    return [build_trace_packet(sequence_id, track_descriptor=desc)]
 
 
 def _emit_process_lifetime_track_descriptor(
@@ -131,11 +194,12 @@ def _emit_process_row_lifetime_slice(
     anything (ADR-0011). BEGIN first, so a process observed at a single
     instant reads as ``dur = 0`` rather than ``-1``.
 
-    Returns nothing for a process with no descriptor, whose track uuid
-    names a row no packet has described.
+    The caller describes *span*'s process first, so the track uuid this
+    names is one a packet has described.
     """
-    if not state.has_process_descriptor(span.process):
-        return []
+    assert state.has_process_descriptor(span.process), (
+        "a Lifetime bar needs a described row to draw on; describe the process first"
+    )
     track_uuid = state.get_process_track_uuid(span.process)
     debug_annotations = [
         *_cmdline_annotation(span.process, state),
@@ -214,16 +278,19 @@ def finalize_perfetto_packets(
     state: PerfettoTrackState,
     sequence_id: int,
 ) -> list[bytes]:
-    """Emit every span packet for the whole trace: the ``Processes`` track
-    descriptor, then per process that has a span its clipped slice on that
-    track and its ``Lifetime`` bar on its own row. Call this once, at the
-    end of the trace (typically the encoder's ``close()``).
+    """Emit every descriptor and span packet the end of the trace owes:
+    the root descriptor, a process descriptor for each process still
+    without one, the ``Processes`` track descriptor, then per process its
+    clipped slice on that track and its ``Lifetime`` bar on its own row.
+    Call this once, at the end of the trace (typically the encoder's
+    ``close()``).
 
-    Every process with a span gets a ``Processes`` slice, including one
-    the monitor loop only ever reported as live, and drawing that one is
-    the point of monitor-reported liveness. The ``Lifetime`` bar goes to
-    every process that has a row to draw it on, which such a process does
-    not.
+    Every process with a span gets both, including one the monitor loop
+    only ever reported as live. Describing that one here is what puts it
+    on the timeline at all: no event ever named its track, so no convert
+    pass described it, and it reached the file as a slice on the shared
+    row and nothing else. Its descriptor is as complete as any other,
+    since gcmon reads a command line for every process it creates.
 
     No span is dropped: a pid observed at a single instant, or clipped to
     zero, still gets a zero-duration slice. Slices go out in the order
@@ -240,11 +307,25 @@ def finalize_perfetto_packets(
     if not spans:
         return []
 
+    clipped = _clip_spans_to_laminar(spans)
+    ranks = state.get_process_track_ranks()
+    descriptors = _emit_root_descriptor(state, sequence_id)
+    for span in clipped:
+        descriptors.extend(
+            _emit_process_descriptor(
+                span.process,
+                state,
+                sequence_id,
+                sibling_order_rank=ranks.get(span.process),
+                start_timestamp_ns=state.get_process_lifetime_start_ts(span.process),
+            )
+        )
+    descriptors.append(_emit_process_lifetime_track_descriptor(state, sequence_id))
+
     packets: list[bytes] = []
-    for span in _clip_spans_to_laminar(spans):
+    for span in clipped:
         packets.extend(_emit_process_lifetime_slice(span, state, sequence_id))
         packets.extend(_emit_process_row_lifetime_slice(span, state, sequence_id))
 
-    descriptor = _emit_process_lifetime_track_descriptor(state, sequence_id)
     state.mark_process_lifetime_emitted()
-    return [descriptor, *packets]
+    return [*descriptors, *packets]

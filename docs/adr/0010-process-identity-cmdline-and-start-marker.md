@@ -117,13 +117,11 @@ line, and that is the only way to have none.
 - `src/gcmon/exporters/perfetto_proto.py` carries the `ProcessDescriptor`
   field numbers (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`) and
   `TrackDescriptor.description` at field 14.
-- `src/gcmon/exporters/perfetto_format.py` emits the process descriptor the
-  `description` hangs on.
-- `src/gcmon/exporters/perfetto_process_lifetime.py` draws the `Lifetime`
-  slice that keeps the track rendered, and puts the cmdline on its BEGIN and
-  on the `Processes` slice's BEGIN, the latter alongside the `real_start_ts` /
-  `real_end_ts` annotations
-  ([ADR-0011](0011-process-lifetime-and-ordering.md)).
+- `src/gcmon/exporters/perfetto_process_lifetime.py` emits the process
+  descriptor the `description` hangs on, draws the `Lifetime` slice that keeps
+  the track rendered, and puts the cmdline on its BEGIN and on the `Processes`
+  slice's BEGIN, the latter alongside the `real_start_ts` / `real_end_ts`
+  annotations ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 - `src/gcmon/monitoring/process_registry.py` holds the read, with its lazy
   `import psutil`, behind a provider the CLI wires in.
 - `src/gcmon/monitoring/monitor.py` sends the result to the exporter as it

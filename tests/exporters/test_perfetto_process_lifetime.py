@@ -10,6 +10,7 @@ import random
 import pytest
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
     TracePacket,
+    TrackDescriptor,
     TrackEvent,
 )
 
@@ -19,7 +20,7 @@ from gcmon.exporters.perfetto_process_lifetime import (
     _emit_process_lifetime_track_descriptor,
     finalize_perfetto_packets,
 )
-from gcmon.exporters.perfetto_proto import TrackEventType
+from gcmon.exporters.perfetto_proto import ProcessOrdering, TrackEventType
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState, ProcessSpan
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
@@ -29,6 +30,7 @@ from tests.exporters.perfetto_helpers import (
     convert_item,
     convert_items,
     lifetime_slices,
+    parse_track_descriptor,
     span,
 )
 from tests.helpers import proc
@@ -38,6 +40,35 @@ from tests.helpers import proc
 # pid. Must match ``_PROCESS_LIFETIME_TRACK_NAME`` in
 # ``gcmon.exporters.perfetto_process_lifetime``.
 _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
+
+
+def _process_descriptors(packets: list[bytes]) -> dict[str, TrackDescriptor]:
+    """``{track name: descriptor}`` for every process descriptor in *packets*,
+    in emission order."""
+    out: dict[str, TrackDescriptor] = {}
+    for raw in packets:
+        descriptor = parse_track_descriptor(raw)
+        if descriptor is not None and descriptor.HasField("process"):
+            out[descriptor.name] = descriptor
+    return out
+
+
+def _row_slices(packets: list[bytes], row_uuid: int) -> list[tuple[int, int, str]]:
+    """``[(ts, type, name), ...]`` for the slice events on one process's own
+    row, in packet order."""
+    out: list[tuple[int, int, str]] = []
+    for raw in packets:
+        packet = TracePacket()
+        packet.ParseFromString(raw)
+        if not packet.HasField("track_event"):
+            continue
+        event = packet.track_event
+        if event.track_uuid != row_uuid:
+            continue
+        if event.type not in (TrackEvent.Type.TYPE_SLICE_BEGIN, TrackEvent.Type.TYPE_SLICE_END):
+            continue
+        out.append((packet.timestamp, event.type, event.name))
+    return out
 
 
 def _finalize_spans(
@@ -331,11 +362,12 @@ class TestProcessLifetimeLaminarClipping:
     def test_no_spans_emits_nothing(self) -> None:
         assert _finalize_spans([]) == ({}, {})
 
-    def test_pid_without_process_descriptor_still_gets_a_slice(self) -> None:
-        """A span is drawn for a pid that never reached ``mark_process_descriptor`` --
-        one polled OK for a whole run that never collected, so it named
-        no track and nothing described it. It has no process track and no
-        cmdline, so the slice carries only the ``real_*`` annotations."""
+    def test_undescribed_pid_without_a_cmdline_still_gets_a_slice(self) -> None:
+        """A span is drawn for a pid that never reached ``mark_process_descriptor``
+        -- one polled OK for a whole run that never collected, so it named no
+        track and no convert pass described it. gcmon read no command line for
+        this one, so its slice carries only ``pid_epoch`` and the ``real_*``
+        annotations. Its own row is ``TestAQuietProcessGetsARow``'s subject."""
         state = PerfettoTrackState()
         state.update_process_lifetime(proc(100), 500)
         state.update_process_lifetime(proc(100), 5_000)
@@ -772,6 +804,108 @@ class TestProcessLifetimeSlices:
             ),
             (4_000, TrackEventType.SLICE_END, "Process 100", {}),
         ]
+
+
+class TestAQuietProcessGetsARow:
+    """A process gcmon polled and read no collections from. Liveness folded a
+    span in and nothing else ever named it, so no convert pass described it.
+
+    Finalization describes it instead, and it draws a row like any other:
+    ADR-0011 puts a process gcmon watched and read nothing from on the
+    timeline, distinct from one it never reached.
+    """
+
+    QUIET = proc(100)
+    BUSY = proc(200)
+    QUIET_CMDLINE = ("python3", "-m", "quiet_target")
+
+    def _quiet_only(self) -> tuple[PerfettoTrackState, list[bytes]]:
+        """A trace with nothing in it but one process's liveness."""
+        state = PerfettoTrackState()
+        state.set_cmdline(self.QUIET, self.QUIET_CMDLINE)
+        for ts in (500, 5_000):
+            state.update_process_lifetime(self.QUIET, ts)
+        return state, finalize_perfetto_packets(state, sequence_id=1)
+
+    def _quiet_and_busy(self) -> tuple[PerfettoTrackState, list[bytes], list[bytes]]:
+        """``BUSY`` collects first, ``QUIET`` only ever answers a poll.
+
+        Returns the state, what the convert pass emitted, and the closeout.
+        """
+        state = PerfettoTrackState()
+        events = convert_item_to_trace_format(
+            self.BUSY,
+            GCStatsInfo(
+                gen=0,
+                iid=0,
+                ts_start=1_000,
+                ts_stop=2_000,
+                heap_size=1024,
+                collections=1,
+                collected=1,
+                uncollectable=0,
+                candidates=1,
+                duration=0.001,
+            ),
+        )
+        descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
+        for ts in (3_000, 9_000):
+            state.update_process_lifetime(self.QUIET, ts)
+        return state, descriptors, finalize_perfetto_packets(state, sequence_id=1)
+
+    def test_the_descriptor_carries_its_own_name_start_and_cmdline(self) -> None:
+        """As complete as any other process's: the monitor publishes a command
+        line for every process it creates, so nothing here is second class."""
+        _state, packets = self._quiet_only()
+        descriptors = _process_descriptors(packets)
+
+        assert list(descriptors) == ["Process 100"]
+        described = descriptors["Process 100"]
+        assert described.process.pid == 100
+        assert described.process.start_timestamp_ns == 500
+        assert list(described.process.cmdline) == list(self.QUIET_CMDLINE)
+        assert described.description == " ".join(self.QUIET_CMDLINE)
+
+    def test_it_draws_a_lifetime_bar_on_its_own_row(self) -> None:
+        """The row is worth drawing because of what is on it: one bar over the
+        interval gcmon watched, and nothing under it."""
+        state, packets = self._quiet_only()
+        row_uuid = state.get_process_track_uuid(self.QUIET)
+
+        assert _row_slices(packets, row_uuid) == [
+            (500, TrackEventType.SLICE_BEGIN, "Lifetime"),
+            (5_000, TrackEventType.SLICE_END, ""),
+        ]
+
+    def test_the_root_descriptor_goes_out_for_a_trace_with_no_events(self) -> None:
+        """Ranks are a hint the UI honours only under an explicit root
+        descriptor, and a run in which nothing ever collected reaches close
+        without a convert pass having emitted one."""
+        _state, packets = self._quiet_only()
+
+        roots = [td for td in map(parse_track_descriptor, packets) if td is not None and td.uuid == 0]
+        assert len(roots) == 1
+        assert roots[0].process_ordering == ProcessOrdering.EXPLICIT
+
+    def test_ranks_are_contiguous_across_quiet_and_busy_processes(self) -> None:
+        """What closes ADR-0011's rank gaps: the quiet process consumed a rank
+        all along and had no descriptor to spend it on, so the drawn rows ran
+        0, 2, 3."""
+        _state, descriptors, closeout = self._quiet_and_busy()
+        described = _process_descriptors([*descriptors, *closeout])
+
+        assert {name: td.sibling_order_rank for name, td in described.items()} == {
+            "Process 200": 0,
+            "Process 100": 1,
+        }
+
+    def test_a_described_process_is_not_described_twice(self) -> None:
+        """The convert pass already described ``BUSY``; finalization walks
+        every process it holds and must leave that one alone."""
+        _state, descriptors, closeout = self._quiet_and_busy()
+
+        assert list(_process_descriptors(descriptors)) == ["Process 200"]
+        assert list(_process_descriptors(closeout)) == ["Process 100"]
 
 
 class TestCloseoutAtFinalize:

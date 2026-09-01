@@ -325,6 +325,10 @@ def zero_duration_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
 _LIVE_TICKS: tuple[int, ...] = (300_000_000, 400_000_000, 500_000_000)
 _LIVE_GC_START: int = 100_000_000
 _LIVE_GC_STOP: int = 200_000_000
+# Distinct per process, so a descriptor built at close can be caught carrying
+# the wrong one.
+_LIVE_BUSY_CMDLINE: tuple[str, ...] = ("python3", "-m", "busy_target")
+_LIVE_QUIET_CMDLINE: tuple[str, ...] = ("python3", "-m", "quiet_target")
 
 
 def _write_liveness_trace(tmp: Path) -> Path:
@@ -332,6 +336,8 @@ def _write_liveness_trace(tmp: Path) -> Path:
     and another has liveness only."""
     path = tmp / "liveness.pb"
     exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_process_cmdline(proc(DEFAULT_PID), _LIVE_BUSY_CMDLINE)
+    exporter.add_process_cmdline(proc(_SECOND_PID), _LIVE_QUIET_CMDLINE)
     exporter.add_event(
         proc(DEFAULT_PID),
         create_mock_stats_item(
@@ -1426,9 +1432,8 @@ class TestMonitorReportedLiveness:
         self,
         liveness_trace_processor: TraceProcessor,
     ) -> None:
-        """``_SECOND_PID`` produced no events at all: no process
-        descriptor, no process track, nothing but three liveness
-        observations."""
+        """``_SECOND_PID`` produced no events at all, only three liveness
+        observations, and they bound one slice on the shared row."""
         rows = list(
             liveness_trace_processor.query(
                 f"SELECT s.ts AS ts, s.dur AS dur FROM slice s "
@@ -1461,6 +1466,58 @@ class TestMonitorReportedLiveness:
             "debug.real_end_ts": _LIVE_TICKS[-1],
         }
 
+    def test_the_quiet_process_gets_a_row_of_its_own(
+        self,
+        liveness_trace_processor: TraceProcessor,
+    ) -> None:
+        """``_SECOND_PID`` named no track all run, so nothing described it
+        before close. It resolves to its own ``upid`` all the same, opening at
+        its own first observation and carrying its own command line, and its
+        row holds the one ``Lifetime`` bar and nothing else (ADR-0011)."""
+        rows = list(
+            liveness_trace_processor.query(
+                f"SELECT p.upid AS upid, p.start_ts AS start_ts, s.name AS sname, "
+                f"s.ts AS ts, s.dur AS dur FROM process p "
+                f"JOIN process_track pt ON pt.upid = p.upid "
+                f"JOIN slice s ON s.track_id = pt.id "
+                f"WHERE p.name = 'Process {_SECOND_PID}'"
+            )
+        )
+        assert len(rows) == 1, f"expected one slice on the quiet process's row, got {rows}"
+        row = rows[0]
+        assert row.start_ts == _LIVE_TICKS[0]
+        assert (row.sname, row.ts, row.ts + row.dur) == (
+            _PROCESS_ROW_SLICE_NAME,
+            _LIVE_TICKS[0],
+            _LIVE_TICKS[-1],
+        )
+
+        busy = list(
+            liveness_trace_processor.query(
+                f"SELECT p.upid AS upid FROM process p WHERE p.name = 'Process {DEFAULT_PID}'"
+            )
+        )
+        assert [row.upid] != [r.upid for r in busy], "the two processes must not share a upid"
+
+    def test_each_process_row_carries_its_own_command_line(
+        self,
+        liveness_trace_processor: TraceProcessor,
+    ) -> None:
+        """The descriptor built at close reads the same per-process command
+        line every other descriptor does, rather than the busy process's."""
+        rows = list(
+            liveness_trace_processor.query(
+                "SELECT p.name AS pname, a.string_value AS description FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE a.key = 'description' ORDER BY p.name"
+            )
+        )
+        assert {r.pname: r.description for r in rows} == {
+            f"Process {DEFAULT_PID}": " ".join(_LIVE_BUSY_CMDLINE),
+            f"Process {_SECOND_PID}": " ".join(_LIVE_QUIET_CMDLINE),
+        }
+
     def test_every_polled_pid_appears_exactly_once(
         self,
         liveness_trace_processor: TraceProcessor,
@@ -1479,11 +1536,28 @@ class TestMonitorReportedLiveness:
 
 
 class TestLivenessOnlyTrace:
-    """A whole run in which nothing ever collected: no events, so no
-    process descriptors, no thread tracks, no root descriptor, only the
-    ``Processes`` track. The trace processor still has to accept it,
-    since an idle or short-lived target is an ordinary thing to
-    monitor."""
+    """A whole run in which nothing ever collected: no events, so no thread
+    tracks and no counters, and every descriptor in the file was written at
+    close. The trace processor still has to accept it, since an idle or
+    short-lived target is an ordinary thing to monitor."""
+
+    def test_every_polled_pid_draws_a_row(
+        self,
+        liveness_only_trace_processor: TraceProcessor,
+    ) -> None:
+        """Nothing named a track all run, so without the close-time
+        descriptors this trace would draw no rows at all."""
+        rows = list(
+            liveness_only_trace_processor.query(
+                "SELECT p.name AS pname, COUNT(s.id) AS n FROM process p "
+                "JOIN process_track pt ON pt.upid = p.upid "
+                "JOIN slice s ON s.track_id = pt.id GROUP BY p.name ORDER BY p.name"
+            )
+        )
+        assert {r.pname: r.n for r in rows} == {
+            f"Process {DEFAULT_PID}": 1,
+            f"Process {_SECOND_PID}": 1,
+        }
 
     def test_no_misplaced_end_events(self, liveness_only_trace_processor: TraceProcessor) -> None:
         assert _misplaced_end_events(liveness_only_trace_processor) == 0

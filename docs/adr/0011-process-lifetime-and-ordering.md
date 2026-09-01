@@ -433,13 +433,17 @@ iteration.
 
 - `src/gcmon/exporters/perfetto_process_lifetime.py` holds this decision: the
   `Processes` track name, the sweep, the emission steps for both rows and the
-  finalization the encoder calls at close. The sweep sorts its input by start,
-  longer span first, then process, and returns it in that order, carrying each
-  span's observed start and end through untouched alongside the drawn ones, so
-  the emission site can annotate every slice without knowing which fields
-  moved. The track descriptor asserts on the once-per-trace flag rather than
-  trusting its caller: a second descriptor for one uuid is accepted silently,
-  so nothing downstream would report it.
+  finalization the encoder calls at close. It also holds the root descriptor
+  and the process descriptor, because finalization writes both: a process
+  known only from liveness is described there or nowhere, and the ranks that
+  describing it makes contiguous are a hint the UI reads only under an
+  explicit root. The sweep sorts its input by start, longer span first, then
+  process, and returns it in that order, carrying each span's observed start
+  and end through untouched alongside the drawn ones, so the emission site can
+  annotate every slice without knowing which fields moved. The track
+  descriptor asserts on the once-per-trace flag rather than trusting its
+  caller: a second descriptor for one uuid is accepted silently, so nothing
+  downstream would report it.
 - `src/gcmon/exporters/perfetto_proto.py` carries `process_ordering` at field
   19 and `thread_ordering` at field 20. Fields 6 and 7 on the same message are
   `chrome_process` and `chrome_thread`, so a wrong number writes a different
@@ -454,8 +458,6 @@ iteration.
   then process, and owns the once-per-trace flag that makes finalization safe
   to call twice, covering the non-idempotent track descriptor too. Every key
   it holds is filed under the process, so the rows under a reused pid split.
-- `src/gcmon/exporters/perfetto_format.py` emits the root descriptor, guarded
-  so it goes out once.
 - The liveness path, monitor to accumulator:
   `src/gcmon/monitoring/monitor_loop.py` takes one stamping
   `time.monotonic_ns()` per tick and hands it to the monitor, then unconverted

@@ -393,6 +393,33 @@ class TestCombinedTraceIsStructurallyComplete:
             f"expected process tracks for both PIDs, got {rows}"
         )
 
+    def test_the_close_time_sweep_leaves_a_combined_process_alone(
+        self,
+        loaded_trace_processor: TraceProcessor,
+    ) -> None:
+        """`combine` reports no liveness, so every process here was described
+        by the conversion pass and the sweep that describes a process gcmon
+        only ever polled finds nothing left to do (ADR-0011). One bar per
+        process, and no command line invented for it (ADR-0024)."""
+        rows = list(
+            loaded_trace_processor.query(
+                "SELECT p.name AS pname, COUNT(*) AS n FROM slice s "
+                "JOIN process_track pt ON s.track_id = pt.id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE s.name = 'Lifetime' GROUP BY p.name ORDER BY p.name"
+            )
+        )
+        assert {r.pname: r.n for r in rows} == {f"Process {_PID_A}": 1, f"Process {_PID_B}": 1}
+
+        described = list(
+            loaded_trace_processor.query(
+                "SELECT a.string_value AS description FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "WHERE a.key = 'description'"
+            )
+        )
+        assert described == []
+
     def test_thread_tracks_present(
         self,
         loaded_trace_processor: TraceProcessor,

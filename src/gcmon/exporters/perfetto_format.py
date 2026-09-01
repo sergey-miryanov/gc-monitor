@@ -33,9 +33,10 @@ from .perfetto_builders import (
     build_track_event,
 )
 from .perfetto_process_lifetime import (
+    _emit_process_descriptor,
+    _emit_root_descriptor,
     _record_process_lifetime,
     finalize_perfetto_packets,
-    process_track_name,
 )
 from .perfetto_proto import (
     ChildTracksOrdering,
@@ -104,63 +105,6 @@ _COUNTER_GROUP_NAME: str = "GC Metrics"
 _LOSS_TRACK_NAME: str = "GC Loss"
 # Below the interpreter's own thread track, which ranks 0.
 _LOSS_TRACK_RANK: int = 1
-
-
-def _emit_root_descriptor(
-    state: PerfettoTrackState,
-    sequence_id: int,
-) -> list[bytes]:
-    """Build the root ``TrackDescriptor`` (``uuid = 0``), once per trace.
-
-    It carries no ``name`` and no ``process``, ``thread`` or ``counter``
-    sub-message, so the trace processor draws no row for it (ADR-0011).
-    """
-    if state.has_root_descriptor():
-        return []
-    state.mark_root_descriptor_emitted()
-    desc = build_track_descriptor(
-        uuid=0,
-        name="",
-        process_ordering=ProcessOrdering.EXPLICIT,
-        thread_ordering=ThreadOrdering.EXPLICIT,
-    )
-    return [build_trace_packet(sequence_id, track_descriptor=desc)]
-
-
-def _emit_process_descriptor(
-    process: Process,
-    state: PerfettoTrackState,
-    sequence_id: int,
-    sibling_order_rank: int | None = None,
-    start_timestamp_ns: int | None = None,
-) -> list[bytes]:
-    """Build a process track descriptor if not already emitted for *process*.
-
-    *sibling_order_rank* orders this process against the other process
-    tracks, which the UI honors only when the root descriptor carries
-    ``process_ordering = PROCESS_ORDERING_EXPLICIT``; see
-    ``_emit_root_descriptor``.
-
-    *start_timestamp_ns* goes on the ``process`` sub-message. It is
-    *process*'s first event in nanoseconds, the same timestamp the rank comes
-    from.
-    """
-    if state.has_process_descriptor(process):
-        return []
-    state.mark_process_descriptor(process)
-    proc_uuid = state.get_process_track_uuid(process)
-    cmdline = state.get_cmdline(process)
-    desc = build_track_descriptor(
-        proc_uuid,
-        process_track_name(process),
-        pid=process.pid,
-        child_ordering=ChildTracksOrdering.EXPLICIT,
-        sibling_order_rank=sibling_order_rank,
-        cmdline=cmdline,
-        description=" ".join(cmdline) if cmdline else None,
-        start_timestamp_ns=start_timestamp_ns,
-    )
-    return [build_trace_packet(sequence_id, track_descriptor=desc)]
 
 
 def _emit_thread_descriptor(
