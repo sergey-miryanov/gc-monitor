@@ -81,6 +81,15 @@ class PerfettoExporter(EventsExporter):
             self._encoder.record_process_cmdline(process, cmdline)
 
     @override
+    def add_process_retired(self, process: Process) -> None:
+        """Let the encoder draw *process*'s row from the next flush on.
+
+        Under ``_io_lock`` for the reason ``add_process_liveness`` gives.
+        """
+        with self._io_lock:
+            self._encoder.record_process_retired(process)
+
+    @override
     def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
         """Fold one tick's liveness observations into the encoder's span
         accumulator.

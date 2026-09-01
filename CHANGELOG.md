@@ -28,6 +28,7 @@
 - Each process that held a reused PID draws its own rows: a `Process 12345#2` process track beside `Process 12345`, with its own pause row, `GC Loss` row and counters. In PerfettoSQL the two are separate `upid`s, and a per-process figure is a `GROUP BY`
 - Each process track draws a `Lifetime` slice over the interval gcmon watched that process, carrying its command line and `pid_epoch`. It keeps the observed width where the same process's `Processes` slice was cut short by an overlapping one, so the row says how long gcmon watched rather than only that the process existed
 - A process gcmon polled and read no collections from draws a row of its own, with its command line and a `Lifetime` bar over the interval it was watched. It used to reach the trace as a `Processes` slice and nothing else, indistinguishable in the UI from a process gcmon never reached
+- A trace from a run that was killed rather than stopped still shows a row for every process gcmon had finished with. Their rows are written as gcmon lets go of each pid, not at the end of the run; a process still running when the kill lands has no row, and neither does the `Processes` track
 
 ### Bugfixes
 

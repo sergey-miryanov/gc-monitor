@@ -193,8 +193,31 @@ that row can cross the slice and nothing needs clipping. The two rows
 therefore disagree for a clipped process, and the row able to draw the
 observed pair draws it. That carries the rule above one step further:
 `Lifetime` needs no `real_*` annotations, because its own `ts` and `dur` are
-those two numbers. It goes out from the same close-time sweep, for the same
-reason: `real_end_ts` is not known any earlier.
+those two numbers.
+
+**A retired process's row goes out at the next flush; the shared slice waits
+for close.** Once gcmon lets go of a pid the process's span is final: a record
+read afterwards is filed under whatever holds the pid now
+([ADR-0025](0025-create-every-process-in-one-place.md)), and liveness and RSS
+both work off the tick's live set. The bar needs nothing but that one span, so
+it is drawn as soon as the events queued ahead of it have reached the
+accumulator. The `Processes` slice needs every other span in the run: the
+sweep is global, and a process discovered later can still open one inside a
+retired process's, because a poll returns collections that already happened. A
+slice drawn early could not be clipped against a sibling that did not exist
+yet, and two crossing slices on one track come back at widths neither was
+given with nothing reported. The minimap is a whole-run artifact; the row is
+not.
+
+What that buys is what a run killed mid-flight keeps. The Perfetto UI hides a
+row holding no events, so a bar that never reached the file takes its whole
+row with it, thread rows and all. A process already retired keeps its row; one
+still running does not, and neither does the minimap.
+
+The exception is the control plane, which files an instant by timestamp and
+can still name a retired process (ADR-0025). One arriving after the row was
+drawn lands on it outside the bar. Accepted: the alternative is holding every
+row back for a message that may never come.
 
 **No span is ever dropped.** A pid observed at a single instant, and a pid
 clipped down to nothing, both still get a BEGIN/END pair; the trace processor

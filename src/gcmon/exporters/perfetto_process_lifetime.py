@@ -25,7 +25,7 @@ from .perfetto_proto import (
 )
 from .perfetto_track_state import PerfettoTrackState, ProcessSpan
 
-__all__ = ["finalize_perfetto_packets", "process_track_name"]
+__all__ = ["emit_retired_process_row", "finalize_perfetto_packets", "process_track_name"]
 
 
 class ClippedSpan(NamedTuple):
@@ -196,10 +196,16 @@ def _emit_process_row_lifetime_slice(
 
     The caller describes *span*'s process first, so the track uuid this
     names is one a packet has described.
+
+    Returns nothing for a process whose bar has already gone out, which is
+    every process gcmon retired before the end of the run.
     """
     assert state.has_process_descriptor(span.process), (
         "a Lifetime bar needs a described row to draw on; describe the process first"
     )
+    if state.has_process_row_drawn(span.process):
+        return []
+    state.mark_process_row_drawn(span.process)
     track_uuid = state.get_process_track_uuid(span.process)
     debug_annotations = [
         *_cmdline_annotation(span.process, state),
@@ -225,6 +231,48 @@ def _emit_process_row_lifetime_slice(
             ),
         ),
     ]
+
+
+def emit_retired_process_row(
+    process: Process,
+    state: PerfettoTrackState,
+    sequence_id: int,
+) -> list[bytes]:
+    """Everything *process*'s own row needs, before the end of the run: the
+    root descriptor, its process descriptor and its ``Lifetime`` bar.
+
+    gcmon has let go of the pid, so *process*'s span is final: a record read
+    afterwards is filed under whatever holds the pid now (ADR-0025), and
+    liveness and RSS both work off the tick's live set. What a run killed
+    mid-flight loses shrinks to the processes still running. The Perfetto UI
+    hides a row holding no events, so a bar that never reached the file takes
+    its whole row with it, thread tracks and all.
+
+    The ``Processes`` slice does not come with it. That one is clipped against
+    its siblings and the sweep is global, so it waits for close; a process
+    discovered later can still open a span inside this one (ADR-0011).
+
+    Returns nothing for a process gcmon never observed, for one already drawn,
+    and for a trace whose closeout has gone out.
+    """
+    if state.has_process_lifetime_emitted() or state.has_process_row_drawn(process):
+        return []
+    span = state.get_process_lifetime(process)
+    if span is None:
+        return []
+    packets = [
+        *_emit_root_descriptor(state, sequence_id),
+        *_emit_process_descriptor(
+            process,
+            state,
+            sequence_id,
+            sibling_order_rank=state.get_process_track_ranks().get(process),
+            start_timestamp_ns=span.start_ts,
+        ),
+    ]
+    drawn = ClippedSpan(process, span.start_ts, span.end_ts, span.start_ts, span.end_ts)
+    packets.extend(_emit_process_row_lifetime_slice(drawn, state, sequence_id))
+    return packets
 
 
 def _record_process_lifetime(

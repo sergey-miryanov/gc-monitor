@@ -20,6 +20,7 @@ from .perfetto_format import (
     TraceField,
     TracePacketField,
     convert_trace_events_to_perfetto,
+    emit_retired_process_row,
     finalize_perfetto_packets,
 )
 from .protobuf_encoder import encode_bytes_field
@@ -81,6 +82,7 @@ class ProtobufEventEncoder:
         self._track_state = PerfettoTrackState()
         self._sequence_id: int = sequence_id if sequence_id is not None else id(self) & 0x7FFFFFFF
         self._has_written: bool = False
+        self._retired: list[Process] = []
         self._codec: Codec = codec if codec is not None else _CODEC
 
     def open(self, path: Path) -> None:
@@ -116,6 +118,26 @@ class ProtobufEventEncoder:
         for process in processes:
             self._track_state.update_process_lifetime(process, ts_ns)
 
+    def record_process_retired(self, process: Process) -> None:
+        """Note that gcmon has let go of *process*, so its own row can be
+        drawn without waiting for the end of the run.
+
+        Writes nothing here: the row goes out with the next batch, once the
+        events queued ahead of it have reached the span accumulator. See
+        ADR-0011 for what that buys a run killed mid-flight, and
+        :meth:`record_process_liveness` for why this is kept off the
+        ``EventEncoder`` protocol.
+        """
+        self._retired.append(process)
+
+    def _drain_retired(self) -> list[bytes]:
+        """The rows of every process retired since the last batch."""
+        packets: list[bytes] = []
+        for process in self._retired:
+            packets.extend(emit_retired_process_row(process, self._track_state, self._sequence_id))
+        self._retired.clear()
+        return packets
+
     def _write_batch(self, descriptors: Sequence[bytes], packets: Sequence[bytes]) -> None:
         """Append one batch to the trace as a single compressed packet."""
         assert self._path is not None, "open() must be called before writing"
@@ -136,9 +158,12 @@ class ProtobufEventEncoder:
             self._track_state,
             self._sequence_id,
         )
-        if not descriptors and not packets:
+        # After the convert pass, so a queued event has reached the span
+        # accumulator before the bar is drawn over it.
+        retired = self._drain_retired()
+        if not descriptors and not packets and not retired:
             return
-        self._write_batch(descriptors, packets)
+        self._write_batch(descriptors, [*packets, *retired])
 
     def close(self) -> None:
         """Emit the ``Processes`` track and finish the file.

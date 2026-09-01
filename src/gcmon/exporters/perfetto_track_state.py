@@ -33,6 +33,7 @@ class PerfettoTrackState:
         self._process_lifetime_start: dict[Process, int] = {}
         self._process_lifetime_end: dict[Process, int] = {}
         self._process_lifetime_emitted: bool = False
+        self._process_rows_drawn: set[Process] = set()
         self._root_descriptor_emitted: bool = False
         self._next_uuid: int = 1
 
@@ -131,6 +132,20 @@ class PerfettoTrackState:
             ProcessSpan(process, self._process_lifetime_start[process], end)
             for process, end in self._process_lifetime_end.items()
         ]
+
+    def has_process_row_drawn(self, process: Process) -> bool:
+        return process in self._process_rows_drawn
+
+    def mark_process_row_drawn(self, process: Process) -> None:
+        self._process_rows_drawn.add(process)
+
+    def get_process_lifetime(self, process: Process) -> ProcessSpan | None:
+        """*process*'s recorded span, or ``None`` where gcmon never observed
+        it."""
+        start_ts = self._process_lifetime_start.get(process)
+        if start_ts is None:
+            return None
+        return ProcessSpan(process, start_ts, self._process_lifetime_end[process])
 
     def has_process_lifetime_emitted(self) -> bool:
         return self._process_lifetime_emitted

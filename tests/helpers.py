@@ -176,6 +176,8 @@ class MockExporter(EventsExporter):
         self.loss_events: list[tuple[int, TLossMsg]] = []
         # One entry per tick that observed anything (ADR-0011).
         self.liveness: list[tuple[Set[int], int]] = []
+        # One entry per process gcmon let go of, in the order it did.
+        self.retired: list[Process] = []
         self._close_called = False
         self._event_added = threading.Event()
 
@@ -205,6 +207,11 @@ class MockExporter(EventsExporter):
     def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
         """Record one tick's liveness observation, as the pids it named."""
         self.liveness.append(({process.pid for process in processes}, ts_ns))
+
+    @override
+    def add_process_retired(self, process: Process) -> None:
+        """Record that the monitor let go of *process*."""
+        self.retired.append(process)
 
     @override
     def add_instant_event(self, process: Process, item: TInstantMsg) -> None:

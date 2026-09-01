@@ -18,6 +18,7 @@ from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_process_lifetime import (
     _clip_spans_to_laminar,
     _emit_process_lifetime_track_descriptor,
+    emit_retired_process_row,
     finalize_perfetto_packets,
 )
 from gcmon.exporters.perfetto_proto import ProcessOrdering, TrackEventType
@@ -43,8 +44,7 @@ _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
 
 
 def _process_descriptors(packets: list[bytes]) -> dict[str, TrackDescriptor]:
-    """``{track name: descriptor}`` for every process descriptor in *packets*,
-    in emission order."""
+    """``{track name: descriptor}`` for every process descriptor in *packets*."""
     out: dict[str, TrackDescriptor] = {}
     for raw in packets:
         descriptor = parse_track_descriptor(raw)
@@ -906,6 +906,88 @@ class TestAQuietProcessGetsARow:
 
         assert list(_process_descriptors(descriptors)) == ["Process 200"]
         assert list(_process_descriptors(closeout)) == ["Process 100"]
+
+
+class TestARetiredProcessRowGoesOutEarly:
+    """gcmon has let go of the pid, so the process's span is final and its row
+    can be drawn without waiting for the end of the run.
+
+    What a run killed mid-flight loses shrinks to the processes still running.
+    The shared ``Processes`` slice cannot follow: it is clipped against its
+    siblings and a process discovered later can still open a span inside this
+    one (ADR-0011).
+    """
+
+    RETIRED = proc(100)
+    LATE = proc(200)
+
+    def _retire(self) -> tuple[PerfettoTrackState, list[bytes]]:
+        state = PerfettoTrackState()
+        state.set_cmdline(self.RETIRED, ("python3", "-m", "child"))
+        for ts in (500, 5_000):
+            state.update_process_lifetime(self.RETIRED, ts)
+        return state, emit_retired_process_row(self.RETIRED, state, sequence_id=1)
+
+    def test_the_row_is_written_before_close(self) -> None:
+        """Everything the row needs: the descriptor the UI hangs the name and
+        the command line on, and the bar that keeps it rendered."""
+        state, packets = self._retire()
+
+        assert list(_process_descriptors(packets)) == ["Process 100"]
+        assert _row_slices(packets, state.get_process_track_uuid(self.RETIRED)) == [
+            (500, TrackEventType.SLICE_BEGIN, "Lifetime"),
+            (5_000, TrackEventType.SLICE_END, ""),
+        ]
+
+    def test_close_repeats_neither_the_descriptor_nor_the_bar(self) -> None:
+        state, _packets = self._retire()
+        row_uuid = state.get_process_track_uuid(self.RETIRED)
+
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        assert _process_descriptors(closeout) == {}
+        assert _row_slices(closeout, row_uuid) == []
+
+    def test_close_still_draws_its_processes_slice_clipped(self) -> None:
+        """Why the shared slice waits. ``LATE`` is discovered after ``RETIRED``
+        was drawn and opens a span inside it, so the sweep pulls ``RETIRED``
+        back. A slice written early could not have been clipped."""
+        state, _packets = self._retire()
+        for ts in (2_000, 9_000):
+            state.update_process_lifetime(self.LATE, ts)
+
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+        lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
+        begins = [
+            (ts, name, annotations)
+            for ts, event_type, name, annotations in lifetime_slices(closeout, lifetime_uuid)
+            if event_type == TrackEventType.SLICE_BEGIN
+        ]
+
+        assert [(ts, name) for ts, name, _ in begins] == [(500, "Process 100"), (2_000, "Process 200")]
+        assert begins[0][2]["real_end_ts"] == 5_000, "the observed pair is untouched by clipping"
+
+    def test_a_process_with_no_span_writes_nothing(self) -> None:
+        """gcmon never observed it, so there is nothing to draw."""
+        state = PerfettoTrackState()
+
+        assert emit_retired_process_row(proc(100), state, sequence_id=1) == []
+
+    def test_retiring_twice_writes_nothing_the_second_time(self) -> None:
+        state, packets = self._retire()
+
+        assert packets != []
+        assert emit_retired_process_row(self.RETIRED, state, sequence_id=1) == []
+
+    def test_retiring_after_close_writes_nothing(self) -> None:
+        """A retirement racing ``close()`` would write into a trace whose
+        closeout has gone out, where nothing downstream would report it."""
+        state = PerfettoTrackState()
+        for ts in (500, 5_000):
+            state.update_process_lifetime(self.RETIRED, ts)
+        finalize_perfetto_packets(state, sequence_id=1)
+
+        assert emit_retired_process_row(self.RETIRED, state, sequence_id=1) == []
 
 
 class TestCloseoutAtFinalize:

@@ -42,6 +42,15 @@ class EventsExporter(ABC):
         (ADR-0025).
         """
 
+    def add_process_retired(self, process: Process) -> None:  # noqa: B027
+        """Record that gcmon has let go of *process*. No-op in the base class.
+
+        The monitor sends this once, when it stops polling a pid: the process
+        left the tree, or the wait policy gave up on it. Only the Perfetto
+        path acts on it, drawing that process's own row without waiting for
+        the end of the run; see ADR-0011.
+        """
+
     def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:  # noqa: B027
         """Record that gcmon read GC state out of every process in
         *processes* at *ts_ns*. No-op in the base class.

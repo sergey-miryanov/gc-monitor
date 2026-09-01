@@ -250,6 +250,7 @@ class EventsMonitor:
             # earned them, and a retirement takes it out of the registry.
             self._stats.materialize(process)
             self._processes.retire(pid, ts)
+            self._exporter.add_process_retired(process)
 
     def _retain(self, pids: Set[int], ts: int) -> None:
         """Drop the state of every pid outside *pids*, all of it at once.
@@ -266,8 +267,12 @@ class EventsMonitor:
         self._reader.retain(pids)
         for pid in self._unreadable.keys() - pids:
             del self._unreadable[pid]
-        self._stats.retain({process for process in self._processes.live() if process.pid in pids})
+        live = self._processes.live()
+        self._stats.retain({process for process in live if process.pid in pids})
         self._processes.retain(pids, ts)
+        # Sorted so a tick dropping several reports them in one order.
+        for process in sorted(process for process in live if process.pid not in pids):
+            self._exporter.add_process_retired(process)
 
     def _ingest(self, process: Process, records: Sequence[TGCStatsInfo], ts_poll: int) -> None:
         """Emit the records in *records* not seen yet.

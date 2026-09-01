@@ -371,6 +371,43 @@ def _write_liveness_only_trace(tmp: Path) -> Path:
     return path
 
 
+# A run that never reaches ``close()``: one process retired part way through,
+# one still running, and then the trace stops where a SIGKILL would stop it.
+# ``flush_threshold=1`` so the batch after the retirement is written, which is
+# where the retired process's row goes.
+_KILL_GC_START: int = 600_000_000
+_KILL_GC_STOP: int = 610_000_000
+_KILL_TICK: int = 650_000_000
+_KILL_LAST_GC_START: int = 700_000_000
+_KILL_LAST_GC_STOP: int = 710_000_000
+
+
+def _write_killed_run_trace(tmp: Path) -> Path:
+    path = tmp / "killed.pb"
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1)
+    for pid in (DEFAULT_PID, _SECOND_PID):
+        exporter.add_process_cmdline(proc(pid), _FAKE_CMDLINE)
+        exporter.add_event(
+            proc(pid),
+            create_mock_stats_item(gen=_GEN, iid=_IID, ts_start=_KILL_GC_START, ts_stop=_KILL_GC_STOP),
+        )
+    exporter.add_process_liveness({proc(DEFAULT_PID), proc(_SECOND_PID)}, _KILL_TICK)
+    exporter.add_process_retired(proc(_SECOND_PID))
+    exporter.add_event(
+        proc(DEFAULT_PID),
+        create_mock_stats_item(gen=_GEN, iid=_IID, ts_start=_KILL_LAST_GC_START, ts_stop=_KILL_LAST_GC_STOP),
+    )
+    # No close(). Everything after this point is what the kill takes.
+    return path
+
+
+@pytest.fixture
+def killed_run_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_killed_run_trace(tmp_path)
+    with open_trace_processor(path) as tp:
+        yield tp
+
+
 @pytest.fixture
 def liveness_only_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_liveness_only_trace(tmp_path)
@@ -1533,6 +1570,84 @@ class TestMonitorReportedLiveness:
             f"Process {DEFAULT_PID}": 1,
             f"Process {_SECOND_PID}": 1,
         }
+
+
+class TestARunKilledMidFlight:
+    """The file a ``SIGKILL`` leaves: batches on disk and no closeout.
+
+    A process gcmon had already let go of keeps its row, because its bar went
+    out with the first batch after it retired rather than at close (ADR-0011).
+    A process still running loses its, which is the part this does not reach.
+    """
+
+    def test_the_retired_process_keeps_its_row(
+        self,
+        killed_run_trace_processor: TraceProcessor,
+    ) -> None:
+        rows = list(
+            killed_run_trace_processor.query(
+                f"SELECT s.name AS sname, s.ts AS ts, s.dur AS dur FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE p.name = 'Process {_SECOND_PID}'"
+            )
+        )
+        assert [(r.sname, r.ts, r.ts + r.dur) for r in rows] == [(_PROCESS_ROW_SLICE_NAME, _KILL_GC_START, _KILL_TICK)]
+
+    def test_the_retired_process_keeps_its_description(
+        self,
+        killed_run_trace_processor: TraceProcessor,
+    ) -> None:
+        """The bar keeps the row rendered, and the command line hangs off the
+        row."""
+        rows = list(
+            killed_run_trace_processor.query(
+                f"SELECT a.string_value AS description FROM args a "
+                f"JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                f"JOIN process p ON p.upid = pt.upid "
+                f"WHERE a.key = 'description' AND p.name = 'Process {_SECOND_PID}'"
+            )
+        )
+        assert [r.description for r in rows] == [_FAKE_CMDLINE_JOINED]
+
+    def test_the_still_running_process_draws_nothing_on_its_row(
+        self,
+        killed_run_trace_processor: TraceProcessor,
+    ) -> None:
+        """What the kill still costs. ``DEFAULT_PID`` was alive when the trace
+        stopped, so its bar never went out."""
+        rows = list(
+            killed_run_trace_processor.query(
+                f"SELECT s.name AS sname FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE p.name = 'Process {DEFAULT_PID}'"
+            )
+        )
+        assert rows == []
+
+    def test_no_processes_track(self, killed_run_trace_processor: TraceProcessor) -> None:
+        """The minimap is a whole-run artifact: every slice on it is clipped
+        against every other, so none of it can go out early."""
+        rows = list(
+            killed_run_trace_processor.query(f"SELECT name FROM track WHERE name = '{_PROCESS_LIFETIME_TRACK_NAME}'")
+        )
+        assert rows == []
+
+    def test_the_pauses_are_still_there(
+        self,
+        killed_run_trace_processor: TraceProcessor,
+    ) -> None:
+        """A row hidden for want of a bar is the loss worth minimising: the
+        thread tracks under it reached the file either way."""
+        rows = list(
+            killed_run_trace_processor.query(
+                "SELECT s.name AS sname FROM slice s "
+                "JOIN thread_track tt ON s.track_id = tt.id "
+                "WHERE s.name LIKE 'GC Pause%'"
+            )
+        )
+        assert len(rows) == 3
 
 
 class TestLivenessOnlyTrace:

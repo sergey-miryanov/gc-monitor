@@ -36,6 +36,7 @@ from .perfetto_process_lifetime import (
     _emit_process_descriptor,
     _emit_root_descriptor,
     _record_process_lifetime,
+    emit_retired_process_row,
     finalize_perfetto_packets,
 )
 from .perfetto_proto import (
@@ -73,6 +74,7 @@ __all__ = [
     "build_track_descriptor",
     "build_track_event",
     "convert_trace_events_to_perfetto",
+    "emit_retired_process_row",
     "finalize_perfetto_packets",
 ]
 

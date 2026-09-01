@@ -686,6 +686,60 @@ class _OrderedExporter(MockExporter):
         super().add_process_liveness(processes, ts_ns)
 
 
+class TestARetirementIsReported:
+    """The exporter is told the moment gcmon lets go of a process, so it can
+    draw that process's row without waiting for the end of the run. A run
+    killed mid-flight keeps every row already written (ADR-0011).
+
+    Both ways out of the registry report it: a pid that left the tree, and one
+    the wait policy gave up on.
+    """
+
+    def test_a_pid_that_leaves_the_tree_is_reported(self, exporter: MockExporter) -> None:
+        _drive(
+            _monitor(exporter),
+            listings=[[999], []],
+            rings={12345: [_ring(1), _ring(1)], 999: [_ring(1)]},
+        )
+
+        assert [process.pid for process in exporter.retired] == [999]
+
+    def test_a_pid_the_policy_gave_up_on_is_reported(self, exporter: MockExporter) -> None:
+        factory = Mock(side_effect=[_policy(True, True), _policy(True, False)])
+        _drive(
+            _monitor(exporter, wait_policy_factory=factory),
+            listings=[[999], [999]],
+            rings={12345: [_ring(1), _ring(1)], 999: [_ring(1), TargetUnavailable("gone")]},
+        )
+
+        assert [process.pid for process in exporter.retired] == [999]
+
+    def test_a_process_still_running_is_not_reported(self, exporter: MockExporter) -> None:
+        """The report is a retirement, not a tick. Reporting a live process
+        would draw its bar over an interval it has not finished."""
+        _drive(
+            _monitor(exporter),
+            listings=[[999], [999]],
+            rings={12345: [_ring(1), _ring(1)], 999: [_ring(1), _ring(1)]},
+        )
+
+        assert exporter.retired == []
+
+    def test_reported_once_per_process(self, exporter: MockExporter) -> None:
+        """The pid leaves and comes back as a second process. Two reports for
+        one epoch would draw a row's bar twice."""
+        _drive(
+            _monitor(exporter),
+            listings=[[999], [], [999], []],
+            rings={
+                12345: [_ring(1), _ring(1), _ring(1), _ring(1)],
+                999: [_ring(1), _ring(1, ts_base=3 * TICK_NS)],
+            },
+        )
+
+        assert [(process.pid, process.pid_epoch) for process in exporter.retired] == [(999, 1), (999, 2)]
+
+
 class TestTheExporterIsNotReachableThroughTheMonitor:
     def test_there_is_no_exporter_property(self, exporter: MockExporter) -> None:
         """It existed for one caller, the loop's liveness call, which is now
