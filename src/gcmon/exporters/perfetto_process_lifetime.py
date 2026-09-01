@@ -11,6 +11,7 @@ from typing import NamedTuple
 from ..model.process import Process
 from ..model.trace_event import Slice, TraceEvent
 from .perfetto_builders import (
+    _build_debug_annotation_bool,
     _build_debug_annotation_int,
     _build_debug_annotation_string,
     build_trace_packet,
@@ -155,6 +156,9 @@ def _emit_process_lifetime_slice(
         _build_debug_annotation_int("pid_epoch", span.process.pid_epoch),
         _build_debug_annotation_int("real_start_ts", span.real_start_ts),
         _build_debug_annotation_int("real_end_ts", span.real_end_ts),
+        # On the slice the sweep decides rather than on the bar, which a
+        # retired process writes before the sweep has decided anything.
+        _build_debug_annotation_bool("clipped", span.end_ts != span.real_end_ts),
     ]
     return [
         build_trace_packet(
@@ -210,6 +214,7 @@ def _emit_process_row_lifetime_slice(
     debug_annotations = [
         *_cmdline_annotation(span.process, state),
         _build_debug_annotation_int("pid_epoch", span.process.pid_epoch),
+        _build_debug_annotation_int("interpreters", state.get_interpreter_count(span.process)),
     ]
     return [
         build_trace_packet(

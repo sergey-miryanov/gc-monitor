@@ -15321,6 +15321,10 @@ track_event {
     int_value: 1
     name: "pid_epoch"
   }
+  debug_annotations {
+    int_value: 1
+    name: "interpreters"
+  }
   type: TYPE_SLICE_BEGIN
   track_uuid: 15
   name: "Lifetime"
@@ -15354,6 +15358,10 @@ track_event {
     int_value: 4802600000
     name: "real_end_ts"
   }
+  debug_annotations {
+    bool_value: false
+    name: "clipped"
+  }
   type: TYPE_SLICE_BEGIN
   track_uuid: 40
   name: "Process 33328"
@@ -15373,6 +15381,10 @@ track_event {
   debug_annotations {
     int_value: 1
     name: "pid_epoch"
+  }
+  debug_annotations {
+    int_value: 1
+    name: "interpreters"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 1
@@ -15400,6 +15412,10 @@ track_event {
   debug_annotations {
     int_value: 1802600000
     name: "real_end_ts"
+  }
+  debug_annotations {
+    bool_value: false
+    name: "clipped"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 40
@@ -15429,6 +15445,10 @@ track_event {
     int_value: 4802600000
     name: "real_end_ts"
   }
+  debug_annotations {
+    bool_value: false
+    name: "clipped"
+  }
   type: TYPE_SLICE_BEGIN
   track_uuid: 40
   name: "Process 33512#2"
@@ -15448,6 +15468,10 @@ track_event {
   debug_annotations {
     int_value: 2
     name: "pid_epoch"
+  }
+  debug_annotations {
+    int_value: 1
+    name: "interpreters"
   }
   type: TYPE_SLICE_BEGIN
   track_uuid: 29

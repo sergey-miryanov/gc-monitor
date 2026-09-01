@@ -64,6 +64,54 @@ class TestPerfettoTrackState:
         assert not state.has_counter_track(interpreter_track(100, 0), "G1 collected")
 
 
+class TestInterpreterCount:
+    """How many interpreters gcmon read a record from, per process.
+
+    An `InterpreterTrack` is built in one place, off a record's iid, so a
+    track marked here is an interpreter that produced something.
+    """
+
+    def test_a_process_with_no_tracks_counts_zero(self) -> None:
+        state = PerfettoTrackState()
+        assert state.get_interpreter_count(proc(100)) == 0
+
+    def test_each_interpreter_counts_once(self) -> None:
+        state = PerfettoTrackState()
+        state.mark_track(interpreter_track(100, 0))
+        state.mark_track(interpreter_track(100, 1))
+        assert state.get_interpreter_count(proc(100)) == 2
+
+    def test_marking_one_twice_counts_once(self) -> None:
+        state = PerfettoTrackState()
+        state.mark_track(interpreter_track(100, 0))
+        state.mark_track(interpreter_track(100, 0))
+        assert state.get_interpreter_count(proc(100)) == 1
+
+    def test_a_loss_row_does_not_widen_the_count(self) -> None:
+        """A loss row names an interpreter but is not one, and gcmon builds
+        its groups from records it already read."""
+        state = PerfettoTrackState()
+        state.mark_track(interpreter_track(100, 0))
+        state.mark_track(loss_track(100, 0))
+        assert state.get_interpreter_count(proc(100)) == 1
+
+    def test_another_process_is_counted_apart(self) -> None:
+        state = PerfettoTrackState()
+        state.mark_track(interpreter_track(100, 0))
+        state.mark_track(interpreter_track(200, 0))
+        state.mark_track(interpreter_track(200, 1))
+        assert state.get_interpreter_count(proc(100)) == 1
+        assert state.get_interpreter_count(proc(200)) == 2
+
+    def test_two_processes_on_one_pid_are_counted_apart(self) -> None:
+        state = PerfettoTrackState()
+        state.mark_track(interpreter_track(100, 0))
+        state.mark_track(interpreter_track(100, 0, pid_epoch=2))
+        state.mark_track(interpreter_track(100, 1, pid_epoch=2))
+        assert state.get_interpreter_count(proc(100)) == 1
+        assert state.get_interpreter_count(proc(100, 2)) == 2
+
+
 class TestProcessLifetimeState:
     """State accessors for the shared ``Processes`` track."""
 

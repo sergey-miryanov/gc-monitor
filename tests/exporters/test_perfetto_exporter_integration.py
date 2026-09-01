@@ -993,8 +993,10 @@ class TestProcessRowLifetimeSlice:
         assert {(r.name, r.flat_key) for r in rows} == {
             (f"Process {DEFAULT_PID}", f"{_ARG_PREFIX}.cmdline"),
             (f"Process {DEFAULT_PID}", f"{_ARG_PREFIX}.pid_epoch"),
+            (f"Process {DEFAULT_PID}", f"{_ARG_PREFIX}.interpreters"),
             (f"Process {_SECOND_PID}", f"{_ARG_PREFIX}.cmdline"),
             (f"Process {_SECOND_PID}", f"{_ARG_PREFIX}.pid_epoch"),
+            (f"Process {_SECOND_PID}", f"{_ARG_PREFIX}.interpreters"),
         }
         # Read each annotation out of the column its type puts it in, so a
         # `pid_epoch` written as a string reads back as a missing int.
@@ -1004,6 +1006,28 @@ class TestProcessRowLifetimeSlice:
         }
         assert {r.name: r.int_value for r in rows if r.flat_key.endswith("pid_epoch")} == {
             f"Process {DEFAULT_PID}": 1,
+            f"Process {_SECOND_PID}": 1,
+        }
+
+    def test_carries_the_interpreter_count(
+        self,
+        trace_processor: TraceProcessor,
+    ) -> None:
+        """How many interpreters the process ran, which the row's name cannot
+        say. ``DEFAULT_PID`` collected on three, ``_SECOND_PID`` on one."""
+        rows = list(
+            trace_processor.query(
+                f"SELECT p.name AS name, a.int_value AS int_value "
+                f"FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"AND a.flat_key = '{_ARG_PREFIX}.interpreters'"
+            )
+        )
+        assert {r.name: r.int_value for r in rows} == {
+            f"Process {DEFAULT_PID}": 3,
             f"Process {_SECOND_PID}": 1,
         }
 
@@ -1389,6 +1413,34 @@ class TestCrossingProcessSpans:
             (f"Process {_SECOND_PID}", "debug.real_start_ts"): _CROSS_B_START,
             (f"Process {_SECOND_PID}", "debug.real_end_ts"): _CROSS_B_STOP,
         }
+
+    def test_every_slice_says_whether_the_sweep_moved_it(
+        self,
+        crossing_trace_processor: TraceProcessor,
+    ) -> None:
+        """``clipped`` is the verdict the sweep reached, on the one row the
+        sweep decides. It goes out either way, so a consumer reads the value
+        rather than the presence of the annotation.
+
+        ``value_type`` pins it as a bool: written as an int it would read
+        back as ``1`` and ``0`` in both the UI and SQL.
+        """
+        rows = list(
+            crossing_trace_processor.query(
+                f"SELECT s.name AS name, a.value_type AS value_type, a.int_value AS int_value "
+                f"FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                f"AND a.flat_key = '{_ARG_PREFIX}.clipped'"
+            )
+        )
+        assert {r.name: r.int_value for r in rows} == {
+            # Pulled back 200ms short of its last event.
+            f"Process {DEFAULT_PID}": 1,
+            f"Process {_SECOND_PID}": 0,
+        }
+        assert {r.value_type for r in rows} == {"bool"}
 
 
 class TestZeroDurationProcessSpans:

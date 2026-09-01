@@ -9,7 +9,7 @@ It also holds the ``Processes``-track span accumulator (ADR-0011).
 from typing import NamedTuple
 
 from ..model.process import Process
-from ..model.trace_event import Track
+from ..model.trace_event import InterpreterTrack, Track
 
 
 class ProcessSpan(NamedTuple):
@@ -63,6 +63,15 @@ class PerfettoTrackState:
         if track not in self._track_uuids:
             self._track_uuids[track] = self._alloc_uuid()
         return self._track_uuids[track]
+
+    def get_interpreter_count(self, process: Process) -> int:
+        """How many of *process*'s interpreters gcmon read a record from.
+
+        `convert_item_to_trace_format` is the only place an
+        `InterpreterTrack` is built and it takes the iid off a record, so an
+        interpreter that produced nothing reaches no part of the exporter.
+        """
+        return sum(1 for track in self._tracks if isinstance(track, InterpreterTrack) and track.process == process)
 
     def has_counter_track(self, track: Track, display_name: str) -> bool:
         return (track, display_name) in self._counter_tracks

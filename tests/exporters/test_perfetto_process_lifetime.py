@@ -379,7 +379,7 @@ class TestProcessLifetimeLaminarClipping:
                 500,
                 TrackEventType.SLICE_BEGIN,
                 "Process 100",
-                {"pid_epoch": 1, "real_start_ts": 500, "real_end_ts": 5_000},
+                {"pid_epoch": 1, "real_start_ts": 500, "real_end_ts": 5_000, "clipped": False},
             ),
             (5_000, TrackEventType.SLICE_END, "Process 100", {}),
         ]
@@ -532,7 +532,13 @@ class TestProcessLifetimeSlices:
         assert first_packet.timestamp == 1_000
         assert first_packet.track_event.name == "Process 100"
         annotations = first_packet.track_event.debug_annotations
-        assert [a.name for a in annotations] == ["cmdline", "pid_epoch", "real_start_ts", "real_end_ts"]
+        assert [a.name for a in annotations] == [
+            "cmdline",
+            "pid_epoch",
+            "real_start_ts",
+            "real_end_ts",
+            "clipped",
+        ]
         by_name = {a.name: a for a in annotations}
         assert by_name["cmdline"].string_value == "python3 -m fake_target"
         assert by_name["real_start_ts"].int_value == 1_000
@@ -569,7 +575,7 @@ class TestProcessLifetimeSlices:
                 begin_packets.append(packet)
         assert len(begin_packets) == 1
         annotations = begin_packets[0].track_event.debug_annotations
-        assert [a.name for a in annotations] == ["pid_epoch", "real_start_ts", "real_end_ts"]
+        assert [a.name for a in annotations] == ["pid_epoch", "real_start_ts", "real_end_ts", "clipped"]
 
     def test_process_lifetime_slice_end_at_last_event_ts(self) -> None:
         """The ``Process <pid>`` slice END is emitted at the ts of the
@@ -665,6 +671,7 @@ class TestProcessLifetimeSlices:
                     "pid_epoch": 1,
                     "real_start_ts": 500,
                     "real_end_ts": 1_500,
+                    "clipped": True,
                 },
             ),
             (999, TrackEventType.SLICE_END, "Process 100", {}),
@@ -677,6 +684,7 @@ class TestProcessLifetimeSlices:
                     "pid_epoch": 1,
                     "real_start_ts": 1_000,
                     "real_end_ts": 5_000,
+                    "clipped": False,
                 },
             ),
             (5_000, TrackEventType.SLICE_END, "Process 200", {}),
@@ -730,6 +738,7 @@ class TestProcessLifetimeSlices:
                     "pid_epoch": 1,
                     "real_start_ts": 1_000,
                     "real_end_ts": 2_000,
+                    "clipped": False,
                 },
             ),
             (2_000, TrackEventType.SLICE_END, "Process 100", {}),
@@ -742,6 +751,7 @@ class TestProcessLifetimeSlices:
                     "pid_epoch": 2,
                     "real_start_ts": 3_000,
                     "real_end_ts": 4_000,
+                    "clipped": False,
                 },
             ),
             (4_000, TrackEventType.SLICE_END, "Process 100#2", {}),
@@ -800,6 +810,7 @@ class TestProcessLifetimeSlices:
                     "pid_epoch": 1,
                     "real_start_ts": 1_000,
                     "real_end_ts": 4_000,
+                    "clipped": False,
                 },
             ),
             (4_000, TrackEventType.SLICE_END, "Process 100", {}),
@@ -988,6 +999,134 @@ class TestARetiredProcessRowGoesOutEarly:
         finalize_perfetto_packets(state, sequence_id=1)
 
         assert emit_retired_process_row(self.RETIRED, state, sequence_id=1) == []
+
+
+class TestWhatCloseAlreadyKnows:
+    """Two annotations the exporter computes from what it is holding:
+    ``interpreters`` on the ``Lifetime`` bar, ``clipped`` on the
+    ``Processes`` slice.
+
+    They sit on different rows because they settle at different moments.
+    The interpreter count is final when the process retires, and the bar
+    can go out then (ADR-0011); ``clipped`` is the close-time sweep's
+    verdict, so only the slice that waits for close can carry it.
+    """
+
+    BUSY = proc(100)
+    LATE = proc(200)
+
+    def _item(self, iid: int, ts_start: int, ts_stop: int) -> GCStatsInfo:
+        return GCStatsInfo(
+            gen=0,
+            iid=iid,
+            ts_start=ts_start,
+            ts_stop=ts_stop,
+            heap_size=1024,
+            collections=1,
+            collected=1,
+            uncollectable=0,
+            candidates=1,
+            duration=0.001,
+        )
+
+    def _begin(self, packets: list[bytes], track_uuid: int) -> dict[str, str | int]:
+        """The annotations on the one BEGIN drawn on *track_uuid*."""
+        begins = [
+            annotations
+            for _ts, event_type, _name, annotations in lifetime_slices(packets, track_uuid)
+            if event_type == TrackEventType.SLICE_BEGIN
+        ]
+        assert len(begins) == 1, f"expected one BEGIN on track {track_uuid}, got {len(begins)}"
+        return begins[0]
+
+    def _read_from(self, *iids: int) -> tuple[PerfettoTrackState, list[bytes]]:
+        """One record per iid, converted and then finalized."""
+        state = PerfettoTrackState()
+        items = [(self.BUSY, self._item(iid, 1_000 * (iid + 1), 2_000 * (iid + 1))) for iid in iids]
+        _descriptors, _convert, closeout = convert_items(items, state, sequence_id=1)
+        return state, closeout
+
+    def _crossing(self) -> tuple[PerfettoTrackState, list[bytes]]:
+        """``BUSY``'s span is pulled back by ``LATE`` opening inside it."""
+        state = PerfettoTrackState()
+        for ts in (500, 5_000):
+            state.update_process_lifetime(self.BUSY, ts)
+        for ts in (2_000, 9_000):
+            state.update_process_lifetime(self.LATE, ts)
+        return state, finalize_perfetto_packets(state, sequence_id=1)
+
+    def test_the_bar_counts_every_interpreter_that_collected(self) -> None:
+        """What the row's name cannot say: one process, two interpreters."""
+        state, closeout = self._read_from(0, 1)
+
+        assert self._begin(closeout, state.get_process_track_uuid(self.BUSY))["interpreters"] == 2
+
+    def test_two_records_from_one_interpreter_still_count_one(self) -> None:
+        state = PerfettoTrackState()
+        items = [(self.BUSY, self._item(0, 1_000, 2_000)), (self.BUSY, self._item(0, 3_000, 4_000))]
+        _descriptors, _convert, closeout = convert_items(items, state, sequence_id=1)
+
+        assert self._begin(closeout, state.get_process_track_uuid(self.BUSY))["interpreters"] == 1
+
+    def test_a_process_gcmon_read_nothing_from_counts_none(self) -> None:
+        """Zero is a reading, not a gap: gcmon polled this process and it
+        collected nothing."""
+        state = PerfettoTrackState()
+        for ts in (500, 5_000):
+            state.update_process_lifetime(self.BUSY, ts)
+        closeout = finalize_perfetto_packets(state, sequence_id=1)
+
+        assert self._begin(closeout, state.get_process_track_uuid(self.BUSY))["interpreters"] == 0
+
+    def test_each_process_counts_its_own_interpreters(self) -> None:
+        state = PerfettoTrackState()
+        items = [
+            (self.BUSY, self._item(0, 1_000, 2_000)),
+            (self.LATE, self._item(0, 3_000, 4_000)),
+            (self.LATE, self._item(1, 5_000, 6_000)),
+        ]
+        _descriptors, _convert, closeout = convert_items(items, state, sequence_id=1)
+
+        assert self._begin(closeout, state.get_process_track_uuid(self.BUSY))["interpreters"] == 1
+        assert self._begin(closeout, state.get_process_track_uuid(self.LATE))["interpreters"] == 2
+
+    def test_the_shortened_slice_says_the_sweep_moved_it(self) -> None:
+        """Without this an operator reads the two rows' durations and
+        subtracts to find out which one the sweep touched."""
+        state, closeout = self._crossing()
+        lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
+
+        by_name = {
+            name: annotations
+            for _ts, event_type, name, annotations in lifetime_slices(closeout, lifetime_uuid)
+            if event_type == TrackEventType.SLICE_BEGIN
+        }
+        assert by_name["Process 100"]["clipped"] is True
+        assert by_name["Process 200"]["clipped"] is False
+
+    def test_clipped_goes_out_on_both_kinds_of_slice(self) -> None:
+        """Written whichever way it reads, so a consumer asks for the value
+        rather than checking whether the annotation is there."""
+        state, closeout = self._crossing()
+        lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
+
+        for _ts, event_type, name, annotations in lifetime_slices(closeout, lifetime_uuid):
+            if event_type == TrackEventType.SLICE_BEGIN:
+                assert isinstance(annotations["clipped"], bool), name
+
+    def test_the_bar_does_not_carry_clipped(self) -> None:
+        """A retired process's bar is written before the sweep decides
+        anything, so no bar can carry a verdict."""
+        state, closeout = self._crossing()
+
+        assert "clipped" not in self._begin(closeout, state.get_process_track_uuid(self.BUSY))
+
+    def test_the_shared_slice_does_not_carry_interpreters(self) -> None:
+        """One count per process, on the row that is the process."""
+        state, closeout = self._read_from(0, 1)
+        lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
+
+        assert "interpreters" not in self._begin(closeout, lifetime_uuid)
 
 
 class TestCloseoutAtFinalize:

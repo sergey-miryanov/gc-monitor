@@ -103,7 +103,9 @@ def lifetime_slices(
             continue
         annotations: dict[str, str | int] = {}
         for ann in track_event.debug_annotations:
-            annotations[ann.name] = ann.string_value if ann.HasField("string_value") else ann.int_value
+            # A bool arrives as a bool, so a test can tell `clipped` false
+            # from an int 0.
+            annotations[ann.name] = getattr(ann, ann.WhichOneof("value") or "int_value")
         out.append((packet.timestamp, track_event.type, track_event.name or "", annotations))
     return out
 

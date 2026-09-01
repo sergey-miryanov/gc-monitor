@@ -139,14 +139,13 @@ process with a recorded span, including one known only from
 already ranks from `_process_lifetime_start`, which liveness observations fold
 into. The rank and the `start_timestamp_ns` are in hand.
 
-**The `Lifetime` BEGIN carries eight annotations.**
+**The `Lifetime` BEGIN carries seven annotations.**
 
 | Annotation | Type | Source |
 |---|---|---|
 | `cmdline` | string | `state.get_cmdline`, space-joined |
 | `pid_epoch` | int | `Process.pid_epoch` |
 | `interpreters` | int | count of `InterpreterTrack` in `state._tracks` |
-| `clipped` | bool | `span.end_ts != span.real_end_ts` |
 | `sampled_count` | int | new accumulator, `add_event` |
 | `lost_count` | int | new accumulator, `add_loss_event` |
 | `lost_pause_ns` + `lost_pause` | int + string | same accumulator |
@@ -157,9 +156,12 @@ into. The rank and the `start_timestamp_ns` are in hand.
 The slice carries no `real_start_ts` or `real_end_ts`. Its own `ts` and `dur`
 are those two numbers.
 
-The `Processes` slice keeps all four annotations it has. It is the row an
-operator scans to compare processes, and the `real_*` pair is what corrects
-its own clipped drawing.
+The `Processes` slice keeps all four annotations it has and gains `clipped`, a
+bool from `span.end_ts != span.real_end_ts`. It is the row an operator scans
+to compare processes, the `real_*` pair is what corrects its own clipped
+drawing, and it is the only row whose drawing the sweep moves. The bar cannot
+carry the verdict: a retired process's row goes out at the flush after its
+retirement, before the sweep has run.
 
 **Two new per-process accumulators on `PerfettoTrackState`.**
 `record_sampled(process)` counts one record per `add_event`, and

@@ -195,6 +195,12 @@ observed pair draws it. That carries the rule above one step further:
 `Lifetime` needs no `real_*` annotations, because its own `ts` and `dur` are
 those two numbers.
 
+The shared slice says `clipped` so a reader is told which processes diverge
+rather than finding out by subtracting one row's duration from the other's. It
+goes on every slice, true or false. The bar cannot carry it: a retired
+process's row is drawn at the next flush and the sweep has decided nothing
+yet.
+
 **A retired process's row goes out at the next flush; the shared slice waits
 for close.** Once gcmon lets go of a pid the process's span is final: a record
 read afterwards is filed under whatever holds the pid now
