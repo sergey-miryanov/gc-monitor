@@ -35,6 +35,8 @@
 - A `Processes` slice names the program its own process was running. A reused PID used to put the first process's command line on every slice of that PID, and a process that exited before the first flush got none at all
 - A `Processes` slice covers only the process it names, where a reused PID used to draw one slice spanning both and the stretch between them
 - A process track names the program its own process was running and opens when that process started. A reused PID used to draw one track for both processes, showing the first one's command line and stamped before the second existed
+- A child that leaves the process tree and comes back draws each of its collections once. gcmon re-reads the ring it returns holding, and the records it had already drawn used to be drawn a second time
+- A process's row ends where gcmon last read it. A record read after gcmon let go of a pid used to stretch that process's span past the last poll that saw it
 
 ### Internal
 

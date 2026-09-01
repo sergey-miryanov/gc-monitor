@@ -52,16 +52,22 @@ the child listing and the `psutil` calls take the number the operating system
 gave; `Track`, the statistics keys and the trace take the process. The
 registry is the one place the two meet.
 
-**Evidence is filed under `at(pid, ts)`, not under whatever holds the pid
-now.** Evidence outlives the process it describes. A control-plane instant
-carries the time it arrived when its sender named none, which can be after the
-pid retired; a poll returns collections that already happened; a pid pruned
-from the tree loses its read cursor
-([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)), and whatever claims it
-next re-reads records its predecessor produced. A timestamp inside a closed
-life belongs to the process that lived it. Past the last retirement, `at`
-answers with the process running now, or with the last to leave. Before the
-first discovery, it answers with that first process.
+**A control-plane instant is filed under `at(pid, ts)`; a record is filed
+under the process it was read from.** A control message carries the time it
+arrived when its sender named none, which can be after the pid retired, and
+gcmon has nothing else to place it by: a timestamp inside a closed life
+belongs to the process that lived it. Past the last retirement, `at` answers
+with the process running now, or with the last to leave. Before the first
+discovery, it answers with that first process.
+
+A record is different, because gcmon has it only because a read returned it
+and that read named a process. A pid pruned from the tree loses its read
+cursor ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)), so whatever
+claims it next re-reads records dated inside its predecessor's life. They go
+to the successor. Dating them into a closed life would widen a span gcmon had
+stopped observing a tick earlier, and it would leave every retired process
+open to evidence arriving for it later
+([ADR-0011](0011-process-lifetime-and-ordering.md)).
 
 **The control plane holds a read-only view, not the registry.** A
 `ProcessLookup` protocol carrying `at` and nothing else lives in `model`,

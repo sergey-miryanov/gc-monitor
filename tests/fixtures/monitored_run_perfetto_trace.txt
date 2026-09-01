@@ -8482,234 +8482,6 @@ track_event {
   counter_value: 0
 }
 --- packet ---
-timestamp: 150174400
-trusted_packet_sequence_id: 1
-track_event {
-  debug_annotations {
-    int_value: 2
-    name: "generation"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "iid"
-  }
-  debug_annotations {
-    int_value: 1
-    name: "collections"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "heap_size"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "collected"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "uncollectable"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "candidates"
-  }
-  type: TYPE_SLICE_BEGIN
-  track_uuid: 16
-  categories: "gc.pause(gen=2)"
-  name: "GC Pause(2)"
-}
---- packet ---
-timestamp: 150454900
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_SLICE_END
-  track_uuid: 16
-}
---- packet ---
-timestamp: 150174400
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 18
-  counter_value: 0
-}
---- packet ---
-timestamp: 150174400
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 19
-  counter_value: 0
-}
---- packet ---
-timestamp: 150174400
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 20
-  double_counter_value: 0.0002805
-}
---- packet ---
-timestamp: 150174400
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 21
-  counter_value: 0
-}
---- packet ---
-timestamp: 1587385900
-trusted_packet_sequence_id: 1
-track_event {
-  debug_annotations {
-    int_value: 1
-    name: "generation"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "iid"
-  }
-  debug_annotations {
-    int_value: 3
-    name: "collections"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "heap_size"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "collected"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "uncollectable"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "candidates"
-  }
-  type: TYPE_SLICE_BEGIN
-  track_uuid: 16
-  categories: "gc.pause(gen=1)"
-  name: "GC Pause(1)"
-}
---- packet ---
-timestamp: 1593252300
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_SLICE_END
-  track_uuid: 16
-}
---- packet ---
-timestamp: 1587385900
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 25
-  counter_value: 0
-}
---- packet ---
-timestamp: 1587385900
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 26
-  counter_value: 0
-}
---- packet ---
-timestamp: 1587385900
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 27
-  double_counter_value: 0.0179904
-}
---- packet ---
-timestamp: 1587385900
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 21
-  counter_value: 0
-}
---- packet ---
-timestamp: 2103195000
-trusted_packet_sequence_id: 1
-track_event {
-  debug_annotations {
-    int_value: 1
-    name: "generation"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "iid"
-  }
-  debug_annotations {
-    int_value: 4
-    name: "collections"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "heap_size"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "collected"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "uncollectable"
-  }
-  debug_annotations {
-    int_value: 0
-    name: "candidates"
-  }
-  type: TYPE_SLICE_BEGIN
-  track_uuid: 16
-  categories: "gc.pause(gen=1)"
-  name: "GC Pause(1)"
-}
---- packet ---
-timestamp: 2110778400
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_SLICE_END
-  track_uuid: 16
-}
---- packet ---
-timestamp: 2103195000
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 25
-  counter_value: 0
-}
---- packet ---
-timestamp: 2103195000
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 26
-  counter_value: 0
-}
---- packet ---
-timestamp: 2103195000
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 27
-  double_counter_value: 0.0255738
-}
---- packet ---
-timestamp: 2103195000
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_COUNTER
-  track_uuid: 21
-  counter_value: 0
-}
---- packet ---
 timestamp: 2497509800
 trusted_packet_sequence_id: 1
 track_event {
@@ -15607,7 +15379,7 @@ track_event {
     name: "real_start_ts"
   }
   debug_annotations {
-    int_value: 2110778400
+    int_value: 1802600000
     name: "real_end_ts"
   }
   type: TYPE_SLICE_BEGIN
@@ -15615,7 +15387,7 @@ track_event {
   name: "Process 33512"
 }
 --- packet ---
-timestamp: 2110778400
+timestamp: 1802600000
 trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_SLICE_END
@@ -15635,7 +15407,7 @@ track_event {
   name: "Lifetime"
 }
 --- packet ---
-timestamp: 2110778400
+timestamp: 1802600000
 trusted_packet_sequence_id: 1
 track_event {
   type: TYPE_SLICE_END

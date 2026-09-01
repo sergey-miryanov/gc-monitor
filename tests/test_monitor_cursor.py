@@ -292,9 +292,8 @@ class TestSettlingAnExitedPid:
         """`forget` drops the cursor so the successor's records read as new,
         and its numbers land beside its predecessor's rather than on them.
 
-        The successor collects after the departure, which is the only way it
-        can: a record older than the retirement belongs to the process that
-        has gone."""
+        The successor collects after the departure here, so nothing is
+        re-read and the two blocks are built from disjoint records."""
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
         monitor._forget(PID, 5_000)
 
@@ -305,13 +304,15 @@ class TestSettlingAnExitedPid:
         assert stats.pause_totals(proc(PID, 2), 0, 0).sampled_pause_ns == 9_000
         assert stats.untracked_rings() == 0
 
-    def test_a_re_read_record_goes_to_the_process_that_produced_it(
-        self, monitor: EventsMonitor, exporter: MockExporter
-    ) -> None:
+    def test_a_re_read_record_is_dropped(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
         """A pid pruned from the tree loses its cursor, so its successor
-        re-reads the ring and hands gcmon records the predecessor produced.
-        Each is attributed by its own timestamp: the successor did not exist
-        when they happened (ADR-0011)."""
+        re-reads the ring and hands gcmon records dated inside its
+        predecessor's life. They went out under the predecessor already.
+
+        Giving them to the successor would back-date its span to before it
+        existed; giving them back to the predecessor would widen a span gcmon
+        had stopped observing and leave no retirement final (ADR-0025). The
+        successor's own record, dated after the departure, still lands."""
         seen: list[Process] = []
         original = exporter.add_event
 
@@ -332,8 +333,8 @@ class TestSettlingAnExitedPid:
             ],
         )
 
-        assert seen == [proc(PID), proc(PID), proc(PID, 2)], (
-            "the re-read record belongs to the predecessor, the new one to the successor"
+        assert seen == [proc(PID), proc(PID, 2)], (
+            "the record dated inside the predecessor's life is a duplicate of one already exported"
         )
 
     def test_a_pid_polled_after_retain_starts_a_second_block(

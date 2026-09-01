@@ -450,10 +450,12 @@ class TestTheChildLeavingIsVisible:
     """What the departure costs, in the trace rather than in a state dict.
 
     An empty `_pids` after a prune proves the prune ran, not that it was right.
-    Here is the observable consequence: a pid that leaves the tree loses its
-    `collections` cursor, so the ring it returns holding is unseen and every
-    record in it exports a second time. Duplicate slices are the price. If they
-    vanish, the prune stopped happening (ADR-0017).
+    Here is the observable consequence: the child's collections come back on
+    two rows rather than one, because the pid that left the tree is a
+    different process from the one that returned (ADR-0017). Every collection
+    is still drawn exactly once: the returning pid loses its cursor and
+    re-reads slots gcmon had already exported, and those are dropped rather
+    than drawn again under a process that did not produce them (ADR-0025).
     """
 
     def _pauses(self, run: MonitoredRun, pid: int) -> list[tuple[int, int]]:
@@ -474,10 +476,26 @@ class TestTheChildLeavingIsVisible:
             drawn.append((annotations["generation"], annotations["collections"]))
         return drawn
 
-    def test_the_returning_child_re_exports_the_ring_it_left_with(self, run: MonitoredRun) -> None:
+    def test_the_child_draws_on_both_of_its_rows(self, run: MonitoredRun) -> None:
+        """The departure, read off the trace. One row would mean no prune."""
+        by_track = run.pid_by_track()
+        rows = {
+            uuid
+            for packet in run.packets()
+            if packet.HasField("track_event")
+            and packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+            and packet.track_event.name.startswith("GC Pause(")
+            and by_track.get(uuid := packet.track_event.track_uuid) == CHILD_PID
+        }
+
+        assert len(rows) == 2, "the child's collections should split across the two processes that held its pid"
+
+    def test_the_returning_child_draws_no_collection_twice(self, run: MonitoredRun) -> None:
+        """The re-read is real -- the cursor went with the departure -- and
+        every slot it hands back a second time is dropped."""
         drawn = self._pauses(run, CHILD_PID)
 
-        assert len(drawn) > len(set(drawn)), "the child came back with its cursor intact"
+        assert len(drawn) == len(set(drawn)), "a re-read slot was drawn a second time"
 
     def test_the_target_never_draws_a_collection_twice(self, run: MonitoredRun) -> None:
         """The control. The target is in the tree throughout, so nothing

@@ -130,20 +130,25 @@ class TestEventsMonitorExtra:
 # happened.
 
 
-def _ring(*collections: int, gen: int = 0, iid: int = 0) -> list[GCStatsInfo]:
+def _ring(*collections: int, gen: int = 0, iid: int = 0, ts_base: int = 0) -> list[GCStatsInfo]:
     """A whole ring buffer holding one finished record per counter given.
 
     A poll returns the ring, not the new records in it, so this is what
     a read answers -- deciding which of them is unseen is the
     monitor's job and the thing under test.
+
+    *ts_base* dates the records from an instant other than zero. A successor
+    on a recycled pid needs it: its collections happen after the departure
+    gcmon noticed, and a record dated inside its predecessor's life is one
+    the predecessor already exported, which the monitor drops (ADR-0025).
     """
     return [
         create_mock_stats_item(
             gen=gen,
             iid=iid,
             collections=c,
-            ts_start=c * 1_000,
-            ts_stop=c * 1_000 + 100,
+            ts_start=ts_base + c * 1_000,
+            ts_stop=ts_base + c * 1_000 + 100,
             duration=c * 0.001,
         )
         for c in collections
@@ -370,8 +375,9 @@ class TestARecycledPidStartsFromNothing:
             rings={
                 12345: [_ring(1), _ring(1), _ring(1)],
                 # The pid comes back holding a counter from a process that has
-                # nothing to do with the one that left.
-                999: [_ring(1, 2), _ring(300, 301)],
+                # nothing to do with the one that left, collecting after it
+                # arrived.
+                999: [_ring(1, 2), _ring(300, 301, ts_base=3 * TICK_NS)],
             },
         )
 
@@ -402,19 +408,29 @@ class TestOnePruneOverOneSet:
     set. These say both go, and go together.
     """
 
-    def test_a_pid_that_leaves_the_tree_loses_its_ring_state(self, exporter: MockExporter) -> None:
-        """Visible as a re-export: a monitor that kept the cursor would have
-        nothing to say about slots it had already read."""
-        _drive(
-            _monitor(exporter),
-            listings=[[999], [], [999]],
-            rings={
-                12345: [_ring(1), _ring(1), _ring(1)],
-                999: [_ring(1, 2), _ring(1, 2)],
-            },
-        )
+    def test_a_pid_that_leaves_the_tree_loses_its_ring_state(
+        self, exporter: MockExporter, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Visible as a re-read: the returning pid hands back slots the
+        monitor had already read, which a kept cursor would have swallowed
+        silently. They reach no exporter, because the process that produced
+        them has gone and the one that read them did not (ADR-0025), so the
+        log is where the prune shows.
+        """
+        with caplog.at_level(logging.DEBUG, logger="gcmon"):
+            _drive(
+                _monitor(exporter),
+                listings=[[999], [], [999]],
+                rings={
+                    12345: [_ring(1), _ring(1), _ring(1)],
+                    999: [_ring(1, 2), _ring(1, 2)],
+                },
+            )
 
-        assert [event.collections for event in exporter.events_by_pid[999]] == [1, 2, 1, 2]
+        assert [event.collections for event in exporter.events_by_pid[999]] == [1, 2]
+        assert [record.message for record in caplog.records if "dropped" in record.message] == [
+            "PID 999: dropped 2 record(s) re-read for 999#2, already exported under 999"
+        ]
 
     def test_a_pid_that_leaves_the_tree_loses_its_policy_too(self, exporter: MockExporter) -> None:
         """Same tick, same set. A policy outliving the cursor would judge a
@@ -723,7 +739,7 @@ class TestAPidThePolicyGaveUpOn:
                 12345: [_ring(1), _ring(1), _ring(1)],
                 # Reaches 300, dies, and the number comes back on a process
                 # counting from 1 again.
-                999: [_ring(299, 300), TargetUnavailable("gone"), _ring(1, 2)],
+                999: [_ring(299, 300), TargetUnavailable("gone"), _ring(1, 2, ts_base=3 * TICK_NS)],
             },
         )
 
