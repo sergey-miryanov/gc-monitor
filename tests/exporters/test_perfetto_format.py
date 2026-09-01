@@ -30,6 +30,11 @@ from tests.helpers import create_mock_loss_item, interpreter_track, proc, proces
 # ``_START_PROCESS_INSTANT_NAME`` in ``gcmon.exporters.perfetto_format``.
 _START_PROCESS_MARKER_NAME: str = "Start Process"
 
+# Name of the slice drawn on each process's own row over the interval gcmon
+# observed it. Must match ``_PROCESS_ROW_SLICE_NAME`` in
+# ``gcmon.exporters.perfetto_process_lifetime``.
+_PROCESS_ROW_SLICE_NAME: str = "Lifetime"
+
 
 class TestConvertItemToPerfettoPackets:
     def test_cmdline_emitted_once_per_process(self) -> None:
@@ -772,11 +777,11 @@ class TestConvertInstantToPerfettoPacket:
         # Two packets from the convert call: the synthetic "Start
         # Process" marker (process track) and the user-provided instant
         # event (process track). This pid's whole observed span is a
-        # single ts, so its "Processes" slice is zero-length -- and it is
-        # still drawn, so finalize adds the track descriptor plus a
-        # BEGIN/END pair, both at ts 5_000.
+        # single ts, so both its slices are zero-length -- and both are
+        # still drawn, so finalize adds the track descriptor plus the
+        # "Processes" pair and the "Lifetime" pair, all at ts 5_000.
         packets.extend(finalize_perfetto_packets(state, sequence_id=1))
-        assert len(packets) == 5
+        assert len(packets) == 7
         names: list[str | None] = []
         for p in packets:
             packet = TracePacket()
@@ -788,6 +793,8 @@ class TestConvertInstantToPerfettoPacket:
             "start GC monitor",
             "Process 100",
             "Process 100",
+            _PROCESS_ROW_SLICE_NAME,
+            None,
         ]
         instant_packet = None
         for p in packets:
@@ -815,15 +822,16 @@ class TestConvertInstantToPerfettoPacket:
         )
         # First call: 2 descriptors (root + process) + 2 packets from the
         # convert (marker + instant). Second call: 0 descriptors (all are
-        # idempotent) + 1 packet (the new instant event). The whole
-        # "Processes" pair -- descriptor, BEGIN, END -- comes from the
-        # single finalize, spanning both calls' timestamps.
+        # idempotent) + 1 packet (the new instant event). Both pairs --
+        # the "Processes" one behind its descriptor and the "Lifetime"
+        # one on the pid's own row -- come from the single finalize,
+        # spanning both calls' timestamps.
         assert len(desc1) == 2
         assert len(packets1) == 2
         assert len(desc2) == 0
         assert len(packets2) == 1
         closeout = finalize_perfetto_packets(state, sequence_id=1)
-        assert len(closeout) == 3
+        assert len(closeout) == 5
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
         assert lifetime_slices(closeout, lifetime_uuid) == [
             (

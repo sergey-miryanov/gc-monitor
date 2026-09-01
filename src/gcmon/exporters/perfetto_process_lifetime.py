@@ -1,6 +1,8 @@
-"""The shared ``Processes`` track: spans, laminar clipping, emission.
+"""Process spans: the shared ``Processes`` track and the ``Lifetime`` bar
+on each process's own row.
 
-One BEGIN/END pair per process on one shared track. See ADR-0011.
+One BEGIN/END pair per process on the shared track, clipped laminar, and
+one over the observed interval on the process's own. See ADR-0011.
 """
 
 from typing import NamedTuple
@@ -39,6 +41,10 @@ class ClippedSpan(NamedTuple):
 # TYPE_SLICE_BEGIN / TYPE_SLICE_END pair per process.
 _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
 
+# Name of the slice each process's own row carries over the interval gcmon
+# observed it (ADR-0010).
+_PROCESS_ROW_SLICE_NAME: str = "Lifetime"
+
 
 def process_track_name(process: Process) -> str:
     """What *process* is called (ADR-0011)."""
@@ -58,6 +64,15 @@ def _emit_process_lifetime_track_descriptor(
     return build_trace_packet(sequence_id, track_descriptor=desc)
 
 
+def _cmdline_annotation(process: Process, state: PerfettoTrackState) -> list[bytes]:
+    """The ``cmdline`` annotation both of *process*'s spans carry, or
+    nothing where gcmon read no command line for it (ADR-0010)."""
+    cmdline = state.get_cmdline(process)
+    if not cmdline:
+        return []
+    return [_build_debug_annotation_string("cmdline", " ".join(cmdline))]
+
+
 def _emit_process_lifetime_slice(
     span: ClippedSpan,
     state: PerfettoTrackState,
@@ -72,15 +87,12 @@ def _emit_process_lifetime_slice(
     would otherwise close each other (ADR-0011)."""
     track_uuid = state.get_or_create_process_lifetime_track_uuid()
     name = process_track_name(span.process)
-    debug_annotations: list[bytes] = []
-    cmdline = state.get_cmdline(span.process)
-    if cmdline:
-        debug_annotations.append(
-            _build_debug_annotation_string("cmdline", " ".join(cmdline)),
-        )
-    debug_annotations.append(_build_debug_annotation_int("pid_epoch", span.process.pid_epoch))
-    debug_annotations.append(_build_debug_annotation_int("real_start_ts", span.real_start_ts))
-    debug_annotations.append(_build_debug_annotation_int("real_end_ts", span.real_end_ts))
+    debug_annotations = [
+        *_cmdline_annotation(span.process, state),
+        _build_debug_annotation_int("pid_epoch", span.process.pid_epoch),
+        _build_debug_annotation_int("real_start_ts", span.real_start_ts),
+        _build_debug_annotation_int("real_end_ts", span.real_end_ts),
+    ]
     return [
         build_trace_packet(
             sequence_id,
@@ -99,6 +111,53 @@ def _emit_process_lifetime_slice(
                 type=TrackEventType.SLICE_END,
                 track_uuid=track_uuid,
                 name=name,
+            ),
+        ),
+    ]
+
+
+def _emit_process_row_lifetime_slice(
+    span: ClippedSpan,
+    state: PerfettoTrackState,
+    sequence_id: int,
+) -> list[bytes]:
+    """Emit the ``Lifetime`` pair on *span*'s own process track, which is
+    what keeps that track non-empty so the Perfetto UI renders its
+    ``description`` (ADR-0010).
+
+    Drawn over the observed pair rather than the clipped one: clipping
+    keeps the *shared* track's slice stack laminar, and this row holds one
+    slice and the workload's ``Instant`` marks, which nest without closing
+    anything (ADR-0011). BEGIN first, so a process observed at a single
+    instant reads as ``dur = 0`` rather than ``-1``.
+
+    Returns nothing for a process with no descriptor, whose track uuid
+    names a row no packet has described.
+    """
+    if not state.has_process_descriptor(span.process):
+        return []
+    track_uuid = state.get_process_track_uuid(span.process)
+    debug_annotations = [
+        *_cmdline_annotation(span.process, state),
+        _build_debug_annotation_int("pid_epoch", span.process.pid_epoch),
+    ]
+    return [
+        build_trace_packet(
+            sequence_id,
+            timestamp=span.real_start_ts,
+            track_event=build_track_event(
+                type=TrackEventType.SLICE_BEGIN,
+                track_uuid=track_uuid,
+                name=_PROCESS_ROW_SLICE_NAME,
+                debug_annotations=debug_annotations,
+            ),
+        ),
+        build_trace_packet(
+            sequence_id,
+            timestamp=span.real_end_ts,
+            track_event=build_track_event(
+                type=TrackEventType.SLICE_END,
+                track_uuid=track_uuid,
             ),
         ),
     ]
@@ -155,15 +214,16 @@ def finalize_perfetto_packets(
     state: PerfettoTrackState,
     sequence_id: int,
 ) -> list[bytes]:
-    """Emit every ``Processes``-track packet for the whole trace: the
-    track descriptor, then one slice per process that has a span. Call
-    this once, at the end of the trace (typically the encoder's
-    ``close()``).
+    """Emit every span packet for the whole trace: the ``Processes`` track
+    descriptor, then per process that has a span its clipped slice on that
+    track and its ``Lifetime`` bar on its own row. Call this once, at the
+    end of the trace (typically the encoder's ``close()``).
 
-    Every process with a span gets a slice, including one the monitor loop
-    only ever reported as live: it has no process descriptor and no
-    cmdline, nothing but the span, and drawing it anyway is the point of
-    monitor-reported liveness.
+    Every process with a span gets a ``Processes`` slice, including one
+    the monitor loop only ever reported as live, and drawing that one is
+    the point of monitor-reported liveness. The ``Lifetime`` bar goes to
+    every process that has a row to draw it on, which such a process does
+    not.
 
     No span is dropped: a pid observed at a single instant, or clipped to
     zero, still gets a zero-duration slice. Slices go out in the order
@@ -183,6 +243,7 @@ def finalize_perfetto_packets(
     packets: list[bytes] = []
     for span in _clip_spans_to_laminar(spans):
         packets.extend(_emit_process_lifetime_slice(span, state, sequence_id))
+        packets.extend(_emit_process_row_lifetime_slice(span, state, sequence_id))
 
     descriptor = _emit_process_lifetime_track_descriptor(state, sequence_id)
     state.mark_process_lifetime_emitted()

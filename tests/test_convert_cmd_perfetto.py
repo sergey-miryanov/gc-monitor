@@ -312,10 +312,11 @@ def _slices_from_events(events: Sequence[TraceEvent]) -> list[_Slice]:
 def _slices_from_trace(tp: TraceProcessor) -> list[_Slice]:
     """The same shape, read out of the trace by the trace processor.
 
-    Two slice kinds are dropped, both of them the Perfetto converter's own and
-    neither of them built from a `TraceEvent`: the `Process {pid}` spans on the
-    `Processes` track, and the zero-duration `Start Process` marker that
-    carries the cmdline into the UI.
+    Three slice kinds are dropped, all of them the Perfetto converter's own and
+    none of them built from a `TraceEvent`: the `Process {pid}` spans on the
+    `Processes` track, the `Lifetime` bar each process's own row carries over
+    the interval gcmon observed it, and the zero-duration `Start Process`
+    marker that carries the cmdline into the UI.
     """
     args_by_set: dict[int, dict[str, object]] = {}
     for row in tp.query("SELECT arg_set_id, flat_key, int_value, string_value, real_value FROM args"):
@@ -336,7 +337,7 @@ def _slices_from_trace(tp: TraceProcessor) -> list[_Slice]:
     for row in tp.query(
         "SELECT s.name, s.dur, s.arg_set_id, t.name AS track_name FROM slice s JOIN track t ON s.track_id = t.id"
     ):
-        if row.track_name == "Processes" or row.name == "Start Process":
+        if row.track_name == "Processes" or row.name in ("Start Process", "Lifetime"):
             continue
         args = args_by_set.get(row.arg_set_id, {})
         drawn.append((row.name, row.dur, tuple(sorted(args.items()))))
