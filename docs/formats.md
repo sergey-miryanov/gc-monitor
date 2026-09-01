@@ -35,24 +35,57 @@ A trace carries these, on one track per interpreter:
   `Process 12345#2`, and every slice carries a `pid_epoch` annotation counting
   from 1. Filter on the track name `Processes` in SQL. **Read a process's span
   from the `real_start_ts` and `real_end_ts` annotations, not from the slice
-  width**, which overlapping processes cut short and sometimes to nothing; see
-  [Perfetto SQL](perfetto-sql.md).
+  width**, which overlapping processes cut short and sometimes to nothing;
+  `clipped` says which slices were cut. See [Perfetto SQL](perfetto-sql.md).
 - **One process track per process**, `Process 12345` and `Process 12345#2`,
   each carrying that process's own pause rows, `GC Loss` rows, counters, start
   time and command line.
-- **Process ordering**: Perfetto sorts the tracks on first event timestamp, so
-  the earliest process sits at the top.
+- **Process ordering**: the tracks sort by when gcmon first observed each
+  process, earliest at the top, and a process it read no collections from
+  takes a position like any other. A process gcmon reaches only after it has
+  placed others sits below them whatever its own start time.
 - **Process command lines**: with the [`[cmdline]`
   extra](rss.md#the-cmdline-extra); see
   [Process command lines](#process-command-lines).
 - **`Lifetime` slice**: one per process track, over the interval gcmon
-  observed that process, carrying its `pid_epoch` and command line. It reads
-  longer than the same process's `Processes` slice wherever that one was cut
-  short. Filter it out when enumerating slices.
+  observed that process, carrying what it was running and how much of it gcmon
+  read; see [The `Lifetime` slice](#the-lifetime-slice). It reads longer than
+  the same process's `Processes` slice wherever that one was cut short.
 
 > **Note:** sub-step slices (Mark Alive, Fill increment, Deduce Unreachable,
 > …) need a CPython build carrying the extra GC instrumentation. A standard
 > build gives the top-level `GC Pause` slices and the counters.
+
+### The `Lifetime` slice
+
+One per process track, drawn over the interval gcmon observed that process. It
+sits on the process's own track rather than on an interpreter row, so a query
+over the pause rows never picks it up.
+
+Its args say how complete the capture is for that process:
+
+| Arg | Meaning |
+|---|---|
+| `cmdline` | What the process was running, where gcmon read one |
+| `pid_epoch` | Which process on this PID, counting from 1 |
+| `interpreters` | Interpreters gcmon read a collection from |
+| `sampled_count` | GC records gcmon read for this process |
+| `lost_count` | GC records overwritten before a poll reached them |
+| `lost_pause` | GC pause inside the lost records |
+| `lost_pause_ns` | The same figure in nanoseconds |
+
+**The loss figures are the process's totals, and the `GC Loss` slices carry
+the same three names per interval.** A query summing `debug.lost_count` over
+every slice in a trace counts each loss twice. Filter on the slice name:
+`Lifetime` for the per-process figure, `GC Loss` for the per-interval one.
+Both rows resolve as `process_track`, so joining through that separates
+neither.
+
+`sampled_count` and `lost_count` do not add up to everything the process
+collected. A record that fell out of the ring before gcmon's first poll of
+that process is in neither: loss is measured between two polls, and the first
+one has nothing to measure against. The `--stats` table's `Cov` column is the
+figure that covers a whole run; see [Statistics](statistics.md).
 
 ### GC Loss slices
 
