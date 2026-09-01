@@ -304,12 +304,21 @@ ADR-0011 gains the two-row divergence and the rule that the process's own row
 draws the observed pair. Take both in the ADRs, and the sections above become
 implementation steps.
 
-Three clauses in those records are stale independently of this work, and the
-rewrite is where they go:
+**ADR-0011 also reverses itself.** It says of a zero-GC process that "It still
+has no process track, which the UI hides anyway, the problem ADR-0010's
+`Start Process` marker was invented for. Emitting one for it is out of scope."
+Section 4 emits one. The **Rank gaps** consequence below that clause goes with
+it: the gaps existed because a zero-GC pid consumed a rank with no descriptor
+to apply it to, and once every process with a span has one the ranks run 0, 1,
+2 again.
 
-- ADR-0011 says a liveness-only process has "no process descriptor and no
-  cmdline". Since ADR-0025 the monitor publishes a command line for every
-  process it creates, and this holds for `combine` and not for a live run.
+Three clauses are stale independently of this work, and the rewrite is where
+they go:
+
+- `finalize_perfetto_packets` says in its docstring that a liveness-only
+  process has "no process descriptor and no cmdline". Since ADR-0025 the
+  monitor publishes a command line for every process it creates, and this
+  holds for `combine` and not for a live run.
 - ADR-0011 says "Only a process with at least one non-meta event gets a rank".
   `get_process_track_ranks` ranks from `_process_lifetime_start`, which
   liveness observations fold into.

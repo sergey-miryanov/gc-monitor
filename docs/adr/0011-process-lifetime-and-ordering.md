@@ -1,4 +1,4 @@
-# ADR-0011: Show process lifetimes on one shared track, ordered by first event
+# ADR-0011: Show process lifetimes on one shared track, ordered by first observation
 
 - **Status:** Accepted
 - **Date:** 2026-06-27 (ordering added 2026-06-28; laminar clipping added
@@ -14,7 +14,8 @@
   one per process and the liveness stamp moved to the end of the poll phase
   2026-08-31, see [ADR-0025](0025-create-every-process-in-one-place.md); the
   process track was split per process and the collapse question measured
-  2026-09-01)
+  2026-09-01; each process's own row gained a `Lifetime` slice drawing the
+  observed pair 2026-09-01)
 
 ## Context
 
@@ -77,9 +78,15 @@ channel -> Canary), and a trace processor older than 0.57 ignores them and
 orders tracks its own way. gcmon writes them whatever the reader, so a trace
 stays forward-compatible.
 
-**Process tracks are ranked by first event timestamp**, ties broken by
-ascending process, sequential from 0. Only a process with at least one
-non-meta event gets a rank.
+**Process tracks are ranked by first observation**, ties broken by ascending
+process, sequential from 0. Every process with a recorded span gets a rank,
+including one known only from liveness.
+
+**A process with a span and no descriptor gets one at close.** Finalization
+walks every process the accumulator holds, so a process gcmon polled and read
+no collections from draws its own row: a `ProcessDescriptor` stamped and
+ranked from its first observation, its command line, and a `Lifetime` slice
+with nothing under it.
 
 **The Perfetto process track is split per process, each row stamped and ranked
 from its own first observation.** Two `ProcessDescriptor` messages carrying
@@ -89,8 +96,8 @@ share a name, or carry no `start_timestamp_ns` at all, and no non-info stat is
 raised. Measured against the trace processor the suite pins in
 `tests.perfetto_prebuilt`. Every process that held a pid therefore draws its
 own process track, thread track per interpreter, `GC Loss` track, counter
-group and `Start Process` marker, named `Process <pid>` and `Process <pid>#N`
-to match its `Processes` span. `start_timestamp_ns` stamps a row where its
+group and `Lifetime` slice, named `Process <pid>` and `Process <pid>#N` to
+match its `Processes` span. `start_timestamp_ns` stamps a row where its
 process started; the split does not depend on it.
 
 **The epoch reaches a `process` row through its name and nowhere else.**
@@ -175,6 +182,19 @@ observed. They go on *every* slice, not only clipped ones and not only reused
 pids, so a consumer reads the epoch and the observed span without an
 annotation-present check and without parsing the name. Where `ts`/`dur` and
 the annotations disagree, the annotations are the truth.
+
+**The process's own row draws the observed pair; the shared row draws the
+clipped one.** Clipping exists because every process shares the `Processes`
+track and slices on a Perfetto track are a stack. A process's own row carries
+one `Lifetime` slice
+([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)) and the
+workload's `Instant` marks, which nest without closing anything, so nothing on
+that row can cross the slice and nothing needs clipping. The two rows
+therefore disagree for a clipped process, and the row able to draw the
+observed pair draws it. That carries the rule above one step further:
+`Lifetime` needs no `real_*` annotations, because its own `ts` and `dur` are
+those two numbers. It goes out from the same close-time sweep, for the same
+reason: `real_end_ts` is not known any earlier.
 
 **No span is ever dropped.** A pid observed at a single instant, and a pid
 clipped down to nothing, both still get a BEGIN/END pair; the trace processor
@@ -265,32 +285,26 @@ iteration.
   share a start and nest.
 - **The drawn duration is a lower bound, never an upper one**, so deaths are
   misreported as early rather than late. `real_end_ts - real_start_ts`
-  recovers what was observed; `docs/perfetto-sql.md` carries the query.
-- **Exactly one slice per process gcmon polled**, so a consumer joining slices
-  to pids joins many to one and reads `pid_epoch` to tell them apart. A
-  process that answered a single poll and never collected gets one; only a pid
-  seen through meta events alone has none. Finalization therefore does *not*
-  filter on a pid having a process descriptor, which would have required an
-  event.
+  recovers what was observed, as does the `Lifetime` slice on the process's
+  own row; `docs/perfetto-sql.md` carries the query.
+- **Exactly one `Processes` slice per process gcmon polled**, so a consumer
+  joining slices to pids joins many to one and reads `pid_epoch` to tell them
+  apart. A process that answered a single poll and never collected gets one;
+  only a pid seen through meta events alone has none. Finalization therefore
+  does *not* filter on a pid having a process descriptor, which would have
+  required an event.
 - **A span covers only its own process, even where a read crossed the
   boundary.** A pid pruned from the tree loses its read cursor, and a
   successor re-reads what its predecessor produced. Each record is drawn on
   the process that made it
   ([ADR-0025](0025-create-every-process-in-one-place.md)), so those timestamps
   land in the predecessor's span.
-- **A zero-GC process's slice carries its command line**, since the monitor
-  reads it when it creates the process rather than on the encoder's write
-  ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)). It still
-  has no process track, which the UI hides anyway, the problem ADR-0010's
-  `Start Process` marker was invented for. Emitting one for it is out of
-  scope.
-- **Rank gaps.** A zero-GC pid consumes a rank, since ranking sorts the same
-  dict liveness writes, but has no descriptor to apply it to, so real pids get
-  0, 1, 2, 4, 5. Harmless: `sibling_order_rank` is a sort key, not an index.
-  Splitting the accumulator to keep ranks event-derived would add a second
-  exception to it in the change that deletes the first, for a cosmetic gain. A
-  successor on a reused pid consumes one of its own, since ranking is per
-  process.
+- **A zero-GC process draws a full row**, since the monitor reads its command
+  line when it creates the process rather than on the encoder's write
+  ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)) and
+  finalization gives it a descriptor off its span alone. Only the thread rows,
+  the loss rows and the counters are missing, because it produced nothing to
+  draw on them.
 - **Deep nesting is now the normal shape.** Processes still alive when the
   loop stops share an end timestamp, and the sweep breaks out on
   `outer_end >= end`, so co-terminating spans nest one level per process
@@ -324,8 +338,8 @@ iteration.
 - The `Processes` block lands at the end of the file, descriptor first. The
   trace processor resolves track references across the whole trace rather than
   in file order.
-- Consumers enumerating slices must filter `track.name == 'Processes'`, as the
-  equivalence test does, since these slices are Perfetto-only.
+- Consumers enumerating slices must filter `track.name == 'Processes'`, since
+  these slices are Perfetto-only.
 - [ADR-0015](0015-gc-loss-spans-on-their-own-track.md) needs no sweep: its
   loss spans are one per poll interval and meet without overlapping. Its
   `GC Loss` track is separate so a reader can tell intervals gcmon recorded
@@ -388,7 +402,7 @@ iteration.
 - **Keeping one process track and annotating each counter with the epoch.**
   Rejected: an annotation on a counter is not a row, so the UI still draws one
   line stepping between two processes. It also leaves the start stamp, the
-  marker and the command line wrong.
+  lifetime slice and the command line wrong.
 - **Writing a synthetic pid for a successor**, so the split falls out of the
   `pid` field. Rejected: `pid` is the operating system's, a trace-wide
   identifier a reader joins on and correlates against other tools, and
@@ -396,8 +410,8 @@ iteration.
 - **Fixing the command line alone**, the one field that was wrong rather than
   merged: the `#2` span and the track above it named different programs.
   Rejected: there is no correct value to write into a field two processes
-  share, and the thread row, the counters, the start stamp and the marker stay
-  merged behind it.
+  share, and the thread row, the counters, the start stamp and the lifetime
+  slice stay merged behind it.
 - **Emitting liveness as a `TraceEvent`.** Rejected: at 10 Hz × N pids, a
   60-second run with ten children carries ~6,000 extra events, visible on the
   process tracks, to record two numbers per pid.
@@ -418,7 +432,7 @@ iteration.
 ## Implementation
 
 - `src/gcmon/exporters/perfetto_process_lifetime.py` holds this decision: the
-  `Processes` track name, the sweep, the two emission steps and the
+  `Processes` track name, the sweep, the emission steps for both rows and the
   finalization the encoder calls at close. The sweep sorts its input by start,
   longer span first, then process, and returns it in that order, carrying each
   span's observed start and end through untouched alongside the drawn ones, so

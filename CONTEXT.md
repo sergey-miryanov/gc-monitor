@@ -110,7 +110,8 @@ reads one and writes the other.
 _Avoid_: dump, log, export, trace file (that is the Perfetto file)
 
 **Span**:
-A slice on the `Processes` track, bounding a process's observed lifetime.
+A slice bounding a process's observed lifetime, on the shared `Processes` row
+or on the process's own.
 _Avoid_: lifetime (unqualified; see below), duration, extent
 
 **Intern id**: The number a packet writes in place of a string the trace has
@@ -184,7 +185,8 @@ _Avoid_: true, real, total
 
 **Lifetime totals**: Everything one interpreter has collected since it
 started, monitored window included. Always written with the qualifier: bare
-**lifetime** means the `Processes`-track span above. The source names the
+**lifetime** means the span above, the interval gcmon observed a process over,
+which the `Lifetime` slice on that process's row draws. The source names the
 counters underneath rather than the interval (`CumulativeCounters`,
 `StreamingStats.observe_cumulative`, `cumulative_totals_by_gen`), so the bare
 word is left to the span everywhere outside this prose.

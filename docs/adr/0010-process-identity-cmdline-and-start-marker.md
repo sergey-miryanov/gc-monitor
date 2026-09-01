@@ -5,7 +5,8 @@
   moved to the monitor and became once per process 2026-08-31, see
   [ADR-0025](0025-create-every-process-in-one-place.md); the descriptor and
   the marker became per process 2026-09-01, see
-  [ADR-0011](0011-process-lifetime-and-ordering.md))
+  [ADR-0011](0011-process-lifetime-and-ordering.md); the marker became the
+  `Lifetime` slice 2026-09-01)
 
 ## Context
 
@@ -47,15 +48,16 @@ description.
   LEFT JOIN args a ON a.arg_set_id = t.source_arg_set_id AND a.flat_key = 'description'
   ```
 
-**Emit a synthetic zero-duration `TYPE_INSTANT` event named `Start Process`**
-on the process track itself, at the timestamp of the first non-meta event for
-that process, at most once per process. This guarantees the track has an
-event, so the track and its description always render. It is the smallest
-change that fixes the visibility problem.
+**Draw a `Lifetime` slice on the process track itself**, one
+`TYPE_SLICE_BEGIN` / `TYPE_SLICE_END` pair per process spanning the interval
+gcmon observed it ([ADR-0011](0011-process-lifetime-and-ordering.md)). The
+track therefore always holds an event, so it and its description always
+render, and the row says how long gcmon watched the process rather than only
+that it existed.
 
-**A process descriptor and a marker belong to a process, not to a pid.** A pid
-handed on names two processes, each with its own command line to render
-([ADR-0011](0011-process-lifetime-and-ordering.md)).
+**A process descriptor and a `Lifetime` slice belong to a process, not to a
+pid.** A pid handed on names two processes, each with its own command line to
+render ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 
 **A command line is read once per process, where the monitor creates it.**
 Reading it at the first flush instead cost two things: a process that exited
@@ -77,9 +79,10 @@ line, and that is the only way to have none.
 - The cmdline is stored twice. Accepted: the two consumers differ (UI
   rendering versus the SQL `args` table), and neither can read the other's
   copy.
-- A trace carries one extra `Start Process` instant event per process.
-  Consumers that enumerate slices must filter it, as the chrome↔perfetto
-  equivalence test does, since the marker is Perfetto-only.
+- **The process track is never empty.** Every process draws one `Lifetime`
+  slice on it, and the workload's own marks nest inside that slice rather than
+  sitting beside it. The slice is Perfetto-only, so a consumer enumerating a
+  process's slices reads it among them.
 - `psutil` stays an optional dependency (the `cmdline` extra). gcmon works
   without it, minus the cmdline.
 - **A `combine` run writes no command line.** Offline conversion creates no
@@ -113,12 +116,13 @@ line, and that is the only way to have none.
 - `src/gcmon/exporters/perfetto_proto.py` carries the `ProcessDescriptor`
   field numbers (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`) and
   `TrackDescriptor.description` at field 14.
-- `src/gcmon/exporters/perfetto_format.py` names the `Start Process` marker
-  and emits it at most once per process, alongside the process descriptor it
-  keeps visible.
-- `src/gcmon/exporters/perfetto_process_lifetime.py` puts the cmdline on the
-  `Processes` slice's BEGIN alongside the `real_start_ts` / `real_end_ts`
-  annotations ([ADR-0011](0011-process-lifetime-and-ordering.md)).
+- `src/gcmon/exporters/perfetto_format.py` emits the process descriptor the
+  `description` hangs on.
+- `src/gcmon/exporters/perfetto_process_lifetime.py` draws the `Lifetime`
+  slice that keeps the track rendered, and puts the cmdline on its BEGIN and
+  on the `Processes` slice's BEGIN, the latter alongside the `real_start_ts` /
+  `real_end_ts` annotations
+  ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 - `src/gcmon/monitoring/process_registry.py` holds the read, with its lazy
   `import psutil`, behind a provider the CLI wires in.
 - `src/gcmon/monitoring/monitor.py` sends the result to the exporter as it

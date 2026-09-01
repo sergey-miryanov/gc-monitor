@@ -25,7 +25,7 @@ builds is worse: nothing in either file says they came from different builds.
 
 ## 2. Solution
 
-Click the process's slice on the `Processes` track in the Perfetto UI, and its
+Click the `Lifetime` bar on the process's own row in the Perfetto UI, and its
 Args panel shows the Python version and the GC thresholds alongside the
 command line that is already there. They travel with the file, so a trace
 opened months later still says what it was measuring, and two traces can be
@@ -60,11 +60,14 @@ shows today and no metadata, and the trace is otherwise identical.
 ## 4. Implementation decisions
 
 **Both values are emitted as string debug annotations on the
-`TYPE_SLICE_BEGIN` packet the `Processes` track already carries per pid**, the
-same packet and the same mechanism as `cmdline` under ADR-0010, built in
-`perfetto_process_lifetime._emit_process_lifetime_slice_begin` via
-`_build_debug_annotation_string`. No new track, no new packet, no change to
-`_emit_process_descriptor` or to `finalize_perfetto_packets`.
+`TYPE_SLICE_BEGIN` packet of the `Lifetime` slice, on the process's own row**,
+the same packet and the same mechanism as `cmdline` under ADR-0010, built in
+`perfetto_process_lifetime` via `_build_debug_annotation_string`. Process
+metadata has one home
+([0067](0067-draw-a-process-lifetime-on-its-own-row.md)), so a reader clicking
+a process's row reads everything gcmon knows about it. No new track, no new
+packet, no change to `_emit_process_descriptor`, and nothing added to the
+`Processes` track's slices.
 
 | Metadata | Annotation | Type | Example |
 |---|---|---|---|
@@ -72,8 +75,8 @@ same packet and the same mechanism as `cmdline` under ADR-0010, built in
 | GC thresholds | `gc_thresholds` | string, JSON object | `{"0": 700, "1": 10, "2": 10}` |
 
 `PerfettoTrackState` stores both per process, with getters and setters
-following the ones already there for the descriptor and the marker. It is not
-internally thread-safe and does not need to be; see
+following the ones already there for the descriptor and the command line. It
+is not internally thread-safe and does not need to be; see
 [0030](0030-exporter-hygiene-batch.md) section 4.3 for why.
 
 **Each value has exactly one trustworthy source, and they are different
@@ -127,11 +130,11 @@ already behaves.
   assertion at `ChildProcessRunner`'s environment-building step, which
   `tests/test_child_process_runner.py` already reaches.
 - **What makes a good test here:** query the annotation *through its slice*:
-  join `args` to the `Processes`-track slice for a known pid and assert the
-  value. A test that greps the trace bytes for the string would pass on an
-  annotation attached to the wrong slice, or to a packet the UI never renders.
-  Assert the negative too: `--format chrome` and `--format jsonl` output stays
-  byte-identical.
+  join `args` to the `Lifetime` slice on a known pid's process track and
+  assert the value. A test that greps the trace bytes for the string would
+  pass on an annotation attached to the wrong slice, or to a packet the UI
+  never renders. Assert the negative too: `--format chrome` and
+  `--format jsonl` output stays byte-identical.
 - **Prior art:** the `debug.cmdline` assertions in
   `tests/exporters/test_perfetto_exporter_integration.py`, which are this
   feature's exact shape, one annotation earlier.
