@@ -1,6 +1,6 @@
 # 0067: Draw each process's monitored lifetime on its own row
 
-- **Status:** Not started
+- **Status:** In progress
 - **Kind:** feature (enhancement)
 - **Effort:** M
 - **Origin:** design session 2026-09-01, taken up after 0066 split the process

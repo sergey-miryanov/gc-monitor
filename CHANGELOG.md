@@ -17,7 +17,7 @@
 - A `heap_size` counter track is named `Thread {iid} heap_size`, where it was `heap_size`. Two interpreters in one process drew two sibling rows under the same name; a PerfettoSQL query matching `name = 'heap_size'` now matches nothing. `rss` is unchanged
 - A JSONL capture carries no `tid`, on any kind of line. It was `iid` again on a GC record and `-2 - iid` on a loss one; derive it from `iid` if you read it. gcmon still reads a capture that has it
 - `gcmon combine` writes no command line, on the process descriptor or the track description. It used to read whatever process held that PID on the machine running the conversion
-- A process track carries no `Start Process` instant. The `Lifetime` slice on the same row opens at that timestamp and keeps the row rendered, so a PerfettoSQL query matching `name = 'Start Process'` matches nothing
+- A process track carries no `Start Process` instant. The `Lifetime` slice on the same row keeps the row rendered, so a PerfettoSQL query matching `name = 'Start Process'` matches nothing. It opens at gcmon's first observation of the process, at or before the timestamp the instant carried
 
 ### Features
 
