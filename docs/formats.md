@@ -45,8 +45,10 @@ A trace carries these, on one track per interpreter:
 - **Process command lines**: with the [`[cmdline]`
   extra](rss.md#the-cmdline-extra); see
   [Process command lines](#process-command-lines).
-- **`Start Process` marker**: a zero-duration instant on each process track,
-  at that process's first event. Filter it out when enumerating slices.
+- **`Lifetime` slice**: one per process track, over the interval gcmon
+  observed that process, carrying its `pid_epoch` and command line. It reads
+  longer than the same process's `Processes` slice wherever that one was cut
+  short. Filter it out when enumerating slices.
 
 > **Note:** sub-step slices (Mark Alive, Fill increment, Deduce Unreachable,
 > …) need a CPython build carrying the extra GC instrumentation. A standard

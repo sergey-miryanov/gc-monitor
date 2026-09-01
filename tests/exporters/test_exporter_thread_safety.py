@@ -286,24 +286,15 @@ class TestExporterThreadSafety:
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == N_GC + (2 if isinstance(capture, PerfettoFileCapture) else 0), (
+        assert capture.count_completes() == N_GC + (4 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected {N_GC} complete events "
-            f"(plus 1 Processes-track lifetime begin per pid for Perfetto), "
+            f"(plus 2 span begins per pid for Perfetto, one on the Processes "
+            f"track and one on the process's own row), "
             f"got {capture.count_completes()}"
         )
-        if isinstance(capture, PerfettoFileCapture):
-            # Both pids (MAIN_PID, CTRL_PID) get one synthetic
-            # "Start Process" dur=0 marker each, on top of the
-            # N_INSTANT user-provided instant events.
-            assert capture.count_instants() == N_INSTANT + 2, (
-                f"[perfetto] expected {N_INSTANT + 2} instant events "
-                f"({N_INSTANT} user + 2 Start Process markers), "
-                f"got {capture.count_instants()}"
-            )
-        else:
-            assert capture.count_instants() == N_INSTANT, (
-                f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
-            )
+        assert capture.count_instants() == N_INSTANT, (
+            f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
+        )
 
     def test_concurrent_add_event_and_close_no_data_loss(
         self, exporter_factory: ExporterFactory, tmp_path: Path
@@ -328,9 +319,9 @@ class TestExporterThreadSafety:
         # Pre-fill must always arrive. The remaining events may or may
         # not depending on whether the close beat the writer or vice
         # versa, but the total must be in [PRE_FILL, PRE_FILL + N_GC].
-        # For Perfetto, add 1 for the Processes-track lifetime begin
-        # emitted for the pid.
-        lifetime_extra = 1 if isinstance(capture, PerfettoFileCapture) else 0
+        # For Perfetto, add the pid's two span begins, one on the
+        # Processes track and one on its own row.
+        lifetime_extra = 2 if isinstance(capture, PerfettoFileCapture) else 0
         assert PRE_FILL <= completes <= PRE_FILL + N_GC + lifetime_extra, (
             f"[{exporter_factory.name}] expected between {PRE_FILL} and "
             f"{PRE_FILL + N_GC + lifetime_extra} complete events, "
@@ -352,9 +343,9 @@ class TestExporterThreadSafety:
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == 5 + (1 if isinstance(capture, PerfettoFileCapture) else 0), (
+        assert capture.count_completes() == 5 + (2 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected 5 complete events "
-            f"(plus 1 Processes-track lifetime begin for Perfetto), "
+            f"(plus the pid's two span begins for Perfetto), "
             f"got {capture.count_completes()}"
         )
 
@@ -381,9 +372,9 @@ class TestExporterThreadSafety:
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == 2 * N_GC + (1 if isinstance(capture, PerfettoFileCapture) else 0), (
+        assert capture.count_completes() == 2 * N_GC + (2 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected {2 * N_GC} complete events "
-            f"(plus 1 Processes-track lifetime begin for Perfetto), "
+            f"(plus the pid's two span begins for Perfetto), "
             f"got {capture.count_completes()}"
         )
         if isinstance(capture, PerfettoFileCapture):
@@ -416,24 +407,14 @@ class TestExporterThreadSafety:
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == N_GC + (1 if isinstance(capture, PerfettoFileCapture) else 0), (
+        assert capture.count_completes() == N_GC + (2 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected {N_GC} complete events "
-            f"(plus 1 Processes-track lifetime begin for Perfetto), "
+            f"(plus the pid's two span begins for Perfetto), "
             f"got {capture.count_completes()}"
         )
-        if isinstance(capture, PerfettoFileCapture):
-            # Perfetto also emits one synthetic "Start Process" dur=0
-            # marker per pid to keep the cmdline description visible in
-            # the UI; other exporters don't.
-            assert capture.count_instants() == N_INSTANT + 1, (
-                f"[perfetto] expected {N_INSTANT + 1} instant events "
-                f"({N_INSTANT} user + 1 Start Process marker), "
-                f"got {capture.count_instants()}"
-            )
-        else:
-            assert capture.count_instants() == N_INSTANT, (
-                f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
-            )
+        assert capture.count_instants() == N_INSTANT, (
+            f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
+        )
         if isinstance(capture, PerfettoFileCapture):
             proc_descs = capture.count_process_descriptors()
             assert proc_descs == 1, f"[perfetto] expected exactly 1 process descriptor, got {proc_descs}"
@@ -465,9 +446,9 @@ class TestPerfettoExporterCmdlinePath:
         exporter.close()
 
         capture = PerfettoFileCapture(path)
-        # 1 GC pause slice begin on the thread track + 1 Processes-track
-        # lifetime begin for the only pid.
-        assert capture.count_completes() == 2
+        # 1 GC pause slice begin on the thread track + the pid's two span
+        # begins, one on the Processes track and one on its own row.
+        assert capture.count_completes() == 3
         assert capture.count_process_descriptors() == 1
 
         # The process track carries no joined description either.

@@ -432,14 +432,6 @@ track_descriptor {
 timestamp: 0
 trusted_packet_sequence_id: 1
 track_event {
-  type: TYPE_INSTANT
-  track_uuid: 1
-  name: "Start Process"
-}
---- packet ---
-timestamp: 0
-trusted_packet_sequence_id: 1
-track_event {
   debug_annotations {
     int_value: 0
     name: "generation"
@@ -1584,14 +1576,6 @@ track_event {
   type: TYPE_COUNTER
   track_uuid: 7
   counter_value: 0
-}
---- packet ---
-timestamp: 150174400
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_INSTANT
-  track_uuid: 15
-  name: "Start Process"
 }
 --- packet ---
 timestamp: 150174400
@@ -8724,14 +8708,6 @@ track_event {
   type: TYPE_COUNTER
   track_uuid: 21
   counter_value: 0
-}
---- packet ---
-timestamp: 2497509800
-trusted_packet_sequence_id: 1
-track_event {
-  type: TYPE_INSTANT
-  track_uuid: 29
-  name: "Start Process"
 }
 --- packet ---
 timestamp: 2497509800

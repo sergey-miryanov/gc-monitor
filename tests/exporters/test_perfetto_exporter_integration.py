@@ -72,11 +72,6 @@ _ARG_PREFIX: str = "debug"
 _FAKE_CMDLINE: tuple[str, ...] = ("python3", "-m", "fake_target")
 _FAKE_CMDLINE_JOINED: str = " ".join(_FAKE_CMDLINE)
 
-# Name of the synthetic marker emitted on the process track so the
-# cmdline description is always visible in the Perfetto UI. Must match
-# ``_START_PROCESS_INSTANT_NAME`` in ``gcmon.exporters.perfetto_format``.
-_START_PROCESS_MARKER_NAME: str = "Start Process"
-
 # Name of the slice drawn on each process's own row over the interval
 # gcmon observed that process. Must match ``_PROCESS_ROW_SLICE_NAME`` in
 # ``gcmon.exporters.perfetto_process_lifetime``.
@@ -176,9 +171,11 @@ def _write_trace(tmp: Path, cmdline: tuple[str, ...] | None = None) -> Path:
     return path
 
 
-def _write_trace_no_instant(tmp: Path) -> Path:
+def _write_trace_no_instant(tmp: Path, cmdline: tuple[str, ...] | None) -> Path:
     path = tmp / "trace.pb"
     exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_process_cmdline(proc(DEFAULT_PID), cmdline)
+    exporter.add_process_cmdline(proc(_SECOND_PID), cmdline)
     exporter.add_event(
         proc(DEFAULT_PID),
         create_mock_stats_item(
@@ -284,10 +281,6 @@ def _write_zero_duration_trace(tmp: Path) -> Path:
 # workload wrote. Every other fixture's marks *are* the observations that bound
 # the span, so they land on its edge; here liveness widens the span and both
 # fall strictly inside it.
-#
-# The collection is also what keeps the synthetic ``Start Process`` marker off
-# the mark: the marker stamps the process's first event, and two events sharing
-# a timestamp on one row stack rather than sit side by side.
 _MARK_SPAN_START: int = 700_000_000
 _MARK_GC_START: int = 710_000_000
 _MARK_GC_STOP: int = 715_000_000
@@ -462,7 +455,7 @@ def trace_processor_with_cmdline(
 def trace_processor_no_instant(
     tmp_path: Path,
 ) -> Iterator[TraceProcessor]:
-    path = _write_trace_no_instant(tmp_path)
+    path = _write_trace_no_instant(tmp_path, _FAKE_CMDLINE)
     with open_trace_processor(path) as tp:
         yield tp
 
@@ -865,77 +858,6 @@ class TestCmdlineEncoding:
         assert self._description(trace_processor, f"Process {_SECOND_PID}") is None
 
 
-class TestStartProcessMarker:
-    """The Perfetto encoder emits a single synthetic dur-0 ``Start Process``
-    instant event on the process track itself, lazily on the first
-    non-meta event for the pid. This guarantees the process track has at
-    least one event so its ``description`` (the joined cmdline) is
-    always visible in the Perfetto UI, independent of whether the caller
-    emitted any ``Instant`` for the pid.
-    """
-
-    def test_marker_emitted_with_user_instant(
-        self,
-        trace_processor_with_cmdline: TraceProcessor,
-    ) -> None:
-        """The user-provided instant events (``GC monitor started``) and
-        the synthetic marker (``Start Process``) both land on the
-        process track. Verify one marker per pid."""
-        markers = list(
-            trace_processor_with_cmdline.query(
-                f"SELECT p.pid FROM slice s "
-                f"JOIN process_track pt ON s.track_id = pt.id "
-                f"JOIN process p ON pt.upid = p.upid "
-                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
-                f"ORDER BY p.pid"
-            )
-        )
-        assert [r.pid for r in markers] == [DEFAULT_PID, _SECOND_PID], (
-            f"expected one {_START_PROCESS_MARKER_NAME!r} marker per pid, got {markers}"
-        )
-
-    def test_marker_emitted_without_user_instant(
-        self,
-        trace_processor_no_instant: TraceProcessor,
-    ) -> None:
-        """This is the regression case: the caller never calls
-        ``add_instant_event``, so the process track would otherwise be
-        empty and the UI would hide the description. The marker keeps
-        the process track rendered."""
-        markers = list(
-            trace_processor_no_instant.query(
-                f"SELECT p.pid FROM slice s "
-                f"JOIN process_track pt ON s.track_id = pt.id "
-                f"JOIN process p ON pt.upid = p.upid "
-                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
-                f"ORDER BY p.pid"
-            )
-        )
-        assert [r.pid for r in markers] == [DEFAULT_PID, _SECOND_PID], (
-            f"expected one {_START_PROCESS_MARKER_NAME!r} marker per pid "
-            f"even without user instant events, got {markers}"
-        )
-
-    def test_marker_at_first_event_timestamp(
-        self,
-        trace_processor_with_cmdline: TraceProcessor,
-    ) -> None:
-        """The marker is placed at the timestamp of the first non-meta
-        event for the pid, not at 0."""
-        rows = list(
-            trace_processor_with_cmdline.query(
-                f"SELECT p.pid, s.ts FROM slice s "
-                f"JOIN process_track pt ON s.track_id = pt.id "
-                f"JOIN process p ON pt.upid = p.upid "
-                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
-                f"ORDER BY p.pid"
-            )
-        )
-        assert len(rows) == 2
-        for r in rows:
-            assert r.ts > 0, f"expected marker ts > 0 for pid {r.pid}, got {r.ts}"
-
-
 class TestProcessRowLifetimeSlice:
     """Every process's own row carries one ``Lifetime`` slice spanning the
     interval gcmon observed that process.
@@ -1079,16 +1001,57 @@ class TestProcessRowLifetimeSlice:
             (_INSTANT_NAME, 1),
         ]
 
+    def test_a_mark_at_the_bars_own_start_sits_beside_it(
+        self,
+        trace_processor: TraceProcessor,
+    ) -> None:
+        """A mark that *is* the process's first observation shares the bar's
+        timestamp, and lands beside the bar rather than in it.
+
+        The bar goes out at close, last in the stream, and the trace processor
+        breaks a timestamp tie by position in the sequence, so a BEGIN written
+        after the mark opens after it. Accepted (ADR-0010): the alternative is
+        opening the bar a tick early, at a start gcmon never observed.
+        """
+        rows = list(
+            trace_processor.query(
+                f"SELECT s.name AS name, s.ts AS ts, s.depth AS depth FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE p.pid = {DEFAULT_PID} ORDER BY s.ts, s.depth"
+            )
+        )
+        assert [(r.name, r.depth) for r in rows] == [
+            (_INSTANT_NAME, 0),
+            (_PROCESS_ROW_SLICE_NAME, 0),
+        ]
+        assert len({r.ts for r in rows}) == 1, "the fixture's mark is the bar's own start"
+
     def test_drawn_without_a_user_instant(
         self,
         trace_processor_no_instant: TraceProcessor,
     ) -> None:
         """The regression case ADR-0010 exists for: the caller sent no
-        ``Instant`` for either pid, and the row still holds a slice."""
+        ``Instant`` for either pid, so the bar is the only thing on the row.
+        Perfetto hides a row holding no events, and the ``description`` with
+        it.
+        """
         assert sorted(self._lifetimes(trace_processor_no_instant)) == [
             f"Process {DEFAULT_PID}",
             f"Process {_SECOND_PID}",
         ]
+        descriptions = list(
+            trace_processor_no_instant.query(
+                "SELECT p.name AS name, a.string_value AS description FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE a.key = 'description'"
+            )
+        )
+        assert {r.name: r.description for r in descriptions} == {
+            f"Process {DEFAULT_PID}": _FAKE_CMDLINE_JOINED,
+            f"Process {_SECOND_PID}": _FAKE_CMDLINE_JOINED,
+        }
 
     def test_allocates_no_track(self, trace_processor: TraceProcessor) -> None:
         """The bar reuses the process track uuid. A uuid of its own would draw
@@ -1651,22 +1614,25 @@ class TestReusedPidDrawsTwoOfEveryRow:
         ]
         assert len({r.track_id for r in rows}) == 2, f"expected a loss row per process, got {rows}"
 
-    def test_each_process_gets_its_own_start_process_marker(
+    def test_each_process_gets_its_own_lifetime_bar(
         self,
         reused_pid_trace_processor: TraceProcessor,
     ) -> None:
+        """Each bar covers its own process, so the gap between the two is
+        visible on the rows rather than papered over by one bar spanning
+        both."""
         rows = list(
             reused_pid_trace_processor.query(
-                f"SELECT p.name AS pname, s.ts AS ts FROM slice s "
+                f"SELECT p.name AS pname, s.ts AS ts, s.dur AS dur FROM slice s "
                 f"JOIN process_track pt ON s.track_id = pt.id "
                 f"JOIN process p ON pt.upid = p.upid "
-                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' ORDER BY p.name"
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' ORDER BY p.name"
             )
         )
 
-        assert [(r.pname, r.ts) for r in rows] == [
-            (_REUSE_FIRST_NAME, _REUSE_FIRST_START),
-            (_REUSE_SECOND_NAME, _REUSE_SECOND_START),
+        assert [(r.pname, r.ts, r.ts + r.dur) for r in rows] == [
+            (_REUSE_FIRST_NAME, _REUSE_FIRST_START, _REUSE_FIRST_STOP + _REUSE_LOSS_WINDOW_NS),
+            (_REUSE_SECOND_NAME, _REUSE_SECOND_START, _REUSE_SECOND_STOP + _REUSE_LOSS_WINDOW_NS),
         ]
 
     def test_each_process_track_carries_its_own_command_line(

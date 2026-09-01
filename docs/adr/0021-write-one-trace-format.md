@@ -10,9 +10,10 @@ opening. The Chrome Trace Event format has no command lines
 ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)), no
 `Processes` minimap and no per-process ordering
 ([ADR-0011](0011-process-lifetime-and-ordering.md)), no counter Y-axis sharing
-([ADR-0005](0005-counter-y-axis-share-key.md)), and no `Start Process` marker.
-Its timestamps are microseconds. Every event lost three digits to an integer
-division on the way out ([ADR-0009](0009-nanoseconds-canonical-time-unit.md)).
+([ADR-0005](0005-counter-y-axis-share-key.md)) and no `Lifetime` slice on a
+process row. Its timestamps are microseconds. Every event lost three digits to
+an integer division on the way out
+([ADR-0009](0009-nanoseconds-canonical-time-unit.md)).
 
 It was also the default. `gcmon monitor 12345` wrote `gcmon.json`, and an
 operator found out what that file did not contain when they went looking for a

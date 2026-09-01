@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from gcmon.exporters.perfetto_builders import build_trace
-from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
+from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto, finalize_perfetto_packets
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format, convert_loss_to_trace_format
 from gcmon.model.data import GCStatsInfo, LossMsg
@@ -52,9 +52,14 @@ def _pause(ts_start: int, ts_stop: int, collections: int) -> GCStatsInfo:
 
 
 def _write(events: list[TraceEvent], tmp_path: Path, name: str) -> Path:
-    descriptors, packets = convert_trace_events_to_perfetto(events, PerfettoTrackState(), SEQUENCE_ID)
+    """Write the trace the way the exporter does, close included: the
+    ``Lifetime`` bar the process row carries is drawn there, and it is what a
+    misparented loss span would reshape."""
+    state = PerfettoTrackState()
+    descriptors, packets = convert_trace_events_to_perfetto(events, state, SEQUENCE_ID)
+    closeout = finalize_perfetto_packets(state, SEQUENCE_ID)
     path = tmp_path / f"{name}.pftrace"
-    path.write_bytes(build_trace([*descriptors, *packets]))
+    path.write_bytes(build_trace([*descriptors, *packets, *closeout]))
     return path
 
 
@@ -70,11 +75,16 @@ def _load(events: list[TraceEvent], tmp_path: Path, name: str) -> tuple[int, lis
                 # A thread track carries no `track.name` of its own -- trace
                 # processor resolves it through the thread table, which the
                 # custom loss track has no row in.
+                # The process's own row and the shared `Processes` row are
+                # the span rows, asserted on in `_process_slices` and in the
+                # exporter's own suite.
                 "SELECT COALESCE(t.name, th.name) AS track_name, s.name, s.ts, s.dur "
                 "FROM slice s JOIN track t ON s.track_id = t.id "
                 "LEFT JOIN thread_track tt ON tt.id = t.id "
                 "LEFT JOIN thread th ON th.utid = tt.utid "
-                "WHERE s.depth = 0 AND s.name != 'Start Process' ORDER BY s.ts"
+                "WHERE s.depth = 0 "
+                f"AND COALESCE(t.name, th.name) NOT IN ('Processes', 'Process {PID}') "
+                "ORDER BY s.ts"
             )
         ]
     return misplaced, slices
@@ -168,15 +178,19 @@ def _process_slices(events: list[TraceEvent], tmp_path: Path, name: str) -> list
             (row.track_name, row.name, row.ts, row.dur)
             for row in tp.query(
                 "SELECT t.name AS track_name, s.name, s.ts, s.dur FROM slice s "
-                "JOIN track t ON s.track_id = t.id WHERE s.name = 'Start Process'"
+                f"JOIN track t ON s.track_id = t.id WHERE t.name = 'Process {PID}'"
             )
         ]
 
 
-def test_the_process_marker_is_untouched_by_loss_spans(tmp_path: Path) -> None:
+def test_the_process_row_is_untouched_by_loss_spans(tmp_path: Path) -> None:
     """The loss track hangs off the process track, so a descriptor naming the
     wrong parent would land its spans on the process's own row and reshape
-    the lifetime marker ADR-0013 put there."""
+    the `Lifetime` bar ADR-0013 keeps clear of it.
+
+    The losses here sit inside the interval the collections already bound, so
+    the bar is the same width either way and any difference is the spans
+    landing where they should not."""
     without = _process_slices(_events(), tmp_path, "no_loss")
     with_loss = _process_slices(_events(_loss(2_000, 9_000, 500)), tmp_path, "with_loss")
 

@@ -25,11 +25,6 @@ from tests.exporters.perfetto_helpers import (
 )
 from tests.helpers import create_mock_loss_item, interpreter_track, proc, process_track
 
-# Name of the synthetic marker emitted on the process track so the
-# cmdline description is always visible in the Perfetto UI. Must match
-# ``_START_PROCESS_INSTANT_NAME`` in ``gcmon.exporters.perfetto_format``.
-_START_PROCESS_MARKER_NAME: str = "Start Process"
-
 # Name of the slice drawn on each process's own row over the interval gcmon
 # observed it. Must match ``_PROCESS_ROW_SLICE_NAME`` in
 # ``gcmon.exporters.perfetto_process_lifetime``.
@@ -241,12 +236,10 @@ class TestConvertItemToPerfettoPackets:
             duration=0.001,
         )
         _, packets = convert_item(proc(100), item, state, sequence_id=1)
-        # Three packets are emitted before the GC pause slice: the
-        # synthetic "Start Process" marker on the process track, then
-        # the "Process 100" slice begin on the shared "Processes" track,
-        # then the GC pause slice begin on the thread track. Find the
-        # GC pause slice by name to disambiguate.
-        assert len(packets) >= 3
+        # The GC pause slice begin is not the first packet: the "Process
+        # 100" slice begin on the shared "Processes" track precedes it.
+        # Find the GC pause slice by name to disambiguate.
+        assert len(packets) >= 2
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
 
         def _packet_name(p: bytes) -> str | None:
@@ -682,10 +675,9 @@ class TestConvertItemToPerfettoPackets:
             duration=0.001,
         )
         _, packets = convert_item(proc(100), item, state, sequence_id=1)
-        # Three packets precede the GC pause slice begin: the synthetic
-        # "Start Process" marker, the "Process 100" slice begin on the
-        # shared "Processes" track, and any other warm-up events.
-        # Identify the GC pause slice by its name.
+        # The "Process 100" slice begin on the shared "Processes" track
+        # precedes the GC pause slice begin. Identify the GC pause slice
+        # by its name.
         lifetime_uuid = state.get_or_create_process_lifetime_track_uuid()
         begin_packet = None
         for p in packets:
@@ -774,14 +766,13 @@ class TestConvertInstantToPerfettoPacket:
             Instant(process_track(100), "start GC monitor", ts=5_000),
         ]
         _, packets = convert_trace_events_to_perfetto(events, state, sequence_id=1)
-        # Two packets from the convert call: the synthetic "Start
-        # Process" marker (process track) and the user-provided instant
-        # event (process track). This pid's whole observed span is a
-        # single ts, so both its slices are zero-length -- and both are
-        # still drawn, so finalize adds the track descriptor plus the
+        # One packet from the convert call: the user-provided instant on
+        # the process track. This pid's whole observed span is a single
+        # ts, so both its slices are zero-length -- and both are still
+        # drawn, so finalize adds the track descriptor plus the
         # "Processes" pair and the "Lifetime" pair, all at ts 5_000.
         packets.extend(finalize_perfetto_packets(state, sequence_id=1))
-        assert len(packets) == 7
+        assert len(packets) == 6
         names: list[str | None] = []
         for p in packets:
             packet = TracePacket()
@@ -789,7 +780,6 @@ class TestConvertInstantToPerfettoPacket:
             if packet.HasField("track_event"):
                 names.append(packet.track_event.name or None)
         assert names == [
-            _START_PROCESS_MARKER_NAME,
             "start GC monitor",
             "Process 100",
             "Process 100",
@@ -820,14 +810,14 @@ class TestConvertInstantToPerfettoPacket:
             state,
             sequence_id=1,
         )
-        # First call: 2 descriptors (root + process) + 2 packets from the
-        # convert (marker + instant). Second call: 0 descriptors (all are
+        # First call: 2 descriptors (root + process) + 1 packet from the
+        # convert (the instant). Second call: 0 descriptors (all are
         # idempotent) + 1 packet (the new instant event). Both pairs --
         # the "Processes" one behind its descriptor and the "Lifetime"
         # one on the pid's own row -- come from the single finalize,
         # spanning both calls' timestamps.
         assert len(desc1) == 2
-        assert len(packets1) == 2
+        assert len(packets1) == 1
         assert len(desc2) == 0
         assert len(packets2) == 1
         closeout = finalize_perfetto_packets(state, sequence_id=1)

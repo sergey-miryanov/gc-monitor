@@ -203,12 +203,6 @@ class TestTwoProcessesOnOnePidGetTheirOwnRows:
 
         assert not state.has_process_descriptor(proc(100, 2))
 
-    def test_the_start_process_marker_goes_out_per_process(self) -> None:
-        state = PerfettoTrackState()
-        state.mark_start_process_marker(proc(100, 1))
-
-        assert not state.has_start_process_marker(proc(100, 2))
-
     def test_the_thread_track_gets_a_uuid_per_process(self) -> None:
         state = PerfettoTrackState()
 

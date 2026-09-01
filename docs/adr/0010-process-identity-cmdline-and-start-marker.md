@@ -80,9 +80,10 @@ line, and that is the only way to have none.
   rendering versus the SQL `args` table), and neither can read the other's
   copy.
 - **The process track is never empty.** Every process draws one `Lifetime`
-  slice on it, and the workload's own marks nest inside that slice rather than
-  sitting beside it. The slice is Perfetto-only, so a consumer enumerating a
-  process's slices reads it among them.
+  slice on it, and the workload's own marks land on the same row, nested
+  inside the slice unless one shares its start timestamp. The slice is
+  Perfetto-only, so a consumer enumerating a process's slices reads it among
+  them.
 - `psutil` stays an optional dependency (the `cmdline` extra). gcmon works
   without it, minus the cmdline.
 - **A `combine` run writes no command line.** Offline conversion creates no

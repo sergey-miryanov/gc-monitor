@@ -28,7 +28,6 @@ class PerfettoTrackState:
         self._counter_group_uuids: dict[Track, int] = {}
         self._process_uuids: dict[Process, int] = {}
         self._track_uuids: dict[Track, int] = {}
-        self._start_process_marker_emitted: set[Process] = set()
         self._process_lifetime_track_uuid: int | None = None
         self._cmdlines: dict[Process, tuple[str, ...]] = {}
         self._process_lifetime_start: dict[Process, int] = {}
@@ -80,12 +79,6 @@ class PerfettoTrackState:
         if track not in self._counter_group_uuids:
             self._counter_group_uuids[track] = self._alloc_uuid()
         return self._counter_group_uuids[track]
-
-    def has_start_process_marker(self, process: Process) -> bool:
-        return process in self._start_process_marker_emitted
-
-    def mark_start_process_marker(self, process: Process) -> None:
-        self._start_process_marker_emitted.add(process)
 
     def has_process_lifetime_track(self) -> bool:
         return self._process_lifetime_track_uuid is not None

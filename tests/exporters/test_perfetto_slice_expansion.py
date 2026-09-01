@@ -30,9 +30,6 @@ PID = 4242
 ROW = interpreter_track(PID, 0)
 SEQUENCE_ID = 7
 
-# Must match ``_START_PROCESS_INSTANT_NAME`` in ``gcmon.exporters.perfetto_format``.
-_START_PROCESS_MARKER_NAME: str = "Start Process"
-
 
 def _track_events(packets: list[bytes]) -> list[TracePacket]:
     parsed = [TracePacket() for _ in packets]
@@ -42,11 +39,7 @@ def _track_events(packets: list[bytes]) -> list[TracePacket]:
 
 
 def _slice_packets(packets: list[bytes]) -> list[TracePacket]:
-    """The slice packets, in emission order.
-
-    The ``Start Process`` marker is an instant, so it drops out here and is
-    asserted on directly instead.
-    """
+    """The slice packets, in emission order."""
     return [
         p
         for p in _track_events(packets)
@@ -102,10 +95,13 @@ class TestASliceExpandsIntoAPair:
         assert "Process 4242" in named
         assert "Thread 0" in named
 
-    def test_a_slice_places_the_start_process_marker(self) -> None:
+    def test_a_slice_places_no_instant(self) -> None:
+        """The conversion pass writes nothing but the pair. The process row
+        is kept rendered by the ``Lifetime`` slice ``finalize_perfetto_packets``
+        draws at close, which is not an instant and not emitted here."""
         _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 1_500, {})])
         instants = [p.track_event.name for p in _track_events(packets) if p.track_event.type == TrackEventType.INSTANT]
-        assert instants == [_START_PROCESS_MARKER_NAME]
+        assert instants == []
 
 
 def _thread_row(tp: TraceProcessor) -> list[tuple[str, int, int, int]]:

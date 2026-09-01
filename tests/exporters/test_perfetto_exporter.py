@@ -20,11 +20,6 @@ from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import ExporterFactory
 from tests.helpers import create_mock_incremental_item, create_mock_stats_item, perfetto_packets, proc
 
-# Name of the synthetic marker emitted on the process track so the
-# cmdline description is always visible in the Perfetto UI. Must match
-# ``_START_PROCESS_INSTANT_NAME`` in ``gcmon.exporters.perfetto_format``.
-_START_PROCESS_MARKER_NAME: str = "Start Process"
-
 # Pids that only ever show up as liveness observations: gcmon polled
 # them successfully but they never collected, so they produce no events.
 _QUIET_PID: int = 24680
@@ -191,10 +186,9 @@ class TestPerfettoExporter:
                 name = track_event.name
                 if name:
                     names.append(name)
-        # First the synthetic "Start Process" marker (emitted on the
-        # process track itself so the cmdline description is always
-        # visible in the UI), then the user-provided instant event.
-        assert names == [_START_PROCESS_MARKER_NAME, "start GC monitor"]
+        # Only what the caller sent: the process row is kept rendered by
+        # the "Lifetime" slice, which is not an instant.
+        assert names == ["start GC monitor"]
 
     def test_multiple_add_instant_event(self, perfetto_exporter: ExporterFactory) -> None:
         exporter, path = perfetto_exporter()
@@ -210,12 +204,7 @@ class TestPerfettoExporter:
                 event_name = track_event.name
                 if event_name:
                     names.append(event_name)
-        # The marker is emitted only on the first event for the pid.
-        assert names == [
-            _START_PROCESS_MARKER_NAME,
-            "start GC monitor",
-            "stop GC monitor",
-        ]
+        assert names == ["start GC monitor", "stop GC monitor"]
 
     def test_events_have_valid_timestamps(
         self, mock_stats_item: GCStatsInfo, perfetto_exporter: ExporterFactory
