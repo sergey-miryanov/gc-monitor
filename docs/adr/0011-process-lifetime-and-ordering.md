@@ -82,6 +82,18 @@ stays forward-compatible.
 process, sequential from 0. Every process with a recorded span gets a rank,
 including one known only from liveness.
 
+**A rank comes off a counter that only goes up, and the processes described
+together are sorted before they draw from it.** A descriptor is written once,
+at the first flush that names its process, so the rank it carries can never be
+revised. Ranking the whole accumulator each time gave two processes the same
+number: a process reached in a later batch can have been observed earlier,
+because a first poll drains the whole ring and its oldest record predates the
+poll. Sorting settles the order among the processes described together; the
+counter settles it between one group and the next, in the order gcmon reached
+them. gcmon cannot do better than that, since it cannot rank a process against
+one it has not reached, and a process reached later was started later except
+on the first tick, where every process is reached at once and sorted together.
+
 **A process with a span and no descriptor gets one at close.** Finalization
 walks every process the accumulator holds, so a process gcmon polled and read
 no collections from draws its own row: a `ProcessDescriptor` stamped and
@@ -357,13 +369,18 @@ iteration.
   in special contexts.
 - **Ranks are not applied retroactively.** If a pid's `ProcessMeta` lands in
   an earlier batch than its first non-meta event, the descriptor goes out
-  before the rank is known, and emission is idempotent, so that pid gets no
-  rank. Within a batch the Perfetto conversion's pre-pass folds every non-meta
-  event into the span state *before* the main loop, so same-batch
-  `ProcessMeta` still gets its rank. Liveness shrinks this without closing it:
-  the monitor enqueues the `ProcessMeta` *during* the poll while the liveness
-  call happens after it, so a batch crossing `flush_threshold` mid-poll still
-  emits a rank-less descriptor.
+  before gcmon has observed the process, and emission is idempotent, so that
+  pid gets no rank. Within a batch the Perfetto conversion's pre-pass folds
+  every non-meta event into the span state *before* the main loop, so
+  same-batch `ProcessMeta` still gets its rank. Liveness shrinks this without
+  closing it: the monitor enqueues the `ProcessMeta` *during* the poll while
+  the liveness call happens after it, so a batch crossing `flush_threshold`
+  mid-poll still emits a rank-less descriptor.
+- **A process observed before one already described still sorts after it.**
+  The rank is right within each group and follows the order gcmon reached them
+  between groups. A process adopted mid-run that predates every other is the
+  case this reads wrong, and `sibling_order_rank` is a UI hint, so the cost is
+  the order of two adjacent rows.
 - The `Processes` block lands at the end of the file, descriptor first. The
   trace processor resolves track references across the whole trace rather than
   in file order.
@@ -456,7 +473,22 @@ iteration.
   implementation, and wrong; see above.
 - **Re-emitting a process descriptor with a corrected rank in a later batch.**
   Rejected: it breaks idempotent emission for a cosmetic gain in a rare
-  ordering.
+  ordering, and it does not work. The trace processor keeps the first
+  descriptor for a uuid and drops the second, reporting nothing.
+- **Deriving the rank from the process alone**, as milliseconds between a
+  fixed reference and its first observation, so no group has to be sorted.
+  Rejected: every available reference fails. The earliest timestamp folded in
+  moves as processes arrive, which is the problem being solved; the first one
+  folded in makes the rank an artefact of the order events reach the encoder;
+  and a clock read makes a trace of the same run unreproducible.
+- **Holding a process's whole subtree back until its rank settles**, releasing
+  it at the flush after its tick closes. Rejected: it buys ordering across
+  groups at the price of the rows a killed run keeps
+  ([ADR-0010](0010-process-identity-cmdline-and-start-marker.md)), and only
+  the whole subtree can move. A process descriptor arriving after its own
+  thread descriptor loses the per-process split, since the pid is already
+  bound to a row, and a counter event on a track described later is dropped
+  outright.
 
 ## Implementation
 

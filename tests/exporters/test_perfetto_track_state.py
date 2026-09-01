@@ -1,6 +1,7 @@
 """Tests for ``PerfettoTrackState`` uuid allocation and bookkeeping."""
 
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from gcmon.model.process import Process
 from tests.exporters.perfetto_helpers import span
 from tests.helpers import interpreter_track, loss_track, proc
 
@@ -62,6 +63,74 @@ class TestPerfettoTrackState:
         state.get_or_create_counter_track_uuid(interpreter_track(100, 0), "G0 collected")
         assert state.has_counter_track(interpreter_track(100, 0), "G0 collected")
         assert not state.has_counter_track(interpreter_track(100, 0), "G1 collected")
+
+
+class TestRankAllocation:
+    """`rank_processes` hands out each rank once, sorting the group it is
+    given before it draws from a counter that only goes up."""
+
+    def _ranked(self, state: PerfettoTrackState, *processes: Process) -> list[int | None]:
+        return [state.get_process_track_rank(process) for process in processes]
+
+    def test_a_process_with_no_span_is_left_unranked(self) -> None:
+        """gcmon has not observed it, so there is nothing to sort it by."""
+        state = PerfettoTrackState()
+        state.rank_processes([proc(100)])
+        assert state.get_process_track_rank(proc(100)) is None
+
+    def test_a_group_is_sorted_by_first_observation(self) -> None:
+        state = PerfettoTrackState()
+        state.update_process_lifetime(proc(100), 5_000)
+        state.update_process_lifetime(proc(200), 1_000)
+        state.rank_processes([proc(100), proc(200)])
+        assert self._ranked(state, proc(200), proc(100)) == [0, 1]
+
+    def test_the_group_order_does_not_reach_the_ranks(self) -> None:
+        state = PerfettoTrackState()
+        state.update_process_lifetime(proc(100), 5_000)
+        state.update_process_lifetime(proc(200), 1_000)
+        state.rank_processes([proc(200), proc(100)])
+        assert self._ranked(state, proc(200), proc(100)) == [0, 1]
+
+    def test_an_equal_start_is_broken_by_process(self) -> None:
+        state = PerfettoTrackState()
+        for pid in (200, 100):
+            state.update_process_lifetime(proc(pid), 1_000)
+        state.rank_processes([proc(200), proc(100)])
+        assert self._ranked(state, proc(100), proc(200)) == [0, 1]
+
+    def test_a_later_group_takes_the_ranks_after_it(self) -> None:
+        """Even where it was observed first: gcmon cannot sort a process
+        against one it has not reached."""
+        state = PerfettoTrackState()
+        state.update_process_lifetime(proc(100), 5_000)
+        state.rank_processes([proc(100)])
+        state.update_process_lifetime(proc(200), 1_000)
+        state.rank_processes([proc(200)])
+        assert self._ranked(state, proc(100), proc(200)) == [0, 1]
+
+    def test_ranking_twice_leaves_the_first_answer(self) -> None:
+        state = PerfettoTrackState()
+        state.update_process_lifetime(proc(100), 5_000)
+        state.rank_processes([proc(100)])
+        state.update_process_lifetime(proc(200), 1_000)
+        state.rank_processes([proc(200), proc(100)])
+        assert self._ranked(state, proc(100), proc(200)) == [0, 1]
+
+    def test_a_repeated_process_in_one_group_spends_one_rank(self) -> None:
+        """The convert pass names a process once per event on it."""
+        state = PerfettoTrackState()
+        state.update_process_lifetime(proc(100), 5_000)
+        state.update_process_lifetime(proc(200), 9_000)
+        state.rank_processes([proc(100), proc(100), proc(200)])
+        assert self._ranked(state, proc(100), proc(200)) == [0, 1]
+
+    def test_an_unobservable_process_spends_no_rank(self) -> None:
+        """It stays unranked, and the one beside it still takes 0."""
+        state = PerfettoTrackState()
+        state.update_process_lifetime(proc(200), 9_000)
+        state.rank_processes([proc(100), proc(200)])
+        assert self._ranked(state, proc(100), proc(200)) == [None, 0]
 
 
 class TestInterpreterCount:

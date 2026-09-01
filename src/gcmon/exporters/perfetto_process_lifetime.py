@@ -265,13 +265,14 @@ def emit_retired_process_row(
     span = state.get_process_lifetime(process)
     if span is None:
         return []
+    state.rank_processes([process])
     packets = [
         *_emit_root_descriptor(state, sequence_id),
         *_emit_process_descriptor(
             process,
             state,
             sequence_id,
-            sibling_order_rank=state.get_process_track_ranks().get(process),
+            sibling_order_rank=state.get_process_track_rank(process),
             start_timestamp_ns=span.start_ts,
         ),
     ]
@@ -361,7 +362,7 @@ def finalize_perfetto_packets(
         return []
 
     clipped = _clip_spans_to_laminar(spans)
-    ranks = state.get_process_track_ranks()
+    state.rank_processes(span.process for span in clipped)
     descriptors = _emit_root_descriptor(state, sequence_id)
     for span in clipped:
         descriptors.extend(
@@ -369,7 +370,7 @@ def finalize_perfetto_packets(
                 span.process,
                 state,
                 sequence_id,
-                sibling_order_rank=ranks.get(span.process),
+                sibling_order_rank=state.get_process_track_rank(span.process),
                 start_timestamp_ns=state.get_process_lifetime_start_ts(span.process),
             )
         )

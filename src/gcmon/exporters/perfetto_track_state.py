@@ -6,6 +6,7 @@ many convert calls a buffered export makes.
 It also holds the ``Processes``-track span accumulator (ADR-0011).
 """
 
+from collections.abc import Iterable
 from typing import NamedTuple
 
 from ..model.process import Process
@@ -31,6 +32,8 @@ class PerfettoTrackState:
         self._process_lifetime_track_uuid: int | None = None
         self._cmdlines: dict[Process, tuple[str, ...]] = {}
         self._process_lifetime_start: dict[Process, int] = {}
+        self._process_ranks: dict[Process, int] = {}
+        self._next_rank: int = 0
         self._process_lifetime_end: dict[Process, int] = {}
         self._process_lifetime_emitted: bool = False
         self._process_rows_drawn: set[Process] = set()
@@ -162,14 +165,26 @@ class PerfettoTrackState:
     def mark_process_lifetime_emitted(self) -> None:
         self._process_lifetime_emitted = True
 
-    def get_process_track_ranks(self) -> dict[Process, int]:
-        """Return ``{process: rank}``, assigned sequentially from ``0`` by
-        ascending ``(start_ts, process)``. A process with no recorded start
-        is absent.
+    def rank_processes(self, processes: Iterable[Process]) -> None:
+        """Give each of *processes* still without a rank the next ones, in
+        ascending ``(start_ts, process)``.
+
+        A rank is handed out once and never revised, because the descriptor
+        carrying it is written once (ADR-0011). Sorting here is what settles
+        the order among the processes described together; the counter settles
+        it between one group and the next, in the order gcmon reached them. A
+        process gcmon has not observed yet is left unranked rather than
+        ranked from nothing.
         """
         starts = self._process_lifetime_start
-        ordered = sorted(starts, key=lambda process: (starts[process], process))
-        return {process: rank for rank, process in enumerate(ordered)}
+        fresh = [process for process in processes if process not in self._process_ranks and process in starts]
+        for process in sorted(set(fresh), key=lambda process: (starts[process], process)):
+            self._process_ranks[process] = self._next_rank
+            self._next_rank += 1
+
+    def get_process_track_rank(self, process: Process) -> int | None:
+        """Where *process*'s row sorts, or ``None`` where it has no rank."""
+        return self._process_ranks.get(process)
 
     def has_root_descriptor(self) -> bool:
         return self._root_descriptor_emitted

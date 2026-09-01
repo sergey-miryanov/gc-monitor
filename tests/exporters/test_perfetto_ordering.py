@@ -305,6 +305,77 @@ class TestProcessOrderingByFirstTs:
         assert tds_2[0].process.start_timestamp_ns == 5_000
 
 
+class TestARankIsHandedOutOnce:
+    """A rank is drawn from a counter that only goes up, and the processes
+    described together are sorted before they draw.
+
+    The descriptor carrying a rank is written once, at the first flush that
+    names the process, so a rank cannot be revised afterwards: re-emitting a
+    corrected one is ignored, the first descriptor for a uuid wins. Sorting
+    settles the order within a group; the counter settles it between groups,
+    in the order gcmon reached them.
+    """
+
+    def _rank(self, descriptors: list[bytes], pid: int) -> int:
+        matched = _process_descriptor_fields_for_pid(descriptors, pid)
+        assert len(matched) == 1, f"expected one descriptor for pid {pid}, got {len(matched)}"
+        return int(matched[0].sibling_order_rank)
+
+    def test_two_batches_never_share_a_rank(self) -> None:
+        """The reason this exists. A process reached in a later batch can
+        still be observed earlier than one already described -- a first poll
+        drains the whole ring, so its oldest record predates the poll. Ranked
+        against the batch alone, both took 0 and the UI ordered them
+        arbitrarily.
+        """
+        state = PerfettoTrackState()
+        first, _ = convert_trace_events_to_perfetto([Instant(process_track(100), "ev", ts=5_000)], state, sequence_id=1)
+        second, _ = convert_trace_events_to_perfetto(
+            [Instant(process_track(200), "ev", ts=2_000)], state, sequence_id=1
+        )
+
+        assert self._rank(first, 100) == 0
+        assert self._rank(second, 200) == 1
+
+    def test_a_later_batch_ranks_after_an_earlier_one(self) -> None:
+        """Whatever it was observed at. gcmon cannot rank a process against
+        one it has not reached yet, and a process it reaches later was, save
+        for the first tick, started later."""
+        state = PerfettoTrackState()
+        convert_trace_events_to_perfetto([Instant(process_track(100), "ev", ts=9_000)], state, sequence_id=1)
+        second, _ = convert_trace_events_to_perfetto(
+            [Instant(process_track(200), "ev", ts=1_000), Instant(process_track(300), "ev", ts=8_000)],
+            state,
+            sequence_id=1,
+        )
+
+        # Sorted within the batch, and both after the process already ranked.
+        assert self._rank(second, 200) == 1
+        assert self._rank(second, 300) == 2
+
+    def test_ranks_are_contiguous_across_batches(self) -> None:
+        state = PerfettoTrackState()
+        seen: list[int] = []
+        for offset, pid in enumerate((100, 200, 300, 400)):
+            descriptors, _ = convert_trace_events_to_perfetto(
+                [Instant(process_track(pid), "ev", ts=1_000 * (offset + 1))], state, sequence_id=1
+            )
+            seen.append(self._rank(descriptors, pid))
+
+        assert seen == [0, 1, 2, 3]
+
+    def test_a_second_batch_does_not_move_a_rank_already_given(self) -> None:
+        """Emission is idempotent, so a rank that moved would describe a row
+        no packet ever carried."""
+        state = PerfettoTrackState()
+        first, _ = convert_trace_events_to_perfetto([Instant(process_track(100), "ev", ts=5_000)], state, sequence_id=1)
+        convert_trace_events_to_perfetto([Instant(process_track(200), "ev", ts=1_000)], state, sequence_id=1)
+        again, _ = convert_trace_events_to_perfetto([Instant(process_track(100), "ev", ts=6_000)], state, sequence_id=1)
+
+        assert self._rank(first, 100) == 0
+        assert _process_descriptor_fields_for_pid(again, 100) == [], "the descriptor goes out once"
+
+
 class TestReusedPidRanksAndStampsPerProcess:
     """A pid held twice gets a rank and a start stamp per process.
 

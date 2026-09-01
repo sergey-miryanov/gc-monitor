@@ -11,7 +11,6 @@ importer needs one name.
 
 from collections.abc import Sequence
 
-from ..model.process import Process
 from ..model.trace_event import (
     Counter,
     Instant,
@@ -227,7 +226,6 @@ def _emit_track_descriptors(
     track: Track,
     state: PerfettoTrackState,
     sequence_id: int,
-    ranks: dict[Process, int],
 ) -> list[bytes]:
     """Every descriptor *track* needs that has not gone out yet, parent
     first.
@@ -241,7 +239,7 @@ def _emit_track_descriptors(
         process,
         state,
         sequence_id,
-        sibling_order_rank=ranks.get(process),
+        sibling_order_rank=state.get_process_track_rank(process),
         start_timestamp_ns=state.get_process_lifetime_start_ts(process),
     )
     if isinstance(track, InterpreterTrack):
@@ -285,11 +283,14 @@ def convert_trace_events_to_perfetto(
             _record_process_lifetime(event, state)
         descriptors.extend(_emit_root_descriptor(state, sequence_id))
 
-    ranks = state.get_process_track_ranks()
+    # Ranked after the pre-pass folded the batch in, so the processes this
+    # batch describes are ordered against each other by first observation
+    # rather than by the order their events happen to sit in.
+    state.rank_processes(event.track.process for event in events)
 
     for event in events:
         process = event.track.process
-        descriptors.extend(_emit_track_descriptors(event.track, state, sequence_id, ranks))
+        descriptors.extend(_emit_track_descriptors(event.track, state, sequence_id))
 
         if isinstance(event, Slice):
             track_uuid = state.get_track_uuid(event.track)
