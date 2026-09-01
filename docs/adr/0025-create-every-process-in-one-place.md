@@ -63,11 +63,13 @@ discovery, it answers with that first process.
 A record is different, because gcmon has it only because a read returned it
 and that read named a process. A pid pruned from the tree loses its read
 cursor ([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)), so whatever
-claims it next re-reads records dated inside its predecessor's life. They go
-to the successor. Dating them into a closed life would widen a span gcmon had
-stopped observing a tick earlier, and it would leave every retired process
-open to evidence arriving for it later
-([ADR-0011](0011-process-lifetime-and-ordering.md)).
+claims it next re-reads records dated inside its predecessor's life. Those go
+nowhere. They went out under the predecessor already, and filing them under
+the successor would back-date its span to before it existed. Dating them back
+into the closed life instead would widen a span gcmon had stopped observing a
+tick earlier, and leave every retired process open to evidence arriving for it
+later ([ADR-0011](0011-process-lifetime-and-ordering.md)). The monitor counts
+what it drops and says so at debug level.
 
 **The control plane holds a read-only view, not the registry.** A
 `ProcessLookup` protocol carrying `at` and nothing else lives in `model`,
