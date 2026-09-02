@@ -5,7 +5,7 @@ import pytest
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
-from gcmon.model.trace_event import Counter, InterpreterTrack, TraceEvent
+from gcmon.model.trace_event import Counter, TraceEvent
 from tests.exporters.perfetto_helpers import (
     parse_track_descriptor,
 )
@@ -236,7 +236,7 @@ class TestNewIncrementalCounterTracks:
     """Where the new collector's gauges hang, driven through the converter."""
 
     def _parents(self, state: PerfettoTrackState) -> dict[str, int]:
-        events = convert_item_to_trace_format(100, create_mock_new_incremental_item(next_gen=1))
+        events = convert_item_to_trace_format(proc(100), create_mock_new_incremental_item(next_gen=1))
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         parents: dict[str, int] = {}
         for d in descriptors:
@@ -250,12 +250,12 @@ class TestNewIncrementalCounterTracks:
         (ADR-0024)."""
         state = PerfettoTrackState()
         parents = self._parents(state)
-        assert parents["Thread 0 old_work"] == state.get_process_track_uuid(100)
+        assert parents["Thread 0 old_work"] == state.get_process_track_uuid(proc(100))
 
     def test_the_other_gauges_stay_in_the_gc_metrics_group(self) -> None:
         state = PerfettoTrackState()
         parents = self._parents(state)
-        group_uuid = state.get_or_create_counter_group_track_uuid(InterpreterTrack(100, 0))
+        group_uuid = state.get_or_create_counter_group_track_uuid(interpreter_track(100, 0))
         for metric in ("survivor_count", "aging_threshold", "aging_spaces", "aging_next", "new_increment_size"):
             assert parents[f"Thread 0 {metric}"] == group_uuid, f"{metric} should parent to the group"
 
@@ -263,7 +263,7 @@ class TestNewIncrementalCounterTracks:
         """The process track is OS-scoped. A counter parented there gets no
         ``y_axis_share_key``, the trade-off ``heap_size`` takes (ADR-0004)."""
         state = PerfettoTrackState()
-        events = convert_item_to_trace_format(100, create_mock_new_incremental_item())
+        events = convert_item_to_trace_format(proc(100), create_mock_new_incremental_item())
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         assert _counter_track_y_axis_share_key(descriptors, "Thread 0 old_work") is None
 
@@ -271,8 +271,8 @@ class TestNewIncrementalCounterTracks:
         """Two interpreters' rows for one gauge line up (ADR-0005)."""
         state = PerfettoTrackState()
         events = [
-            *convert_item_to_trace_format(100, create_mock_new_incremental_item(iid=0)),
-            *convert_item_to_trace_format(100, create_mock_new_incremental_item(iid=1)),
+            *convert_item_to_trace_format(proc(100), create_mock_new_incremental_item(iid=0)),
+            *convert_item_to_trace_format(proc(100), create_mock_new_incremental_item(iid=1)),
         ]
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
         for iid in (0, 1):

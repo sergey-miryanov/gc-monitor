@@ -2,7 +2,7 @@ import pytest
 
 from gcmon.exporters.trace_converter import convert_item_to_trace_format, duration_text, seen_text
 from gcmon.model.trace_event import Counter, Slice
-from tests.helpers import create_mock_new_incremental_item, create_mock_stats_item
+from tests.helpers import create_mock_new_incremental_item, create_mock_stats_item, proc
 
 
 class TestDurationText:
@@ -78,11 +78,11 @@ class TestNewIncrementalCounters:
     _GAUGES = ("old_work", "survivor_count", "aging_threshold", "aging_spaces", "aging_next")
 
     def _counters(self, **extra: int) -> dict[str, Counter]:
-        events = convert_item_to_trace_format(100, create_mock_new_incremental_item(**extra))
+        events = convert_item_to_trace_format(proc(100), create_mock_new_incremental_item(**extra))
         return {e.metric: e for e in events if isinstance(e, Counter)}
 
     def _pause_args(self, **extra: int) -> dict[str, object]:
-        events = convert_item_to_trace_format(100, create_mock_new_incremental_item(**extra))
+        events = convert_item_to_trace_format(proc(100), create_mock_new_incremental_item(**extra))
         pause = next(e for e in events if isinstance(e, Slice) and e.name.startswith("GC Pause"))
         return dict(pause.args)
 
@@ -125,6 +125,6 @@ class TestNewIncrementalCounters:
             assert metric in args
 
     def test_a_standard_build_record_carries_none_of_them(self) -> None:
-        events = convert_item_to_trace_format(100, create_mock_stats_item())
+        events = convert_item_to_trace_format(proc(100), create_mock_stats_item())
         metrics = {e.metric for e in events if isinstance(e, Counter)}
         assert metrics.isdisjoint({*self._GAUGES, "new_increment_size"})
