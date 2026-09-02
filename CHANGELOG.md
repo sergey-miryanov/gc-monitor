@@ -33,6 +33,7 @@
 
 ### Bugfixes
 
+- `gcmon` with no subcommand prints a usage message and exits 2, where it used to print an `AttributeError` traceback
 - An instant sent close to the end of a run reaches the trace, where the last one a client sent could be dropped without a word
 - A `Processes` slice names the program its own process was running. A reused PID used to put the first process's command line on every slice of that PID, and a process that exited before the first flush got none at all
 - A `Processes` slice covers only the process it names, where a reused PID used to draw one slice spanning both and the stretch between them

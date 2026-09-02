@@ -13,8 +13,6 @@ from .commands import (
     add_run_parser,
 )
 
-logger = logging.getLogger("gcmon")
-
 
 class _VersionAction(argparse.Action):
     """Print gcmon's version and exit.
@@ -49,7 +47,7 @@ def _create_parser() -> argparse.ArgumentParser:
         dest=argparse.SUPPRESS,
         help="Print the installed gcmon version and exit",
     )
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
     add_monitor_parser(subparsers.add_parser)
     add_combine_parser(subparsers.add_parser)
@@ -141,16 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     _setup_logging(args.verbose)
 
     # Dispatch via args.func (set by each subparser's set_defaults)
-    if hasattr(args, "func"):
-        return int(args.func(args))
-
-    # No command specified: default to monitor
-    if args.command is None:
-        return main(["monitor", *argv])
-
-    # Unknown command (should not happen due to argparse)
-    logger.error("Unknown command: %s", args.command)
-    return 1
+    return int(args.func(args))
 
 
 if __name__ == "__main__":
