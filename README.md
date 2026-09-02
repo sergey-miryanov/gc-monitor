@@ -294,6 +294,9 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Contributing
 
 Bug reports and pull requests are welcome at
-[GitHub](https://github.com/sergey-miryanov/gcmon/issues). Please read the
+[GitHub](https://github.com/sergey-miryanov/gcmon/issues). The
+[contributing guide](https://github.com/sergey-miryanov/gcmon/blob/main/CONTRIBUTING.md)
+covers setting up a working copy, running the tests and the checkers, and what
+a pull request needs. Please read the
 [AI policy](https://github.com/sergey-miryanov/gcmon/blob/main/.github/AI_POLICY.md)
 first.
