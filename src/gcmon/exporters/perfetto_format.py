@@ -91,6 +91,12 @@ _COUNTER_RANKS: dict[str, int] = {
     "finalized_garbage_count": 8,
     "deleted_garbage_count": 9,
     "clear_weakrefs_count": 10,
+    "old_work": 20,
+    "aging_threshold": 22,
+    "aging_spaces": 23,
+    "aging_next": 24,
+    "survivor_count": 25,
+    "new_increment_size": 26,
 }
 
 # A counter an interpreter owns that is nonetheless drawn a level up, beside
@@ -100,7 +106,7 @@ _COUNTER_RANKS: dict[str, int] = {
 #
 # `rss` is not here: a `ProcessTrack` owns it, so parenting it to the process
 # row is its identity rather than a policy.
-_TOPLEVEL_COUNTER_METRICS: frozenset[str] = frozenset({"heap_size"})
+_TOPLEVEL_COUNTER_METRICS: frozenset[str] = frozenset({"heap_size", "old_work"})
 
 _COUNTER_GROUP_NAME: str = "GC Metrics"
 
