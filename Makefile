@@ -1,18 +1,21 @@
-.PHONY: test build install typecheck typecheck-pyrefly typecheck-mypy
+.PHONY: help test build install typecheck typecheck-pyrefly typecheck-mypy
 
-test:
+help: ## Show available commands
+	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+test: ## Run tests
 	pytest
 
-build:
+build: ## Build the package
 	python -m build
 
-install:
+install: ## Install the package in editable mode
 	pip install -e .
 
-typecheck: typecheck-pyrefly typecheck-mypy
+typecheck: typecheck-pyrefly typecheck-mypy ## Run all type checks
 
-typecheck-pyrefly:
+typecheck-pyrefly: ## Run type checking with Pyrefly
 	poetry run pyrefly check
 
-typecheck-mypy:
+typecheck-mypy: ## Run type checking with mypy
 	poetry run mypy src/ tests/
