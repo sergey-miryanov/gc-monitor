@@ -279,11 +279,16 @@ def loaded_trace_processor(
 
 
 def _process_filter(pid: int) -> str:
+    """SQL fragment scoping a query to the one process on *pid*.
+
+    On the name, not on ``process.pid``: that column holds the pid gcmon
+    writes for the row (ADR-0011).
+    """
     return (
         "JOIN thread_track tt ON s.track_id = tt.id "
         "JOIN thread th ON tt.utid = th.utid "
         "JOIN process p ON th.upid = p.upid "
-        f"WHERE p.pid = {pid}"
+        f"WHERE p.name = 'Process {pid}'"
     )
 
 
@@ -446,7 +451,7 @@ class TestCombinedTraceIsStructurallyComplete:
         rows = sorted(
             r.name
             for r in loaded_trace_processor.query(
-                f"SELECT th.name FROM thread th JOIN process p ON th.upid = p.upid WHERE p.pid = {_PID_A}",
+                f"SELECT th.name FROM thread th JOIN process p ON th.upid = p.upid WHERE p.name = 'Process {_PID_A}'",
             )
         )
         for iid in (_IID_A1, _IID_A2, _IID_A3):
@@ -547,7 +552,7 @@ class TestCombineNormalizePerfettoIntegration:
                     f"JOIN thread_track tt ON s.track_id = tt.id "
                     f"JOIN thread th ON tt.utid = th.utid "
                     f"JOIN process p ON th.upid = p.upid "
-                    f"WHERE p.pid = {_PID_A}",
+                    f"WHERE p.name = 'Process {_PID_A}'",
                 )
             )
             assert len(rows) == 1

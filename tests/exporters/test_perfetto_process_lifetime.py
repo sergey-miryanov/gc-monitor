@@ -389,7 +389,7 @@ class TestProcessLifetimeLaminarClipping:
                 500,
                 TrackEventType.SLICE_BEGIN,
                 "Process 100",
-                {"pid_epoch": 1, "real_start_ts": 500, "real_end_ts": 5_000, "clipped": False},
+                {"pid": 100, "pid_epoch": 1, "real_start_ts": 500, "real_end_ts": 5_000, "clipped": False},
             ),
             (5_000, TrackEventType.SLICE_END, "Process 100", {}),
         ]
@@ -544,6 +544,7 @@ class TestProcessLifetimeSlices:
         annotations = first_packet.track_event.debug_annotations
         assert [a.name for a in annotations] == [
             "cmdline",
+            "pid",
             "pid_epoch",
             "real_start_ts",
             "real_end_ts",
@@ -585,7 +586,7 @@ class TestProcessLifetimeSlices:
                 begin_packets.append(packet)
         assert len(begin_packets) == 1
         annotations = begin_packets[0].track_event.debug_annotations
-        assert [a.name for a in annotations] == ["pid_epoch", "real_start_ts", "real_end_ts", "clipped"]
+        assert [a.name for a in annotations] == ["pid", "pid_epoch", "real_start_ts", "real_end_ts", "clipped"]
 
     def test_process_lifetime_slice_end_at_last_event_ts(self) -> None:
         """The ``Process <pid>`` slice END is emitted at the ts of the
@@ -678,6 +679,7 @@ class TestProcessLifetimeSlices:
                 "Process 100",
                 {
                     "cmdline": "python3 -m early_target",
+                    "pid": 100,
                     "pid_epoch": 1,
                     "real_start_ts": 500,
                     "real_end_ts": 1_500,
@@ -691,6 +693,7 @@ class TestProcessLifetimeSlices:
                 "Process 200",
                 {
                     "cmdline": "python3 -m late_target",
+                    "pid": 200,
                     "pid_epoch": 1,
                     "real_start_ts": 1_000,
                     "real_end_ts": 5_000,
@@ -745,6 +748,7 @@ class TestProcessLifetimeSlices:
                 "Process 100",
                 {
                     "cmdline": "python3 -m first_target",
+                    "pid": 100,
                     "pid_epoch": 1,
                     "real_start_ts": 1_000,
                     "real_end_ts": 2_000,
@@ -758,6 +762,7 @@ class TestProcessLifetimeSlices:
                 "Process 100#2",
                 {
                     "cmdline": "python3 -m second_target",
+                    "pid": 100,
                     "pid_epoch": 2,
                     "real_start_ts": 3_000,
                     "real_end_ts": 4_000,
@@ -817,6 +822,7 @@ class TestProcessLifetimeSlices:
                 "Process 100",
                 {
                     "cmdline": "python3 -m fake_target",
+                    "pid": 100,
                     "pid_epoch": 1,
                     "real_start_ts": 1_000,
                     "real_end_ts": 4_000,
@@ -877,12 +883,12 @@ class TestAQuietProcessGetsARow:
     def test_the_descriptor_carries_its_own_name_start_and_cmdline(self) -> None:
         """As complete as any other process's: the monitor publishes a command
         line for every process it creates, so nothing here is second class."""
-        _state, packets = self._quiet_only()
+        state, packets = self._quiet_only()
         descriptors = _process_descriptors(packets)
 
         assert list(descriptors) == ["Process 100"]
         described = descriptors["Process 100"]
-        assert described.process.pid == 100
+        assert described.process.pid == state.get_row_pid(self.QUIET)
         assert described.process.start_timestamp_ns == 500
         assert list(described.process.cmdline) == list(self.QUIET_CMDLINE)
         assert described.description == " ".join(self.QUIET_CMDLINE)

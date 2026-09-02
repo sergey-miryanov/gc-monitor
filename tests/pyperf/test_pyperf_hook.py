@@ -241,7 +241,7 @@ class TestTheMarksInATrace:
                     "SELECT s.name AS name FROM slice s "
                     "JOIN process_track pt ON s.track_id = pt.id "
                     "JOIN process p ON pt.upid = p.upid "
-                    f"WHERE p.pid = {os.getpid()} AND s.dur = 0 AND s.name LIKE 'gcmon:%' "
+                    f"WHERE p.name = 'Process {os.getpid()}' AND s.dur = 0 AND s.name LIKE 'gcmon:%' "
                     "ORDER BY s.ts"
                 )
             )

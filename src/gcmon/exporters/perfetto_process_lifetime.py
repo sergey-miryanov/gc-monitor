@@ -106,7 +106,7 @@ def _emit_process_descriptor(
     desc = build_track_descriptor(
         proc_uuid,
         process_track_name(process),
-        pid=process.pid,
+        pid=state.get_row_pid(process),
         child_ordering=ChildTracksOrdering.EXPLICIT,
         sibling_order_rank=sibling_order_rank,
         cmdline=cmdline,
@@ -154,6 +154,7 @@ def _emit_process_lifetime_slice(
     name = process_track_name(span.process)
     debug_annotations = [
         *_cmdline_annotation(span.process, state),
+        _build_debug_annotation_int("pid", span.process.pid),
         _build_debug_annotation_int("pid_epoch", span.process.pid_epoch),
         _build_debug_annotation_int("real_start_ts", span.real_start_ts),
         _build_debug_annotation_int("real_end_ts", span.real_end_ts),
@@ -215,6 +216,7 @@ def _emit_process_row_lifetime_slice(
     lost_pause_ns = state.get_lost_pause_ns(span.process)
     debug_annotations = [
         *_cmdline_annotation(span.process, state),
+        _build_debug_annotation_int("pid", span.process.pid),
         _build_debug_annotation_int("pid_epoch", span.process.pid_epoch),
         _build_debug_annotation_int("interpreters", state.get_interpreter_count(span.process)),
         _build_debug_annotation_int("sampled_count", state.get_sampled_count(span.process)),

@@ -828,7 +828,7 @@ class TestConvertInstantToPerfettoPacket:
                 5_000,
                 TrackEventType.SLICE_BEGIN,
                 "Process 100",
-                {"pid_epoch": 1, "real_start_ts": 5_000, "real_end_ts": 10_000, "clipped": False},
+                {"pid": 100, "pid_epoch": 1, "real_start_ts": 5_000, "real_end_ts": 10_000, "clipped": False},
             ),
             (10_000, TrackEventType.SLICE_END, "Process 100", {}),
         ]

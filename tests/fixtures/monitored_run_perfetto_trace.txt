@@ -11,7 +11,7 @@ track_descriptor {
   uuid: 1
   name: "Process 33328"
   process {
-    pid: 33328
+    pid: 1
     process_name: "Process 33328"
     start_timestamp_ns: 0
   }
@@ -24,8 +24,8 @@ track_descriptor {
   uuid: 2
   name: "Thread 0"
   thread {
-    pid: 33328
-    tid: 33328
+    pid: 1
+    tid: 1
     thread_name: "Thread 0"
   }
   parent_uuid: 1
@@ -163,7 +163,7 @@ track_descriptor {
   uuid: 15
   name: "Process 33512"
   process {
-    pid: 33512
+    pid: 2
     process_name: "Process 33512"
     start_timestamp_ns: 2600000
   }
@@ -176,8 +176,8 @@ track_descriptor {
   uuid: 16
   name: "Thread 0"
   thread {
-    pid: 33512
-    tid: 33512
+    pid: 2
+    tid: 2
     thread_name: "Thread 0"
   }
   parent_uuid: 15
@@ -315,7 +315,7 @@ track_descriptor {
   uuid: 29
   name: "Process 33512#2"
   process {
-    pid: 33512
+    pid: 3
     process_name: "Process 33512#2"
     start_timestamp_ns: 2497509800
   }
@@ -328,8 +328,8 @@ track_descriptor {
   uuid: 30
   name: "Thread 0"
   thread {
-    pid: 33512
-    tid: 33512
+    pid: 3
+    tid: 3
     thread_name: "Thread 0"
   }
   parent_uuid: 29
@@ -15318,6 +15318,10 @@ timestamp: 2600000
 trusted_packet_sequence_id: 1
 track_event {
   debug_annotations {
+    int_value: 33512
+    name: "pid"
+  }
+  debug_annotations {
     int_value: 1
     name: "pid_epoch"
   }
@@ -15363,6 +15367,10 @@ timestamp: 0
 trusted_packet_sequence_id: 1
 track_event {
   debug_annotations {
+    int_value: 33328
+    name: "pid"
+  }
+  debug_annotations {
     int_value: 1
     name: "pid_epoch"
   }
@@ -15394,6 +15402,10 @@ track_event {
 timestamp: 0
 trusted_packet_sequence_id: 1
 track_event {
+  debug_annotations {
+    int_value: 33328
+    name: "pid"
+  }
   debug_annotations {
     int_value: 1
     name: "pid_epoch"
@@ -15434,6 +15446,10 @@ timestamp: 2600000
 trusted_packet_sequence_id: 1
 track_event {
   debug_annotations {
+    int_value: 33512
+    name: "pid"
+  }
+  debug_annotations {
     int_value: 1
     name: "pid_epoch"
   }
@@ -15466,6 +15482,10 @@ timestamp: 2497509800
 trusted_packet_sequence_id: 1
 track_event {
   debug_annotations {
+    int_value: 33512
+    name: "pid"
+  }
+  debug_annotations {
     int_value: 2
     name: "pid_epoch"
   }
@@ -15497,6 +15517,10 @@ track_event {
 timestamp: 2497509800
 trusted_packet_sequence_id: 1
 track_event {
+  debug_annotations {
+    int_value: 33512
+    name: "pid"
+  }
   debug_annotations {
     int_value: 2
     name: "pid_epoch"

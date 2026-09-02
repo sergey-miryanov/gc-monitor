@@ -263,9 +263,14 @@ class MonitoredRun:
         """
         return "".join(f"--- packet ---\n{packet}" for packet in self.packets())
 
-    def pid_by_track(self) -> dict[int, int]:
-        """Every descriptor carries the pid, on `ProcessDescriptor` or on
-        `ThreadDescriptor` alike, so this needs no walk up to a parent."""
+    def row_pid_by_track(self) -> dict[int, int]:
+        """Every descriptor carries a pid, on `ProcessDescriptor` or on
+        `ThreadDescriptor` alike, so this needs no walk up to a parent.
+
+        It is the pid gcmon writes for the row, one per process rather than
+        one per operating-system pid (ADR-0011). The operating system's
+        reaches the trace on the spans.
+        """
         by_track: dict[int, int] = {}
         for packet in self.packets():
             if not packet.HasField("track_descriptor"):
@@ -276,6 +281,22 @@ class MonitoredRun:
             elif descriptor.HasField("process"):
                 by_track[descriptor.uuid] = descriptor.process.pid
         return by_track
+
+    def row_pids_on(self, pid: int) -> set[int]:
+        """The row pids of every process the operating system gave *pid* to.
+
+        Read off the process descriptors, whose name carries the operating
+        system's pid and the epoch and is the only place either of them
+        appears on a descriptor (ADR-0011).
+        """
+        prefix = f"Process {pid}"
+        return {
+            packet.track_descriptor.process.pid
+            for packet in self.packets()
+            if packet.HasField("track_descriptor")
+            and packet.track_descriptor.HasField("process")
+            and packet.track_descriptor.name in (prefix, f"{prefix}#2")
+        }
 
     def slice_names(self) -> list[str]:
         return [
@@ -396,8 +417,26 @@ class TestTheScriptIsWorthPinning:
         assert any(CHILD_PID not in tick for tick in polled), "no tick prunes"
         assert polled[-1] == {TARGET_PID, CHILD_PID}, "the child never comes back"
 
+    def test_every_process_is_described_under_a_row_pid_of_its_own(self, run: MonitoredRun) -> None:
+        """Three processes on two pids, so a run written under the operating
+        system's pids would describe two rows and hide one process."""
+        row_pids = set(run.row_pid_by_track().values())
+
+        assert len(row_pids) == 3
+        assert not row_pids & {TARGET_PID, CHILD_PID}
+
     def test_both_pids_reach_the_trace(self, run: MonitoredRun) -> None:
-        assert set(run.pid_by_track().values()) == {TARGET_PID, CHILD_PID}
+        """The operating system's pid, which no descriptor carries any more:
+        it is on the span each process draws."""
+        annotated = {
+            annotation.int_value
+            for packet in run.packets()
+            if packet.HasField("track_event")
+            for annotation in packet.track_event.debug_annotations
+            if annotation.name == "pid"
+        }
+
+        assert annotated == {TARGET_PID, CHILD_PID}
 
     def test_the_run_loses_records_as_well_as_drawing_them(self, run: MonitoredRun) -> None:
         """A poll period the ring always survives would pin the export path
@@ -459,8 +498,10 @@ class TestTheChildLeavingIsVisible:
     """
 
     def _pauses(self, run: MonitoredRun, pid: int) -> list[tuple[int, int]]:
-        """`(generation, collections)` per GC Pause slice drawn for *pid*."""
-        by_track = run.pid_by_track()
+        """`(generation, collections)` per GC Pause slice drawn for *pid*,
+        across every process that held it."""
+        by_track = run.row_pid_by_track()
+        row_pids = run.row_pids_on(pid)
         drawn: list[tuple[int, int]] = []
         for packet in run.packets():
             if not packet.HasField("track_event"):
@@ -470,7 +511,7 @@ class TestTheChildLeavingIsVisible:
                 continue
             if not event.name.startswith("GC Pause("):
                 continue
-            if by_track.get(event.track_uuid) != pid:
+            if by_track.get(event.track_uuid) not in row_pids:
                 continue
             annotations = {ann.name: ann.int_value for ann in event.debug_annotations}
             drawn.append((annotations["generation"], annotations["collections"]))
@@ -478,14 +519,15 @@ class TestTheChildLeavingIsVisible:
 
     def test_the_child_draws_on_both_of_its_rows(self, run: MonitoredRun) -> None:
         """The departure, read off the trace. One row would mean no prune."""
-        by_track = run.pid_by_track()
+        by_track = run.row_pid_by_track()
+        row_pids = run.row_pids_on(CHILD_PID)
         rows = {
             uuid
             for packet in run.packets()
             if packet.HasField("track_event")
             and packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
             and packet.track_event.name.startswith("GC Pause(")
-            and by_track.get(uuid := packet.track_event.track_uuid) == CHILD_PID
+            and by_track.get(uuid := packet.track_event.track_uuid) in row_pids
         }
 
         assert len(rows) == 2, "the child's collections should split across the two processes that held its pid"

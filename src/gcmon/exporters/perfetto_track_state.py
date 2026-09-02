@@ -28,6 +28,7 @@ class PerfettoTrackState:
         self._counter_tracks: dict[tuple[Track, str], int] = {}
         self._counter_group_uuids: dict[Track, int] = {}
         self._process_uuids: dict[Process, int] = {}
+        self._row_pids: dict[Process, int] = {}
         self._track_uuids: dict[Track, int] = {}
         self._process_lifetime_track_uuid: int | None = None
         self._cmdlines: dict[Process, tuple[str, ...]] = {}
@@ -42,6 +43,7 @@ class PerfettoTrackState:
         self._process_rows_drawn: set[Process] = set()
         self._root_descriptor_emitted: bool = False
         self._next_uuid: int = 1
+        self._next_row_pid: int = 1
 
     def _alloc_uuid(self) -> int:
         uuid = self._next_uuid
@@ -59,6 +61,18 @@ class PerfettoTrackState:
 
     def mark_track(self, track: Track) -> None:
         self._tracks.add(track)
+
+    def get_row_pid(self, process: Process) -> int:
+        """The pid *process*'s row is written under, gcmon's own.
+
+        One per process rather than one per operating-system pid (ADR-0011).
+        ``Process.pid`` stays the operating system's and reaches the trace as
+        an annotation.
+        """
+        if process not in self._row_pids:
+            self._row_pids[process] = self._next_row_pid
+            self._next_row_pid += 1
+        return self._row_pids[process]
 
     def get_process_track_uuid(self, process: Process) -> int:
         if process not in self._process_uuids:

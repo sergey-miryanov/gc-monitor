@@ -10,6 +10,7 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
 )
 
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
+from gcmon.exporters.perfetto_process_lifetime import process_track_name
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
@@ -24,17 +25,20 @@ def _process_descriptor_fields_for_pid(
     descriptors: list[bytes],
     pid: int,
 ) -> list[TrackDescriptor]:
-    """Return the ``TrackDescriptor`` protos for the process
-    descriptor of *pid* (i.e. a TrackDescriptor with a ``process``
-    sub-message carrying the matching pid). Returns an empty list if
-    no matching descriptor exists.
+    """Return the ``TrackDescriptor`` protos describing a process on
+    *pid*, empty where none does.
+
+    Matched on the name, which carries the pid and the epoch. The
+    ``process.pid`` these descriptors carry is the row's, one per process
+    and none of them the operating system's (ADR-0011).
     """
+    prefix = process_track_name(proc(pid))
     matched: list[TrackDescriptor] = []
     for d in descriptors:
         td = parse_track_descriptor(d)
         if td is None:
             continue
-        if td.HasField("process") and td.process.pid == pid:
+        if td.HasField("process") and (td.name == prefix or td.name.startswith(f"{prefix}#")):
             matched.append(td)
     return matched
 
@@ -437,9 +441,10 @@ class TestReusedPidRanksAndStampsPerProcess:
             "Process 10#2": 2_000,
         }
 
-    def test_both_descriptors_carry_the_operating_system_pid(self) -> None:
-        """The epoch is in the name and nowhere else, so a reader
-        filtering on ``pid`` still finds both (ADR-0011)."""
+    def test_each_descriptor_carries_a_pid_of_its_own(self) -> None:
+        """One pid on both would read as one process described twice, and
+        fold the rows together. Each takes one off gcmon's own count instead
+        (ADR-0011)."""
         state = PerfettoTrackState()
         events: list[TraceEvent] = [
             Instant(process_track(10, 1), "first", ts=1_000),
@@ -448,7 +453,7 @@ class TestReusedPidRanksAndStampsPerProcess:
 
         descriptors, _ = convert_trace_events_to_perfetto(events, state, sequence_id=1)
 
-        assert {name: td.process.pid for name, td in self._by_name(descriptors).items()} == {
-            "Process 10": 10,
-            "Process 10#2": 10,
-        }
+        pids = {name: td.process.pid for name, td in self._by_name(descriptors).items()}
+        assert sorted(pids) == ["Process 10", "Process 10#2"]
+        assert len(set(pids.values())) == 2, f"two processes share a row pid: {pids}"
+        assert 10 not in pids.values(), f"a row pid is gcmon's, not the operating system's: {pids}"

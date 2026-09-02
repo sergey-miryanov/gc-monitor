@@ -113,7 +113,8 @@ def _thread_row(tp: TraceProcessor) -> list[tuple[str, int, int, int]]:
             "JOIN thread_track tt ON s.track_id = tt.id "
             "JOIN thread th ON tt.utid = th.utid "
             "JOIN process p ON th.upid = p.upid "
-            f"WHERE p.pid = {PID} ORDER BY s.ts, s.depth"
+            # By name: `p.pid` is the row's, one gcmon hands out (ADR-0011).
+            f"WHERE p.name = 'Process {PID}' ORDER BY s.ts, s.depth"
         )
     ]
 

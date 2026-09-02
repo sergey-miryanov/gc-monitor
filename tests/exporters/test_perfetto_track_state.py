@@ -422,3 +422,34 @@ class TestCaptureTotals:
         assert state.get_lost_count(proc(100, 1)) == 0
         assert state.get_sampled_count(proc(100, 2)) == 0
         assert state.get_lost_count(proc(100, 2)) == 5
+
+
+class TestRowPids:
+    """The pid gcmon writes for a process row.
+
+    The trace processor keys process identity on that field, so it is the one
+    thing that has to differ between two processes on one operating-system pid
+    (ADR-0011).
+    """
+
+    def test_one_process_keeps_the_same_row_pid(self) -> None:
+        state = PerfettoTrackState()
+        assert state.get_row_pid(proc(100)) == state.get_row_pid(proc(100))
+
+    def test_two_processes_on_one_pid_get_two(self) -> None:
+        """The regression: equal row pids fold both processes into one row."""
+        state = PerfettoTrackState()
+        assert state.get_row_pid(proc(100, 1)) != state.get_row_pid(proc(100, 2))
+
+    def test_no_two_processes_share_a_row_pid(self) -> None:
+        """The invariant the whole pid exists for. Two processes on one pid is
+        the case that used to break it, and two pids is the case that must
+        keep working."""
+        state = PerfettoTrackState()
+        pids = [state.get_row_pid(proc(pid, epoch)) for pid in (100, 200, 300) for epoch in (1, 2, 3)]
+        assert len(set(pids)) == len(pids), pids
+
+    def test_the_count_leaves_the_idle_process_alone(self) -> None:
+        """The trace processor files its own idle process at ``pid = 0``, so
+        counting from there would draw gcmon's first row on it."""
+        assert PerfettoTrackState().get_row_pid(proc(100)) == 1

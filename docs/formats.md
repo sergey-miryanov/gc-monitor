@@ -39,7 +39,8 @@ A trace carries these, on one track per interpreter:
   `clipped` says which slices were cut. See [Perfetto SQL](perfetto-sql.md).
 - **One process track per process**, `Process 12345` and `Process 12345#2`,
   each carrying that process's own pause rows, `GC Loss` rows, counters, start
-  time and command line.
+  time and command line. The PID on the row is gcmon's, not the operating
+  system's; see [The `Lifetime` slice](#the-lifetime-slice).
 - **Process ordering**: the tracks sort by when gcmon first observed each
   process, earliest at the top, and a process it read no collections from
   takes a position like any other. A process gcmon reaches only after it has
@@ -67,12 +68,18 @@ Its args say how complete the capture is for that process:
 | Arg | Meaning |
 |---|---|
 | `cmdline` | What the process was running, where gcmon read one |
+| `pid` | The PID the operating system gave the process |
 | `pid_epoch` | Which process on this PID, counting from 1 |
 | `interpreters` | Interpreters gcmon read a collection from |
 | `sampled_count` | GC records gcmon read for this process |
 | `lost_count` | GC records overwritten before a poll reached them |
 | `lost_pause` | GC pause inside the lost records |
 | `lost_pause_ns` | The same figure in nanoseconds |
+
+**`process.pid` in SQL is not the PID the operating system gave the process.**
+gcmon numbers the rows itself, one per process. The `pid` annotation on this
+slice and on the `Processes` span carries the real PID, and so does the row's
+name.
 
 **The loss figures are the process's totals, and the `GC Loss` slices carry
 the same three names per interval.** A query summing `debug.lost_count` over

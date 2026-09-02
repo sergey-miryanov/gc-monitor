@@ -17,6 +17,7 @@
 - A `heap_size` counter track is named `Thread {iid} heap_size`, where it was `heap_size`. Two interpreters in one process drew two sibling rows under the same name; a PerfettoSQL query matching `name = 'heap_size'` now matches nothing. `rss` is unchanged
 - A JSONL capture carries no `tid`, on any kind of line. It was `iid` again on a GC record and `-2 - iid` on a loss one; derive it from `iid` if you read it. gcmon still reads a capture that has it
 - `gcmon combine` writes no command line, on the process descriptor or the track description. It used to read whatever process held that PID on the machine running the conversion
+- A `process` row's `pid` in a Perfetto trace is one gcmon writes per process, not the operating system's, so a PerfettoSQL query matching `pid = 12345` matches nothing. The `pid` annotation on the `Lifetime` bar and on the `Processes` span carries the operating system's PID, and so does the row's name
 - A process track carries no `Start Process` instant. The `Lifetime` slice on the same row keeps the row rendered, so a PerfettoSQL query matching `name = 'Start Process'` matches nothing. It opens at gcmon's first observation of the process, at or before the timestamp the instant carried
 
 ### Features
@@ -38,6 +39,7 @@
 - A process track names the program its own process was running and opens when that process started. A reused PID used to draw one track for both processes, showing the first one's command line and stamped before the second existed
 - A child that leaves the process tree and comes back draws each of its collections once. gcmon re-reads the ring it returns holding, and the records it had already drawn used to be drawn a second time
 - A process's row ends where gcmon last read it. A record read after gcmon let go of a pid used to stretch that process's span past the last poll that saw it
+- A PID the operating system handed out three or more times draws a row per process. The third process on a PID used to land on the second one's row and the fifth on the fourth's, leaving one row with two `Lifetime` bars, a name from the later process and a start stamp from the earlier
 - The process tracks sort by when gcmon first observed each process, and no two of them share a position. A trace holding more than one process could put two rows at the same rank and leave their order to the UI. The order was by first event timestamp before, so a process gcmon read no collections from had no place in it
 
 ### Internal

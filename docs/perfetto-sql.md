@@ -17,11 +17,11 @@ count is `debug.gen0.lost_count`.
 
 gcmon traces use the standard Perfetto schema:
 
-- **`process`**: one row per process that drew a row of its own, plus a
-  synthetic `pid = 0` entry the trace processor adds
-  - `upid`, the trace processor's own key and the one to group by; `pid`, the
-    operating system's, which two processes share where one was handed on;
-    `name` (`"Process 12345"`); `start_ts`
+- **`process`**: one row per process that drew a row of its own, plus an idle
+  `pid = 0` entry the trace processor adds
+  - `upid`, the trace processor's own key and the one to group by; `pid`, one
+    gcmon writes per process, not the operating system's; `name`
+    (`"Process 12345"`); `start_ts`
 - **`slice`**: GC pauses and sub-steps
   - `name` (`"GC Pause(0)"`), `ts` and `dur` in nanoseconds, `arg_set_id`
 - **`counter`**: counter samples
@@ -38,6 +38,11 @@ gcmon traces use the standard Perfetto schema:
 > **Note:** `process.cmdline` always returns `NULL`, since the trace processor
 > does not surface `ProcessDescriptor.cmdline`. Query the process track's
 > `description` or the `debug.cmdline` annotation, both below.
+
+> **Note:** `process.pid` is gcmon's, not the operating system's: one number
+> per process row, counted from 1. A PID handed on has an entry per process.
+> The `debug.pid` annotation on the `Processes` span and on the `Lifetime` bar
+> carries the operating system's PID, and so does the row's name.
 
 ## Example: Replicating the Stats Table
 
@@ -131,16 +136,16 @@ Every monitored process gets one slice, a process that never collected
 included. A process known from liveness alone drew no row of its own and has
 no `process` entry at all, so this track is the only place it appears.
 
-**Scope by `upid`.** A reused PID has one entry per process, and a join on
-`p.pid` matches every process that held it, returning each result once per
-process. `pid_epoch` tells them apart, and so does the name, `Process 12345#2`
-from the second process on. A `dur = 0` slice is one observed at a single
-instant, or cut down to nothing.
+**Scope by `upid` or by name.** A reused PID has one entry per process, none
+of them under the operating system's PID. To gather every process that held
+one, filter on the `debug.pid` annotation or on the name, `Process 12345` and
+`Process 12345#2` from the second process on. A `dur = 0` slice is one
+observed at a single instant, or cut down to nothing.
 
 A slice and the process it describes carry **the same name**. That is the
-pairing: `p.pid` matches both processes and the epoch reaches no column of its
-own. Start from the span and left-join the process, so one with a span and no
-entry keeps its row:
+pairing: `p.pid` is per process, and the epoch reaches no column of its own.
+Start from the span and left-join the process, so one with a span and no entry
+keeps its row:
 
 ```sql
 -- Each process's observed lifetime beside the pauses it recorded
