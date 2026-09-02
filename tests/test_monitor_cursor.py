@@ -13,9 +13,11 @@ import pytest
 
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.poll_status import PollStatus
+from gcmon.model.process import Process
+from gcmon.model.protocol import TGCStatsInfo
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.stats.streaming_stats import StreamingStats
-from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
+from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item, polled, proc
 
 PID = 12345
 
@@ -73,7 +75,7 @@ def ingest(monitor: EventsMonitor, pid: int, batch: Sequence[GCStatsInfo]) -> No
     told when this one happened. Nothing here looks at loss, so the instants
     only have to increase.
     """
-    monitor._ingest(pid, list(batch), next(_POLL_CLOCK))
+    monitor._ingest(polled(monitor, pid), list(batch), next(_POLL_CLOCK))
 
 
 def build_batch(slots: Sequence[tuple[int, int, int, int]], iid: int = 0) -> list[GCStatsInfo]:
@@ -207,14 +209,14 @@ class TestCursorScope:
         ingest(monitor, 999, build_batch(POLL_0))
         exporter.events.clear()
 
-        monitor._forget(PID)
+        monitor._forget(PID, 0)
         ingest(monitor, PID, build_batch(POLL_0))
         ingest(monitor, 999, build_batch(POLL_0))
 
         assert len(exporter.events) == 15
 
     def test_forget_is_safe_for_an_unknown_pid(self, monitor: EventsMonitor) -> None:
-        monitor._forget(777)
+        monitor._forget(777, 0)
 
 
 class TestRetain:
@@ -236,7 +238,7 @@ class TestRetain:
         ingest(monitor, 999, build_batch(POLL_0))
         exporter.events.clear()
 
-        monitor._retain({PID})
+        monitor._retain({PID}, 0)
 
         ingest(monitor, PID, build_batch(POLL_0))
         assert exporter.events == [], "the retained pid kept its cursors"
@@ -244,7 +246,7 @@ class TestRetain:
         assert len(exporter.events) == 15, "the dropped pid started over"
 
     def test_retain_keeps_a_pid_with_no_cursors_yet(self, monitor: EventsMonitor) -> None:
-        monitor._retain({PID, 999})
+        monitor._retain({PID, 999}, 0)
 
 
 class TestSettlingAnExitedPid:
@@ -255,34 +257,85 @@ class TestSettlingAnExitedPid:
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
         ingest(monitor, 999, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
 
-        monitor._retain({PID})
+        monitor._retain({PID}, 0)
 
-        assert stats._open_pids == {PID}
+        assert stats._open_processes == {proc(PID)}
 
     def test_the_settled_row_survives_the_pid(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
         """What the run printed for a process that exited half way through it
         still has to be there at the end."""
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
 
-        monitor._forget(PID)
+        monitor._forget(PID, 0)
 
-        assert stats.rings() == [(PID, 0, 1)]
-        assert stats.pause_totals(PID, 0, 0).sampled_count == 1
+        assert stats.rings() == [(proc(PID), 0)]
+        assert stats.pause_totals(proc(PID), 0, 0).sampled_count == 1
+
+    def test_the_departed_rings_are_settled_rather_than_dropped(
+        self, monitor: EventsMonitor, stats: StreamingStats
+    ) -> None:
+        """`forget` reads the process out of the registry before retiring it.
+        Retiring first would leave nothing to settle, and the predecessor's
+        percentiles would stay unfixed with its row still standing."""
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+
+        monitor._forget(PID, 0)
+
+        assert stats._running_rings == {}
+        ring = stats.get_ring_stats(proc(PID), 0)
+        assert ring is not None
+        assert ring["pause"][0].percentiles == {50: 1_000, 90: 1_000, 95: 1_000, 99: 1_000}
 
     def test_a_successor_on_the_same_pid_gets_a_block_of_its_own(
         self, monitor: EventsMonitor, stats: StreamingStats
     ) -> None:
         """`forget` drops the cursor so the successor's records read as new,
-        and its numbers land beside its predecessor's rather than on them."""
+        and its numbers land beside its predecessor's rather than on them.
+
+        The successor collects after the departure here, so nothing is
+        re-read and the two blocks are built from disjoint records."""
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
-        monitor._forget(PID)
+        monitor._forget(PID, 5_000)
 
-        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=9_000)])
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=10_000, ts_stop=19_000)])
 
-        assert stats.rings() == [(PID, 0, 1), (PID, 0, 2)]
-        assert stats.pause_totals(PID, 0, 0, 1).sampled_pause_ns == 1_000
-        assert stats.pause_totals(PID, 0, 0, 2).sampled_pause_ns == 9_000
+        assert stats.rings() == [(proc(PID), 0), (proc(PID, 2), 0)]
+        assert stats.pause_totals(proc(PID, 1), 0, 0).sampled_pause_ns == 1_000
+        assert stats.pause_totals(proc(PID, 2), 0, 0).sampled_pause_ns == 9_000
         assert stats.untracked_rings() == 0
+
+    def test_a_re_read_record_is_dropped(self, monitor: EventsMonitor, exporter: MockExporter) -> None:
+        """A pid pruned from the tree loses its cursor, so its successor
+        re-reads the ring and hands gcmon records dated inside its
+        predecessor's life. They went out under the predecessor already.
+
+        Giving them to the successor would back-date its span to before it
+        existed; giving them back to the predecessor would widen a span gcmon
+        had stopped observing and leave no retirement final (ADR-0025). The
+        successor's own record, dated after the departure, still lands."""
+        seen: list[Process] = []
+        original = exporter.add_event
+
+        def _watch(process: Process, item: TGCStatsInfo) -> None:
+            seen.append(process)
+            original(process, item)
+
+        exporter.add_event = _watch  # type: ignore[method-assign]
+
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
+        monitor._forget(PID, 5_000)
+        ingest(
+            monitor,
+            PID,
+            [
+                create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000),
+                create_mock_stats_item(gen=0, collections=2, ts_start=10_000, ts_stop=19_000),
+            ],
+        )
+
+        assert seen == [proc(PID), proc(PID, 2)], (
+            "the record dated inside the predecessor's life is a duplicate of one already exported"
+        )
 
     def test_a_pid_polled_after_retain_starts_a_second_block(
         self, monitor: EventsMonitor, stats: StreamingStats
@@ -290,11 +343,11 @@ class TestSettlingAnExitedPid:
         """`retain` is the tick's own listing, so it decides a pid has gone
         the same way `forget` does."""
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
-        monitor._retain({999})
+        monitor._retain({999}, 5_000)
 
-        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=9_000)])
+        ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=10_000, ts_stop=19_000)])
 
-        assert stats.rings() == [(PID, 0, 1), (PID, 0, 2)]
+        assert stats.rings() == [(proc(PID), 0), (proc(PID, 2), 0)]
 
     def test_retain_settles_a_pid_once(self, monitor: EventsMonitor, stats: StreamingStats) -> None:
         """It runs every tick, and a pid that has gone stays gone. Counting
@@ -302,9 +355,9 @@ class TestSettlingAnExitedPid:
         ingest(monitor, PID, [create_mock_stats_item(gen=0, collections=1, ts_start=0, ts_stop=1_000)])
 
         for _ in range(5):
-            monitor._retain({999})
+            monitor._retain({999}, 0)
 
-        assert stats.rings() == [(PID, 0, 1)]
+        assert stats.rings() == [(proc(PID), 0)]
 
 
 class TestPollIntegration:
@@ -321,9 +374,9 @@ class TestPollIntegration:
         polls = iter([poll_0, poll_1])
         reader.reads = lambda pid: next(polls)
 
-        assert monitor._poll(PID) == PollStatus.OK
+        assert monitor._poll(PID).status == PollStatus.OK
         assert len(exporter.events) == 15
 
-        assert monitor._poll(PID) == PollStatus.OK
+        assert monitor._poll(PID).status == PollStatus.OK
 
         assert len(exporter.events) == 29

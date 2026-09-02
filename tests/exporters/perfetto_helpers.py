@@ -11,26 +11,40 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
 )
 
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
-from gcmon.exporters.perfetto_process_lifetime import finalize_perfetto_packets
-from gcmon.exporters.perfetto_track_state import PerfettoTrackState
+from gcmon.exporters.perfetto_process_lifetime import ClippedSpan, finalize_perfetto_packets
+from gcmon.exporters.perfetto_track_state import PerfettoTrackState, ProcessSpan
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.data import GCStatsInfo
+from gcmon.model.process import Process
 from gcmon.model.trace_event import TraceEvent
+from tests.helpers import proc
+
+
+def span(pid: int, start_ts: int, end_ts: int, pid_epoch: int = 1) -> ProcessSpan:
+    """A `ProcessSpan` for a test that names a pid rather than a process."""
+    return ProcessSpan(proc(pid, pid_epoch), start_ts, end_ts)
+
+
+def clipped_span(
+    pid: int, start_ts: int, end_ts: int, real_start_ts: int, real_end_ts: int, pid_epoch: int = 1
+) -> ClippedSpan:
+    """A `ClippedSpan` for a test that names a pid. See :func:`span`."""
+    return ClippedSpan(proc(pid, pid_epoch), start_ts, end_ts, real_start_ts, real_end_ts)
 
 
 def convert_item(
-    pid: int,
+    process: Process,
     item: GCStatsInfo,
     state: PerfettoTrackState,
     sequence_id: int = 1,
 ) -> tuple[list[bytes], list[bytes]]:
-    """Convert one ``(pid, item)`` as a single batch and finalize, so the
+    """Convert one ``(process, item)`` as a single batch and finalize, so the
     returned packets include the whole ``Processes`` pair.
 
     Unlike ``convert_items``, this finalizes; a test that wants to see
     what convert emitted on its own wants that one instead.
     """
-    gc_events = convert_item_to_trace_format(pid, item)
+    gc_events = convert_item_to_trace_format(process, item)
     meta: list[TraceEvent] = []
     descriptors, packets = convert_trace_events_to_perfetto(
         meta + gc_events,
@@ -42,11 +56,11 @@ def convert_item(
 
 
 def convert_items(
-    items: list[tuple[int, GCStatsInfo]],
+    items: list[tuple[Process, GCStatsInfo]],
     state: PerfettoTrackState,
     sequence_id: int = 1,
 ) -> tuple[list[bytes], list[bytes], list[bytes]]:
-    """Convert each ``(pid, item)`` as its own batch, then finalize once,
+    """Convert each ``(process, item)`` as its own batch, then finalize once,
     the way ``ProtobufEventEncoder`` does across flushes.
 
     Returns ``(descriptors, convert_packets, closeout_packets)`` so a
@@ -55,10 +69,10 @@ def convert_items(
     """
     descriptors: list[bytes] = []
     packets: list[bytes] = []
-    for pid, item in items:
+    for process, item in items:
         meta: list[TraceEvent] = []
         batch_desc, batch_packets = convert_trace_events_to_perfetto(
-            meta + convert_item_to_trace_format(pid, item),
+            meta + convert_item_to_trace_format(process, item),
             state,
             sequence_id,
         )
@@ -89,7 +103,9 @@ def lifetime_slices(
             continue
         annotations: dict[str, str | int] = {}
         for ann in track_event.debug_annotations:
-            annotations[ann.name] = ann.string_value if ann.HasField("string_value") else ann.int_value
+            # A bool arrives as a bool, so a test can tell `clipped` false
+            # from an int 0.
+            annotations[ann.name] = getattr(ann, ann.WhichOneof("value") or "int_value")
         out.append((packet.timestamp, track_event.type, track_event.name or "", annotations))
     return out
 

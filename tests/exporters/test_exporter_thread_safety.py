@@ -26,7 +26,13 @@ from gcmon.exporters.perfetto_format import (
 )
 from gcmon.model.protocol import TGCStatsInfo, TInstantMsg
 from tests.data_helpers import create_instant_msg
-from tests.helpers import JsonlRecord, create_mock_stats_item, perfetto_packets
+from tests.helpers import (
+    JsonlRecord,
+    create_mock_loss_item,
+    create_mock_stats_item,
+    perfetto_packets,
+    proc,
+)
 
 N_GC = 100
 N_INSTANT = 100
@@ -235,11 +241,7 @@ class _PerfettoFactory:
 
     def build(self, tmp_path: Path, threshold: int) -> tuple[EventsExporter, OutputCapture]:
         path = tmp_path / f"out_{self.name}.pb"
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=threshold,
-            cmdline_provider=lambda pid: ["python", "-u", "script.py"],
-        )
+        exporter = PerfettoExporter(output_path=path, flush_threshold=threshold)
         return exporter, PerfettoFileCapture(path)
 
 
@@ -279,47 +281,38 @@ class TestExporterThreadSafety:
 
         def writer_gc() -> None:
             for ev in gc_events:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def writer_inst() -> None:
             for ev in inst_events:
-                exporter.add_instant_event(CTRL_PID, ev)
+                exporter.add_instant_event(proc(CTRL_PID), ev)
 
         captured = _run_two_threads([writer_gc, writer_inst])
         exporter.close()
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == N_GC + (2 if isinstance(capture, PerfettoFileCapture) else 0), (
+        assert capture.count_completes() == N_GC + (4 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected {N_GC} complete events "
-            f"(plus 1 Processes-track lifetime begin per pid for Perfetto), "
+            f"(plus 2 span begins per pid for Perfetto, one on the Processes "
+            f"track and one on the process's own row), "
             f"got {capture.count_completes()}"
         )
-        if isinstance(capture, PerfettoFileCapture):
-            # Both pids (MAIN_PID, CTRL_PID) get one synthetic
-            # "Start Process" dur=0 marker each, on top of the
-            # N_INSTANT user-provided instant events.
-            assert capture.count_instants() == N_INSTANT + 2, (
-                f"[perfetto] expected {N_INSTANT + 2} instant events "
-                f"({N_INSTANT} user + 2 Start Process markers), "
-                f"got {capture.count_instants()}"
-            )
-        else:
-            assert capture.count_instants() == N_INSTANT, (
-                f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
-            )
+        assert capture.count_instants() == N_INSTANT, (
+            f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
+        )
 
     def test_concurrent_add_event_and_close_no_data_loss(
         self, exporter_factory: ExporterFactory, tmp_path: Path
     ) -> None:
         exporter, capture = exporter_factory.build(tmp_path, threshold=5)
         for ev in _make_gc_events(PRE_FILL, 1_500_000_000):
-            exporter.add_event(MAIN_PID, ev)
+            exporter.add_event(proc(MAIN_PID), ev)
         more = _make_gc_events(N_GC, 1_500_000_000 + 100_000_000)
 
         def writer() -> None:
             for ev in more:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def closer() -> None:
             exporter.close()
@@ -332,9 +325,9 @@ class TestExporterThreadSafety:
         # Pre-fill must always arrive. The remaining events may or may
         # not depending on whether the close beat the writer or vice
         # versa, but the total must be in [PRE_FILL, PRE_FILL + N_GC].
-        # For Perfetto, add 1 for the Processes-track lifetime begin
-        # emitted for the pid.
-        lifetime_extra = 1 if isinstance(capture, PerfettoFileCapture) else 0
+        # For Perfetto, add the pid's two span begins, one on the
+        # Processes track and one on its own row.
+        lifetime_extra = 2 if isinstance(capture, PerfettoFileCapture) else 0
         assert PRE_FILL <= completes <= PRE_FILL + N_GC + lifetime_extra, (
             f"[{exporter_factory.name}] expected between {PRE_FILL} and "
             f"{PRE_FILL + N_GC + lifetime_extra} complete events, "
@@ -344,7 +337,7 @@ class TestExporterThreadSafety:
     def test_double_close_safe(self, exporter_factory: ExporterFactory, tmp_path: Path) -> None:
         exporter, capture = exporter_factory.build(tmp_path, threshold=1)
         for ev in _make_gc_events(5, 1_500_000_000):
-            exporter.add_event(MAIN_PID, ev)
+            exporter.add_event(proc(MAIN_PID), ev)
 
         def closer_a() -> None:
             exporter.close()
@@ -356,9 +349,9 @@ class TestExporterThreadSafety:
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == 5 + (1 if isinstance(capture, PerfettoFileCapture) else 0), (
+        assert capture.count_completes() == 5 + (2 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected 5 complete events "
-            f"(plus 1 Processes-track lifetime begin for Perfetto), "
+            f"(plus the pid's two span begins for Perfetto), "
             f"got {capture.count_completes()}"
         )
 
@@ -374,20 +367,20 @@ class TestExporterThreadSafety:
 
         def writer_a() -> None:
             for ev in events_a:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def writer_b() -> None:
             for ev in events_b:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         captured = _run_two_threads([writer_a, writer_b])
         exporter.close()
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == 2 * N_GC + (1 if isinstance(capture, PerfettoFileCapture) else 0), (
+        assert capture.count_completes() == 2 * N_GC + (2 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected {2 * N_GC} complete events "
-            f"(plus 1 Processes-track lifetime begin for Perfetto), "
+            f"(plus the pid's two span begins for Perfetto), "
             f"got {capture.count_completes()}"
         )
         if isinstance(capture, PerfettoFileCapture):
@@ -409,35 +402,25 @@ class TestExporterThreadSafety:
 
         def writer_gc() -> None:
             for ev in gc_events:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def writer_inst() -> None:
             for ev in inst_events:
-                exporter.add_instant_event(MAIN_PID, ev)
+                exporter.add_instant_event(proc(MAIN_PID), ev)
 
         captured = _run_two_threads([writer_gc, writer_inst])
         exporter.close()
         for exc in captured:
             raise exc
 
-        assert capture.count_completes() == N_GC + (1 if isinstance(capture, PerfettoFileCapture) else 0), (
+        assert capture.count_completes() == N_GC + (2 if isinstance(capture, PerfettoFileCapture) else 0), (
             f"[{exporter_factory.name}] expected {N_GC} complete events "
-            f"(plus 1 Processes-track lifetime begin for Perfetto), "
+            f"(plus the pid's two span begins for Perfetto), "
             f"got {capture.count_completes()}"
         )
-        if isinstance(capture, PerfettoFileCapture):
-            # Perfetto also emits one synthetic "Start Process" dur=0
-            # marker per pid to keep the cmdline description visible in
-            # the UI; other exporters don't.
-            assert capture.count_instants() == N_INSTANT + 1, (
-                f"[perfetto] expected {N_INSTANT + 1} instant events "
-                f"({N_INSTANT} user + 1 Start Process marker), "
-                f"got {capture.count_instants()}"
-            )
-        else:
-            assert capture.count_instants() == N_INSTANT, (
-                f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
-            )
+        assert capture.count_instants() == N_INSTANT, (
+            f"[{exporter_factory.name}] expected {N_INSTANT} instant events, got {capture.count_instants()}"
+        )
         if isinstance(capture, PerfettoFileCapture):
             proc_descs = capture.count_process_descriptors()
             assert proc_descs == 1, f"[perfetto] expected exactly 1 process descriptor, got {proc_descs}"
@@ -451,35 +434,30 @@ class TestExporterThreadSafety:
         exporter, _capture = exporter_factory.build(tmp_path, threshold=10)
         exporter.close()
 
-        exporter.add_event(MAIN_PID, create_mock_stats_item(iid=1000))
-        exporter.add_instant_event(MAIN_PID, create_instant_msg(name="post-close", ts=999_999))
+        exporter.add_event(proc(MAIN_PID), create_mock_stats_item(iid=1000))
+        exporter.add_instant_event(proc(MAIN_PID), create_instant_msg(name="post-close", ts=999_999))
 
 
 @pytest.mark.stress
 class TestPerfettoExporterCmdlinePath:
-    """The cmdline fetch in ``ProtobufEventEncoder._ensure_cmdline``."""
+    """A process the registry read no command line for."""
 
-    def test_ensure_cmdline_none_event_still_emitted(self, tmp_path: Path) -> None:
-        """A pid whose cmdline provider returns ``None`` still gets a
-        process descriptor, with no cmdline entries on it.
+    def test_a_process_with_no_cmdline_still_gets_a_descriptor(self, tmp_path: Path) -> None:
+        """A process carrying no command line still gets a process
+        descriptor, with no cmdline entries on it.
         """
         path = tmp_path / "trace.pb"
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=1,
-            cmdline_provider=lambda pid: None,
-        )
-        exporter.add_event(MAIN_PID, create_mock_stats_item())
+        exporter = PerfettoExporter(output_path=path, flush_threshold=1)
+        exporter.add_event(proc(MAIN_PID), create_mock_stats_item())
         exporter.close()
 
         capture = PerfettoFileCapture(path)
-        # 1 GC pause slice begin on the thread track + 1 Processes-track
-        # lifetime begin for the only pid.
-        assert capture.count_completes() == 2
+        # 1 GC pause slice begin on the thread track + the pid's two span
+        # begins, one on the Processes track and one on its own row.
+        assert capture.count_completes() == 3
         assert capture.count_process_descriptors() == 1
 
-        # The process track carries no joined description either: the
-        # provider returned None for every pid.
+        # The process track carries no joined description either.
         for packet in capture._packets():
             if not packet.HasField("track_descriptor"):
                 continue
@@ -488,48 +466,6 @@ class TestPerfettoExporterCmdlinePath:
                 continue
             assert len(td.process.cmdline) == 0, f"expected no cmdline entries, got {len(td.process.cmdline)}"
 
-    def test_concurrent_same_pid_cmdline_provider_raises(self, tmp_path: Path) -> None:
-        """Two threads race the same new PID with a cmdline provider
-        that raises.
-
-        A provider failure costs the descriptor its cmdline and nothing
-        else. See ADR-0008.
-        """
-
-        class _CmdlineError(Exception):
-            pass
-
-        def _failing_provider(pid: int) -> list[str] | None:
-            raise _CmdlineError(pid)
-
-        path = tmp_path / "trace.pb"
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=10,
-            cmdline_provider=_failing_provider,
-        )
-        events_a = _make_gc_events(N_GC, 1_500_000_000)
-        events_b = _make_gc_events(N_GC, 1_600_000_000)
-
-        def writer_a() -> None:
-            for ev in events_a:
-                exporter.add_event(MAIN_PID, ev)
-
-        def writer_b() -> None:
-            for ev in events_b:
-                exporter.add_event(MAIN_PID, ev)
-
-        captured = _run_two_threads([writer_a, writer_b])
-        exporter.close()
-        for exc in captured:
-            raise exc
-
-        capture = PerfettoFileCapture(path)
-        # 2*N_GC GC pause slice begins on the thread track + 1
-        # Processes-track lifetime begin for the only pid.
-        assert capture.count_completes() == 2 * N_GC + 1
-        assert capture.count_process_descriptors() == 1
-
 
 @pytest.mark.stress
 class TestMetaDedupRaceClosed:
@@ -537,8 +473,8 @@ class TestMetaDedupRaceClosed:
     the file.
 
     The race this closes was a TOCTOU in the producer, between
-    ``pid not in self._pids`` and ``self._pids.add(pid)``, which could put
-    two process descriptors in a trace under load. It closed by deletion
+    ``pid not in self._pids`` and ``self._pids.add(pid)``, which could put two
+    process descriptors in a trace under load. It closed by deletion
     rather than by locking: no producer decides what a batch's descriptors
     are any more. The dedup lives in ``PerfettoTrackState``, reached only
     through ``write_events`` and ``record_process_liveness``, both already
@@ -547,21 +483,17 @@ class TestMetaDedupRaceClosed:
 
     def test_perfetto_two_threads_same_new_pid_produces_single_descriptor(self, tmp_path: Path) -> None:
         path = tmp_path / "out_perfetto.pb"
-        exporter = PerfettoExporter(
-            output_path=path,
-            flush_threshold=10,
-            cmdline_provider=lambda pid: ["python", "-u", "race_script.py"],
-        )
+        exporter = PerfettoExporter(output_path=path, flush_threshold=10)
         events_a = _make_gc_events(N_GC, 1_500_000_000)
         events_b = _make_gc_events(N_GC, 1_600_000_000)
 
         def writer_a() -> None:
             for ev in events_a:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         def writer_b() -> None:
             for ev in events_b:
-                exporter.add_event(MAIN_PID, ev)
+                exporter.add_event(proc(MAIN_PID), ev)
 
         captured = _run_two_threads([writer_a, writer_b])
         exporter.close()
@@ -571,3 +503,96 @@ class TestMetaDedupRaceClosed:
         capture = PerfettoFileCapture(path)
         proc_descs = capture.count_process_descriptors()
         assert proc_descs == 1, f"expected exactly 1 process descriptor, got {proc_descs}"
+
+
+@pytest.mark.stress
+class TestCaptureTotalsUnderLoad:
+    """``sampled_count`` and ``lost_count`` on the ``Lifetime`` bar count
+    what reached the trace, whatever thread put it there.
+
+    Both are folded in during the convert pass, which runs under
+    ``_io_lock``, so a record and a loss interval arriving on two threads
+    take the same route as the events they came in with.
+    """
+
+    _LOST_PER_INTERVAL = 3
+
+    def _bar_totals(self, path: Path) -> tuple[int, int]:
+        """``(sampled_count, lost_count)`` off the one ``Lifetime`` BEGIN."""
+        totals: list[tuple[int, int]] = []
+        for packet in perfetto_packets(path.read_bytes()):
+            track_event = _get_track_event(packet)
+            if track_event is None or track_event.name != "Lifetime":
+                continue
+            annotations = {ann.name: ann.int_value for ann in track_event.debug_annotations}
+            totals.append((annotations["sampled_count"], annotations["lost_count"]))
+        assert len(totals) == 1, f"expected one Lifetime bar, got {len(totals)}"
+        return totals[0]
+
+    def _count_pauses_before_the_bar(self, path: Path) -> int:
+        """The ``GC Pause`` BEGINs written ahead of the ``Lifetime`` bar.
+
+        One per record, and every batch is appended under ``_io_lock``, so
+        file order is the order the encoder converted them in. A writer that
+        outran ``close()`` puts its records past the bar, where they are in
+        the trace and outside the count by construction.
+        """
+        pauses = 0
+        for packet in perfetto_packets(path.read_bytes()):
+            track_event = _get_track_event(packet)
+            if track_event is None:
+                continue
+            if track_event.name == "Lifetime":
+                return pauses
+            if track_event.type == TrackEventType.SLICE_BEGIN and track_event.name.startswith("GC Pause"):
+                pauses += 1
+        raise AssertionError("the trace carries no Lifetime bar")
+
+    def test_records_and_losses_on_two_threads_lose_no_increment(self, tmp_path: Path) -> None:
+        path = tmp_path / "totals.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=5)
+        events = _make_gc_events(N_GC, 1_500_000_000)
+        losses = [
+            create_mock_loss_item(ts_start=ts, ts_stop=ts + 1_000, lost_count=self._LOST_PER_INTERVAL)
+            for ts in range(1_500_000_000, 1_500_000_000 + N_GC * 1_000, 1_000)
+        ]
+
+        def writer() -> None:
+            for ev in events:
+                exporter.add_event(proc(MAIN_PID), ev)
+
+        def loser() -> None:
+            for loss in losses:
+                exporter.add_loss_event(proc(MAIN_PID), loss)
+
+        captured = _run_two_threads([writer, loser])
+        exporter.close()
+        for exc in captured:
+            raise exc
+
+        assert self._bar_totals(path) == (N_GC, N_GC * self._LOST_PER_INTERVAL)
+
+    def test_a_close_racing_the_writer_counts_every_record_it_drew_over(self, tmp_path: Path) -> None:
+        """Whatever the close beat the writer to, the bar counts exactly the
+        records converted ahead of it: no increment dropped and none counted
+        twice."""
+        path = tmp_path / "raced.pb"
+        exporter = PerfettoExporter(output_path=path, flush_threshold=5)
+        for ev in _make_gc_events(PRE_FILL, 1_500_000_000):
+            exporter.add_event(proc(MAIN_PID), ev)
+        more = _make_gc_events(N_GC, 1_500_000_000 + 100_000_000)
+
+        def writer() -> None:
+            for ev in more:
+                exporter.add_event(proc(MAIN_PID), ev)
+
+        def closer() -> None:
+            exporter.close()
+
+        captured = _run_two_threads([writer, closer])
+        for exc in captured:
+            raise exc
+
+        sampled, _lost = self._bar_totals(path)
+        assert sampled == self._count_pauses_before_the_bar(path)
+        assert PRE_FILL <= sampled <= PRE_FILL + N_GC

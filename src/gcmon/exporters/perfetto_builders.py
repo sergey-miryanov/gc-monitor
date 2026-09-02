@@ -5,7 +5,7 @@ Plain values in, wire-format bytes out. Nothing here touches
 is what keeps it directly testable against the wire format (ADR-0001).
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from .perfetto_proto import (
     ChildTracksOrdering,
@@ -46,7 +46,7 @@ def build_track_descriptor(
     child_ordering: ChildTracksOrdering | None = None,
     sibling_order_rank: int | None = None,
     thread_name: str | None = None,
-    cmdline: list[str] | None = None,
+    cmdline: Sequence[str] | None = None,
     description: str | None = None,
     process_ordering: ProcessOrdering | None = None,
     thread_ordering: ThreadOrdering | None = None,
@@ -152,6 +152,17 @@ def build_trace_packet(
         result += encode_bytes_field(TracePacketField.TRACK_EVENT, track_event)
     if track_descriptor is not None:
         result += encode_bytes_field(TracePacketField.TRACK_DESCRIPTOR, track_descriptor)
+    return result
+
+
+def _build_debug_annotation_bool(name: str, value: bool) -> bytes:
+    """A flag the UI and SQL both read as ``true`` / ``false``.
+
+    Always written, whichever way it reads: a consumer asks for the value
+    and never for the field's presence.
+    """
+    result = encode_string_field(DebugAnnotationField.NAME, name)
+    result += encode_varint_field(DebugAnnotationField.BOOL_VALUE, int(value))
     return result
 
 

@@ -29,13 +29,14 @@ import pytest
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.poll_status import PollStatus
+from gcmon.model.process import Process
 from gcmon.model.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
 from gcmon.stats.streaming_stats import StreamingStats
 from tests.captures import SSL_CONTEXT_SIZE
-from tests.helpers import FakeEventsReader
+from tests.helpers import FakeEventsReader, polled, proc
 from tests.test_monitor_cursor import POLL_0
 
 PID = 33328
@@ -70,15 +71,15 @@ class Recorder(EventsExporter):
         self.losses: list[TLossMsg] = []
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
         self.records.append(item)
 
     @override
-    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+    def add_loss_event(self, process: Process, item: TLossMsg) -> None:
         self.losses.append(item)
 
     @override
-    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+    def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
         pass
 
     @override
@@ -257,7 +258,7 @@ def replay(interval_ms: float, sizes: dict[int, int] = RING_SIZES, skew_ms: floa
 
     with patch("gcmon.monitoring.monitor.time.monotonic_ns", side_effect=lambda: next(ticks)):
         for _ in batches:
-            assert monitor._poll(PID) is PollStatus.OK
+            assert monitor._poll(PID).status is PollStatus.OK
 
     return Replay(truth=truth, recorder=recorder, stats=stats, polls=len(batches), wakes=wakes)
 
@@ -342,7 +343,7 @@ class TestTheReplayLosesWhatItClaimsTo:
     def test_one_generation_goes_blind(self, lossy: dict[float, Replay]) -> None:
         run = lossy[ONE_GENERATION_MS]
 
-        assert run.stats.pause_totals(PID, 0, 0).coverage < 0.6
+        assert run.stats.pause_totals(proc(PID), 0, 0).coverage < 0.6
         assert [len(run.entries(gen)) > 0 for gen in (0, 1, 2)] == [True, False, False]
 
     def test_two_generations_go_blind_in_one_interval(self, lossy: dict[float, Replay]) -> None:
@@ -363,7 +364,7 @@ class TestTheReplayLosesWhatItClaimsTo:
         collection of each generation."""
         run = replay(LOSSLESS_MS, FREE_THREADED_SIZES)
 
-        assert run.stats.pause_totals(PID, 0, 0).coverage < 0.25
+        assert run.stats.pause_totals(proc(PID), 0, 0).coverage < 0.25
 
 
 @pytest.mark.parametrize("interval_ms", LOSSY_MS)
@@ -409,7 +410,7 @@ class TestTheTotalsAreExact:
         run = lossy[interval_ms]
 
         for gen in (0, 1, 2):
-            assert run.stats.pause_totals(PID, 0, gen).exact_count == len(run.span(gen))
+            assert run.stats.pause_totals(proc(PID), 0, gen).exact_count == len(run.span(gen))
 
     def test_the_pause_sum_matches_the_target(self, interval_ms: float, lossy: dict[float, Replay]) -> None:
         """Within a microsecond over eleven seconds. The reconstruction adds up
@@ -420,7 +421,7 @@ class TestTheTotalsAreExact:
 
         for gen in (0, 1, 2):
             truth = run.truth_pause_ns(gen, run.span(gen))
-            assert run.stats.pause_totals(PID, 0, gen).exact_pause_ns == pytest.approx(truth, abs=1_000)
+            assert run.stats.pause_totals(proc(PID), 0, gen).exact_pause_ns == pytest.approx(truth, abs=1_000)
 
     def test_the_lost_pause_is_the_pause_of_the_lost_records(
         self, interval_ms: float, lossy: dict[float, Replay]
@@ -431,13 +432,13 @@ class TestTheTotalsAreExact:
 
         for gen in (0, 1, 2):
             truth = run.truth_pause_ns(gen, run.lost(gen))
-            assert run.stats.pause_totals(PID, 0, gen).lost_pause_ns == pytest.approx(truth, abs=1_000)
+            assert run.stats.pause_totals(proc(PID), 0, gen).lost_pause_ns == pytest.approx(truth, abs=1_000)
 
     def test_coverage_is_the_share_actually_read(self, interval_ms: float, lossy: dict[float, Replay]) -> None:
         run = lossy[interval_ms]
 
         for gen in (0, 1, 2):
-            assert run.stats.pause_totals(PID, 0, gen).coverage == pytest.approx(
+            assert run.stats.pause_totals(proc(PID), 0, gen).coverage == pytest.approx(
                 len(run.read(gen)) / len(run.span(gen))
             )
 
@@ -514,7 +515,7 @@ class TestATornRead:
     def test_the_same_run_read_whole_draws_a_span(self, untorn: Replay) -> None:
         """The control that makes this a test of the tear and not of the poll
         period: read without skew, the same loss draws one span."""
-        assert untorn.stats.pause_totals(PID, 0, 0).lost_count == 1
+        assert untorn.stats.pause_totals(proc(PID), 0, 0).lost_count == 1
         assert len(untorn.recorder.losses) == 1
 
     def test_the_torn_read_draws_one_too(self, torn: Replay) -> None:
@@ -531,21 +532,21 @@ class TestATornRead:
 
     def test_the_count_is_kept_anyway(self, torn: Replay) -> None:
         """`--stats` covers every collection whether or not a bar came of it."""
-        assert torn.stats.pause_totals(PID, 0, 0).lost_count == 1
-        assert torn.stats.pause_totals(PID, 0, 0).exact_count == len(torn.span(0))
+        assert torn.stats.pause_totals(proc(PID), 0, 0).lost_count == 1
+        assert torn.stats.pause_totals(proc(PID), 0, 0).exact_count == len(torn.span(0))
 
     def test_the_lost_pause_is_kept_anyway(self, torn: Replay) -> None:
         missing = set(torn.span(0)) - torn.read(0)
 
-        assert torn.stats.pause_totals(PID, 0, 0).lost_pause_ns == torn.truth_pause_ns(0, missing)
+        assert torn.stats.pause_totals(proc(PID), 0, 0).lost_pause_ns == torn.truth_pause_ns(0, missing)
 
     def test_the_totals_still_match_the_target(self, torn: Replay) -> None:
         for gen in (0, 1, 2):
             truth = torn.truth_pause_ns(gen, torn.span(gen))
-            assert torn.stats.pause_totals(PID, 0, gen).exact_pause_ns == pytest.approx(truth, abs=1_000)
+            assert torn.stats.pause_totals(proc(PID), 0, gen).exact_pause_ns == pytest.approx(truth, abs=1_000)
 
     def test_coverage_is_unmoved_by_the_tear(self, torn: Replay) -> None:
-        assert torn.stats.pause_totals(PID, 0, 0).coverage == pytest.approx(len(torn.read(0)) / len(torn.span(0)))
+        assert torn.stats.pause_totals(proc(PID), 0, 0).coverage == pytest.approx(len(torn.read(0)) / len(torn.span(0)))
 
 
 class TestAMidWriteSlot:
@@ -591,7 +592,7 @@ class TestAMidWriteSlot:
             reader=FakeEventsReader(),
             wait_policy_factory=no_wait_policy,
         )
-        monitor._ingest(PID, batch, ts_poll=1)
+        monitor._ingest(polled(monitor, PID), batch, ts_poll=1)
 
         assert half_written.ts_start > half_written.ts_stop
         assert in_flight.collections not in {record.collections for record in recorder.records}
@@ -615,9 +616,9 @@ class TestAMidWriteSlot:
             reader=FakeEventsReader(),
             wait_policy_factory=no_wait_policy,
         )
-        monitor._ingest(PID, batch, ts_poll=1)
+        monitor._ingest(polled(monitor, PID), batch, ts_poll=1)
 
         counters = [record.collections for record in recorder.records if record.gen == 0]
         assert counters == sorted(set(counters))
         assert settled.collections in counters
-        assert stats.pause_totals(PID, 0, 0).lost_count == 0
+        assert stats.pause_totals(proc(PID), 0, 0).lost_count == 0

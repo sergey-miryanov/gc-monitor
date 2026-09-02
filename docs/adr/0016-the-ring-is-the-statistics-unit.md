@@ -1,17 +1,21 @@
 # ADR-0016: Report statistics per ring, and drop the per-process row from the `--stats` table
 
 - **Status:** Accepted
-- **Date:** 2026-08-15
+- **Date:** 2026-08-15, amended:
+  - 2026-08-31: the epoch moved onto a `Process` the monitor creates, see
+    [ADR-0025](0025-create-every-process-in-one-place.md)
+  - 2026-09-01: the track keys it cites became per process, see
+    [ADR-0011](0011-process-lifetime-and-ordering.md)
 
 ## Context
 
 Every interpreter in a target keeps its own collector, its own rings and its
 own cumulative counters. The trace side has said so since
 [ADR-0015](0015-gc-loss-spans-on-their-own-track.md): records go on a thread
-track per `(pid, iid)`, loss spans on a `GC Loss` track per `(pid, iid)`, and
-[ADR-0003](0003-gc-metrics-group-track.md)'s counter group is per `(pid, iid)`
-too. Open a trace of a process running three interpreters and you see three
-rows.
+track per `(process, iid)`, loss spans on a `GC Loss` track per
+`(process, iid)`, and [ADR-0003](0003-gc-metrics-group-track.md)'s counter
+group is per `(process, iid)` too. Open a trace of a process running three
+interpreters and you see three rows.
 
 The statistics side kept an older key. Sampled durations accumulated per pid
 and loss per `(pid, gen)`, so two interpreters' gaps landed in one slot with
@@ -68,14 +72,24 @@ gcmon called dead is a new process, the same one or not. The statistics never
 infer liveness a second time from the target's counters, so the two sides
 cannot disagree about which process a figure describes.
 
-**Everything a run keeps carries an epoch naming which process held the pid.**
-It counts from 1 and advances on each of those deaths, so whatever claims the
-pid next starts clean: its own entry, its own loss, its own lifetime counters.
-The epoch belongs to the pid rather than the ring (`pid_epoch` in the code,
-since a ring's own index is CPython's write cursor into it), so an interpreter
-a successor creates late counts as the successor's. The table prints the first
-block plain and marks the ones after it, `12345:0#2` for the second process to
-hold the pid.
+**Everything a run keeps names the process rather than the pid.** A `Process`
+carries an epoch counting from 1 that advances on each of those deaths, so
+whatever claims the pid next starts clean: its own entry, its own loss, its
+own lifetime counters. The epoch belongs to the pid rather than the ring
+(`pid_epoch` in the code, since a ring's own index is CPython's write cursor
+into it), so an interpreter a successor creates late counts as the
+successor's. The table prints the first block plain and marks the ones after
+it, `12345:0#2` for the second process to hold the pid. The monitor assigns
+the epoch and nothing here does
+([ADR-0025](0025-create-every-process-in-one-place.md)).
+
+**A settled ring turns away a record it has already counted.** A pid pruned
+from the tree loses its read cursor
+([ADR-0017](0017-monitor-owns-the-pid-lifecycle.md)), so its successor
+re-reads the ring and the records come back filed under the predecessor
+([ADR-0025](0025-create-every-process-in-one-place.md)). Folding one in a
+second time would leave the run totals and the ring's percentiles out by a
+duplicate.
 
 **A ring gets its row on its first record and keeps it until its process
 exits.** Where no slot is free the ring gets none and its records reach
@@ -107,8 +121,9 @@ summed over:
 **Process-wide quantities stay keyed per process.** `heap_size` has no
 generation and no thread affinity
 ([ADR-0004](0004-toplevel-shared-counters.md)), so its high-water mark is
-taken per process, pid and epoch. The end-of-run summary and the coverage
-footnote stay run-wide, the scope `Total` reports.
+taken per process, and two processes that shared a pid keep a mark each. The
+end-of-run summary and the coverage footnote stay run-wide, the scope `Total`
+reports.
 
 ## Consequences
 
@@ -201,7 +216,8 @@ footnote stay run-wide, the scope `Total` reports.
 - `src/gcmon/stats/streaming_stats.py` keys sampled metrics, loss and lifetime
   totals on the ring, bounds the active set, and answers both a ring's totals
   and a fold over them. One entry holds all three, so a ring's numbers settle
-  together, and the epoch appears in one key rather than three.
+  together, and a key is the process and the interpreter rather than three
+  numbers.
 - `src/gcmon/stats/stats_output.py` builds the table's two levels and the
   footer notes, and owns the `PID:IID` spelling.
 - `src/gcmon/monitoring/monitor.py` passes the iid it has in hand when

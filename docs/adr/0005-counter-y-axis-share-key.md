@@ -1,7 +1,9 @@
 # ADR-0005: Use the metric name itself as `CounterDescriptor.y_axis_share_key`
 
 - **Status:** Accepted
-- **Date:** 2026-06-28
+- **Date:** 2026-06-28, amended:
+  - 2026-09-01: the track key became per process, see
+    [ADR-0011](0011-process-lifetime-and-ordering.md)
 
 ## Context
 
@@ -17,10 +19,10 @@ are rendered on one Y-axis range. gcmon was already emitting a
 `CounterDescriptor` at `TrackDescriptor` field 8 for every counter track, but
 it was always the empty submessage.
 
-All per-generation counter tracks already share a parent, the per-`(pid, iid)`
-`GC Metrics` group from [ADR-0003](0003-gc-metrics-group-track.md), so the
-"same parent" half of the requirement holds and sharing is scoped to a single
-process.
+All per-generation counter tracks already share a parent, the
+per-`(process, iid)` `GC Metrics` group from
+[ADR-0003](0003-gc-metrics-group-track.md), so the "same parent" half of the
+requirement holds and sharing is scoped to a single process.
 
 ## Decision
 
@@ -57,9 +59,11 @@ omitting it keeps the wire format minimal.
   re-scaling.
 - Y-axis sharing and sibling ordering are independent features; both are
   preserved.
-- Sharing cannot cross processes, because each pid has its own `GC Metrics`
-  group and Perfetto requires a shared parent. That is the documented scope of
-  the feature.
+- Sharing cannot cross processes, because each process has its own
+  `GC Metrics` group and Perfetto requires a shared parent, including two
+  processes that held one pid
+  ([ADR-0011](0011-process-lifetime-and-ordering.md)). That is the documented
+  scope of the feature.
 - Older trace processors ignore the unknown field, so no write-time version
   gate is needed.
 - **The SQL-level tests are permanently `@pytest.mark.xfail(strict=False)`.**

@@ -2,7 +2,8 @@
 
 - **Status:** Superseded by
   [ADR-0024](0024-an-event-names-the-track-it-is-drawn-on.md)
-- **Date:** 2026-06-27 (`rss` added 2026-07-13)
+- **Date:** 2026-06-27, amended:
+  - 2026-07-13: `rss` added
 
 > Superseded on 2026-08-26. The single-arg display-name rule and the top-level
 > metric set holding both `heap_size` and `rss` are gone: the converter writes

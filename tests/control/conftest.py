@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from gcmon.control.control_server import ControlServer
+from gcmon.monitoring.process_registry import ProcessRegistry
 
 
 @pytest.fixture
@@ -15,7 +16,7 @@ def mock_exporter() -> MagicMock:
 
 @pytest.fixture
 def control_server(mock_exporter: MagicMock) -> Generator[ControlServer]:
-    server = ControlServer(mock_exporter)
+    server = ControlServer(mock_exporter, ProcessRegistry())
     try:
         server.start()
         yield server

@@ -37,11 +37,11 @@ This file holds the open set and the order to take it in. The other two:
 | [0051](0051-key-the-running-rings-by-pid.md) | Feature (efficiency) | S | Asking `StreamingStats` about one process walks every process's rings; `low_coverage` does it once per polled pid per tick, and on a healthy run it never stops |
 | [0052](0052-a-recycled-pid-can-be-read-through-a-stale-attachment.md) | Bug (correctness) | S | A pid the OS reissues between two ticks is read through the attachment gcmon still holds, so an unrelated process's memory reaches the trace as plausible records; only Linux is exposed |
 | [0054](0054-macos-attachment-leaks-a-mach-task-port.md) | Bug (availability) | S | On macOS every attachment costs gcmon a Mach port name that nothing gives back; CPython's cleanup has a Windows arm and a Linux arm and no Apple one |
-| [0059](0059-say-which-process-held-a-pid-in-the-trace.md) | Feature (enhancement) | M | The table says `12345:0#2` when a pid was reused; the trace of the same run says `12345` once, and draws one span over an interval in which that process did not exist |
 | [0060](0060-report-an-exact-mean-and-a-geometric-mean.md) | Feature (enhancement) | S | `Avg` is the sampled mean and reads high on any lossy run, while the exact one sits unprinted in `PauseTotals`; and no column summarises a pause distribution as skewed as this one |
 | [0061](0061-build-the-statistics-table-from-a-tracefile.md) | Feature (enhancement) | L | The statistics table exists only while gcmon is running; a capture from last week holds every number and offers no way to see them |
 | [0062](0062-name-a-workload-from-a-sanitized-command-line.md) | Feature (enhancement) | M | A pyperformance run prints one `Total` folding sixty benchmarks and hundreds of blocks keyed by a pid that means nothing afterwards; the level anyone asks about is missing |
 | [0063](0063-compare-two-tracefiles.md) | Feature (enhancement) | L | Nothing answers "did GC get worse between these two runs"; two tables side by side works for one row and fails for sixty |
+| [0068](0068-split-the-tree-into-two-towers.md) | Feature (cleanup) | L | gcmon will not install below Python 3.15, though half of what it does needs nothing from it; and nothing stops a command that only reads a file from importing the monitoring layer |
 
 Every row here has a file. A missing number either retired or never became
 one; [RETIRED.md](RETIRED.md) says which.
@@ -61,11 +61,11 @@ one; [RETIRED.md](RETIRED.md) says which.
 | 0036 | |
 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edited |
 | 0042 | |
-| 0020 | |
+| 0020 | Unblocked: 0067 landed, and the `Lifetime` slice is where both fields go |
 | 0051 | Unblocked: 0039 landed, and `StreamingStats` is in the module it will keep |
 | 0060 | Smallest of the comparison set and depends on none of it |
-| 0059 | Constrained: before 0061 |
-| 0061 | Constrained: after 0059 |
+| 0068 | Constrained: before 0061. Creates the `analysis` tower the reader lands in, and the extra it needs |
+| 0061 | Unblocked: 0059 landed, and a trace now says which process held a pid |
 | 0062 | |
 | 0063 | Constrained: after 0060, 0061 and 0062 |
 
@@ -87,7 +87,7 @@ the position. A blank cell means no recorded reason, so that row can move.
 | First | Then | Why |
 |-------|------|-----|
 | 0050 | 0040 | 0040 derives the option declarations from one table and would otherwise have to carry the alias 0050 introduces through a rewrite of the structure holding it |
-| 0059 | 0061 | Without it a table built from a tracefile cannot say which process held a pid, and the offline table would drop a distinction the live one makes |
+| 0068 | 0061 | 0061's reader lives in the `analysis` tower and needs the `analysis` extra; 0068 creates both |
 | 0060, 0061, 0062 | 0063 | 0063 builds two of the tables those three produce and diffs them; it computes no statistic of its own |
 
 0042 depends on nothing else here; take it at any time.

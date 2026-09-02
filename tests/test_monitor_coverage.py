@@ -16,7 +16,7 @@ import pytest
 
 from gcmon.model.data import GCStatsInfo
 from gcmon.monitoring.monitor import EventsMonitor
-from tests.helpers import create_mock_stats_item
+from tests.helpers import create_mock_stats_item, polled
 
 PID = 4242
 OTHER_PID = 4243
@@ -68,7 +68,7 @@ def poll_rings(monitor: EventsMonitor, pid: int, rings: list[GCStatsInfo]) -> No
     A read hands back every interpreter's buffer together, which is where a
     starved interpreter sits.
     """
-    monitor._ingest(pid, rings, next(_POLL_CLOCK))
+    monitor._ingest(polled(monitor, pid), rings, next(_POLL_CLOCK))
 
 
 class TestCoverageWarning:

@@ -23,13 +23,14 @@ import pytest
 from gcmon.exporters.exporter import EventsExporter
 from gcmon.model.data import GCStatsInfo
 from gcmon.model.loss import RingAccumulator
+from gcmon.model.process import Process
 from gcmon.model.protocol import TGCStatsInfo, TGenLoss, TInstantMsg, TLossMsg
 from gcmon.monitoring.monitor import EventsMonitor
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import no_wait_policy
 from gcmon.stats.streaming_stats import StreamingStats
 from gcmon.support.time_units import secs_to_ns
-from tests.helpers import FakeEventsReader, create_mock_stats_item
+from tests.helpers import FakeEventsReader, create_mock_stats_item, polled, proc
 from tests.test_monitor_cursor import POLL_0, POLL_1, build_batch
 
 PID = 12345
@@ -164,15 +165,15 @@ class LossRecorder(EventsExporter):
         self.observed: list[TGCStatsInfo] = []
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
         self.observed.append(item)
 
     @override
-    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
+    def add_loss_event(self, process: Process, item: TLossMsg) -> None:
         self.losses.append(item)
 
     @override
-    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
+    def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
         pass
 
     @override
@@ -213,7 +214,7 @@ class Ingested:
         self.polled_at.append(ts)
 
         before = len(self.recorder.losses)
-        self.monitor._ingest(self.pid, list(batch), ts)
+        self.monitor._ingest(polled(self.monitor, self.pid), list(batch), ts)
         return self.recorder.losses[before:]
 
     @property
@@ -997,9 +998,9 @@ class TestTwoInterpreters:
         ingested.poll([first[0], second[0]], ts=1_000)
         ingested.poll([first[1], second[4]], ts=2_000)
 
-        assert ingested.stats.pause_totals(PID, 3, 0).lost_count == 3
-        assert ingested.stats.pause_totals(PID, 0, 0).lost_count == 0
-        assert ingested.stats.pause_totals(PID, 0, 0).coverage == 1.0
+        assert ingested.stats.pause_totals(proc(PID), 3, 0).lost_count == 3
+        assert ingested.stats.pause_totals(proc(PID), 0, 0).lost_count == 0
+        assert ingested.stats.pause_totals(proc(PID), 0, 0).coverage == 1.0
 
     def test_each_row_carries_the_loss_its_own_record_drew(self) -> None:
         """One arithmetic, two readers: whatever a `GC Loss` record says an
@@ -1008,7 +1009,7 @@ class TestTwoInterpreters:
 
         for loss in ingested.recorder.losses:
             drawn = sum(gen.lost_count for gen in loss.gens)
-            assert ingested.stats.pause_totals(PID, loss.iid, 0).lost_count == drawn
+            assert ingested.stats.pause_totals(proc(PID), loss.iid, 0).lost_count == drawn
 
 
 class TestTheStatsAreRecordedWhateverIsDrawn:
@@ -1027,14 +1028,14 @@ class TestTheStatsAreRecordedWhateverIsDrawn:
     def test_the_collections_reach_the_table(self) -> None:
         stats = self.ingested().stats
 
-        assert stats.pause_totals(PID, 0, 0).lost_count == 3
-        assert stats.pause_totals(PID, 0, 0).lost_pause_ns > 0
+        assert stats.pause_totals(proc(PID), 0, 0).lost_count == 3
+        assert stats.pause_totals(proc(PID), 0, 0).lost_pause_ns > 0
 
     def test_the_exact_totals_include_them(self) -> None:
         stats = self.ingested().stats
 
-        assert stats.pause_totals(PID, 0, 0).exact_count == 5
-        assert stats.pause_totals(PID, 0, 0).coverage == pytest.approx(2 / 5)
+        assert stats.pause_totals(proc(PID), 0, 0).exact_count == 5
+        assert stats.pause_totals(proc(PID), 0, 0).coverage == pytest.approx(2 / 5)
 
 
 class TestForgettingAPid:
@@ -1045,7 +1046,7 @@ class TestForgettingAPid:
 
         ingested = Ingested()
         ingested.poll([events[0]], ts=1_000)
-        ingested.monitor._forget(PID)
+        ingested.monitor._forget(PID, 0)
         ingested.poll([events[4]], ts=2_000)
 
         assert ingested.recorder.losses == []
@@ -1055,7 +1056,7 @@ class TestForgettingAPid:
 
         ingested = Ingested()
         ingested.poll([events[0]], ts=1_000)
-        ingested.monitor._retain(set())
+        ingested.monitor._retain(set(), 0)
         ingested.poll([events[4]], ts=2_000)
 
         assert ingested.recorder.losses == []

@@ -18,10 +18,11 @@ import pytest
 
 from gcmon.control.control_server import CONTROL_ADDRESS_ENV, ControlServer, _make_address
 from gcmon.model.marks import Mark, Side, parse_mark
+from gcmon.model.process import Process
 from gcmon.model.protocol import TInstantMsg
 from gcmon.monitoring.events_reader import RemoteEventsReader, TargetUnavailable
 from gcmon.pyperf.hook import GCMonitorHook, _get_env_pyperf_hook_control_timeout, gcmon_hook
-from tests.helpers import MockExporter, open_trace_processor
+from tests.helpers import MockExporter, monitored, open_trace_processor
 from tests.test_events_reader import target_executable
 
 
@@ -59,7 +60,7 @@ class Sink(NamedTuple):
 def sink(monkeypatch: pytest.MonkeyPatch) -> Generator[Sink]:
     """A listening control plane, reached the way a worker reaches one."""
     exporter = MockExporter()
-    server = ControlServer(exporter)
+    server = ControlServer(exporter, monitored(os.getpid()))
     server.start()
     monkeypatch.setenv(CONTROL_ADDRESS_ENV, server.address)
     try:
@@ -213,13 +214,13 @@ class TestTheMarksInATrace:
             instants = 0
 
             @override
-            def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
-                super().add_instant_event(pid, item)
+            def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
+                super().add_instant_event(process, item)
                 self.instants += 1
 
         path = tmp_path / "marks.pftrace"
         exporter = CountingExporter(output_path=path, flush_threshold=1000)
-        server = ControlServer(exporter)
+        server = ControlServer(exporter, monitored(os.getpid()))
         server.start()
         try:
             monkeypatch.setenv(CONTROL_ADDRESS_ENV, server.address)
@@ -240,7 +241,7 @@ class TestTheMarksInATrace:
                     "SELECT s.name AS name FROM slice s "
                     "JOIN process_track pt ON s.track_id = pt.id "
                     "JOIN process p ON pt.upid = p.upid "
-                    f"WHERE p.pid = {os.getpid()} AND s.dur = 0 AND s.name LIKE 'gcmon:%' "
+                    f"WHERE p.name = 'Process {os.getpid()}' AND s.dur = 0 AND s.name LIKE 'gcmon:%' "
                     "ORDER BY s.ts"
                 )
             )

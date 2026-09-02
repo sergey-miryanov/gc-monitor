@@ -1,7 +1,8 @@
 # ADR-0002: Allocate track UUIDs sequentially and parent every track explicitly
 
 - **Status:** Accepted
-- **Date:** 2026-06-08 (UUID allocator revised 2026-06-18)
+- **Date:** 2026-06-08, amended:
+  - 2026-06-18: UUID allocator revised
 
 ## Context
 

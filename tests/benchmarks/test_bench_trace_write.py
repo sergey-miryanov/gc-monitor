@@ -18,6 +18,7 @@ from pytest_codspeed import BenchmarkFixture
 from gcmon.exporters.encoder import ProtobufEventEncoder
 from gcmon.exporters.trace_converter import convert_item_to_trace_format
 from gcmon.model.trace_event import TraceEvent
+from tests.helpers import proc
 
 from .conftest import make_gc_event
 
@@ -34,7 +35,9 @@ def _batches() -> list[list[TraceEvent]]:
     for batch in range(BATCHES):
         events: list[TraceEvent] = []
         for i in range(EVENTS_PER_BATCH):
-            events.extend(convert_item_to_trace_format(PID, make_gc_event(batch * EVENTS_PER_BATCH + i, gen=i % 3)))
+            events.extend(
+                convert_item_to_trace_format(proc(PID), make_gc_event(batch * EVENTS_PER_BATCH + i, gen=i % 3))
+            )
         batches.append(events)
     return batches
 
@@ -45,7 +48,7 @@ def test_write_a_run_of_batches(benchmark: BenchmarkFixture, tmp_path: Path) -> 
     path = tmp_path / "bench.pftrace"
 
     def run() -> int:
-        encoder = ProtobufEventEncoder(cmdline_provider=lambda _pid: None, sequence_id=1)
+        encoder = ProtobufEventEncoder(sequence_id=1)
         encoder.open(path)
         for events in batches:
             encoder.write_events(events)

@@ -279,11 +279,16 @@ def loaded_trace_processor(
 
 
 def _process_filter(pid: int) -> str:
+    """SQL fragment scoping a query to the one process on *pid*.
+
+    On the name, not on ``process.pid``: that column holds the pid gcmon
+    writes for the row (ADR-0011).
+    """
     return (
         "JOIN thread_track tt ON s.track_id = tt.id "
         "JOIN thread th ON tt.utid = th.utid "
         "JOIN process p ON th.upid = p.upid "
-        f"WHERE p.pid = {pid}"
+        f"WHERE p.name = 'Process {pid}'"
     )
 
 
@@ -313,9 +318,9 @@ def _slices_from_trace(tp: TraceProcessor) -> list[_Slice]:
     """The same shape, read out of the trace by the trace processor.
 
     Two slice kinds are dropped, both of them the Perfetto converter's own and
-    neither of them built from a `TraceEvent`: the `Process {pid}` spans on the
-    `Processes` track, and the zero-duration `Start Process` marker that
-    carries the cmdline into the UI.
+    neither built from a `TraceEvent`: the `Process {pid}` spans on the
+    `Processes` track, and the `Lifetime` bar each process's own row carries
+    over the interval gcmon observed it.
     """
     args_by_set: dict[int, dict[str, object]] = {}
     for row in tp.query("SELECT arg_set_id, flat_key, int_value, string_value, real_value FROM args"):
@@ -336,7 +341,7 @@ def _slices_from_trace(tp: TraceProcessor) -> list[_Slice]:
     for row in tp.query(
         "SELECT s.name, s.dur, s.arg_set_id, t.name AS track_name FROM slice s JOIN track t ON s.track_id = t.id"
     ):
-        if row.track_name == "Processes" or row.name == "Start Process":
+        if row.track_name == "Processes" or row.name == "Lifetime":
             continue
         args = args_by_set.get(row.arg_set_id, {})
         drawn.append((row.name, row.dur, tuple(sorted(args.items()))))
@@ -393,6 +398,52 @@ class TestCombinedTraceIsStructurallyComplete:
             f"expected process tracks for both PIDs, got {rows}"
         )
 
+    def test_the_close_time_sweep_leaves_a_combined_process_alone(
+        self,
+        loaded_trace_processor: TraceProcessor,
+    ) -> None:
+        """`combine` reports no liveness, so every process here was described
+        by the conversion pass and the sweep that describes a process gcmon
+        only ever polled finds nothing left to do (ADR-0011). One bar per
+        process, and no command line invented for it (ADR-0024)."""
+        rows = list(
+            loaded_trace_processor.query(
+                "SELECT p.name AS pname, COUNT(*) AS n FROM slice s "
+                "JOIN process_track pt ON s.track_id = pt.id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE s.name = 'Lifetime' GROUP BY p.name ORDER BY p.name"
+            )
+        )
+        assert {r.pname: r.n for r in rows} == {f"Process {_PID_A}": 1, f"Process {_PID_B}": 1}
+
+        described = list(
+            loaded_trace_processor.query(
+                "SELECT a.string_value AS description FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "WHERE a.key = 'description'"
+            )
+        )
+        assert described == []
+
+    def test_a_converted_capture_says_how_much_of_it_was_read(
+        self,
+        loaded_trace_processor: TraceProcessor,
+    ) -> None:
+        """No exporter ran here: `combine` hands its events straight to the
+        encoder. The count is taken in the convert pass, which is the one
+        stage both paths share, so a converted capture reads its own records
+        rather than reporting none."""
+        rows = list(
+            loaded_trace_processor.query(
+                "SELECT p.name AS pname, a.int_value AS sampled FROM args a "
+                "JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                "JOIN process_track pt ON s.track_id = pt.id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE s.name = 'Lifetime' AND a.flat_key = 'debug.sampled_count'"
+            )
+        )
+        assert {r.pname: r.sampled for r in rows} == {f"Process {_PID_A}": 3, f"Process {_PID_B}": 1}
+
     def test_thread_tracks_present(
         self,
         loaded_trace_processor: TraceProcessor,
@@ -400,7 +451,7 @@ class TestCombinedTraceIsStructurallyComplete:
         rows = sorted(
             r.name
             for r in loaded_trace_processor.query(
-                f"SELECT th.name FROM thread th JOIN process p ON th.upid = p.upid WHERE p.pid = {_PID_A}",
+                f"SELECT th.name FROM thread th JOIN process p ON th.upid = p.upid WHERE p.name = 'Process {_PID_A}'",
             )
         )
         for iid in (_IID_A1, _IID_A2, _IID_A3):
@@ -501,7 +552,7 @@ class TestCombineNormalizePerfettoIntegration:
                     f"JOIN thread_track tt ON s.track_id = tt.id "
                     f"JOIN thread th ON tt.utid = th.utid "
                     f"JOIN process p ON th.upid = p.upid "
-                    f"WHERE p.pid = {_PID_A}",
+                    f"WHERE p.name = 'Process {_PID_A}'",
                 )
             )
             assert len(rows) == 1

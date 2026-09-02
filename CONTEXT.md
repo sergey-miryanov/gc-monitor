@@ -89,6 +89,19 @@ interpreter's collections, or that interpreter's **loss** row.
 _Avoid_: lane, thread (none of the three is one), tid, row (in output; fine
 in prose)
 
+**Process track**:
+A process's own row, and what its other rows hang under: its thread rows, its
+loss rows, its counter group, and the counters drawn beside the group rather
+than inside it. Named `Process 12345`, or `Process 12345#2` for the second
+process to hold the pid.
+_Avoid_: process group, pid track, parent track
+
+**Counter group**:
+The `GC Metrics` row a process's per-generation counters hang under, one per
+interpreter, itself under the process track.
+_Avoid_: metrics track, group (unqualified), counter track (that is one
+counter's own row)
+
 **Capture**:
 The JSONL file gcmon writes: one JSON object per line, holding the records
 gcmon read and the loss windows between them. A **trace** holds events drawn
@@ -97,7 +110,8 @@ reads one and writes the other.
 _Avoid_: dump, log, export, trace file (that is the Perfetto file)
 
 **Span**:
-A slice on the `Processes` track, bounding a process's observed lifetime.
+A slice bounding a process's observed lifetime, on the shared `Processes` row
+or on the process's own.
 _Avoid_: lifetime (unqualified; see below), duration, extent
 
 **Intern id**: The number a packet writes in place of a string the trace has
@@ -171,7 +185,8 @@ _Avoid_: true, real, total
 
 **Lifetime totals**: Everything one interpreter has collected since it
 started, monitored window included. Always written with the qualifier: bare
-**lifetime** means the `Processes`-track span above. The source names the
+**lifetime** means the span above, the interval gcmon observed a process over,
+which the `Lifetime` slice on that process's row draws. The source names the
 counters underneath rather than the interval (`CumulativeCounters`,
 `StreamingStats.observe_cumulative`, `cumulative_totals_by_gen`), so the bare
 word is left to the span everywhere outside this prose.

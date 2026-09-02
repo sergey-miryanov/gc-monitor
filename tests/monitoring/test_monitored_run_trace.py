@@ -45,11 +45,11 @@ recorded. The child replays the same collections `CHILD_SKEW_NS` later, so its
 ring lands on different instants and its loss windows fall elsewhere. Two pids
 with different per-pid state, not one counted twice.
 
-*Neither value the encoder would have invented is left to it.* `sequence_id`
-is passed in rather than derived from `id(self)`, and `cmdline_provider` is a
-stub answering `None`, so psutil is never asked what a pid this machine does
-not have was running. Track uuids count from 1 in allocation order, which the
-script above already fixes.
+*The one value the encoder would have invented is not left to it.*
+`sequence_id` is passed in rather than derived from `id(self)`. Track uuids
+count from 1 in allocation order, which the script above already fixes, and
+the registry the monitor builds for itself has no cmdline provider, so psutil
+is never asked what a pid this machine does not have was running.
 
 *Liveness arrives in the order the script produced.* The `Processes` track
 clips one pid's span against another's, so its slices depend on the sequence of
@@ -132,15 +132,6 @@ FLUSH_THRESHOLD = 1000
 # is `id(self)` masked, which is an address, so it would put this process's
 # memory layout in the fixture.
 SEQUENCE_ID = 1
-
-
-def _no_cmdline(pid: int) -> list[str] | None:
-    """The cmdline provider for a run with no live process behind it.
-
-    The default reads psutil, which on this machine answers for whatever
-    happens to hold pid 33328, and on the next machine answers something else.
-    """
-    return None
 
 
 def _tree(tick: int) -> list[int]:
@@ -264,11 +255,22 @@ class MonitoredRun:
         return perfetto_packets(self.trace)
 
     def text(self) -> str:
-        return "".join(f"--- packet {index} ---\n{packet}" for index, packet in enumerate(self.packets()))
+        """The whole trace as text, one stanza per packet.
 
-    def pid_by_track(self) -> dict[int, int]:
-        """Every descriptor carries the pid, on `ProcessDescriptor` or on
-        `ThreadDescriptor` alike, so this needs no walk up to a parent."""
+        The stanzas are unnumbered: a packet inserted anywhere renumbers
+        every packet after it, and the change disappears into the
+        renumbering.
+        """
+        return "".join(f"--- packet ---\n{packet}" for packet in self.packets())
+
+    def row_pid_by_track(self) -> dict[int, int]:
+        """Every descriptor carries a pid, on `ProcessDescriptor` or on
+        `ThreadDescriptor` alike, so this needs no walk up to a parent.
+
+        It is the pid gcmon writes for the row, one per process rather than
+        one per operating-system pid (ADR-0011). The operating system's
+        reaches the trace on the spans.
+        """
         by_track: dict[int, int] = {}
         for packet in self.packets():
             if not packet.HasField("track_descriptor"):
@@ -279,6 +281,22 @@ class MonitoredRun:
             elif descriptor.HasField("process"):
                 by_track[descriptor.uuid] = descriptor.process.pid
         return by_track
+
+    def row_pids_on(self, pid: int) -> set[int]:
+        """The row pids of every process the operating system gave *pid* to.
+
+        Read off the process descriptors, whose name carries the operating
+        system's pid and the epoch and is the only place either of them
+        appears on a descriptor (ADR-0011).
+        """
+        prefix = f"Process {pid}"
+        return {
+            packet.track_descriptor.process.pid
+            for packet in self.packets()
+            if packet.HasField("track_descriptor")
+            and packet.track_descriptor.HasField("process")
+            and packet.track_descriptor.name in (prefix, f"{prefix}#2")
+        }
 
     def slice_names(self) -> list[str]:
         return [
@@ -340,7 +358,6 @@ def run_monitored(output: Path) -> MonitoredRun:
     exporter = PerfettoExporter(
         output_path=output,
         flush_threshold=FLUSH_THRESHOLD,
-        cmdline_provider=_no_cmdline,
         sequence_id=SEQUENCE_ID,
     )
     monitor = EventsMonitor(
@@ -400,8 +417,26 @@ class TestTheScriptIsWorthPinning:
         assert any(CHILD_PID not in tick for tick in polled), "no tick prunes"
         assert polled[-1] == {TARGET_PID, CHILD_PID}, "the child never comes back"
 
+    def test_every_process_is_described_under_a_row_pid_of_its_own(self, run: MonitoredRun) -> None:
+        """Three processes on two pids, so a run written under the operating
+        system's pids would describe two rows and hide one process."""
+        row_pids = set(run.row_pid_by_track().values())
+
+        assert len(row_pids) == 3
+        assert not row_pids & {TARGET_PID, CHILD_PID}
+
     def test_both_pids_reach_the_trace(self, run: MonitoredRun) -> None:
-        assert set(run.pid_by_track().values()) == {TARGET_PID, CHILD_PID}
+        """The operating system's pid, which no descriptor carries any more:
+        it is on the span each process draws."""
+        annotated = {
+            annotation.int_value
+            for packet in run.packets()
+            if packet.HasField("track_event")
+            for annotation in packet.track_event.debug_annotations
+            if annotation.name == "pid"
+        }
+
+        assert annotated == {TARGET_PID, CHILD_PID}
 
     def test_the_run_loses_records_as_well_as_drawing_them(self, run: MonitoredRun) -> None:
         """A poll period the ring always survives would pin the export path
@@ -420,7 +455,7 @@ class TestTheScriptIsWorthPinning:
         """
         drawn = run.begins_on(run.track_uuid("Processes"))
 
-        assert sorted(drawn) == sorted([f"Process {TARGET_PID}", f"Process {CHILD_PID}"])
+        assert sorted(drawn) == sorted([f"Process {TARGET_PID}", f"Process {CHILD_PID}", f"Process {CHILD_PID}#2"])
 
     def test_the_clock_was_spent_exactly(self, run: MonitoredRun) -> None:
         """One read to seed the grid, then per tick one to stamp it, two per
@@ -454,15 +489,19 @@ class TestTheChildLeavingIsVisible:
     """What the departure costs, in the trace rather than in a state dict.
 
     An empty `_pids` after a prune proves the prune ran, not that it was right.
-    Here is the observable consequence: a pid that leaves the tree loses its
-    `collections` cursor, so the ring it returns holding is unseen and every
-    record in it exports a second time. Duplicate slices are the price. If they
-    vanish, the prune stopped happening (ADR-0017).
+    Here is the observable consequence: the child's collections come back on
+    two rows rather than one, because the pid that left the tree is a
+    different process from the one that returned (ADR-0017). Every collection
+    is still drawn exactly once: the returning pid loses its cursor and
+    re-reads slots gcmon had already exported, and those are dropped rather
+    than drawn again under a process that did not produce them (ADR-0025).
     """
 
     def _pauses(self, run: MonitoredRun, pid: int) -> list[tuple[int, int]]:
-        """`(generation, collections)` per GC Pause slice drawn for *pid*."""
-        by_track = run.pid_by_track()
+        """`(generation, collections)` per GC Pause slice drawn for *pid*,
+        across every process that held it."""
+        by_track = run.row_pid_by_track()
+        row_pids = run.row_pids_on(pid)
         drawn: list[tuple[int, int]] = []
         for packet in run.packets():
             if not packet.HasField("track_event"):
@@ -472,16 +511,33 @@ class TestTheChildLeavingIsVisible:
                 continue
             if not event.name.startswith("GC Pause("):
                 continue
-            if by_track.get(event.track_uuid) != pid:
+            if by_track.get(event.track_uuid) not in row_pids:
                 continue
             annotations = {ann.name: ann.int_value for ann in event.debug_annotations}
             drawn.append((annotations["generation"], annotations["collections"]))
         return drawn
 
-    def test_the_returning_child_re_exports_the_ring_it_left_with(self, run: MonitoredRun) -> None:
+    def test_the_child_draws_on_both_of_its_rows(self, run: MonitoredRun) -> None:
+        """The departure, read off the trace. One row would mean no prune."""
+        by_track = run.row_pid_by_track()
+        row_pids = run.row_pids_on(CHILD_PID)
+        rows = {
+            uuid
+            for packet in run.packets()
+            if packet.HasField("track_event")
+            and packet.track_event.type == TrackEvent.Type.TYPE_SLICE_BEGIN
+            and packet.track_event.name.startswith("GC Pause(")
+            and by_track.get(uuid := packet.track_event.track_uuid) in row_pids
+        }
+
+        assert len(rows) == 2, "the child's collections should split across the two processes that held its pid"
+
+    def test_the_returning_child_draws_no_collection_twice(self, run: MonitoredRun) -> None:
+        """The re-read is real -- the cursor went with the departure -- and
+        every slot it hands back a second time is dropped."""
         drawn = self._pauses(run, CHILD_PID)
 
-        assert len(drawn) > len(set(drawn)), "the child came back with its cursor intact"
+        assert len(drawn) == len(set(drawn)), "a re-read slot was drawn a second time"
 
     def test_the_target_never_draws_a_collection_twice(self, run: MonitoredRun) -> None:
         """The control. The target is in the tree throughout, so nothing

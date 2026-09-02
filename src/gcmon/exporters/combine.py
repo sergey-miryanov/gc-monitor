@@ -30,7 +30,7 @@ def _normalize_trace_timestamps(events: list[TraceEvent]) -> None:
     """
     by_pid: dict[int, list[TraceEvent]] = {}
     for event in events:
-        by_pid.setdefault(event.track.pid, []).append(event)
+        by_pid.setdefault(event.track.process.pid, []).append(event)
 
     for timed in by_pid.values():
         min_ts = min(_starts_at(e) for e in timed)

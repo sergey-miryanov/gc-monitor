@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable, Generator, Mapping, Sequence, Set
 from typing import override
 from unittest.mock import MagicMock, Mock, patch
@@ -5,13 +6,15 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from gcmon.model.data import GCStatsInfo
+from gcmon.model.process import Process
 from gcmon.model.protocol import TGCStatsInfo
 from gcmon.monitoring.events_reader import TargetUnavailable
 from gcmon.monitoring.monitor import EventsMonitor, PollReport
+from gcmon.monitoring.process_registry import ProcessRegistry
 from gcmon.monitoring.target_process import ExternalProcess
 from gcmon.monitoring.wait_policy import WaitPolicy, WaitPolicyFactory, no_wait_policy
 from gcmon.stats.streaming_stats import StreamingStats
-from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item
+from tests.helpers import FakeEventsReader, MockExporter, create_mock_stats_item, proc
 
 
 def _reads(records: Sequence[TGCStatsInfo]) -> Callable[[int], Sequence[TGCStatsInfo]]:
@@ -62,7 +65,7 @@ class TestEventsMonitorExtra:
     ) -> None:
         monitor._poll(12345)
 
-        mock_stats_update.assert_called_once_with(12345, one_record)
+        mock_stats_update.assert_called_once_with(proc(12345), one_record)
 
     def test_poll_skips_invalid_timestamp_event(
         self, monitor: EventsMonitor, exporter: MockExporter, reader: FakeEventsReader
@@ -127,20 +130,25 @@ class TestEventsMonitorExtra:
 # happened.
 
 
-def _ring(*collections: int, gen: int = 0, iid: int = 0) -> list[GCStatsInfo]:
+def _ring(*collections: int, gen: int = 0, iid: int = 0, ts_base: int = 0) -> list[GCStatsInfo]:
     """A whole ring buffer holding one finished record per counter given.
 
     A poll returns the ring, not the new records in it, so this is what
     a read answers -- deciding which of them is unseen is the
     monitor's job and the thing under test.
+
+    *ts_base* dates the records from an instant other than zero. A successor
+    on a recycled pid needs it: its collections happen after the departure
+    gcmon noticed, and a record dated inside its predecessor's life is one
+    the predecessor already exported, which the monitor drops (ADR-0025).
     """
     return [
         create_mock_stats_item(
             gen=gen,
             iid=iid,
             collections=c,
-            ts_start=c * 1_000,
-            ts_stop=c * 1_000 + 100,
+            ts_start=ts_base + c * 1_000,
+            ts_stop=ts_base + c * 1_000 + 100,
             duration=c * 0.001,
         )
         for c in collections
@@ -158,6 +166,7 @@ def _monitor(
     pid: int = 12345,
     wait_policy_factory: WaitPolicyFactory = no_wait_policy,
     is_pid_enabled: Callable[[int], bool] | None = None,
+    registry: ProcessRegistry | None = None,
 ) -> EventsMonitor:
     """A monitor wired the way the monitoring command wires one.
 
@@ -172,6 +181,7 @@ def _monitor(
         reader=FakeEventsReader(),
         wait_policy_factory=wait_policy_factory,
         is_pid_enabled=is_pid_enabled,
+        registry=registry,
     )
 
 
@@ -233,7 +243,14 @@ def _drive(
     _reader_of(monitor).reads = read
 
     reports: list[PollReport] = []
-    with patch("gcmon.monitoring.monitor.get_child_pids", side_effect=list(listings)):
+    now_ns = 0
+    # A tick's reads land on the instant it was given, so a test that says
+    # nothing about the clock gets one stamp per tick. `TestProcessLiveness`
+    # drives the reads apart where the spread is the subject.
+    with (
+        patch("gcmon.monitoring.monitor.get_child_pids", side_effect=list(listings)),
+        patch("gcmon.monitoring.monitor.time.monotonic_ns", lambda: now_ns),
+    ):
         for tick, _ in enumerate(listings, start=1):
             now_ns = tick * TICK_NS
             reports.append(monitor.tick(now_ns, stop))
@@ -251,7 +268,7 @@ class TestTheReport:
             rings={12345: [_ring(1)], 999: [_ring(1)]},
         )
 
-        assert reports[0].live_pids == frozenset({12345, 999})
+        assert reports[0].live == frozenset({proc(12345), proc(999)})
 
     def test_a_pid_that_could_not_be_read_is_not_live(self, exporter: MockExporter) -> None:
         """Only ``PollStatus.OK`` is evidence a process was there. A failed
@@ -262,14 +279,14 @@ class TestTheReport:
             rings={12345: [_ring(1)], 999: [TargetUnavailable("no such process")]},
         )
 
-        assert reports[0].live_pids == frozenset({12345})
+        assert reports[0].live == frozenset({proc(12345)})
 
     def test_the_live_set_is_frozen(self, exporter: MockExporter) -> None:
         """Nothing downstream mutates it -- the sampler iterates it and the
         exporter folds it into a min/max -- so it is handed over frozen."""
         reports = _drive(_monitor(exporter), listings=[[]], rings={12345: [_ring(1)]})
 
-        assert isinstance(reports[0].live_pids, frozenset)
+        assert isinstance(reports[0].live, frozenset)
 
     def test_keep_running_while_a_policy_still_waits(self, exporter: MockExporter) -> None:
         reports = _drive(
@@ -308,7 +325,7 @@ class TestTheReport:
         )
 
         assert not reports[0].keep_running
-        assert reports[0].live_pids == frozenset()
+        assert reports[0].live == frozenset()
 
 
 class TestTheControlPlaneVerdict:
@@ -321,7 +338,7 @@ class TestTheControlPlaneVerdict:
             rings={12345: [_ring(1)]},
         )
 
-        assert reports[0].live_pids == frozenset({12345})
+        assert reports[0].live == frozenset({proc(12345)})
         assert 999 not in exporter.events_by_pid
 
 
@@ -337,7 +354,7 @@ class TestTheStopCheck:
             stop=lambda: next(answers),
         )
 
-        assert reports[0].live_pids == frozenset({12345})
+        assert reports[0].live == frozenset({proc(12345)})
         assert 999 not in exporter.events_by_pid
 
 
@@ -358,8 +375,9 @@ class TestARecycledPidStartsFromNothing:
             rings={
                 12345: [_ring(1), _ring(1), _ring(1)],
                 # The pid comes back holding a counter from a process that has
-                # nothing to do with the one that left.
-                999: [_ring(1, 2), _ring(300, 301)],
+                # nothing to do with the one that left, collecting after it
+                # arrived.
+                999: [_ring(1, 2), _ring(300, 301, ts_base=3 * TICK_NS)],
             },
         )
 
@@ -390,19 +408,29 @@ class TestOnePruneOverOneSet:
     set. These say both go, and go together.
     """
 
-    def test_a_pid_that_leaves_the_tree_loses_its_ring_state(self, exporter: MockExporter) -> None:
-        """Visible as a re-export: a monitor that kept the cursor would have
-        nothing to say about slots it had already read."""
-        _drive(
-            _monitor(exporter),
-            listings=[[999], [], [999]],
-            rings={
-                12345: [_ring(1), _ring(1), _ring(1)],
-                999: [_ring(1, 2), _ring(1, 2)],
-            },
-        )
+    def test_a_pid_that_leaves_the_tree_loses_its_ring_state(
+        self, exporter: MockExporter, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Visible as a re-read: the returning pid hands back slots the
+        monitor had already read, which a kept cursor would have swallowed
+        silently. They reach no exporter, because the process that produced
+        them has gone and the one that read them did not (ADR-0025), so the
+        log is where the prune shows.
+        """
+        with caplog.at_level(logging.DEBUG, logger="gcmon"):
+            _drive(
+                _monitor(exporter),
+                listings=[[999], [], [999]],
+                rings={
+                    12345: [_ring(1), _ring(1), _ring(1)],
+                    999: [_ring(1, 2), _ring(1, 2)],
+                },
+            )
 
-        assert [event.collections for event in exporter.events_by_pid[999]] == [1, 2, 1, 2]
+        assert [event.collections for event in exporter.events_by_pid[999]] == [1, 2]
+        assert [record.message for record in caplog.records if "dropped" in record.message] == [
+            "PID 999: dropped 2 record(s) re-read for 999#2, already exported under 999"
+        ]
 
     def test_a_pid_that_leaves_the_tree_loses_its_policy_too(self, exporter: MockExporter) -> None:
         """Same tick, same set. A policy outliving the cursor would judge a
@@ -419,6 +447,27 @@ class TestOnePruneOverOneSet:
 
         # 12345 once, then 999 twice: once on first sight, once on return.
         assert factory.call_count == 3
+
+    def test_a_pid_that_leaves_the_tree_can_be_reported_unreadable_again(
+        self, exporter: MockExporter, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """`_poll` says once per pid and reason that it cannot read it, and
+        that memory is state of the same lifetime: what comes back under the
+        number is a new process, and its first failed poll is news even where
+        it failed the way its predecessor did.
+        """
+        with caplog.at_level(logging.DEBUG, logger="gcmon"):
+            _drive(
+                _monitor(exporter),
+                listings=[[999], [999], [], [999]],
+                rings={
+                    12345: [_ring(1), _ring(1), _ring(1), _ring(1)],
+                    999: [TargetUnavailable("not started")] * 3,
+                },
+            )
+
+        reported = [r for r in caplog.records if "child PID=999" in r.getMessage()]
+        assert len(reported) == 2
 
     def test_a_pid_that_leaves_the_tree_loses_its_attachment(self, exporter: MockExporter) -> None:
         """ADR-0020 puts the reader's attachment under ADR-0017's rule, so it
@@ -547,7 +596,7 @@ class TestProcessLiveness:
             frozenset({12345, 888}),
         ]
 
-    def test_stamped_with_the_instant_the_tick_was_given(self, exporter: MockExporter) -> None:
+    def test_stamped_with_the_instant_the_tick_reached(self, exporter: MockExporter) -> None:
         _drive(
             _monitor(exporter),
             listings=[[], []],
@@ -555,6 +604,23 @@ class TestProcessLiveness:
         )
 
         assert [ts for _pids, ts in exporter.liveness] == [TICK_NS, 2 * TICK_NS]
+
+    def test_stamped_no_earlier_than_the_reads_that_proved_them_alive(self, exporter: MockExporter) -> None:
+        """Two processes alive in one tick have to share an end, so the sweep
+        that draws the `Processes` track sees them nest rather than cross. The
+        opening instant does not do it: reads are sequential, so the pid polled
+        second is observed later, and a long-lived parent would be clipped back
+        to the start of a short child that recycled a pid (ADR-0011)."""
+        monitor = _monitor(exporter)
+        reads = iter([TICK_NS + 10, TICK_NS + 20, TICK_NS + 30, TICK_NS + 40])
+        with (
+            patch("gcmon.monitoring.monitor.get_child_pids", return_value=[999]),
+            patch("gcmon.monitoring.monitor.time.monotonic_ns", side_effect=lambda: next(reads)),
+        ):
+            _reader_of(monitor).reads = lambda pid: [_ring(1)[0]]
+            monitor.tick(TICK_NS, _never_stops)
+
+        assert [ts for _pids, ts in exporter.liveness] == [TICK_NS + 40]
 
     def test_a_pid_that_could_not_be_read_is_not_reported(self, exporter: MockExporter) -> None:
         _drive(
@@ -610,14 +676,68 @@ class _OrderedExporter(MockExporter):
         self.order: list[str] = []
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
         self.order.append("record")
-        super().add_event(pid, item)
+        super().add_event(process, item)
 
     @override
-    def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
+    def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
         self.order.append("liveness")
-        super().add_process_liveness(pids, ts_ns)
+        super().add_process_liveness(processes, ts_ns)
+
+
+class TestARetirementIsReported:
+    """The exporter is told the moment gcmon lets go of a process, so it can
+    draw that process's row without waiting for the end of the run. A run
+    killed mid-flight keeps every row already written (ADR-0011).
+
+    Both ways out of the registry report it: a pid that left the tree, and one
+    the wait policy gave up on.
+    """
+
+    def test_a_pid_that_leaves_the_tree_is_reported(self, exporter: MockExporter) -> None:
+        _drive(
+            _monitor(exporter),
+            listings=[[999], []],
+            rings={12345: [_ring(1), _ring(1)], 999: [_ring(1)]},
+        )
+
+        assert [process.pid for process in exporter.retired] == [999]
+
+    def test_a_pid_the_policy_gave_up_on_is_reported(self, exporter: MockExporter) -> None:
+        factory = Mock(side_effect=[_policy(True, True), _policy(True, False)])
+        _drive(
+            _monitor(exporter, wait_policy_factory=factory),
+            listings=[[999], [999]],
+            rings={12345: [_ring(1), _ring(1)], 999: [_ring(1), TargetUnavailable("gone")]},
+        )
+
+        assert [process.pid for process in exporter.retired] == [999]
+
+    def test_a_process_still_running_is_not_reported(self, exporter: MockExporter) -> None:
+        """The report is a retirement, not a tick. Reporting a live process
+        would draw its bar over an interval it has not finished."""
+        _drive(
+            _monitor(exporter),
+            listings=[[999], [999]],
+            rings={12345: [_ring(1), _ring(1)], 999: [_ring(1), _ring(1)]},
+        )
+
+        assert exporter.retired == []
+
+    def test_reported_once_per_process(self, exporter: MockExporter) -> None:
+        """The pid leaves and comes back as a second process. Two reports for
+        one epoch would draw a row's bar twice."""
+        _drive(
+            _monitor(exporter),
+            listings=[[999], [], [999], []],
+            rings={
+                12345: [_ring(1), _ring(1), _ring(1), _ring(1)],
+                999: [_ring(1), _ring(1, ts_base=3 * TICK_NS)],
+            },
+        )
+
+        assert [(process.pid, process.pid_epoch) for process in exporter.retired] == [(999, 1), (999, 2)]
 
 
 class TestTheExporterIsNotReachableThroughTheMonitor:
@@ -673,7 +793,7 @@ class TestAPidThePolicyGaveUpOn:
                 12345: [_ring(1), _ring(1), _ring(1)],
                 # Reaches 300, dies, and the number comes back on a process
                 # counting from 1 again.
-                999: [_ring(299, 300), TargetUnavailable("gone"), _ring(1, 2)],
+                999: [_ring(299, 300), TargetUnavailable("gone"), _ring(1, 2, ts_base=3 * TICK_NS)],
             },
         )
 
@@ -690,9 +810,83 @@ class TestAPidThePolicyGaveUpOn:
             rings={12345: [TargetUnavailable("gone")], 999: [TargetUnavailable("gone too")]},
         )
 
-        assert reports[0].live_pids == frozenset()
+        assert reports[0].live == frozenset()
         assert not reports[0].keep_running
         assert exporter.liveness == [], "an observation of nothing widens no span"
+
+
+class TestAPidGcmonCannotRead:
+    """A pid enters the registry on a read that returned (ADR-0025).
+
+    One created per attempt spent an epoch and a command-line read on every
+    poll of a pid that never became readable, for as long as it stayed in the
+    tree. A benchmark run at `--rate 0.001` reached `22048#13` that way, and
+    12704 of its 12768 registry entries were retired without ever having read
+    anything.
+    """
+
+    def test_it_enters_no_process(self, exporter: MockExporter) -> None:
+        monitor = _monitor(exporter)
+
+        _drive(
+            monitor,
+            listings=[[999], [999], [999]],
+            rings={
+                12345: [_ring(1), _ring(1), _ring(1)],
+                999: [TargetUnavailable("not started")] * 3,
+            },
+        )
+
+        assert monitor._processes.live() == frozenset({proc(12345)})
+        # `at` is what the control plane files evidence through, and it reads
+        # the retired processes too: one created per attempt leaves three
+        # there, so the pid answers with a process that never existed.
+        assert monitor._processes.at(999, 3 * TICK_NS) is None
+
+    def test_it_spends_no_epoch(self, exporter: MockExporter) -> None:
+        """The number a process is drawn under, so this is what a `#13` on a
+        Perfetto row costs when it is wrong: it claims twelve processes held
+        the pid before this one."""
+        monitor = _monitor(exporter)
+
+        _drive(
+            monitor,
+            listings=[[999], [999], [999], [999]],
+            rings={
+                12345: [_ring(1), _ring(1), _ring(1), _ring(1)],
+                999: [
+                    TargetUnavailable("not started"),
+                    TargetUnavailable("not started"),
+                    TargetUnavailable("not started"),
+                    _ring(1),
+                ],
+            },
+        )
+
+        assert monitor._processes.current(999) == proc(999)
+
+    def test_it_costs_no_cmdline_read(self, exporter: MockExporter) -> None:
+        """`psutil` reads the command line as the process is created, which on
+        Windows walks the target's environment block. Once per process, not
+        once per poll of a pid that answers nothing."""
+        asked: list[int] = []
+
+        def cmdline(pid: int) -> tuple[str, ...]:
+            asked.append(pid)
+            return ("python",)
+
+        monitor = _monitor(exporter, registry=ProcessRegistry(cmdline))
+
+        _drive(
+            monitor,
+            listings=[[999], [999], [999]],
+            rings={
+                12345: [_ring(1), _ring(1), _ring(1)],
+                999: [TargetUnavailable("not started")] * 3,
+            },
+        )
+
+        assert asked == [12345]
 
 
 class TestNoWaitPolicyThroughAWholeTick:
@@ -702,7 +896,7 @@ class TestNoWaitPolicyThroughAWholeTick:
     def test_a_successful_poll_keeps_the_run_open(self, exporter: MockExporter) -> None:
         reports = _drive(_monitor(exporter), listings=[[]], rings={12345: [_ring(1)]})
 
-        assert reports[0].live_pids == frozenset({12345})
+        assert reports[0].live == frozenset({proc(12345)})
         assert reports[0].keep_running
 
     def test_a_failed_poll_ends_it(self, exporter: MockExporter) -> None:

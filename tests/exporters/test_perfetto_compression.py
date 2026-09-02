@@ -30,6 +30,7 @@ from tests.helpers import (
     create_mock_stats_item,
     open_trace_processor,
     perfetto_packets,
+    proc,
     zstd,
 )
 
@@ -75,19 +76,18 @@ def _write_trace(path: Path, codec: Codec) -> Path:
     exporter = PerfettoExporter(
         output_path=path,
         flush_threshold=1,
-        cmdline_provider=lambda _pid: None,
         codec=codec,
     )
     for i in range(_EVENTS - 1):
         exporter.add_event(
-            _PID,
+            proc(_PID),
             create_mock_stats_item(
                 ts_start=1_000_000 * (i + 1),
                 ts_stop=1_000_000 * (i + 1) + 500_000,
                 collected=_COLLECTED,
             ),
         )
-    exporter.add_loss_event(_PID, create_mock_loss_item(ts_start=9_000_000, ts_stop=10_000_000))
+    exporter.add_loss_event(proc(_PID), create_mock_loss_item(ts_start=9_000_000, ts_stop=10_000_000))
     exporter.close()
     return path
 
@@ -98,11 +98,10 @@ def _write_liveness_only_trace(path: Path, codec: Codec) -> Path:
     exporter = PerfettoExporter(
         output_path=path,
         flush_threshold=100,
-        cmdline_provider=lambda _pid: None,
         codec=codec,
     )
-    exporter.add_process_liveness({_PID}, 1_000_000)
-    exporter.add_process_liveness({_PID}, 5_000_000)
+    exporter.add_process_liveness({proc(_PID)}, 1_000_000)
+    exporter.add_process_liveness({proc(_PID)}, 5_000_000)
     exporter.close()
     return path
 
@@ -228,12 +227,11 @@ def _write_pauses(path: Path, count: int, codec: Codec) -> Path:
     exporter = PerfettoExporter(
         output_path=path,
         flush_threshold=1,
-        cmdline_provider=lambda _pid: None,
         codec=codec,
     )
     for i in range(count):
         exporter.add_event(
-            _PID,
+            proc(_PID),
             create_mock_stats_item(
                 ts_start=1_000_000 * (i + 1),
                 ts_stop=1_000_000 * (i + 1) + 100_000,

@@ -1,7 +1,13 @@
 # ADR-0010: Carry process cmdline in two places, and force the process track to render
 
 - **Status:** Accepted
-- **Date:** 2026-06-08 (`Start Process` marker added 2026-06-27)
+- **Date:** 2026-06-08, amended:
+  - 2026-06-27: `Start Process` marker added
+  - 2026-08-31: collection moved to the monitor and became once per process,
+    see [ADR-0025](0025-create-every-process-in-one-place.md)
+  - 2026-09-01: the descriptor and the marker became per process, see
+    [ADR-0011](0011-process-lifetime-and-ordering.md)
+  - 2026-09-02: the marker became the `Lifetime` slice
 
 ## Context
 
@@ -43,22 +49,30 @@ description.
   LEFT JOIN args a ON a.arg_set_id = t.source_arg_set_id AND a.flat_key = 'description'
   ```
 
-**Emit a synthetic zero-duration `TYPE_INSTANT` event named `Start Process`**
-on the process track itself, at the timestamp of the first non-meta event for
-that pid, at most once per pid. This guarantees the track has an event, so the
-track and its description always render. It is the smallest change that fixes
-the visibility problem.
+**Draw a `Lifetime` slice on the process track itself**, one
+`TYPE_SLICE_BEGIN` / `TYPE_SLICE_END` pair per process spanning the interval
+gcmon observed it ([ADR-0011](0011-process-lifetime-and-ordering.md)). The
+track therefore always holds an event, so it and its description always
+render, and the row says how long gcmon watched the process rather than only
+that it existed.
 
-**Collection is the exporter's job and degrades silently.** The provider
-imports `psutil` lazily. If it is not installed, or the process is gone or
-inaccessible (`psutil.Error`, `OSError`, `PermissionError`), the provider
-returns `None` and drops the cmdline. No exception escapes, and the trace
-stays valid.
+**A process descriptor and a `Lifetime` slice belong to a process, not to a
+pid.** A pid handed on names two processes, each with its own command line to
+render ([ADR-0011](0011-process-lifetime-and-ordering.md)).
 
-The exporter collects cmdline for the main pid and each child, and emits it on
-the first `TrackDescriptor` for each.
-[ADR-0008](0008-buffered-exporter-and-encoder-protocol.md)'s atomic meta
-building guarantees that happens exactly once.
+**A command line is read once per process, where the monitor creates it.**
+Reading it at the first flush instead cost two things: a process that exited
+between the poll and the flush had none left to read, and a read filed under
+the pid put the first process's program on every later process that held it.
+The monitor discovers a process while it is running. `create` hands the read
+back with the process and the monitor forwards it to the exporter, because a
+`Process` holds its identity and nothing else
+([ADR-0025](0025-create-every-process-in-one-place.md)).
+
+**The read degrades silently.** It imports `psutil` lazily. If it is not
+installed, or the process is gone or inaccessible, nothing is read, a warning
+says so and the trace stays valid. A process gcmon never polled has no command
+line, and that is the only way to have none.
 
 ## Consequences
 
@@ -66,16 +80,15 @@ building guarantees that happens exactly once.
 - The cmdline is stored twice. Accepted: the two consumers differ (UI
   rendering versus the SQL `args` table), and neither can read the other's
   copy.
-- A trace carries one extra `Start Process` instant event per pid. Consumers
-  that enumerate slices must filter it, as the chrome↔perfetto equivalence
-  test does, since the marker is Perfetto-only.
+- **The process track is never empty.** Every process draws one `Lifetime`
+  slice on it, and the workload's own marks land on the same row, nested
+  inside the slice unless one shares its start timestamp. The slice is
+  Perfetto-only, so a consumer enumerating a process's slices reads it among
+  them.
 - `psutil` stays an optional dependency (the `cmdline` extra). gcmon works
   without it, minus the cmdline.
-- In a `combine` run the pids are historical and the processes are usually
-  gone, so `psutil.NoSuchProcess` is the normal case: the encoder logs a
-  warning and emits the descriptor without a cmdline. Same for a monitored
-  process that exits before the first flush, and for cross-PID-namespace
-  environments such as containers.
+- **A `combine` run writes no command line.** Offline conversion creates no
+  process, so nothing is read.
 - `description` joins the arguments with spaces and no shell quoting,
   favouring readability over round-trippability. The structured form is in
   `ProcessDescriptor.cmdline`.
@@ -88,14 +101,15 @@ building guarantees that happens exactly once.
 - **`TrackDescriptor.description` alone.** Rejected: it abandons the
   protobuf-correct field, and a future trace-processor version that does
   surface `cmdline` would find it empty.
-- **Collect cmdline in `monitor_loop.py` / `monitor.py` or the CLI.**
-  Rejected: cmdline is trace metadata that only the Perfetto format needs.
-  Keeping collection in the exporter layer means the JSONL, Chrome and stdout
-  paths carry no `psutil` cost. Unchanged by monitor-reported liveness
-  ([ADR-0011](0011-process-lifetime-and-ordering.md)), which reports
-  observations from the loop but still asks the exporter for no metadata. It
-  does mean a pid seen only through liveness gets a slice with no cmdline,
-  since the fetch hangs off the event path.
+- **Collect the cmdline in the exporter**, on the grounds that it is trace
+  metadata only the Perfetto format needs, so the JSONL and stdout paths carry
+  no `psutil` cost. The original decision, and **reversed**: the exporter
+  learns of a process on the first flush that mentions it, which is the wrong
+  moment on both counts above; offline it asked the local machine about a
+  historical pid, which answers about an unrelated process once the pid has
+  been reissued; and the saving was one `psutil` call per process on a path
+  that already reads every process once a tick. The Perfetto-only part that
+  survives is the emission, not the collection.
 - **Make `psutil` a hard dependency.** Rejected: gcmon is installed next to
   the process it monitors, and graceful degradation costs one `try`/`except`.
 
@@ -104,12 +118,13 @@ building guarantees that happens exactly once.
 - `src/gcmon/exporters/perfetto_proto.py` carries the `ProcessDescriptor`
   field numbers (`PID = 1`, `CMDLINE = 2`, `PROCESS_NAME = 6`) and
   `TrackDescriptor.description` at field 14.
-- `src/gcmon/exporters/perfetto_format.py` names the `Start Process` marker
-  and emits it at most once per pid.
-- `src/gcmon/exporters/perfetto_process_lifetime.py` puts the cmdline on the
-  `Processes` slice's BEGIN alongside the `real_start_ts` / `real_end_ts`
+- `src/gcmon/exporters/perfetto_process_lifetime.py` emits the process
+  descriptor the `description` hangs on, draws the `Lifetime` slice that keeps
+  the track rendered, and puts the cmdline on its BEGIN and on the `Processes`
+  slice's BEGIN, the latter alongside the `real_start_ts` / `real_end_ts`
   annotations ([ADR-0011](0011-process-lifetime-and-ordering.md)).
-- `src/gcmon/exporters/encoder.py` holds the default provider, with its lazy
-  `import psutil`, and registers each pid's cmdline once.
-- `src/gcmon/exporters/perfetto_track_state.py` stores a pid's cmdline and
-  hands it back.
+- `src/gcmon/monitoring/process_registry.py` holds the read, with its lazy
+  `import psutil`, behind a provider the CLI wires in.
+- `src/gcmon/monitoring/monitor.py` sends the result to the exporter as it
+  creates the process, and `src/gcmon/exporters/perfetto_track_state.py` keeps
+  it for both emission sites.

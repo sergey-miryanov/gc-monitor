@@ -6,16 +6,24 @@ and assert on the SQL tables (``slice``, ``args``, ``track``,
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from perfetto.trace_processor import TraceProcessor
 
 from gcmon.exporters import PerfettoExporter
+from gcmon.exporters.trace_converter import duration_text
 from tests.conftest import DEFAULT_PID
 from tests.data_helpers import create_instant_msg
-from tests.helpers import create_mock_incremental_item, create_mock_stats_item, open_trace_processor
+from tests.helpers import (
+    create_mock_incremental_item,
+    create_mock_loss_item,
+    create_mock_stats_item,
+    open_trace_processor,
+    proc,
+)
 
 _PAUSE_NAME: str = "GC Pause(0)"
 _INSTANT_NAME: str = "GC monitor started"
@@ -65,25 +73,16 @@ _ARG_PREFIX: str = "debug"
 _FAKE_CMDLINE: tuple[str, ...] = ("python3", "-m", "fake_target")
 _FAKE_CMDLINE_JOINED: str = " ".join(_FAKE_CMDLINE)
 
-# Name of the synthetic marker emitted on the process track so the
-# cmdline description is always visible in the Perfetto UI. Must match
-# ``_START_PROCESS_INSTANT_NAME`` in ``gcmon.exporters.perfetto_format``.
-_START_PROCESS_MARKER_NAME: str = "Start Process"
+# Name of the slice drawn on each process's own row over the interval
+# gcmon observed that process. Must match ``_PROCESS_ROW_SLICE_NAME`` in
+# ``gcmon.exporters.perfetto_process_lifetime``.
+_PROCESS_ROW_SLICE_NAME: str = "Lifetime"
 
 # Name of the shared top-level Perfetto track that holds one slice per
 # pid spanning the first-to-last non-meta event timestamps for that
 # pid. Must match ``_PROCESS_LIFETIME_TRACK_NAME`` in
 # ``gcmon.exporters.perfetto_process_lifetime``.
 _PROCESS_LIFETIME_TRACK_NAME: str = "Processes"
-
-
-def _fake_cmdline_provider(pid: int) -> list[str] | None:
-    """Returns a known fake cmdline for the two PIDs the trace uses and
-    ``None`` for any other PID, so the encoder's ``None`` path is also
-    exercised by the same callable."""
-    if pid in (DEFAULT_PID, _SECOND_PID):
-        return list(_FAKE_CMDLINE)
-    return None
 
 
 def _process_filter(pid: int) -> str:
@@ -93,12 +92,18 @@ def _process_filter(pid: int) -> str:
     ``thread_track``/``thread`` views. ``slice.track_id`` is the same track id
     for both ``thread_track`` and ``process_track`` views; the view that
     matches a given slice row is determined by the track's type.
+
+    Scoped on the name, not on ``process.pid``: that column holds the pid
+    gcmon writes for the row rather than the operating system's (ADR-0011).
+    Every fixture using this holds one process per pid, so the unsuffixed
+    name is the whole of it; a run that handed a pid on names the successors
+    ``Process <pid>#2`` and up.
     """
     return (
         f"JOIN thread_track tt ON s.track_id = tt.id "
         f"JOIN thread th ON tt.utid = th.utid "
         f"JOIN process p ON th.upid = p.upid "
-        f"WHERE p.pid = {pid}"
+        f"WHERE p.name = 'Process {pid}'"
     )
 
 
@@ -107,30 +112,26 @@ def _process_filter_instant(pid: int) -> str:
 
     Instant events (e.g. ``GC monitor started``) are emitted on the process
     track, not on a thread track, so the join goes through ``process_track``.
+    Scoped on the name for the reason :func:`_process_filter` gives.
     """
     return (
         f"JOIN process_track pt ON s.track_id = pt.id "
         f"JOIN process p ON pt.upid = p.upid "
-        f"WHERE p.pid = {pid} AND s.dur = 0"
+        f"WHERE p.name = 'Process {pid}' AND s.dur = 0"
     )
 
 
-def _write_trace(
-    tmp: Path,
-    cmdline_provider: Callable[[int], list[str] | None] = lambda _pid: None,
-) -> Path:
+def _write_trace(tmp: Path, cmdline: tuple[str, ...] | None = None) -> Path:
     path = tmp / "trace.pb"
-    exporter = PerfettoExporter(
-        output_path=path,
-        flush_threshold=1000,
-        cmdline_provider=cmdline_provider,
-    )
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_process_cmdline(proc(DEFAULT_PID), cmdline)
+    exporter.add_process_cmdline(proc(_SECOND_PID), cmdline)
     exporter.add_instant_event(
-        DEFAULT_PID,
+        proc(DEFAULT_PID),
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 1_000_000),
     )
     exporter.add_event(
-        DEFAULT_PID,
+        proc(DEFAULT_PID),
         create_mock_stats_item(
             gen=_GEN,
             iid=_IID,
@@ -141,9 +142,9 @@ def _write_trace(
             heap_size=_HEAP_SIZE,
         ),
     )
-    exporter.add_event(DEFAULT_PID, create_mock_incremental_item(gen=1, iid=1))
+    exporter.add_event(proc(DEFAULT_PID), create_mock_incremental_item(gen=1, iid=1))
     exporter.add_event(
-        DEFAULT_PID,
+        proc(DEFAULT_PID),
         create_mock_stats_item(
             gen=_GEN,
             iid=2,
@@ -155,11 +156,11 @@ def _write_trace(
         ),
     )
     exporter.add_instant_event(
-        _SECOND_PID,
+        proc(_SECOND_PID),
         create_instant_msg(name=_INSTANT_NAME, ts=_TS_START - 2_000_000),
     )
     exporter.add_event(
-        _SECOND_PID,
+        proc(_SECOND_PID),
         create_mock_stats_item(
             gen=_GEN,
             iid=0,
@@ -174,18 +175,13 @@ def _write_trace(
     return path
 
 
-def _write_trace_no_instant(
-    tmp: Path,
-    cmdline_provider: Callable[[int], list[str] | None] = lambda _pid: None,
-) -> Path:
+def _write_trace_no_instant(tmp: Path, cmdline: tuple[str, ...] | None) -> Path:
     path = tmp / "trace.pb"
-    exporter = PerfettoExporter(
-        output_path=path,
-        flush_threshold=1000,
-        cmdline_provider=cmdline_provider,
-    )
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_process_cmdline(proc(DEFAULT_PID), cmdline)
+    exporter.add_process_cmdline(proc(_SECOND_PID), cmdline)
     exporter.add_event(
-        DEFAULT_PID,
+        proc(DEFAULT_PID),
         create_mock_stats_item(
             gen=_GEN,
             iid=_IID,
@@ -197,7 +193,7 @@ def _write_trace_no_instant(
         ),
     )
     exporter.add_event(
-        _SECOND_PID,
+        proc(_SECOND_PID),
         create_mock_stats_item(
             gen=_GEN,
             iid=0,
@@ -243,7 +239,7 @@ def _write_crossing_trace(tmp: Path) -> Path:
         (DEFAULT_PID, _CROSS_A_STOP),
         (_SECOND_PID, _CROSS_B_STOP),
     ):
-        exporter.add_instant_event(pid, create_instant_msg(name=_INSTANT_NAME, ts=ts))
+        exporter.add_instant_event(proc(pid), create_instant_msg(name=_INSTANT_NAME, ts=ts))
     exporter.close()
     return path
 
@@ -280,9 +276,41 @@ def _write_zero_duration_trace(tmp: Path) -> Path:
         (DEFAULT_PID, _ZERO_CLIPPED_STOP),
         (_SECOND_PID, _ZERO_CROSSER_STOP),
     ):
-        exporter.add_instant_event(pid, create_instant_msg(name=_INSTANT_NAME, ts=ts))
+        exporter.add_instant_event(proc(pid), create_instant_msg(name=_INSTANT_NAME, ts=ts))
     exporter.close()
     return path
+
+
+# A process polled either side of the collection it ran and the mark its
+# workload wrote. Every other fixture's marks *are* the observations that bound
+# the span, so they land on its edge; here liveness widens the span and both
+# fall strictly inside it.
+_MARK_SPAN_START: int = 700_000_000
+_MARK_GC_START: int = 710_000_000
+_MARK_GC_STOP: int = 715_000_000
+_MARK_TS: int = 750_000_000
+_MARK_SPAN_STOP: int = 800_000_000
+
+
+def _write_nested_mark_trace(tmp: Path) -> Path:
+    path = tmp / "nested_mark.pb"
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_process_liveness({proc(DEFAULT_PID)}, _MARK_SPAN_START)
+    exporter.add_event(
+        proc(DEFAULT_PID),
+        create_mock_stats_item(gen=_GEN, iid=_IID, ts_start=_MARK_GC_START, ts_stop=_MARK_GC_STOP),
+    )
+    exporter.add_instant_event(proc(DEFAULT_PID), create_instant_msg(name=_INSTANT_NAME, ts=_MARK_TS))
+    exporter.add_process_liveness({proc(DEFAULT_PID)}, _MARK_SPAN_STOP)
+    exporter.close()
+    return path
+
+
+@pytest.fixture
+def nested_mark_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_nested_mark_trace(tmp_path)
+    with open_trace_processor(path) as tp:
+        yield tp
 
 
 @pytest.fixture
@@ -301,6 +329,10 @@ def zero_duration_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
 _LIVE_TICKS: tuple[int, ...] = (300_000_000, 400_000_000, 500_000_000)
 _LIVE_GC_START: int = 100_000_000
 _LIVE_GC_STOP: int = 200_000_000
+# Distinct per process, so a descriptor built at close can be caught carrying
+# the wrong one.
+_LIVE_BUSY_CMDLINE: tuple[str, ...] = ("python3", "-m", "busy_target")
+_LIVE_QUIET_CMDLINE: tuple[str, ...] = ("python3", "-m", "quiet_target")
 
 
 def _write_liveness_trace(tmp: Path) -> Path:
@@ -308,8 +340,10 @@ def _write_liveness_trace(tmp: Path) -> Path:
     and another has liveness only."""
     path = tmp / "liveness.pb"
     exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_process_cmdline(proc(DEFAULT_PID), _LIVE_BUSY_CMDLINE)
+    exporter.add_process_cmdline(proc(_SECOND_PID), _LIVE_QUIET_CMDLINE)
     exporter.add_event(
-        DEFAULT_PID,
+        proc(DEFAULT_PID),
         create_mock_stats_item(
             gen=_GEN,
             iid=_IID,
@@ -318,7 +352,7 @@ def _write_liveness_trace(tmp: Path) -> Path:
         ),
     )
     for ts in _LIVE_TICKS:
-        exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, ts)
+        exporter.add_process_liveness({proc(DEFAULT_PID), proc(_SECOND_PID)}, ts)
     exporter.close()
     return path
 
@@ -336,14 +370,116 @@ def _write_liveness_only_trace(tmp: Path) -> Path:
     path = tmp / "liveness_only.pb"
     exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
     for ts in _LIVE_TICKS:
-        exporter.add_process_liveness({DEFAULT_PID, _SECOND_PID}, ts)
+        exporter.add_process_liveness({proc(DEFAULT_PID), proc(_SECOND_PID)}, ts)
     exporter.close()
     return path
+
+
+# A run that never reaches ``close()``: one process retired part way through,
+# one still running, and then the trace stops where a SIGKILL would stop it.
+# ``flush_threshold=1`` so the batch after the retirement is written, which is
+# where the retired process's row goes.
+_KILL_GC_START: int = 600_000_000
+_KILL_GC_STOP: int = 610_000_000
+_KILL_TICK: int = 650_000_000
+_KILL_LAST_GC_START: int = 700_000_000
+_KILL_LAST_GC_STOP: int = 710_000_000
+
+
+def _write_killed_run_trace(tmp: Path) -> Path:
+    path = tmp / "killed.pb"
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1)
+    for pid in (DEFAULT_PID, _SECOND_PID):
+        exporter.add_process_cmdline(proc(pid), _FAKE_CMDLINE)
+        exporter.add_event(
+            proc(pid),
+            create_mock_stats_item(gen=_GEN, iid=_IID, ts_start=_KILL_GC_START, ts_stop=_KILL_GC_STOP),
+        )
+    exporter.add_process_liveness({proc(DEFAULT_PID), proc(_SECOND_PID)}, _KILL_TICK)
+    exporter.add_process_retired(proc(_SECOND_PID))
+    exporter.add_event(
+        proc(DEFAULT_PID),
+        create_mock_stats_item(gen=_GEN, iid=_IID, ts_start=_KILL_LAST_GC_START, ts_stop=_KILL_LAST_GC_STOP),
+    )
+    # No close(). Everything after this point is what the kill takes.
+    return path
+
+
+@pytest.fixture
+def killed_run_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_killed_run_trace(tmp_path)
+    with open_trace_processor(path) as tp:
+        yield tp
 
 
 @pytest.fixture
 def liveness_only_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
     path = _write_liveness_only_trace(tmp_path)
+    with open_trace_processor(path) as tp:
+        yield tp
+
+
+# A pid the operating system handed out twice. The first process collects
+# and dies; the second claims the pid and collects again, running a
+# different program. Every value below differs between the two, so an
+# assertion that reads one where it should read the other fails rather
+# than passing on a number they happen to share.
+_REUSED_PID: int = 24680
+_REUSE_FIRST_CMDLINE: tuple[str, ...] = ("python3", "-m", "first_target")
+_REUSE_SECOND_CMDLINE: tuple[str, ...] = ("python3", "-m", "second_target")
+_REUSE_FIRST_START: int = 100_000_000
+_REUSE_FIRST_STOP: int = 140_000_000
+_REUSE_SECOND_START: int = 300_000_000
+_REUSE_SECOND_STOP: int = 340_000_000
+_REUSE_FIRST_COLLECTED: int = 11
+_REUSE_SECOND_COLLECTED: int = 22
+_REUSE_LOSS_WINDOW_NS: int = 10_000_000
+_REUSE_LOST_PAUSE_NS: int = 3_316_458_100
+
+_REUSE_FIRST_NAME: str = f"Process {_REUSED_PID}"
+_REUSE_SECOND_NAME: str = f"Process {_REUSED_PID}#2"
+
+
+def _write_reused_pid_trace(tmp: Path) -> Path:
+    """Write a Perfetto trace for a run where one pid named two
+    processes."""
+    path = tmp / "reused.pb"
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    first, second = proc(_REUSED_PID, 1), proc(_REUSED_PID, 2)
+    exporter.add_process_cmdline(first, _REUSE_FIRST_CMDLINE)
+    exporter.add_process_cmdline(second, _REUSE_SECOND_CMDLINE)
+    for process, ts_start, ts_stop, collected in (
+        (first, _REUSE_FIRST_START, _REUSE_FIRST_STOP, _REUSE_FIRST_COLLECTED),
+        (second, _REUSE_SECOND_START, _REUSE_SECOND_STOP, _REUSE_SECOND_COLLECTED),
+    ):
+        exporter.add_event(
+            process,
+            create_mock_stats_item(
+                gen=_GEN,
+                iid=_IID,
+                ts_start=ts_start,
+                ts_stop=ts_stop,
+                collected=collected,
+            ),
+        )
+        exporter.add_loss_event(
+            process,
+            create_mock_loss_item(
+                iid=_IID,
+                gen=_GEN,
+                ts_start=ts_stop,
+                ts_stop=ts_stop + _REUSE_LOSS_WINDOW_NS,
+                lost_count=collected,
+                lost_pause_ns=_REUSE_LOST_PAUSE_NS,
+            ),
+        )
+    exporter.close()
+    return path
+
+
+@pytest.fixture
+def reused_pid_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_reused_pid_trace(tmp_path)
     with open_trace_processor(path) as tp:
         yield tp
 
@@ -359,7 +495,7 @@ def trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
 def trace_processor_with_cmdline(
     tmp_path: Path,
 ) -> Iterator[TraceProcessor]:
-    path = _write_trace(tmp_path, cmdline_provider=_fake_cmdline_provider)
+    path = _write_trace(tmp_path, cmdline=_FAKE_CMDLINE)
     with open_trace_processor(path) as tp:
         yield tp
 
@@ -368,7 +504,7 @@ def trace_processor_with_cmdline(
 def trace_processor_no_instant(
     tmp_path: Path,
 ) -> Iterator[TraceProcessor]:
-    path = _write_trace_no_instant(tmp_path)
+    path = _write_trace_no_instant(tmp_path, _FAKE_CMDLINE)
     with open_trace_processor(path) as tp:
         yield tp
 
@@ -515,7 +651,7 @@ class TestCounterTracks:
             flush_threshold=1000,
         )
         exporter.add_event(
-            DEFAULT_PID,
+            proc(DEFAULT_PID),
             create_mock_stats_item(
                 gen=0,
                 iid=0,
@@ -677,7 +813,8 @@ class TestTrackDescriptors:
         rows = {
             r.name
             for r in trace_processor.query(
-                f"SELECT th.name FROM thread th JOIN process p ON th.upid = p.upid WHERE p.pid = {DEFAULT_PID}"
+                f"SELECT th.name FROM thread th JOIN process p ON th.upid = p.upid "
+                f"WHERE p.name = 'Process {DEFAULT_PID}'"
             )
         }
         for iid in (0, 1, 2):
@@ -733,13 +870,19 @@ class TestCmdlineEncoding:
     per-argv ``ProcessDescriptor.CMDLINE`` repeated fields in its SQL
     tables, so the description is the only SQL-visible check."""
 
-    def _description(self, trace_processor: TraceProcessor, pid: int) -> str | None:
+    def _description(self, trace_processor: TraceProcessor, name: str) -> str | None:
+        """The description on the process track called *name*.
+
+        Scoped on the name rather than the pid, which two processes share
+        where one was handed on. ``TestReusedPidDrawsTwoOfEveryRow``
+        covers that case; this one asks about a single process.
+        """
         rows = list(
             trace_processor.query(
                 f"SELECT a.string_value FROM args a "
                 f"JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
                 f"JOIN process p ON p.upid = pt.upid "
-                f"WHERE p.pid = {pid} AND a.key = 'description'"
+                f"WHERE p.name = '{name}' AND a.key = 'description'"
             )
         )
         return rows[0].string_value if rows else None
@@ -748,92 +891,351 @@ class TestCmdlineEncoding:
         self,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
-        assert self._description(trace_processor_with_cmdline, DEFAULT_PID) == _FAKE_CMDLINE_JOINED
-        assert self._description(trace_processor_with_cmdline, _SECOND_PID) == _FAKE_CMDLINE_JOINED
+        assert self._description(trace_processor_with_cmdline, f"Process {DEFAULT_PID}") == _FAKE_CMDLINE_JOINED
+        assert self._description(trace_processor_with_cmdline, f"Process {_SECOND_PID}") == _FAKE_CMDLINE_JOINED
 
     def test_cmdline_absent_for_pid_outside_provider(
         self,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
-        assert self._description(trace_processor_with_cmdline, 1) is None
+        assert self._description(trace_processor_with_cmdline, "Process 1") is None
 
     def test_cmdline_none_for_unknown_pid(
         self,
         trace_processor: TraceProcessor,
     ) -> None:
-        assert self._description(trace_processor, DEFAULT_PID) is None
-        assert self._description(trace_processor, _SECOND_PID) is None
+        assert self._description(trace_processor, f"Process {DEFAULT_PID}") is None
+        assert self._description(trace_processor, f"Process {_SECOND_PID}") is None
 
 
-class TestStartProcessMarker:
-    """The Perfetto encoder emits a single synthetic dur-0 ``Start Process``
-    instant event on the process track itself, lazily on the first
-    non-meta event for the pid. This guarantees the process track has at
-    least one event so its ``description`` (the joined cmdline) is
-    always visible in the Perfetto UI, independent of whether the caller
-    emitted any ``Instant`` for the pid.
+class TestProcessRowLifetimeSlice:
+    """Every process's own row carries one ``Lifetime`` slice spanning the
+    interval gcmon observed that process.
+
+    The ``Processes`` track shortens a span that crosses a sibling's to keep
+    its slice stack laminar. A process's own row holds one slice and the
+    workload's marks, which nest without closing anything, so nothing on it
+    can cross and nothing is clipped. The two rows therefore disagree for a
+    clipped process, and this one is the row telling the truth (ADR-0011).
     """
 
-    def test_marker_emitted_with_user_instant(
+    def _lifetimes(self, tp: TraceProcessor) -> dict[str, tuple[int, int]]:
+        """``{process name: (ts, dur)}`` for every ``Lifetime`` slice, read
+        through ``process_track`` so a slice on any other row is invisible
+        here."""
+        rows = list(
+            tp.query(
+                f"SELECT p.name AS name, s.ts AS ts, s.dur AS dur FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"ORDER BY p.name"
+            )
+        )
+        return {r.name: (r.ts, r.dur) for r in rows}
+
+    def test_one_slice_per_process_row(self, trace_processor: TraceProcessor) -> None:
+        """One pair per process, on the process's own track, drawing the
+        interval gcmon observed rather than the one the sweep left."""
+        default_start = _TS_START - 1_000_000
+        assert self._lifetimes(trace_processor) == {
+            f"Process {DEFAULT_PID}": (default_start, 10_000_000),
+            f"Process {_SECOND_PID}": (_TS_START - 2_000_000, 7_000_000),
+        }
+
+    def test_clipped_process_draws_longer_on_its_own_row(
+        self,
+        trace_processor: TraceProcessor,
+    ) -> None:
+        """The two-row divergence, asserted on both rows at once.
+
+        ``_SECOND_PID`` crosses ``DEFAULT_PID``, so the sweep pulls its
+        ``Processes`` span back to 1ms. Its own row keeps the 7ms gcmon
+        measured. A test reading only one of the two rows would pass on an
+        implementation that clipped both.
+        """
+        shared = list(
+            trace_processor.query(
+                f"SELECT s.dur AS dur FROM slice s "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                f"AND s.name = 'Process {_SECOND_PID}'"
+            )
+        )
+        assert [r.dur for r in shared] == [999_999], "expected the shared row to draw the clipped span"
+        assert self._lifetimes(trace_processor)[f"Process {_SECOND_PID}"][1] == 7_000_000
+
+    def test_carries_no_real_ts_annotations(self, trace_processor: TraceProcessor) -> None:
+        """``ts`` and ``dur`` *are* the observed pair here, so copying it into
+        annotations would state one fact twice."""
+        rows = list(
+            trace_processor.query(
+                f"SELECT a.flat_key AS flat_key FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"AND a.flat_key IN ('{_ARG_PREFIX}.real_start_ts', '{_ARG_PREFIX}.real_end_ts')"
+            )
+        )
+        assert rows == []
+
+    def test_carries_cmdline_pid_and_epoch(
         self,
         trace_processor_with_cmdline: TraceProcessor,
     ) -> None:
-        """The user-provided instant events (``GC monitor started``) and
-        the synthetic marker (``Start Process``) both land on the
-        process track. Verify one marker per pid."""
-        markers = list(
+        """Click the bar and the Args panel says what the process was running,
+        which pid the operating system gave it and which epoch of that pid it
+        is.
+
+        ``pid`` is on the bar because it is nowhere else a reader can reach:
+        ``process.pid`` holds the row's, one gcmon hands out per process so
+        that a pid handed on draws a row per process (ADR-0011)."""
+        rows = list(
             trace_processor_with_cmdline.query(
-                f"SELECT p.pid FROM slice s "
+                f"SELECT p.name AS name, a.flat_key AS flat_key, "
+                f"a.string_value AS string_value, a.int_value AS int_value "
+                f"FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
                 f"JOIN process_track pt ON s.track_id = pt.id "
                 f"JOIN process p ON pt.upid = p.upid "
-                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
-                f"ORDER BY p.pid"
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"AND a.flat_key LIKE '{_ARG_PREFIX}.%' "
+                f"ORDER BY p.name, a.flat_key"
             )
         )
-        assert [r.pid for r in markers] == [DEFAULT_PID, _SECOND_PID], (
-            f"expected one {_START_PROCESS_MARKER_NAME!r} marker per pid, got {markers}"
-        )
+        assert {(r.name, r.flat_key) for r in rows} == {
+            (f"Process {pid}", f"{_ARG_PREFIX}.{key}")
+            for pid in (DEFAULT_PID, _SECOND_PID)
+            for key in (
+                "cmdline",
+                "pid",
+                "pid_epoch",
+                "interpreters",
+                "sampled_count",
+                "lost_count",
+                "lost_pause",
+                "lost_pause_ns",
+            )
+        }
+        # Read each annotation out of the column its type puts it in, so a
+        # `pid_epoch` written as a string reads back as a missing int.
+        assert {r.name: r.string_value for r in rows if r.flat_key.endswith("cmdline")} == {
+            f"Process {DEFAULT_PID}": _FAKE_CMDLINE_JOINED,
+            f"Process {_SECOND_PID}": _FAKE_CMDLINE_JOINED,
+        }
+        assert {r.name: r.int_value for r in rows if r.flat_key.endswith("pid_epoch")} == {
+            f"Process {DEFAULT_PID}": 1,
+            f"Process {_SECOND_PID}": 1,
+        }
+        assert {r.name: r.int_value for r in rows if r.flat_key.endswith(".pid")} == {
+            f"Process {DEFAULT_PID}": DEFAULT_PID,
+            f"Process {_SECOND_PID}": _SECOND_PID,
+        }
 
-    def test_marker_emitted_without_user_instant(
+    def test_carries_the_interpreter_count(
+        self,
+        trace_processor: TraceProcessor,
+    ) -> None:
+        """How many interpreters the process ran, which the row's name cannot
+        say. ``DEFAULT_PID`` collected on three, ``_SECOND_PID`` on one."""
+        rows = list(
+            trace_processor.query(
+                f"SELECT p.name AS name, a.int_value AS int_value "
+                f"FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"AND a.flat_key = '{_ARG_PREFIX}.interpreters'"
+            )
+        )
+        assert {r.name: r.int_value for r in rows} == {
+            f"Process {DEFAULT_PID}": 3,
+            f"Process {_SECOND_PID}": 1,
+        }
+
+    def test_carries_what_gcmon_read_and_what_it_missed(
+        self,
+        trace_processor: TraceProcessor,
+    ) -> None:
+        """The completeness of the capture, per process. This run lost
+        nothing, so each bar has to say how much it read rather than the
+        zero a count summed off the ``GC Loss`` rows would give."""
+        rows = list(
+            trace_processor.query(
+                f"SELECT p.name AS name, a.flat_key AS flat_key, "
+                f"a.int_value AS int_value, a.string_value AS string_value "
+                f"FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"AND a.flat_key LIKE '{_ARG_PREFIX}.%'"
+            )
+        )
+        counts = {(r.name, r.flat_key.rsplit(".", 1)[1]): r.int_value for r in rows}
+        assert counts[(f"Process {DEFAULT_PID}", "sampled_count")] == 3
+        assert counts[(f"Process {_SECOND_PID}", "sampled_count")] == 1
+        assert counts[(f"Process {DEFAULT_PID}", "lost_count")] == 0
+        assert counts[(f"Process {DEFAULT_PID}", "lost_pause_ns")] == 0
+        text = {(r.name, r.flat_key.rsplit(".", 1)[1]): r.string_value for r in rows}
+        assert text[(f"Process {DEFAULT_PID}", "lost_pause")] == "0ns"
+
+    def test_two_processes_on_one_pid_count_their_own_capture(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The totals follow the process, not the pid. Each of the two ran
+        one collection and went blind over its own interval."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT p.name AS name, a.flat_key AS flat_key, "
+                f"a.int_value AS int_value, a.string_value AS string_value "
+                f"FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"AND a.flat_key LIKE '{_ARG_PREFIX}.%'"
+            )
+        )
+        counts = {(r.name, r.flat_key.rsplit(".", 1)[1]): r.int_value for r in rows}
+        assert counts[(_REUSE_FIRST_NAME, "sampled_count")] == 1
+        assert counts[(_REUSE_SECOND_NAME, "sampled_count")] == 1
+        assert counts[(_REUSE_FIRST_NAME, "lost_count")] == _REUSE_FIRST_COLLECTED
+        assert counts[(_REUSE_SECOND_NAME, "lost_count")] == _REUSE_SECOND_COLLECTED
+        assert counts[(_REUSE_FIRST_NAME, "lost_pause_ns")] == _REUSE_LOST_PAUSE_NS
+        text = {(r.name, r.flat_key.rsplit(".", 1)[1]): r.string_value for r in rows}
+        assert text[(_REUSE_FIRST_NAME, "lost_pause")] == duration_text(_REUSE_LOST_PAUSE_NS)
+
+    def test_no_cmdline_annotation_without_a_cmdline(
+        self,
+        trace_processor: TraceProcessor,
+    ) -> None:
+        """A process gcmon read no command line for carries no ``cmdline``
+        annotation rather than an empty one."""
+        rows = list(
+            trace_processor.query(
+                f"SELECT a.flat_key AS flat_key FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' "
+                f"AND a.flat_key = '{_ARG_PREFIX}.cmdline'"
+            )
+        )
+        assert rows == []
+
+    def test_a_mark_nests_inside_the_bar(
+        self,
+        nested_mark_trace_processor: TraceProcessor,
+    ) -> None:
+        """The bar opens before the workload's mark and closes after it, so
+        the trace processor reads the bar at depth 0 and the mark at 1."""
+        rows = list(
+            nested_mark_trace_processor.query(
+                f"SELECT s.name AS name, s.depth AS depth FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE p.name = 'Process {DEFAULT_PID}' "
+                f"AND s.name IN ('{_PROCESS_ROW_SLICE_NAME}', '{_INSTANT_NAME}') "
+                f"ORDER BY s.depth"
+            )
+        )
+        assert [(r.name, r.depth) for r in rows] == [
+            (_PROCESS_ROW_SLICE_NAME, 0),
+            (_INSTANT_NAME, 1),
+        ]
+
+    def test_a_mark_at_the_bars_own_start_sits_beside_it(
+        self,
+        trace_processor: TraceProcessor,
+    ) -> None:
+        """A mark that *is* the process's first observation shares the bar's
+        timestamp, and lands beside the bar rather than in it.
+
+        The bar goes out at close, last in the stream, and the trace processor
+        breaks a timestamp tie by position in the sequence, so a BEGIN written
+        after the mark opens after it. Accepted (ADR-0010): the alternative is
+        opening the bar a tick early, at a start gcmon never observed.
+        """
+        rows = list(
+            trace_processor.query(
+                f"SELECT s.name AS name, s.ts AS ts, s.depth AS depth FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE p.name = 'Process {DEFAULT_PID}' ORDER BY s.ts, s.depth"
+            )
+        )
+        assert [(r.name, r.depth) for r in rows] == [
+            (_INSTANT_NAME, 0),
+            (_PROCESS_ROW_SLICE_NAME, 0),
+        ]
+        assert len({r.ts for r in rows}) == 1, "the fixture's mark is the bar's own start"
+
+    def test_drawn_without_a_user_instant(
         self,
         trace_processor_no_instant: TraceProcessor,
     ) -> None:
-        """This is the regression case: the caller never calls
-        ``add_instant_event``, so the process track would otherwise be
-        empty and the UI would hide the description. The marker keeps
-        the process track rendered."""
-        markers = list(
+        """The regression case ADR-0010 exists for: the caller sent no
+        ``Instant`` for either pid, so the bar is the only thing on the row.
+        Perfetto hides a row holding no events, and the ``description`` with
+        it.
+        """
+        assert sorted(self._lifetimes(trace_processor_no_instant)) == [
+            f"Process {DEFAULT_PID}",
+            f"Process {_SECOND_PID}",
+        ]
+        descriptions = list(
             trace_processor_no_instant.query(
-                f"SELECT p.pid FROM slice s "
-                f"JOIN process_track pt ON s.track_id = pt.id "
-                f"JOIN process p ON pt.upid = p.upid "
-                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
-                f"ORDER BY p.pid"
+                "SELECT p.name AS name, a.string_value AS description FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE a.key = 'description'"
             )
         )
-        assert [r.pid for r in markers] == [DEFAULT_PID, _SECOND_PID], (
-            f"expected one {_START_PROCESS_MARKER_NAME!r} marker per pid "
-            f"even without user instant events, got {markers}"
+        assert {r.name: r.description for r in descriptions} == {
+            f"Process {DEFAULT_PID}": _FAKE_CMDLINE_JOINED,
+            f"Process {_SECOND_PID}": _FAKE_CMDLINE_JOINED,
+        }
+
+    def test_allocates_no_track(self, trace_processor: TraceProcessor) -> None:
+        """The bar reuses the process track uuid. A uuid of its own would draw
+        a second row, with no descriptor behind it to name the process."""
+        rows = list(
+            trace_processor.query(
+                f"SELECT s.name AS name, s.track_id AS track_id FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE p.name = 'Process {DEFAULT_PID}' "
+                f"AND s.name IN ('{_PROCESS_ROW_SLICE_NAME}', '{_INSTANT_NAME}')"
+            )
+        )
+        assert len({r.track_id for r in rows}) == 1
+        assert sorted(r.name for r in rows) == [_INSTANT_NAME, _PROCESS_ROW_SLICE_NAME]
+
+    def test_single_observation_draws_a_zero_length_bar(
+        self,
+        zero_duration_trace_processor: TraceProcessor,
+    ) -> None:
+        """``_THIRD_PID`` was observed once, so its bar reads ``dur = 0``
+        rather than ``-1``, which is what BEGIN-before-END buys.
+
+        ``DEFAULT_PID`` is the other half of the point: the sweep clips it to
+        nothing on the shared row, and its own row keeps the 500ms it was
+        observed for.
+        """
+        lifetimes = self._lifetimes(zero_duration_trace_processor)
+        assert lifetimes[f"Process {_THIRD_PID}"] == (_ZERO_INSTANT_TS, 0)
+        assert lifetimes[f"Process {DEFAULT_PID}"] == (
+            _ZERO_CLIPPED_START,
+            _ZERO_CLIPPED_STOP - _ZERO_CLIPPED_START,
         )
 
-    def test_marker_at_first_event_timestamp(
+    def test_no_misplaced_end_events(
         self,
-        trace_processor_with_cmdline: TraceProcessor,
+        zero_duration_trace_processor: TraceProcessor,
     ) -> None:
-        """The marker is placed at the timestamp of the first non-meta
-        event for the pid, not at 0."""
-        rows = list(
-            trace_processor_with_cmdline.query(
-                f"SELECT p.pid, s.ts FROM slice s "
-                f"JOIN process_track pt ON s.track_id = pt.id "
-                f"JOIN process p ON pt.upid = p.upid "
-                f"WHERE s.name = '{_START_PROCESS_MARKER_NAME}' AND s.dur = 0 "
-                f"ORDER BY p.pid"
-            )
-        )
-        assert len(rows) == 2
-        for r in rows:
-            assert r.ts > 0, f"expected marker ts > 0 for pid {r.pid}, got {r.ts}"
+        """A zero-length bar is a BEGIN and an END sharing a timestamp. The
+        trace processor must pair them, not orphan the END."""
+        assert _misplaced_end_events(zero_duration_trace_processor) == 0
 
 
 class TestProcessesTrack:
@@ -937,9 +1339,8 @@ class TestProcessesTrack:
         trace_processor: TraceProcessor,
     ) -> None:
         """Every slice name on the ``Processes`` track matches the
-        ``Process <pid>`` pattern."""
-        import re
-
+        ``Process <pid>`` pattern, with the ``#N`` a successor on a
+        reused pid carries."""
         rows = list(
             trace_processor.query(
                 f"SELECT s.name FROM slice s "
@@ -947,10 +1348,11 @@ class TestProcessesTrack:
                 f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}'"
             )
         )
-        pat = re.compile(r"^Process \d+$")
+        pat = re.compile(r"^Process \d+(#\d+)?$")
         for r in rows:
             assert pat.match(r.name), (
-                f"slice name {r.name!r} on the {_PROCESS_LIFETIME_TRACK_NAME!r} track must match 'Process <pid>'"
+                f"slice name {r.name!r} on the {_PROCESS_LIFETIME_TRACK_NAME!r} track "
+                f"must match 'Process <pid>' or 'Process <pid>#N'"
             )
 
     def test_begin_end_match_first_last_event(
@@ -976,11 +1378,12 @@ class TestProcessesTrack:
             # End events) for this pid.
             candidates: list[int] = []
             for join_clause in (
-                f"JOIN process_track pt ON s.track_id = pt.id JOIN process p ON pt.upid = p.upid WHERE p.pid = {pid}",
+                f"JOIN process_track pt ON s.track_id = pt.id JOIN process p ON pt.upid = p.upid "
+                f"WHERE p.name = 'Process {pid}'",
                 f"JOIN thread_track tt ON s.track_id = tt.id "
                 f"JOIN thread th ON tt.utid = th.utid "
                 f"JOIN process p ON th.upid = p.upid "
-                f"WHERE p.pid = {pid}",
+                f"WHERE p.name = 'Process {pid}'",
             ):
                 rows = trace_processor.query(f"SELECT MIN(s.ts) AS ts FROM slice s {join_clause}")
                 for r in rows:
@@ -1088,6 +1491,34 @@ class TestCrossingProcessSpans:
             (f"Process {_SECOND_PID}", "debug.real_end_ts"): _CROSS_B_STOP,
         }
 
+    def test_every_slice_says_whether_the_sweep_moved_it(
+        self,
+        crossing_trace_processor: TraceProcessor,
+    ) -> None:
+        """``clipped`` is the verdict the sweep reached, on the one row the
+        sweep decides. It goes out either way, so a consumer reads the value
+        rather than the presence of the annotation.
+
+        ``value_type`` pins it as a bool: written as an int it would read
+        back as ``1`` and ``0`` in both the UI and SQL.
+        """
+        rows = list(
+            crossing_trace_processor.query(
+                f"SELECT s.name AS name, a.value_type AS value_type, a.int_value AS int_value "
+                f"FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                f"AND a.flat_key = '{_ARG_PREFIX}.clipped'"
+            )
+        )
+        assert {r.name: r.int_value for r in rows} == {
+            # Pulled back 200ms short of its last event.
+            f"Process {DEFAULT_PID}": 1,
+            f"Process {_SECOND_PID}": 0,
+        }
+        assert {r.value_type for r in rows} == {"bool"}
+
 
 class TestZeroDurationProcessSpans:
     """A ``Processes`` slice that ends up zero-length is still drawn.
@@ -1167,9 +1598,8 @@ class TestMonitorReportedLiveness:
         self,
         liveness_trace_processor: TraceProcessor,
     ) -> None:
-        """``_SECOND_PID`` produced no events at all: no process
-        descriptor, no process track, nothing but three liveness
-        observations."""
+        """``_SECOND_PID`` produced no events at all, only three liveness
+        observations, and they bound one slice on the shared row."""
         rows = list(
             liveness_trace_processor.query(
                 f"SELECT s.ts AS ts, s.dur AS dur FROM slice s "
@@ -1202,6 +1632,58 @@ class TestMonitorReportedLiveness:
             "debug.real_end_ts": _LIVE_TICKS[-1],
         }
 
+    def test_the_quiet_process_gets_a_row_of_its_own(
+        self,
+        liveness_trace_processor: TraceProcessor,
+    ) -> None:
+        """``_SECOND_PID`` named no track all run, so nothing described it
+        before close. It resolves to its own ``upid`` all the same, opening at
+        its own first observation and carrying its own command line, and its
+        row holds the one ``Lifetime`` bar and nothing else (ADR-0011)."""
+        rows = list(
+            liveness_trace_processor.query(
+                f"SELECT p.upid AS upid, p.start_ts AS start_ts, s.name AS sname, "
+                f"s.ts AS ts, s.dur AS dur FROM process p "
+                f"JOIN process_track pt ON pt.upid = p.upid "
+                f"JOIN slice s ON s.track_id = pt.id "
+                f"WHERE p.name = 'Process {_SECOND_PID}'"
+            )
+        )
+        assert len(rows) == 1, f"expected one slice on the quiet process's row, got {rows}"
+        row = rows[0]
+        assert row.start_ts == _LIVE_TICKS[0]
+        assert (row.sname, row.ts, row.ts + row.dur) == (
+            _PROCESS_ROW_SLICE_NAME,
+            _LIVE_TICKS[0],
+            _LIVE_TICKS[-1],
+        )
+
+        busy = list(
+            liveness_trace_processor.query(
+                f"SELECT p.upid AS upid FROM process p WHERE p.name = 'Process {DEFAULT_PID}'"
+            )
+        )
+        assert [row.upid] != [r.upid for r in busy], "the two processes must not share a upid"
+
+    def test_each_process_row_carries_its_own_command_line(
+        self,
+        liveness_trace_processor: TraceProcessor,
+    ) -> None:
+        """The descriptor built at close reads the same per-process command
+        line every other descriptor does, rather than the busy process's."""
+        rows = list(
+            liveness_trace_processor.query(
+                "SELECT p.name AS pname, a.string_value AS description FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE a.key = 'description' ORDER BY p.name"
+            )
+        )
+        assert {r.pname: r.description for r in rows} == {
+            f"Process {DEFAULT_PID}": " ".join(_LIVE_BUSY_CMDLINE),
+            f"Process {_SECOND_PID}": " ".join(_LIVE_QUIET_CMDLINE),
+        }
+
     def test_every_polled_pid_appears_exactly_once(
         self,
         liveness_trace_processor: TraceProcessor,
@@ -1219,12 +1701,107 @@ class TestMonitorReportedLiveness:
         }
 
 
+class TestARunKilledMidFlight:
+    """The file a ``SIGKILL`` leaves: batches on disk and no closeout.
+
+    A process gcmon had already let go of keeps its row, because its bar went
+    out with the first batch after it retired rather than at close (ADR-0011).
+    A process still running loses its, which is the part this does not reach.
+    """
+
+    def test_the_retired_process_keeps_its_row(
+        self,
+        killed_run_trace_processor: TraceProcessor,
+    ) -> None:
+        rows = list(
+            killed_run_trace_processor.query(
+                f"SELECT s.name AS sname, s.ts AS ts, s.dur AS dur FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE p.name = 'Process {_SECOND_PID}'"
+            )
+        )
+        assert [(r.sname, r.ts, r.ts + r.dur) for r in rows] == [(_PROCESS_ROW_SLICE_NAME, _KILL_GC_START, _KILL_TICK)]
+
+    def test_the_retired_process_keeps_its_description(
+        self,
+        killed_run_trace_processor: TraceProcessor,
+    ) -> None:
+        """The bar keeps the row rendered, and the command line hangs off the
+        row."""
+        rows = list(
+            killed_run_trace_processor.query(
+                f"SELECT a.string_value AS description FROM args a "
+                f"JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                f"JOIN process p ON p.upid = pt.upid "
+                f"WHERE a.key = 'description' AND p.name = 'Process {_SECOND_PID}'"
+            )
+        )
+        assert [r.description for r in rows] == [_FAKE_CMDLINE_JOINED]
+
+    def test_the_still_running_process_draws_nothing_on_its_row(
+        self,
+        killed_run_trace_processor: TraceProcessor,
+    ) -> None:
+        """What the kill still costs. ``DEFAULT_PID`` was alive when the trace
+        stopped, so its bar never went out."""
+        rows = list(
+            killed_run_trace_processor.query(
+                f"SELECT s.name AS sname FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE p.name = 'Process {DEFAULT_PID}'"
+            )
+        )
+        assert rows == []
+
+    def test_no_processes_track(self, killed_run_trace_processor: TraceProcessor) -> None:
+        """The minimap is a whole-run artifact: every slice on it is clipped
+        against every other, so none of it can go out early."""
+        rows = list(
+            killed_run_trace_processor.query(f"SELECT name FROM track WHERE name = '{_PROCESS_LIFETIME_TRACK_NAME}'")
+        )
+        assert rows == []
+
+    def test_the_pauses_are_still_there(
+        self,
+        killed_run_trace_processor: TraceProcessor,
+    ) -> None:
+        """A row hidden for want of a bar is the loss worth minimising: the
+        thread tracks under it reached the file either way."""
+        rows = list(
+            killed_run_trace_processor.query(
+                "SELECT s.name AS sname FROM slice s "
+                "JOIN thread_track tt ON s.track_id = tt.id "
+                "WHERE s.name LIKE 'GC Pause%'"
+            )
+        )
+        assert len(rows) == 3
+
+
 class TestLivenessOnlyTrace:
-    """A whole run in which nothing ever collected: no events, so no
-    process descriptors, no thread tracks, no root descriptor, only the
-    ``Processes`` track. The trace processor still has to accept it,
-    since an idle or short-lived target is an ordinary thing to
-    monitor."""
+    """A whole run in which nothing ever collected: no events, so no thread
+    tracks and no counters, and every descriptor in the file was written at
+    close. The trace processor still has to accept it, since an idle or
+    short-lived target is an ordinary thing to monitor."""
+
+    def test_every_polled_pid_draws_a_row(
+        self,
+        liveness_only_trace_processor: TraceProcessor,
+    ) -> None:
+        """Nothing named a track all run, so without the close-time
+        descriptors this trace would draw no rows at all."""
+        rows = list(
+            liveness_only_trace_processor.query(
+                "SELECT p.name AS pname, COUNT(s.id) AS n FROM process p "
+                "JOIN process_track pt ON pt.upid = p.upid "
+                "JOIN slice s ON s.track_id = pt.id GROUP BY p.name ORDER BY p.name"
+            )
+        )
+        assert {r.pname: r.n for r in rows} == {
+            f"Process {DEFAULT_PID}": 1,
+            f"Process {_SECOND_PID}": 1,
+        }
 
     def test_no_misplaced_end_events(self, liveness_only_trace_processor: TraceProcessor) -> None:
         assert _misplaced_end_events(liveness_only_trace_processor) == 0
@@ -1245,6 +1822,362 @@ class TestLivenessOnlyTrace:
             f"Process {DEFAULT_PID}": span,
             f"Process {_SECOND_PID}": span,
         }
+
+
+class TestReusedPidDrawsTwoOfEveryRow:
+    """A pid held twice reaches a reader as two processes.
+
+    The wire-level tests pin the bytes gcmon writes. This class asks the
+    trace processor what it made of them: two ``ProcessDescriptor`` messages
+    carrying one pid could have collapsed to a single ``upid``, and every
+    byte assertion in the suite would still have passed (ADR-0011).
+
+    Every query here scopes on ``upid`` or on the process name. Scoping on
+    ``pid`` cannot tell a split from a merge, since the pid is equal by
+    construction, and neither can counting rows.
+    """
+
+    def _processes(self, tp: TraceProcessor) -> dict[str, tuple[int, int]]:
+        """``{name: (upid, start_ts)}`` for the reused pid's processes."""
+        return {
+            r.name: (r.upid, r.start_ts)
+            for r in tp.query(f"SELECT upid, name, start_ts FROM process WHERE name GLOB 'Process {_REUSED_PID}*'")
+        }
+
+    def test_the_pid_gives_two_upids_each_with_its_own_start(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """Two rows in ``process`` for one pid is two ``upid``s, since
+        ``upid`` is that table's key, and each opens
+        where its own process was first observed rather than where the
+        pid was. A merge leaves one row here and every other test in the
+        class red."""
+        processes = self._processes(reused_pid_trace_processor)
+
+        assert sorted(processes) == [_REUSE_FIRST_NAME, _REUSE_SECOND_NAME]
+        assert {name: start for name, (_, start) in processes.items()} == {
+            _REUSE_FIRST_NAME: _REUSE_FIRST_START,
+            _REUSE_SECOND_NAME: _REUSE_SECOND_START,
+        }
+
+    def test_each_process_draws_its_pauses_on_its_own_thread_row(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """Each thread carries the ``tid`` of its own process's row, which
+        is what puts interpreter 0 under the right one: a tid equal to the
+        operating system's pid would name a main thread both processes
+        claim (ADR-0011)."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT p.name AS pname, th.utid AS utid, th.tid AS tid, s.ts AS ts "
+                f"FROM slice s "
+                f"JOIN thread_track tt ON s.track_id = tt.id "
+                f"JOIN thread th ON tt.utid = th.utid "
+                f"JOIN process p ON th.upid = p.upid "
+                f"WHERE s.name = '{_PAUSE_NAME}' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.ts) for r in rows] == [
+            (_REUSE_FIRST_NAME, _REUSE_FIRST_START),
+            (_REUSE_SECOND_NAME, _REUSE_SECOND_START),
+        ]
+        assert len({r.utid for r in rows}) == 2, f"expected a thread row per process, got {rows}"
+        assert len({r.tid for r in rows}) == 2, f"two processes share a main-thread tid: {rows}"
+        assert _REUSED_PID not in {r.tid for r in rows}
+
+    def test_each_process_draws_its_counters_on_its_own_tracks(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The two ``G0 collected`` values are apart, so a merged row
+        would show one line stepping between them."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                "SELECT p.name AS pname, ct.id AS ctrack_id, c.value AS value "
+                "FROM counter c "
+                "JOIN process_counter_track ct ON c.track_id = ct.id "
+                "JOIN process p ON p.upid = ct.upid "
+                "WHERE ct.name = 'G0 collected' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.value) for r in rows] == [
+            (_REUSE_FIRST_NAME, float(_REUSE_FIRST_COLLECTED)),
+            (_REUSE_SECOND_NAME, float(_REUSE_SECOND_COLLECTED)),
+        ]
+        assert len({r.ctrack_id for r in rows}) == 2, f"expected a counter track per process, got {rows}"
+
+    def test_each_process_tiles_its_blind_intervals_on_its_own_loss_row(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """One `GC Loss` row per process, so no span holds across the
+        handover. The two windows carry different counts, which a shared
+        row would draw as one sequence."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                "SELECT p.name AS pname, s.track_id AS track_id, s.ts AS ts, "
+                "EXTRACT_ARG(s.arg_set_id, 'debug.lost_count') AS lost "
+                "FROM slice s "
+                "JOIN process_track pt ON s.track_id = pt.id "
+                "JOIN process p ON pt.upid = p.upid "
+                "JOIN track t ON t.id = s.track_id "
+                "WHERE t.name LIKE 'GC Loss%' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.ts, r.lost) for r in rows] == [
+            (_REUSE_FIRST_NAME, _REUSE_FIRST_STOP, _REUSE_FIRST_COLLECTED),
+            (_REUSE_SECOND_NAME, _REUSE_SECOND_STOP, _REUSE_SECOND_COLLECTED),
+        ]
+        assert len({r.track_id for r in rows}) == 2, f"expected a loss row per process, got {rows}"
+
+    def test_each_process_gets_its_own_lifetime_bar(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """Each bar covers its own process, so the gap between the two is
+        visible on the rows rather than papered over by one bar spanning
+        both."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                f"SELECT p.name AS pname, s.ts AS ts, s.dur AS dur FROM slice s "
+                f"JOIN process_track pt ON s.track_id = pt.id "
+                f"JOIN process p ON pt.upid = p.upid "
+                f"WHERE s.name = '{_PROCESS_ROW_SLICE_NAME}' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.ts, r.ts + r.dur) for r in rows] == [
+            (_REUSE_FIRST_NAME, _REUSE_FIRST_START, _REUSE_FIRST_STOP + _REUSE_LOSS_WINDOW_NS),
+            (_REUSE_SECOND_NAME, _REUSE_SECOND_START, _REUSE_SECOND_STOP + _REUSE_LOSS_WINDOW_NS),
+        ]
+
+    def test_each_process_track_carries_its_own_command_line(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The field that was wrong rather than merged: one command line
+        was read per process all along, and the successor's had nowhere
+        to go."""
+        rows = list(
+            reused_pid_trace_processor.query(
+                "SELECT p.name AS pname, a.string_value AS description FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "JOIN process p ON p.upid = pt.upid "
+                "WHERE a.key = 'description' ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.description) for r in rows] == [
+            (_REUSE_FIRST_NAME, " ".join(_REUSE_FIRST_CMDLINE)),
+            (_REUSE_SECOND_NAME, " ".join(_REUSE_SECOND_CMDLINE)),
+        ]
+
+    def test_a_process_track_and_its_span_name_the_same_program(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The two disagreed before the split. A command line was read
+        per process all along and the span drew the right one, while the
+        single process track above both spans named the first process's
+        program.
+        """
+        on_the_track = {
+            r.pname: r.cmdline
+            for r in reused_pid_trace_processor.query(
+                "SELECT p.name AS pname, a.string_value AS cmdline FROM args a "
+                "JOIN process_track pt ON a.arg_set_id = pt.source_arg_set_id "
+                "JOIN process p ON p.upid = pt.upid WHERE a.key = 'description'"
+            )
+        }
+        on_the_span = {
+            r.sname: r.cmdline
+            for r in reused_pid_trace_processor.query(
+                f"SELECT s.name AS sname, a.string_value AS cmdline FROM args a "
+                f"JOIN slice s ON s.arg_set_id = a.arg_set_id "
+                f"JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}' "
+                f"AND a.flat_key = '{_ARG_PREFIX}.cmdline'"
+            )
+        }
+
+        assert on_the_span == {
+            _REUSE_FIRST_NAME: " ".join(_REUSE_FIRST_CMDLINE),
+            _REUSE_SECOND_NAME: " ".join(_REUSE_SECOND_CMDLINE),
+        }
+        assert on_the_track == on_the_span
+
+    def test_a_span_pairs_with_its_process_track_by_name(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """Equal names are the whole of the pairing. The epoch reaches no
+        column of its own, so this is how a reader joins a span's drawn
+        duration to a per-process aggregate (ADR-0011)."""
+        spans = {
+            r.name
+            for r in reused_pid_trace_processor.query(
+                f"SELECT s.name FROM slice s JOIN track t ON s.track_id = t.id "
+                f"WHERE t.name = '{_PROCESS_LIFETIME_TRACK_NAME}'"
+            )
+        }
+
+        assert spans == set(self._processes(reused_pid_trace_processor))
+
+    def test_no_non_info_stat_is_raised(
+        self,
+        reused_pid_trace_processor: TraceProcessor,
+    ) -> None:
+        """The trace processor accepts what gcmon now writes: no END
+        dropped and no descriptor rejected.
+
+        It says nothing about the merge. A merge raises no stat, which is
+        why every other test here reads a table instead.
+        """
+        rows = list(
+            reused_pid_trace_processor.query(
+                "SELECT name, severity, value FROM stats WHERE value != 0 AND severity != 'info'"
+            )
+        )
+
+        assert [(r.name, r.severity, r.value) for r in rows] == []
+
+
+_HELD_PID: int = 31415
+_HELD_EPOCHS: int = 4
+_HELD_STEP: int = 100_000_000
+_HELD_SPAN: int = 40_000_000
+
+
+def _held_start(epoch: int) -> int:
+    """Where the *epoch*-th process on ``_HELD_PID`` was first observed."""
+    return epoch * _HELD_STEP
+
+
+def _held_name(epoch: int) -> str:
+    return f"Process {_HELD_PID}" + ("" if epoch == 1 else f"#{epoch}")
+
+
+def _write_pid_held_four_times_trace(tmp: Path) -> Path:
+    """Write a trace for a run where one pid named four processes, one
+    after another with no overlap."""
+    path = tmp / "held.pb"
+    exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    for epoch in range(1, _HELD_EPOCHS + 1):
+        process = proc(_HELD_PID, epoch)
+        exporter.add_process_cmdline(process, ("python3", "-m", f"target{epoch}"))
+        exporter.add_event(
+            process,
+            create_mock_stats_item(
+                gen=_GEN,
+                iid=_IID,
+                ts_start=_held_start(epoch),
+                ts_stop=_held_start(epoch) + _HELD_SPAN,
+                collected=epoch,
+            ),
+        )
+    exporter.close()
+    return path
+
+
+@pytest.fixture
+def pid_held_four_times_trace_processor(tmp_path: Path) -> Iterator[TraceProcessor]:
+    path = _write_pid_held_four_times_trace(tmp_path)
+    with open_trace_processor(path) as tp:
+        yield tp
+
+
+class TestAPidHeldFourTimesDrawsFourRows:
+    """A pid handed on three times over, which is where a two-process trace
+    stops being enough to catch a merge.
+
+    The trace processor folds the third descriptor on a pid into the second's
+    row and opens another for the fourth, so these four processes would come
+    back as three rows, one carrying two ``Lifetime`` bars. gcmon writes a pid
+    of its own per process to stop that (ADR-0011), which is why these queries
+    scope on the name and read the operating system's pid off the ``pid``
+    annotation.
+    """
+
+    def test_every_process_gets_a_row_of_its_own(
+        self,
+        pid_held_four_times_trace_processor: TraceProcessor,
+    ) -> None:
+        """Four descriptors, four ``upid``s, each stamped where its own
+        process was first observed."""
+        rows = list(
+            pid_held_four_times_trace_processor.query(
+                "SELECT upid, name, start_ts FROM process WHERE name GLOB 'Process *' ORDER BY start_ts"
+            )
+        )
+
+        assert [r.name for r in rows] == [_held_name(e) for e in range(1, _HELD_EPOCHS + 1)]
+        assert [r.start_ts for r in rows] == [_held_start(e) for e in range(1, _HELD_EPOCHS + 1)]
+        assert len({r.upid for r in rows}) == _HELD_EPOCHS
+
+    def test_every_row_draws_exactly_one_lifetime_bar(
+        self,
+        pid_held_four_times_trace_processor: TraceProcessor,
+    ) -> None:
+        """A merged row is what carries two, so counting bars per row is
+        the assertion that fails without the synthetic pid."""
+        rows = list(
+            pid_held_four_times_trace_processor.query(
+                "SELECT p.name AS pname, COUNT(*) AS bars "
+                "FROM slice s "
+                "JOIN process_track pt ON s.track_id = pt.id "
+                "JOIN process p ON pt.upid = p.upid "
+                "WHERE s.name = 'Lifetime' GROUP BY p.upid ORDER BY p.name"
+            )
+        )
+
+        assert [(r.pname, r.bars) for r in rows] == [(_held_name(e), 1) for e in range(1, _HELD_EPOCHS + 1)]
+
+    def test_every_row_keeps_its_own_pauses(
+        self,
+        pid_held_four_times_trace_processor: TraceProcessor,
+    ) -> None:
+        """One pause each, so a merged row shows two and an empty one none."""
+        rows = list(
+            pid_held_four_times_trace_processor.query(
+                "SELECT p.name AS pname, s.ts AS ts "
+                "FROM slice s "
+                "JOIN thread_track tt ON s.track_id = tt.id "
+                "JOIN thread th ON tt.utid = th.utid "
+                "JOIN process p ON th.upid = p.upid "
+                f"WHERE s.name = '{_PAUSE_NAME}' ORDER BY s.ts"
+            )
+        )
+
+        assert [(r.pname, r.ts) for r in rows] == [(_held_name(e), _held_start(e)) for e in range(1, _HELD_EPOCHS + 1)]
+
+    def test_the_rows_carry_the_operating_system_pid_between_them(
+        self,
+        pid_held_four_times_trace_processor: TraceProcessor,
+    ) -> None:
+        """``process.pid`` is gcmon's own, one per process, and the pid the
+        operating system handed out four times is what remains of it modulo
+        none of them. It is on every bar as the ``pid`` annotation, which is
+        what a reader joins on to gather the four back together."""
+        rows = list(
+            pid_held_four_times_trace_processor.query(
+                "SELECT p.name AS pname, p.pid AS pid, "
+                "EXTRACT_ARG(s.arg_set_id, 'debug.pid') AS os_pid "
+                "FROM slice s "
+                "JOIN process_track pt ON s.track_id = pt.id "
+                "JOIN process p ON pt.upid = p.upid "
+                "WHERE s.name = 'Lifetime' ORDER BY p.name"
+            )
+        )
+
+        assert [r.os_pid for r in rows] == [_HELD_PID] * _HELD_EPOCHS
+        row_pids = {r.pid for r in rows}
+        assert len(row_pids) == _HELD_EPOCHS
+        assert _HELD_PID not in row_pids
 
 
 @pytest.mark.stress
@@ -1269,14 +2202,14 @@ class TestMultiFlushProcessesTrack:
         exporter = PerfettoExporter(output_path=path, flush_threshold=5)
         try:
             exporter.add_instant_event(
-                pid,
+                proc(pid),
                 create_instant_msg(name=_INSTANT_NAME, ts=0),
             )
             for i in range(n_items):
                 ts_start = 1_000_000 * (i + 1)
                 ts_stop = ts_start + 50_000
                 exporter.add_event(
-                    pid,
+                    proc(pid),
                     create_mock_stats_item(
                         gen=0,
                         iid=i,
@@ -1362,19 +2295,24 @@ class TestProcessOrderingIntegration:
         self,
         trace_processor: TraceProcessor,
     ) -> None:
-        """The ``process`` SQL table must still contain one row per pid
-        that emitted events, and no more. Adding ``sibling_order_rank``
-        to the process track descriptor must not change the cardinality
-        or pid column.
+        """The ``process`` SQL table must still contain one row per
+        process that emitted events, and no more. Adding
+        ``sibling_order_rank`` to the process track descriptor must not
+        change the cardinality.
+
+        Scoped on the name: ``process.pid`` is the pid gcmon writes for
+        the row, and each row carries one of its own (ADR-0011).
         """
         rows = list(
             trace_processor.query(
-                f"SELECT pid FROM process WHERE pid IN ({DEFAULT_PID}, {_SECOND_PID}) ORDER BY pid",
+                f"SELECT name, pid FROM process "
+                f"WHERE name IN ('Process {DEFAULT_PID}', 'Process {_SECOND_PID}') ORDER BY name",
             )
         )
-        assert [r.pid for r in rows] == sorted([DEFAULT_PID, _SECOND_PID]), (
-            f"expected one process row per pid; got {[r.pid for r in rows]}"
+        assert [r.name for r in rows] == sorted([f"Process {DEFAULT_PID}", f"Process {_SECOND_PID}"]), (
+            f"expected one process row per process; got {[r.name for r in rows]}"
         )
+        assert len({r.pid for r in rows}) == 2, f"two processes share a row pid: {[r.pid for r in rows]}"
 
     def test_process_track_rows_still_present_after_ranking(
         self,
@@ -1418,20 +2356,21 @@ class TestProcessOrderingIntegration:
         rows = list(
             trace_processor.query(
                 f"""
-            SELECT t.id, p.pid
+            SELECT t.id, p.name
             FROM track t
             JOIN process_track pt ON t.id = pt.id
             JOIN process p ON pt.upid = p.upid
             WHERE t.type = 'process_track_event'
-              AND p.pid IN ({DEFAULT_PID}, {_SECOND_PID})
+              AND p.name IN ('Process {DEFAULT_PID}', 'Process {_SECOND_PID}')
         """
             )
         )
-        pid_to_id = {r.pid: r.id for r in rows}
-        assert DEFAULT_PID in pid_to_id
-        assert _SECOND_PID in pid_to_id
-        assert pid_to_id[_SECOND_PID] < pid_to_id[DEFAULT_PID], (
-            f"expected _SECOND_PID (earlier first event) to have lower track id; got pid_to_id={pid_to_id}"
+        name_to_id = {r.name: r.id for r in rows}
+        first, second = f"Process {DEFAULT_PID}", f"Process {_SECOND_PID}"
+        assert first in name_to_id
+        assert second in name_to_id
+        assert name_to_id[second] < name_to_id[first], (
+            f"expected _SECOND_PID (earlier first event) to have lower track id; got {name_to_id}"
         )
 
     def test_process_table_start_ts_matches_first_event(
@@ -1450,18 +2389,18 @@ class TestProcessOrderingIntegration:
         rows = list(
             trace_processor.query(
                 f"""
-            SELECT pid, start_ts
+            SELECT name, start_ts
             FROM process
-            WHERE pid IN ({DEFAULT_PID}, {_SECOND_PID})
-            ORDER BY pid
+            WHERE name IN ('Process {DEFAULT_PID}', 'Process {_SECOND_PID}')
+            ORDER BY name
         """
             )
         )
-        pid_to_start_ts = {r.pid: r.start_ts for r in rows}
-        assert pid_to_start_ts == {
-            DEFAULT_PID: _TS_START - 1_000_000,
-            _SECOND_PID: _TS_START - 2_000_000,
-        }, f"unexpected start_ts values: {pid_to_start_ts}"
+        start_ts = {r.name: r.start_ts for r in rows}
+        assert start_ts == {
+            f"Process {DEFAULT_PID}": _TS_START - 1_000_000,
+            f"Process {_SECOND_PID}": _TS_START - 2_000_000,
+        }, f"unexpected start_ts values: {start_ts}"
 
 
 _RSS_PID_1: int = DEFAULT_PID
@@ -1476,14 +2415,10 @@ _RSS_TS_3: int = 2_500_000_000
 
 def _write_trace_with_rss(tmp: Path) -> Path:
     path = tmp / "trace_with_rss.pb"
-    exporter: PerfettoExporter = PerfettoExporter(
-        output_path=path,
-        flush_threshold=1000,
-        cmdline_provider=_fake_cmdline_provider,
-    )
-    exporter.add_rss_sample(_RSS_PID_1, _RSS_VAL_1, _RSS_TS_1)
-    exporter.add_rss_sample(_RSS_PID_2, _RSS_VAL_2, _RSS_TS_2)
-    exporter.add_rss_sample(_RSS_PID_1, _RSS_VAL_3, _RSS_TS_3)
+    exporter: PerfettoExporter = PerfettoExporter(output_path=path, flush_threshold=1000)
+    exporter.add_rss_sample(proc(_RSS_PID_1), _RSS_VAL_1, _RSS_TS_1)
+    exporter.add_rss_sample(proc(_RSS_PID_2), _RSS_VAL_2, _RSS_TS_2)
+    exporter.add_rss_sample(proc(_RSS_PID_1), _RSS_VAL_3, _RSS_TS_3)
     exporter.close()
     return path
 
@@ -1570,7 +2505,7 @@ class TestRssCounterTrackIntegration:
 
         # Both expected PIDs appear in the process table.
         for pid in (_RSS_PID_1, _RSS_PID_2):
-            proc_rows = list(trace_processor_with_rss.query(f"SELECT pid FROM process WHERE pid = {pid}"))
+            proc_rows = list(trace_processor_with_rss.query(f"SELECT name FROM process WHERE name = 'Process {pid}'"))
             assert len(proc_rows) == 1, f"expected process row for PID {pid}"
 
     def test_rss_counter_track_name_and_unit(
@@ -1593,7 +2528,7 @@ class TestRssCounterTrackIntegration:
         path = tmp_path / "trace_combined.pb"
         exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
         exporter.add_event(
-            DEFAULT_PID,
+            proc(DEFAULT_PID),
             create_mock_stats_item(
                 gen=0,
                 iid=0,
@@ -1604,7 +2539,7 @@ class TestRssCounterTrackIntegration:
                 heap_size=_HEAP_SIZE,
             ),
         )
-        exporter.add_rss_sample(DEFAULT_PID, _RSS_VAL_1, _RSS_TS_1)
+        exporter.add_rss_sample(proc(DEFAULT_PID), _RSS_VAL_1, _RSS_TS_1)
         exporter.close()
 
         with open_trace_processor(path) as tp:
@@ -1633,10 +2568,10 @@ class TestTwoInterpretersHeapSizes:
         exporter = PerfettoExporter(output_path=path, flush_threshold=1000)
         for iid, heap_size in ((0, 1_000), (1, 9_000)):
             exporter.add_event(
-                DEFAULT_PID,
+                proc(DEFAULT_PID),
                 create_mock_stats_item(gen=0, iid=iid, heap_size=heap_size, ts_start=_TS_START, ts_stop=_TS_STOP),
             )
-        exporter.add_rss_sample(DEFAULT_PID, _RSS_VAL_1, _RSS_TS_1)
+        exporter.add_rss_sample(proc(DEFAULT_PID), _RSS_VAL_1, _RSS_TS_1)
         exporter.close()
         with open_trace_processor(path) as tp:
             yield tp

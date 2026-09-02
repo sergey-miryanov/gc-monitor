@@ -325,6 +325,7 @@ class TestRunMonitoringLoop:
             reader=ANY,
             wait_policy_factory=mock_wait_policy_factory,
             is_pid_enabled=mock_control_instance.is_enabled,
+            registry=ANY,
         )
         # The one place in the package that builds a real reader. Named rather
         # than matched loosely: a monitor built with a fake here would read

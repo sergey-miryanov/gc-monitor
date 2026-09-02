@@ -22,16 +22,13 @@ from gcmon.exporters.perfetto_builders import build_trace
 from gcmon.exporters.perfetto_format import convert_trace_events_to_perfetto
 from gcmon.exporters.perfetto_proto import TrackEventType
 from gcmon.exporters.perfetto_track_state import PerfettoTrackState
-from gcmon.model.trace_event import InterpreterTrack, Slice, TraceEvent
+from gcmon.model.trace_event import Slice, TraceEvent
 from tests.exporters.perfetto_helpers import parse_track_descriptor
-from tests.helpers import open_trace_processor
+from tests.helpers import interpreter_track, open_trace_processor
 
 PID = 4242
-ROW = InterpreterTrack(PID, 0)
+ROW = interpreter_track(PID, 0)
 SEQUENCE_ID = 7
-
-# Must match ``_START_PROCESS_INSTANT_NAME`` in ``gcmon.exporters.perfetto_format``.
-_START_PROCESS_MARKER_NAME: str = "Start Process"
 
 
 def _track_events(packets: list[bytes]) -> list[TracePacket]:
@@ -42,11 +39,7 @@ def _track_events(packets: list[bytes]) -> list[TracePacket]:
 
 
 def _slice_packets(packets: list[bytes]) -> list[TracePacket]:
-    """The slice packets, in emission order.
-
-    The ``Start Process`` marker is an instant, so it drops out here and is
-    asserted on directly instead.
-    """
+    """The slice packets, in emission order."""
     return [
         p
         for p in _track_events(packets)
@@ -102,10 +95,13 @@ class TestASliceExpandsIntoAPair:
         assert "Process 4242" in named
         assert "Thread 0" in named
 
-    def test_a_slice_places_the_start_process_marker(self) -> None:
+    def test_a_slice_places_no_instant(self) -> None:
+        """The conversion pass writes nothing but the pair. The process row
+        is kept rendered by the ``Lifetime`` slice ``finalize_perfetto_packets``
+        draws at close, which is not an instant and not emitted here."""
         _, packets = _convert([Slice(ROW, "GC Pause(0)", "gc.pause", 1_000, 1_500, {})])
         instants = [p.track_event.name for p in _track_events(packets) if p.track_event.type == TrackEventType.INSTANT]
-        assert instants == [_START_PROCESS_MARKER_NAME]
+        assert instants == []
 
 
 def _thread_row(tp: TraceProcessor) -> list[tuple[str, int, int, int]]:
@@ -117,7 +113,8 @@ def _thread_row(tp: TraceProcessor) -> list[tuple[str, int, int, int]]:
             "JOIN thread_track tt ON s.track_id = tt.id "
             "JOIN thread th ON tt.utid = th.utid "
             "JOIN process p ON th.upid = p.upid "
-            f"WHERE p.pid = {PID} ORDER BY s.ts, s.depth"
+            # By name: `p.pid` is the row's, one gcmon hands out (ADR-0011).
+            f"WHERE p.name = 'Process {PID}' ORDER BY s.ts, s.depth"
         )
     ]
 

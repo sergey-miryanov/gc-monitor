@@ -1,9 +1,13 @@
 # ADR-0013: Sample RSS in a standalone `RssSampler`, on a `tid = -1` sentinel track
 
 - **Status:** Accepted
-- **Date:** 2026-07-13 (caller note added 2026-08-02; `tick` moved to
-  nanoseconds, the per-sample clock read removed, and "one clock read per
-  tick" narrowed to one *stamping* read, 2026-08-17)
+- **Date:** 2026-07-13, amended:
+  - 2026-08-02: caller note added
+  - 2026-08-17: `tick` took the instant in nanoseconds, which removed the
+    per-sample clock read and narrowed "one clock read per tick" to one
+    *stamping* read
+  - 2026-08-31: `tick` took processes rather than pids, see
+    [ADR-0025](0025-create-every-process-in-one-place.md)
 
 ## Context
 
@@ -32,8 +36,8 @@ spread a soft-optional dependency across the core.
 
 **Sampling lives in its own class**, `RssSampler` in
 `src/gcmon/monitoring/rss_sampler.py`. It holds the exporter, the interval,
-and the last-sample time. Its only public method is `tick(now_ns, live_pids)`,
-and the timer check is internal. `MonitorLoop` gains one optional constructor
+and the last-sample time. Its only public method is `tick(now_ns, live)`, and
+the timer check is internal. `MonitorLoop` gains one optional constructor
 argument and one line in the loop body. It knows nothing about `psutil`,
 timers, or how a sample turns into an event.
 
@@ -73,7 +77,7 @@ and the RSS read yields nothing.
 sentinel `tid = -1` here, and a counter track keyed `(pid, -1, "rss", "rss")`.
 The decision underneath is confirmed rather than overturned: RSS belongs to
 the process and must not conjure a thread. An RSS sample names a
-`ProcessTrack(pid)` now, so that is what the row is rather than a number
+`ProcessTrack(process)` now, so that is what the row is rather than a number
 reserved to stand for it, and there is no thread descriptor to suppress. The
 track is still parented directly to the process track, outside the
 `GC Metrics` group, with the display name `rss` -- by construction now rather
@@ -131,7 +135,7 @@ defaults to 1.0 s, independent of the 0.1 s GC poll rate.
 ## Implementation
 
 - `src/gcmon/monitoring/rss_sampler.py` holds `RssSampler`, its
-  `tick(now_ns, live_pids)` entry point, the interval check, and the default
+  `tick(now_ns, live)` entry point, the interval check, and the default
   sampler catching `NoSuchProcess` / `AccessDenied`.
 - `src/gcmon/exporters/_buffered_exporter.py` holds the `-1` sentinel, the
   `iid >= 0` guard that suppresses thread meta for it, and the exporter's RSS

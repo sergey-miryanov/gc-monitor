@@ -1,7 +1,10 @@
 # ADR-0024: An event names the track it is drawn on
 
 - **Status:** Accepted
-- **Date:** 2026-08-26 (`old_work` joined the top-level set 2026-08-28)
+- **Date:** 2026-08-26, amended:
+  - 2026-08-28: `old_work` joined the top-level set
+  - 2026-08-31: a track named a process rather than a pid, see
+    [ADR-0025](0025-create-every-process-in-one-place.md)
 - **Supersedes:** [ADR-0004](0004-toplevel-shared-counters.md),
   [ADR-0006](0006-begin-end-slice-pairs.md)
 
@@ -25,10 +28,14 @@ Three things followed from the Chrome shape:
 
 ## Decision
 
-**A `Track` names a row, and every event carries one.** `ProcessTrack(pid)`,
-`InterpreterTrack(pid, iid)` and `LossTrack(pid, iid)`. The `(pid, tid)` pair
-and the sentinels go. `LossTrack` and `InterpreterTrack` carry the same two
-fields and name different rows.
+**A `Track` names a row, and every event carries one.**
+`ProcessTrack(process)`, `InterpreterTrack(process, iid)` and
+`LossTrack(process, iid)`. The `(pid, tid)` pair and the sentinels go.
+`LossTrack` and `InterpreterTrack` carry the same two fields and name
+different rows. The first field is a `Process`
+([ADR-0025](0025-create-every-process-in-one-place.md)), so a trace can draw two
+processes that shared a pid apart. A capture read back offline carries no
+epoch, so `combine` builds every pid a first process.
 
 **The encoder derives every other row from those.** Ahead of the first packet
 naming a track it emits the pid's process descriptor, whichever kind of track

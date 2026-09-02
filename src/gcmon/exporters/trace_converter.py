@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 
+from ..model.process import Process
 from ..model.protocol import (
     TGCStatsInfo,
     TGenLoss,
@@ -33,16 +34,22 @@ from ..model.trace_event import (
 )
 
 __all__ = [
+    "GC_PAUSE_CATEGORY",
     "convert_item_to_trace_format",
     "convert_loss_to_trace_format",
     "convert_to_trace_format",
 ]
 
+# The category of the one slice every record produces, whatever phases it
+# ran. It is what lets a reader of the event stream count records: the
+# sub-phase slices and the counters are per record too, but conditional.
+GC_PAUSE_CATEGORY: str = "gc.pause"
 
-def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEvent]:
+
+def convert_item_to_trace_format(process: Process, item: TGCStatsInfo) -> list[TraceEvent]:
     gen = item.gen
     iid = item.iid
-    track = InterpreterTrack(pid, iid)
+    track = InterpreterTrack(process, iid)
     ts_start_ns = item.ts_start
     ts_stop_ns = item.ts_stop
 
@@ -96,7 +103,7 @@ def convert_item_to_trace_format(pid: int, item: TGCStatsInfo) -> list[TraceEven
         Slice(
             track,
             f"GC Pause({gen})",
-            f"gc.pause(gen={gen})",
+            f"{GC_PAUSE_CATEGORY}(gen={gen})",
             ts_start_ns,
             ts_stop_ns,
             pause_data,
@@ -318,7 +325,7 @@ def _gen_loss_args(gen: TGenLoss) -> ArgGroup:
     return args
 
 
-def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
+def convert_loss_to_trace_format(process: Process, item: TLossMsg) -> list[TraceEvent]:
     """One ``GC Loss`` slice covering a poll interval gcmon went into blind.
 
     Spans the interval end to end, on interpreter *iid*'s loss track rather
@@ -333,7 +340,7 @@ def convert_loss_to_trace_format(pid: int, item: TLossMsg) -> list[TraceEvent]:
 
     See ADR-0015 for the width, the track and the grouping.
     """
-    track = LossTrack(pid, item.iid)
+    track = LossTrack(process, item.iid)
     blind = [gen.gen for gen in item.gens if gen.lost_count]
     name = f"GC Loss({','.join(str(gen) for gen in blind)})" if blind else "GC Loss"
     category = "gc.loss"
@@ -380,8 +387,15 @@ def _loss_in_time_order(items: Sequence[TItem]) -> Sequence[TItem]:
 
 
 def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceEvent]:
+    """Convert a capture, which names pids and nothing else.
+
+    A capture carries no exit and no discovery instant, so every pid reads as
+    a single process on its first epoch. A live trace separates two processes
+    that shared a pid where this merges them; ADR-0024 accepts that.
+    """
     events: list[TraceEvent] = []
     for pid, pid_items in items.items():
+        process = Process(pid, 1)
         pid_events: list[TraceEvent] = []
         # The guards are mutually exclusive, so the order is free to follow the
         # capture: GC records outnumber the other two by orders of magnitude,
@@ -389,11 +403,11 @@ def convert_to_trace_format(items: Mapping[int, Sequence[TItem]]) -> list[TraceE
         # `hasattr`.
         for item in _loss_in_time_order(pid_items):
             if is_gc_stats(item):
-                pid_events.extend(convert_item_to_trace_format(pid, item))
+                pid_events.extend(convert_item_to_trace_format(process, item))
             elif is_loss(item):
-                pid_events.extend(convert_loss_to_trace_format(pid, item))
+                pid_events.extend(convert_loss_to_trace_format(process, item))
             elif is_instant(item):
-                pid_events.append(Instant(ProcessTrack(pid), item.name, item.ts))
+                pid_events.append(Instant(ProcessTrack(process), item.name, item.ts))
 
         events.extend(pid_events)
 

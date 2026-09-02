@@ -135,18 +135,18 @@ capture that prints no table at the end.
 
 ## Implementation
 
-`gcmon.cli.commands.monitoring_options` declares `--stats` and refuses a bad
-`GCMON_STATS`; `gcmon.cli._env` reads the raw value. The refusal does not sit
-with the reading, because every `get_env_*` runs while the parser is being
-built, before logging is configured. The options builder turns it down
-instead, alongside `rate`, `duration` and `flush_threshold`, once logging
+`src/gcmon/cli/commands/monitoring_options.py` declares `--stats` and refuses
+a bad `GCMON_STATS`; `src/gcmon/cli/_env.py` reads the raw value. The refusal
+does not sit with the reading, because every `get_env_*` runs while the parser
+is being built, before logging is configured. The options builder turns it
+down instead, alongside `rate`, `duration` and `flush_threshold`, once logging
 exists.
 
-`StatsView` in `gcmon.stats.views` holds the view, beside the `TableFormat`
-behind `--table-format`, and each member's value is the word the operator
-types. The enum owns the vocabulary: it feeds argparse `choices`, and maps a
-typed word to a view, to `None` for the words in `STATS_OFF_WORDS`, or to
-`ValueError`. The usage line and the parser cannot drift apart, and
+`StatsView` in `src/gcmon/stats/views.py` holds the view, beside the
+`TableFormat` behind `--table-format`, and each member's value is the word the
+operator types. The enum owns the vocabulary: it feeds argparse `choices`, and
+maps a typed word to a view, to `None` for the words in `STATS_OFF_WORDS`, or
+to `ValueError`. The usage line and the parser cannot drift apart, and
 `monitoring_options` keeps only the flag and the message naming `GCMON_STATS`.
 No table is `None` rather than a member: there is nothing to render for it,
 and one member cannot carry four words.

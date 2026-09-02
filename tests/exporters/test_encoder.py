@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -12,7 +11,8 @@ from gcmon.exporters.encoder import (
     ProtobufEventEncoder,
     convert_trace_events_to_perfetto,  # noqa: F401  (used via monkeypatch.setattr)
 )
-from gcmon.model.trace_event import Instant, ProcessTrack
+from gcmon.model.trace_event import Instant
+from tests.helpers import proc, process_track
 
 
 class TestProtobufEventEncoder:
@@ -31,7 +31,7 @@ class TestProtobufEventEncoder:
         enc = ProtobufEventEncoder()
         path = tmp_path / "out.perfetto"
         enc.open(path)
-        enc.record_process_liveness({1234}, 1_400_000_000)
+        enc.record_process_liveness({proc(1234)}, 1_400_000_000)
         assert enc._has_written is False
         enc.close()
         assert path.exists() and path.stat().st_size > 0
@@ -45,17 +45,6 @@ class TestProtobufEventEncoder:
         with pytest.raises(AssertionError, match="one encoder writes one trace"):
             enc.open(tmp_path / "second.perfetto")
 
-    def test_default_cmdline_provider_returns_cmdline(self) -> None:
-        result = ProtobufEventEncoder._default_cmdline_provider(os.getpid())
-        assert isinstance(result, list)
-
-    def test_ensure_cmdline_skips_already_set(self) -> None:
-        provider = Mock(return_value=["python", "app.py"])
-        enc = ProtobufEventEncoder(cmdline_provider=provider)
-        enc._ensure_cmdline(1234)
-        enc._ensure_cmdline(1234)
-        assert provider.call_count == 1
-
     def test_write_events_returns_early_when_converter_produces_no_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -66,7 +55,7 @@ class TestProtobufEventEncoder:
             "gcmon.exporters.encoder.convert_trace_events_to_perfetto",
             Mock(return_value=([], [])),
         )
-        enc.write_events([Instant(ProcessTrack(1234), "ev", ts=1_000)])
+        enc.write_events([Instant(process_track(1234), "ev", ts=1_000)])
         enc.close()
         assert not path.exists()
         assert enc._has_written is False

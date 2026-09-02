@@ -5,6 +5,7 @@ is what pins the wire format (ADR-0001).
 """
 
 from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
+    DebugAnnotation,
     ThreadDescriptor,
     Trace,
     TracePacket,
@@ -13,6 +14,7 @@ from perfetto.protos.perfetto.trace.perfetto_trace_pb2 import (
 )
 
 from gcmon.exporters.perfetto_builders import (
+    _build_debug_annotation_bool,
     build_trace,
     build_trace_packet,
     build_track_descriptor,
@@ -359,3 +361,24 @@ class TestBuildTrace:
         assert len(trace.packet) == 2
         assert trace.packet[0].SerializeToString() == p1
         assert trace.packet[1].SerializeToString() == p2
+
+
+class TestBuildDebugAnnotationBool:
+    """``bool_value`` rather than ``int_value``, so the UI and SQL both
+    read ``true`` where an int annotation would read ``1``."""
+
+    def _parse(self, value: bool) -> DebugAnnotation:
+        annotation = DebugAnnotation()
+        annotation.ParseFromString(_build_debug_annotation_bool("clipped", value))
+        return annotation
+
+    def test_true(self) -> None:
+        annotation = self._parse(True)
+        assert annotation.name == "clipped"
+        assert annotation.bool_value is True
+
+    def test_false_is_written_rather_than_omitted(self) -> None:
+        """A consumer reads the value, never the presence of the field."""
+        annotation = self._parse(False)
+        assert annotation.WhichOneof("value") == "bool_value"
+        assert annotation.bool_value is False

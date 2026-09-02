@@ -1,8 +1,9 @@
 # ADR-0014: Validate traces against the real trace processor; deselect slow suites by marker
 
 - **Status:** Accepted
-- **Date:** 2026-06-12 (stress marker) / 2026-06-18 (trace-processor tests) /
-  2026-08-02 (fuzz marker)
+- **Date:** 2026-06-12 (the stress marker), amended:
+  - 2026-06-18: trace-processor tests added
+  - 2026-08-02: fuzz marker added
 
 ## Context
 

@@ -16,7 +16,7 @@ from gcmon.exporters.jsonl_io import (
 )
 from gcmon.model.data import GCStatsInfo, LossMsg
 from gcmon.model.protocol import has_incremental
-from gcmon.model.trace_event import Counter, InterpreterTrack, Slice
+from gcmon.model.trace_event import Counter, Slice
 from tests.data_helpers import create_instant_msg
 from tests.exporters.conftest import make_inc_item, make_inc_jsonl_record
 from tests.helpers import (
@@ -24,6 +24,7 @@ from tests.helpers import (
     assert_valid_perfetto_trace,
     create_jsonl_record,
     create_mock_stats_item,
+    interpreter_track,
 )
 
 
@@ -305,7 +306,7 @@ class TestConvertJsonlToTraceFormat:
         ]
         path.write_bytes(b"\n".join(lines) + b"\n")
         events = convert_jsonl_to_trace_format(path)
-        assert {e.track for e in events} == {InterpreterTrack(1, 0), InterpreterTrack(2, 0)}
+        assert {e.track for e in events} == {interpreter_track(1, 0), interpreter_track(2, 0)}
 
 
 class TestAnOldFormatLossRecord:

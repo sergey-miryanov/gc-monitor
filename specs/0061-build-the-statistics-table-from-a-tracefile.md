@@ -7,9 +7,11 @@
   comparison in spec 0063 needs a table it can build twice
 - **Respects:**
   [ADR-0001](../docs/adr/0001-hand-rolled-perfetto-protobuf-encoder.md) (the
-  encoder is hand-rolled and `perfetto` stays out of the *monitoring* runtime;
-  this spec adds it as an extra on the analysis path and says why that is not
-  the same decision),
+  encoder is hand-rolled and `perfetto` stays out of the *monitoring*
+  runtime), [ADR-0026](../docs/adr/0026-two-towers-over-a-shared-base.md) (the
+  reader and `report` are analysis-tower code),
+  [ADR-0027](../docs/adr/0027-the-monitor-tower-owns-the-interpreter-floor.md)
+  (why `perfetto` on the analysis path is not the decision ADR-0001 took),
   [ADR-0009](../docs/adr/0009-nanoseconds-canonical-time-unit.md) (nanoseconds
   inside gcmon),
   [ADR-0016](../docs/adr/0016-the-ring-is-the-statistics-unit.md) (the ring is
@@ -58,27 +60,31 @@ the file.
 4. As an operator who used `--stats=full` live, I want `report --view full` to
    print the same blocks in the same order, so that the two are comparable by
    eye and by diff.
-5. As someone installing gcmon next to a production process, I want the
-   analysis dependency to be optional, so that the monitored application does
-   not inherit it.
+5. As an operator who only monitors, I want the analysis dependency to be
+   optional, so that a production install carries nothing it never runs.
 6. As a maintainer, I want one path from records to statistics, so that the
    live table and the offline table cannot drift apart the way the live and
    offline trace paths already did twice.
 7. As a maintainer, I want the reader replaceable, so that a hand-rolled
    decoder can take over without anything else in the codebase noticing.
+8. As the maintainer of a tool that reads gcmon's traces, I want the rows the
+   reader queried, so that I do not keep my own SQL against gcmon's track
+   layout and learn it broke from a wrong number.
 
 ## 4. Implementation decisions
 
-**The reader is a protocol, with one implementation over `TraceProcessor`.**
-The seam is a path in, and records plus process metadata out. `perfetto` and
-`protobuf` become an optional extra, and importing the reader without it fails
-with a message naming the extra.
+**The reader is two seams, both protocols, with one implementation over
+`TraceProcessor`.** The lower seam takes a trace and yields the rows it holds:
+slices with their category, name, span and arguments, counter samples, and the
+processes those hang under. The upper seam folds those rows into records. Spec
+0068 declares the `analysis` extra that `perfetto` and `protobuf` arrive in,
+and importing either seam without it fails with a message naming the extra.
 
-ADR-0001 keeps `perfetto` out of the runtime because gcmon is installed beside
-the process it watches, so every runtime dependency is one the target
-inherits. `report` is not on that path: it runs after the fact, on a different
-machine as often as not. The extra is the shape that keeps ADR-0001's reason
-intact while letting this exist.
+Two seams rather than one because each has a consumer. `report` wants records.
+A tool reading gcmon's traces from outside wants the rows, and denied them it
+writes its own SQL against gcmon's track layout, which is how a renamed track
+becomes a wrong number in somebody else's output instead of a failing test
+here. ADR-0027 holds the argument for the extra itself.
 
 Rejected for now, and worth naming because it is close: a hand-rolled decoder
 mirroring the hand-rolled encoder, sharing the field numbers in
@@ -89,14 +95,14 @@ today, and the decoder is a second place that has to track the wire format.
 The protocol above is what makes the choice reversible, and the round-trip
 test in section 5 is what would validate the replacement.
 
-**The reader returns `dict[int, list[TItem]]`,** the type `read_jsonl` already
-returns. Folding a capture's records back into a `StreamingStats` becomes the
-single path from records to a table. `pyperf/hook.py` carried a private
-`_replay` doing exactly that; spec 0064 left it with no caller, since the hook
-marks the benchmark and computes nothing, and it was deleted rather than left
-to rot. Recover it from git history: it and its tests are the commit before
-"Drop the hook's replay of a capture". JSONL and a tracefile then reach the
-table through the same code, and the zero-duration rule in
+**The upper seam returns `dict[int, list[TItem]]`,** the type `read_jsonl`
+already returns. Folding a capture's records back into a `StreamingStats`
+becomes the single path from records to a table. `pyperf/hook.py` carried a
+private `_replay` doing exactly that; spec 0064 left it with no caller, since
+the hook marks the benchmark and computes nothing, and it was deleted rather
+than left to rot. Recover it from git history: it and its tests are the commit
+before "Drop the hook's replay of a capture". JSONL and a tracefile then reach
+the table through the same code, and the zero-duration rule in
 `streaming_stats._record` is applied once rather than reimplemented.
 
 That costs the reader some fabrication. A sub-phase has its own slice, so its
@@ -106,6 +112,11 @@ through a shape the trace does not use. The alternative is a second entry into
 `StreamingStats` and a second copy of the zero-duration rule, which is the
 drift [ADR-0007](../docs/adr/0007-shared-trace-converter-pipeline.md) exists
 to prevent. The fabrication is the cheaper mistake.
+
+**The lower seam keys a slice's arguments rather than concatenating them.**
+They reach it as `flat_key` and `display_value` pairs and leave it as a
+mapping. A consumer wanting one string joins them; one wanting a value does
+not parse it back out.
 
 **Two joins the reader has to make.** The cumulative `duration` that
 `observe_cumulative` needs is a sample on the `G{gen} duration` counter track,
@@ -124,11 +135,12 @@ for metadata that cannot be known: absent rather than guessed.
 
 ## 5. Seams and testing decisions
 
-- **Seam:** the reader protocol, and `stats_output.print_stats` above it. The
-  reader is unit-testable against a trace written by the encoder in the same
-  test, with no subprocess and no fixture file to keep current.
-- **New seam needed:** the reader protocol itself. Nothing existing reaches
-  from a path to a `TItem`, and `read_jsonl` is the shape to model it on.
+- **Seam:** the two reader protocols, and `stats_output.print_stats` above
+  them. Both are unit-testable against a trace written by the encoder in the
+  same test, with no subprocess and no fixture file to keep current.
+- **New seam needed:** both of them. Nothing existing reaches from a path to a
+  row or from a path to a `TItem`, and `read_jsonl` is the shape to model the
+  upper one on.
 - **What makes a good test here:** a round trip. Write a known record set
   through the encoder, read it back, and assert the records match. Per
   CONVENTIONS rule 6 this is exactly the test that a round trip alone does not
@@ -145,8 +157,10 @@ for metadata that cannot be known: absent rather than guessed.
      note. This is the guard the whole spec rests on.
   3. A trace from a run that lost records reports the same `Cov` and `F` as
      the session did.
-  4. Importing the reader without the extra fails with a message naming the
+  4. Importing either seam without the extra fails with a message naming the
      extra, and every other command still runs.
+  5. The lower seam reads back every slice, counter sample and process the
+     encoder wrote, with a slice's arguments keyed rather than concatenated.
 
 ## 6. Out of scope
 
@@ -163,17 +177,21 @@ for metadata that cannot be known: absent rather than guessed.
   trace, and a second path into the same table earns nothing.
 - **A hand-rolled decoder**, for the reasons in section 4. The protocol is
   what keeps it available.
+- **What a consumer does with the rows.** The lower seam hands them back;
+  writing them to a file, and the shape of that file, belongs to whoever
+  publishes it.
 
 ## 7. Further notes
 
-Landing this earns an ADR: the reader is a protocol, with `TraceProcessor`
-behind it for now. It partially reverses ADR-0001 on the analysis path, a
-future reader will ask why, and both the reason and the rejected alternative
-belong in the record.
+Landing this earns an ADR: the reader is two protocols, with `TraceProcessor`
+behind them for now. ADR-0027 already carries why `perfetto` is allowed on the
+analysis path, so what this record adds is the split, the rejected hand-rolled
+decoder, and why the seam is where it is.
 
 Depends on spec 0059, without which the offline table cannot say which process
-held a pid and would drop a distinction the live table makes. Spec 0063
-depends on this one.
+held a pid and would drop a distinction the live table makes, and on spec
+0068, which creates the tower the reader lives in and the extra it needs. Spec
+0063 depends on this one.
 
 Nothing here touches the hook. Spec 0064 already took the replay out of
 `pyperf/hook.py`, so this spec writes the shared implementation rather than

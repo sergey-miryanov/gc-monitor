@@ -1,7 +1,8 @@
 # ADR-0007: Convert GC stats to `TraceEvent` once, in a shared pipeline
 
 - **Status:** Accepted
-- **Date:** 2026-06-14 (`LossMsg` noted as the third record type 2026-08-05)
+- **Date:** 2026-06-14, amended:
+  - 2026-08-05: `LossMsg` noted as the third record type
 
 ## Context
 

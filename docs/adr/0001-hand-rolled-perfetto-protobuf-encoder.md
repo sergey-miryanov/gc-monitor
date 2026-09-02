@@ -1,8 +1,9 @@
 # ADR-0001: Hand-roll the Perfetto protobuf encoder; keep `perfetto` out of the runtime dependency tree
 
 - **Status:** Accepted
-- **Date:** 2026-06-08 (`perfetto_format.py` split into five modules, and its
-  tests to match, 2026-08-01)
+- **Date:** 2026-06-08, amended:
+  - 2026-08-01: `perfetto_format.py` split into five modules, and its tests to
+    match
 
 ## Context
 

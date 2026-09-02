@@ -1,7 +1,9 @@
 # ADR-0015: Draw reconstructed GC loss on a per-interpreter track, one span per poll interval
 
 - **Status:** Accepted
-- **Date:** 2026-08-05
+- **Date:** 2026-08-05, amended:
+  - 2026-09-01: the track key became per process, see
+    [ADR-0011](0011-process-lifetime-and-ordering.md)
 
 ## Context
 
@@ -21,8 +23,8 @@ their placement is guesswork.
 
 ## Decision
 
-**Loss spans go on a `GC Loss` track of their own, one per `(pid, iid)`, at
-`tid = -2 - iid`.** The `tid = -1` sentinel from
+**Loss spans go on a `GC Loss` track of their own, one per `(process, iid)`,
+at `tid = -2 - iid`.** The `tid = -1` sentinel from
 [ADR-0013](0013-rss-sampling.md) is the precedent, extended to a range. The
 track is a custom slice track parented to the process track, sorting under the
 interpreter's own row. gcmon names no negative tid with a `thread_name`, which
@@ -144,7 +146,7 @@ survives the ring wrapping.
 - **The track reads as a near-solid bar at default settings**, since gcmon is
   blind for most of every tick. A lower `--rate` or a calmer workload thins it
   out, and the numbers live in the args either way.
-- **One extra row per `(pid, iid)`**, on top of the tracks each process
+- **One extra row per `(process, iid)`**, on top of the tracks each process
   already carries. Three generations share it, so the row's shape does not
   depend on how many went blind.
 - **Sums and counts become exact; percentiles do not.** `Count` and `Sum` come

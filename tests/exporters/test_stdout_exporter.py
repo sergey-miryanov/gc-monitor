@@ -10,7 +10,7 @@ from gcmon.exporters import StdoutExporter
 from gcmon.model.data import LossMsg
 from gcmon.model.protocol import TGCStatsInfo
 from tests.conftest import DEFAULT_PID
-from tests.helpers import create_mock_loss_item, create_mock_stats_item
+from tests.helpers import create_mock_loss_item, create_mock_stats_item, proc
 
 
 class TestStdoutExporter:
@@ -33,7 +33,7 @@ class TestStdoutExporter:
     ) -> None:
         """Test that add_event outputs correct JSON format to stdout."""
         exporter = StdoutExporter()
-        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         exporter.close()
 
         captured = capsys.readouterr()
@@ -61,7 +61,7 @@ class TestStdoutExporter:
         exporter = StdoutExporter()
 
         for item in mock_stats_item_batch:
-            exporter.add_event(DEFAULT_PID, item)
+            exporter.add_event(proc(DEFAULT_PID), item)
         exporter.close()
 
         captured = capsys.readouterr()
@@ -78,7 +78,7 @@ class TestStdoutExporter:
     def test_close_with_flush(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
         """Test close() flushes stdout."""
         exporter = StdoutExporter(flush_threshold=1000)
-        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         exporter.close()
         captured = capsys.readouterr()
         assert captured.out != ""
@@ -88,7 +88,7 @@ class TestStdoutExporter:
     ) -> None:
         """Test that add_event writes to stdout (not stderr)."""
         exporter = StdoutExporter()
-        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         exporter.close()
 
         captured = capsys.readouterr()
@@ -103,7 +103,7 @@ class TestStdoutExporter:
     ) -> None:
         """Test that each event is written as a single JSON line."""
         exporter = StdoutExporter()
-        exporter.add_event(DEFAULT_PID, mock_stats_item)
+        exporter.add_event(proc(DEFAULT_PID), mock_stats_item)
         exporter.close()
 
         captured = capsys.readouterr()
@@ -121,7 +121,7 @@ class TestStdoutExporter:
         """Test that the interpreter ID appears in output."""
         exporter = StdoutExporter()
         stats_item = create_mock_stats_item(iid=42)
-        exporter.add_event(DEFAULT_PID, stats_item)
+        exporter.add_event(proc(DEFAULT_PID), stats_item)
         exporter.close()
 
         captured = capsys.readouterr()
@@ -132,7 +132,7 @@ class TestStdoutExporter:
     def test_pid_in_output(self, mock_stats_item: TGCStatsInfo, capsys: pytest.CaptureFixture[str]) -> None:
         """Test that PID appears in output."""
         exporter = StdoutExporter()
-        exporter.add_event(99999, mock_stats_item)
+        exporter.add_event(proc(99999), mock_stats_item)
         exporter.close()
 
         captured = capsys.readouterr()
@@ -153,7 +153,7 @@ class TestStdoutLossRecords:
 
     def _emit(self, capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
         exporter = StdoutExporter()
-        exporter.add_loss_event(DEFAULT_PID, self._loss())
+        exporter.add_loss_event(proc(DEFAULT_PID), self._loss())
         exporter.close()
 
         data: dict[str, Any] = json.loads(capsys.readouterr().out.strip())

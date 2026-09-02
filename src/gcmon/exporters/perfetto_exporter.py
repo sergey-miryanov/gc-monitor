@@ -1,10 +1,11 @@
 """Perfetto binary protobuf exporter for GC monitoring data."""
 
 import threading
-from collections.abc import Callable, Set
+from collections.abc import Set
 from pathlib import Path
 from typing import override
 
+from ..model.process import Process
 from ..model.protocol import TGCStatsInfo, TInstantMsg, TLossMsg
 from ..model.trace_event import Counter, Instant, ProcessTrack, TraceEvent
 from .encoder import Codec, ProtobufEventEncoder
@@ -28,7 +29,6 @@ class PerfettoExporter(EventsExporter):
         self,
         output_path: Path,
         flush_threshold: int = 1000,
-        cmdline_provider: Callable[[int], list[str] | None] | None = None,
         sequence_id: int | None = None,
         codec: Codec | None = None,
     ) -> None:
@@ -40,7 +40,7 @@ class PerfettoExporter(EventsExporter):
         self._output_path = output_path
         # Held at its own type: ``record_process_liveness`` is not on the
         # ``EventEncoder`` protocol. See ADR-0011.
-        self._encoder = ProtobufEventEncoder(cmdline_provider=cmdline_provider, sequence_id=sequence_id, codec=codec)
+        self._encoder = ProtobufEventEncoder(sequence_id=sequence_id, codec=codec)
         self._closed = False
         self._encoder.open(output_path)
 
@@ -56,23 +56,41 @@ class PerfettoExporter(EventsExporter):
                 self._encoder.write_events(to_write)
 
     @override
-    def add_event(self, pid: int, item: TGCStatsInfo) -> None:
-        self._enqueue(convert_item_to_trace_format(pid, item))
+    def add_event(self, process: Process, item: TGCStatsInfo) -> None:
+        self._enqueue(convert_item_to_trace_format(process, item))
 
     @override
-    def add_instant_event(self, pid: int, item: TInstantMsg) -> None:
-        self._enqueue([Instant(ProcessTrack(pid), item.name, item.ts)])
+    def add_instant_event(self, process: Process, item: TInstantMsg) -> None:
+        self._enqueue([Instant(ProcessTrack(process), item.name, item.ts)])
 
     @override
-    def add_rss_sample(self, pid: int, rss_bytes: int, ts_ns: int) -> None:
-        self._enqueue([Counter(ProcessTrack(pid), "rss", "rss", ts_ns, rss_bytes)])
+    def add_rss_sample(self, process: Process, rss_bytes: int, ts_ns: int) -> None:
+        self._enqueue([Counter(ProcessTrack(process), "rss", "rss", ts_ns, rss_bytes)])
 
     @override
-    def add_loss_event(self, pid: int, item: TLossMsg) -> None:
-        self._enqueue(convert_loss_to_trace_format(pid, item))
+    def add_loss_event(self, process: Process, item: TLossMsg) -> None:
+        self._enqueue(convert_loss_to_trace_format(process, item))
 
     @override
-    def add_process_liveness(self, pids: Set[int], ts_ns: int) -> None:
+    def add_process_cmdline(self, process: Process, cmdline: tuple[str, ...] | None) -> None:
+        """Hand the encoder what *process* is running.
+
+        Under ``_io_lock`` for the reason ``add_process_liveness`` gives.
+        """
+        with self._io_lock:
+            self._encoder.record_process_cmdline(process, cmdline)
+
+    @override
+    def add_process_retired(self, process: Process) -> None:
+        """Let the encoder draw *process*'s row from the next flush on.
+
+        Under ``_io_lock`` for the reason ``add_process_liveness`` gives.
+        """
+        with self._io_lock:
+            self._encoder.record_process_retired(process)
+
+    @override
+    def add_process_liveness(self, processes: Set[Process], ts_ns: int) -> None:
         """Fold one tick's liveness observations into the encoder's span
         accumulator.
 
@@ -84,7 +102,7 @@ class PerfettoExporter(EventsExporter):
         ``get_process_lifetimes``.
         """
         with self._io_lock:
-            self._encoder.record_process_liveness(pids, ts_ns)
+            self._encoder.record_process_liveness(processes, ts_ns)
 
     @override
     def close(self) -> None:
