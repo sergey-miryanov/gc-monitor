@@ -1,7 +1,9 @@
 # ADR-0021: Write one trace format, and read only JSONL back
 
 - **Status:** Accepted
-- **Date:** 2026-08-22
+- **Date:** 2026-08-22 (the list of what the Chrome format lacked follows the
+  `Lifetime` slice 2026-09-02, see
+  [ADR-0010](0010-process-identity-cmdline-and-start-marker.md))
 
 ## Context
 

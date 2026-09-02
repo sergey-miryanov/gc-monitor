@@ -15,7 +15,10 @@
   2026-08-31, see [ADR-0025](0025-create-every-process-in-one-place.md); the
   process track was split per process and the collapse question measured
   2026-09-01; each process's own row gained a `Lifetime` slice drawing the
-  observed pair 2026-09-01)
+  observed pair, a retired process's row began going out at the next flush,
+  the bar gained the interpreter count and the capture totals, `clipped` went
+  on the span the sweep shortens, and a rank became one draw off a counter
+  2026-09-02)
 
 ## Context
 

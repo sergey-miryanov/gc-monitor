@@ -63,11 +63,10 @@ shows today and no metadata, and the trace is otherwise identical.
 `TYPE_SLICE_BEGIN` packet of the `Lifetime` slice, on the process's own row**,
 the same packet and the same mechanism as `cmdline` under ADR-0010, built in
 `perfetto_process_lifetime` via `_build_debug_annotation_string`. Process
-metadata has one home
-([0067](0067-draw-a-process-lifetime-on-its-own-row.md)), so a reader clicking
-a process's row reads everything gcmon knows about it. No new track, no new
-packet, no change to `_emit_process_descriptor`, and nothing added to the
-`Processes` track's slices.
+metadata has one home ([0067](RETIRED.md)), so a reader clicking a process's
+row reads everything gcmon knows about it. No new track, no new packet, no
+change to `_emit_process_descriptor`, and nothing added to the `Processes`
+track's slices.
 
 | Metadata | Annotation | Type | Example |
 |---|---|---|---|

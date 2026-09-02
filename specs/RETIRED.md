@@ -31,6 +31,7 @@ rows.
 | 0064 | **Landed** 2026-08-25 (enhancement) | M | The pyperf hook spawned a monitor per measurement phase, six hundred over a suite. It marks each benchmark's region in the trace a running monitor is writing now, refuses to run where none is listening, and holds no statistics. [ADR-0023](../docs/adr/0023-the-pyperf-hook-annotates-and-does-not-drive.md) |
 | 0065 | **Landed** 2026-08-26 (cleanup) | M | `TraceEvent` kept Chrome's shape: a `ph` discriminator and a `(pid, tid)` pair no interpreter claimed. An event names its `Track` now. A counter track is `Thread {iid} heap_size`, and a capture has no `tid`. [ADR-0024](../docs/adr/0024-an-event-names-the-track-it-is-drawn-on.md) supersedes [ADR-0004](../docs/adr/0004-toplevel-shared-counters.md) and [ADR-0006](../docs/adr/0006-begin-end-slice-pairs.md) |
 | 0066 | **Landed** 2026-09-01 (enhancement) | M | A pid held twice drew one process track, interleaving two processes' pauses under the first one's command line. Each draws its own rows now, `Process 12345` and `Process 12345#2`. [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) reverses its own "the process track is not split" |
+| 0067 | **Landed** 2026-09-02 (enhancement) | M | A process's row carried one point and an empty Args panel, and how long gcmon watched it sat on a shared track, drawn clipped. Each row draws a `Lifetime` bar over the observed interval now, saying what gcmon read and missed. [ADR-0011](../docs/adr/0011-process-lifetime-and-ordering.md) |
 
 ## Gaps
 

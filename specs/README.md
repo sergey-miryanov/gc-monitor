@@ -41,7 +41,6 @@ This file holds the open set and the order to take it in. The other two:
 | [0061](0061-build-the-statistics-table-from-a-tracefile.md) | Feature (enhancement) | L | The statistics table exists only while gcmon is running; a capture from last week holds every number and offers no way to see them |
 | [0062](0062-name-a-workload-from-a-sanitized-command-line.md) | Feature (enhancement) | M | A pyperformance run prints one `Total` folding sixty benchmarks and hundreds of blocks keyed by a pid that means nothing afterwards; the level anyone asks about is missing |
 | [0063](0063-compare-two-tracefiles.md) | Feature (enhancement) | L | Nothing answers "did GC get worse between these two runs"; two tables side by side works for one row and fails for sixty |
-| [0067](0067-draw-a-process-lifetime-on-its-own-row.md) | Feature (enhancement) | M | A process's own row carries one point and an empty Args panel; how long gcmon watched it and how much it missed sit on a shared track, where the duration drawn is the clipped one |
 
 Every row here has a file. A missing number either retired or never became
 one; [RETIRED.md](RETIRED.md) says which.
@@ -61,8 +60,7 @@ one; [RETIRED.md](RETIRED.md) says which.
 | 0036 | |
 | 0040 | Constrained: after 0050. Rewrites the option declarations 0045 edited |
 | 0042 | |
-| 0067 | Unblocked: 0066 landed, and every process now draws a row of its own to put the slice on |
-| 0020 | Constrained: after 0067 |
+| 0020 | Unblocked: 0067 landed, and the `Lifetime` slice is where both fields go |
 | 0051 | Unblocked: 0039 landed, and `StreamingStats` is in the module it will keep |
 | 0060 | Smallest of the comparison set and depends on none of it |
 | 0061 | Unblocked: 0059 landed, and a trace now says which process held a pid |
@@ -88,6 +86,5 @@ the position. A blank cell means no recorded reason, so that row can move.
 |-------|------|-----|
 | 0050 | 0040 | 0040 derives the option declarations from one table and would otherwise have to carry the alias 0050 introduces through a rewrite of the structure holding it |
 | 0060, 0061, 0062 | 0063 | 0063 builds two of the tables those three produce and diffs them; it computes no statistic of its own |
-| 0067 | 0020 | 0020 puts `python_version` and `gc_thresholds` on the slice 0067 draws; taken first it writes them onto the `Processes` slice and moves them again |
 
 0042 depends on nothing else here; take it at any time.

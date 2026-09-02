@@ -6,7 +6,7 @@
   [ADR-0025](0025-create-every-process-in-one-place.md); the descriptor and
   the marker became per process 2026-09-01, see
   [ADR-0011](0011-process-lifetime-and-ordering.md); the marker became the
-  `Lifetime` slice 2026-09-01)
+  `Lifetime` slice 2026-09-02)
 
 ## Context
 
