@@ -1,6 +1,6 @@
 # 0067: Draw each process's monitored lifetime on its own row
 
-- **Status:** In progress
+- **Status:** Landed 2026-09-02
 - **Kind:** feature (enhancement)
 - **Effort:** M
 - **Origin:** design session 2026-09-01, taken up after 0066 split the process
@@ -57,7 +57,8 @@ read, and how many it missed with the GC pause time inside them.
 
 The bar is the interval gcmon observed, uncorrected. Where the shared
 `Processes` track shortens a span to keep its stack laminar, the process's own
-row does not, and an annotation on the bar says whether the two rows disagree.
+row does not, and an annotation on the shortened span says the two rows
+disagree.
 
 A process gcmon polled but read no collections from draws a row too: the bar,
 the command line, and nothing under it. That is the difference between a
@@ -88,8 +89,8 @@ The workload's marks draw inside the bar, where they happened.
    count on the process panel, so that I can see at a glance which processes
    ran more than one.
 7. As someone whose process was clipped on the shared track, I want the two
-   rows' disagreement stated on the bar, so that I am not left to discover it
-   by subtracting.
+   rows' disagreement stated on the span that was shortened, so that I am not
+   left to discover it by subtracting.
 8. As a user of `--format jsonl` or `--format stdout`, I want my output
    byte-identical, so that a Perfetto-only feature stays Perfetto-only.
 9. As someone running `gcmon combine`, I want a converted capture to draw the
@@ -126,11 +127,18 @@ row is the one telling the truth. This extends ADR-0011's existing rule that
 where `ts` / `dur` and the annotations disagree, the annotations are the
 truth: the row that can draw the observed pair draws it.
 
-**Emission moves to `finalize_perfetto_packets`.** `real_end_ts` is not known
-until the trace closes, and the pair cannot go out during a convert pass. The
-sweep that emits the `Processes` track emits the `Lifetime` slices too, one
-pair per `ClippedSpan`, BEGIN before END for the reason ADR-0011 gives: a
-zero-length span emitted END-first reads as `dur = -1`.
+**Emission moves off the convert pass.** `real_end_ts` is not known while a
+process is still running, so the pair cannot go out with the batch that named
+it. The sweep that emits the `Processes` track emits the `Lifetime` slices
+too, one pair per `ClippedSpan`, BEGIN before END for the reason ADR-0011
+gives: a zero-length span emitted END-first reads as `dur = -1`.
+
+A process gcmon has retired needs nothing from the rest of the run, and its
+bar goes out at the next flush instead, so a run killed mid-flight keeps the
+rows of every process gcmon had finished with. Only the `Processes` slice
+waits for close, because the clipping sweep is global. That is what moves
+`clipped` off the bar: a retired process's row is drawn before the sweep has
+decided anything.
 
 **A process with a span and no descriptor gets one.** `finalize` walks every
 process with a recorded span, including one known only from
@@ -203,12 +211,15 @@ string and dict builders.
 track uuid, allocates none and raises no parenting question. ADR-0009: the
 annotations are nanoseconds, as the `real_*` pair already is. ADR-0010: the
 process track must hold an event, which the slice satisfies as the instant
-did. ADR-0011: the sweep, the emission order and the ranking are reused
-unchanged, and only the drawing on the process's own row is new. ADR-0012:
-`--format jsonl` and `--format stdout` are untouched. ADR-0014: the seam is
-the trace processor. ADR-0015: loss totals are summed from what the loss path
-already reports, and no loss figure is recomputed. ADR-0025: every process the
-monitor creates publishes a command line, and a quiet process has one to draw.
+did. ADR-0011: the sweep and the emission order are reused unchanged. The
+ranking is not: describing a process in one batch and another in the next put
+two rows at the same rank, so a rank is handed out once now, off a counter
+that only goes up, with the processes described together sorted first.
+ADR-0012: `--format jsonl` and `--format stdout` are untouched. ADR-0014: the
+seam is the trace processor. ADR-0015: loss totals are summed from what the
+loss path already reports, and no loss figure is recomputed. ADR-0025: every
+process the monitor creates publishes a command line, and a quiet process has
+one to draw.
 
 **Rejected: keep the instant and add a slice beside it.** Two events on the
 row for one fact, and the instant's only job was to keep the row rendered,
@@ -246,9 +257,10 @@ interval.
   seam that can see a slice's name, track, duration and args at once, and the
   only one that proves an annotation is attached to the right slice rather
   than present in the byte stream.
-- **New seam needed:** none. `TestStartProcessMarker` already queries the
-  marker through `slice` joined to `process_track` and `process`, and every
-  new assertion is that query with a `dur` or an `args` join added.
+- **New seam needed:** none. `TestStartProcessMarker` queries the marker
+  through `slice` joined to `process_track` and `process`, and every new
+  assertion is that query with a `dur` or an `args` join added. Its two cases
+  moved into the class covering the slice rather than the class surviving.
 - **What makes a good test here:** assert the meaning. The clipping case is
   the one that matters: build the crossing shape ADR-0011's Context describes,
   then assert the `Processes` span is short and the `Lifetime` slice on the
@@ -262,7 +274,8 @@ interval.
   1. Every process draws one `Lifetime` slice on its own process track, with
      `dur` equal to `real_end_ts - real_start_ts` from its `Processes` span.
   2. A clipped process draws the full interval on its own row and the
-     shortened one on `Processes`, and carries `clipped` as true.
+     shortened one on `Processes`, and that shortened span carries `clipped`
+     as true.
   3. A process reported only through `add_process_liveness` draws a process
      track, a descriptor and a `Lifetime` slice.
   4. Every annotation is readable from `args` through the `Lifetime` slice,
@@ -282,7 +295,7 @@ constant in `test_perfetto_exporter.py`,
 in `test_exporter_thread_safety.py`; and
 `tests/fixtures/monitored_run_perfetto_trace.txt`.
 
-Emission moving to close reverses packet order on the wire.
+Emission moving off the convert pass reverses packet order on the wire.
 `test_perfetto_exporter.py` asserts the marker precedes the workload's first
 instant in the stream; afterwards the instant is written first and the
 `Lifetime` BEGIN last, while still sorting earlier by timestamp. That
