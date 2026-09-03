@@ -142,7 +142,7 @@ jobs:
 
       - name: Run tests
         run: |
-          poetry run pytest -q --basetemp=.temp --cov=src/gcmon --cov-report=xml:coverage-${{ matrix.os }}.xml --cov-report=term-missing --cov-branch --junitxml=reports/tests.xml
+          poetry run pytest -q --basetemp=.temp --cov=src/gcmon --cov-report=xml:coverage.xml --cov-report=term-missing --cov-branch --junitxml=reports/tests.xml
 
       - name: Upload test results
         if: always()
@@ -156,7 +156,7 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage-${{ matrix.os }}.xml
+          files: coverage.xml
 
   stress-test:
     if: github.ref_name != 'main' && !startsWith(github.ref_name, 'release/')

@@ -1,6 +1,7 @@
 # Changelog
 
 ## WIP
+- Removed OS from the coverage report name
 
 ### Breaking changes
 
