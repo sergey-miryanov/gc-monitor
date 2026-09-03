@@ -102,15 +102,28 @@ def test_main_subcommands_dispatch(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     from gcmon.cli import main as cli
 
     calls: list[str] = []
-    monkeypatch.setattr("gcmon.cli.commands.monitor_cmd.cmd_monitor", lambda args: calls.append("monitor") or 0)
+
+    def mock_monitor(args: object) -> int:
+        calls.append("monitor")
+        return 0
+
+    def mock_run(args: object) -> int:
+        calls.append("run")
+        return 0
+
+    def mock_combine(args: object) -> int:
+        calls.append("combine")
+        return 0
+
+    monkeypatch.setattr("gcmon.cli.commands.monitor_cmd.cmd_monitor", mock_monitor)
     assert cli.main(["monitor", "12345"]) == 0
     assert calls == ["monitor"]
 
-    monkeypatch.setattr("gcmon.cli.commands.run_cmd.cmd_run", lambda args: calls.append("run") or 0)
+    monkeypatch.setattr("gcmon.cli.commands.run_cmd.cmd_run", mock_run)
     assert cli.main(["run", "-m", "timeit"]) == 0
     assert calls == ["monitor", "run"]
 
-    monkeypatch.setattr("gcmon.cli.commands.convert_cmd.cmd_combine", lambda args: calls.append("combine") or 0)
+    monkeypatch.setattr("gcmon.cli.commands.convert_cmd.cmd_combine", mock_combine)
     assert cli.main(["combine", str(tmp_path / "in.jsonl"), "-o", str(tmp_path / "out.pftrace")]) == 0
     assert calls == ["monitor", "run", "combine"]
 
